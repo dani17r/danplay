@@ -25,12 +25,11 @@
 //! Ultimate Guitar son JSON de fuera y se leen como los leía Python: lo que
 //! no tiene la forma esperada falla igual que fallaba allí (`Error::Data`).
 use crate::html::unescape;
-use crate::names::{
-    Re, channel_as_artist, group, match_key, py_trim, py_words, rx, split, strip_chars, sub,
-};
+use crate::names::{Re, channel_as_artist, group, match_key, rx, split, strip_chars, sub};
 use crate::net::FetchFailure;
 use crate::patterns::{ascii_digits, capitalize, find_all, quote, search};
 use crate::theory::split_key;
+use crate::value::truthy;
 use serde_json::Value;
 use std::collections::HashSet;
 use std::sync::LazyLock;
@@ -133,7 +132,8 @@ fn ascii(s: &str) -> String {
 
 /// Las palabras que identifican un título o un artista.
 fn words(s: &str) -> HashSet<String> {
-    py_words(&match_key(&no_parens(&ascii(s))))
+    (match_key(&no_parens(&ascii(s))))
+        .split_whitespace()
         .filter(|w| !NOISE_WORDS.contains(w))
         .map(str::to_string)
         .collect()
@@ -202,7 +202,7 @@ pub struct ParsedSheet {
 fn chord_list(chords: &[String]) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     for c in chords {
-        let c = py_trim(c);
+        let c = c.trim();
         if !c.is_empty() && out.last().is_none_or(|l| l != c) {
             out.push(c.to_string());
         }
@@ -219,7 +219,7 @@ fn new_section(name: String) -> Section {
 
 /// Las secciones con algo dentro.
 fn close(sections: Vec<Section>) -> Vec<Section> {
-    let blank = |l: &Line| py_trim(&l.t).is_empty();
+    let blank = |l: &Line| l.t.trim().is_empty();
     sections
         .into_iter()
         .filter_map(|s| {
@@ -274,7 +274,7 @@ fn add_line(
     if chords.is_empty()
         && let Some(g) = search(&SECTION, &text)
     {
-        sections.push(new_section(capitalize(py_trim(group(&text, &g, 1)))));
+        sections.push(new_section(capitalize(group(&text, &g, 1).trim())));
         return;
     }
     let last = sections.last_mut().expect("siempre hay una sección");
@@ -297,7 +297,7 @@ pub fn parse_ug(content: &str) -> ParsedSheet {
         if let Some(g) = search(&UG_HEAD, line) {
             let name = group(line, &g, 1);
             if !matches!(name.to_lowercase().as_str(), "ch" | "/ch") {
-                sections.push(new_section(py_trim(name).to_string()));
+                sections.push(new_section(name.trim().to_string()));
                 continue;
             }
         }
@@ -306,7 +306,7 @@ pub fn parse_ug(content: &str) -> ParsedSheet {
             .map(|g| group(line, g, 1).to_string())
             .collect();
         let text = sub(&UG_CHORD_TAG, line, "")
-            .trim_end_matches(crate::names::is_py_space)
+            .trim_end_matches(char::is_whitespace)
             .to_string();
         // hay quien escribe las partes como texto («Coro:») dentro de una [Verse]
         add_line(&mut sections, &mut plain, chords, text);
@@ -339,7 +339,7 @@ pub fn parse_lacuerda(page: &str) -> ParsedSheet {
             .map(|g| unescape(group(raw, g, 1)))
             .collect();
         let text = unescape(&sub(&TAG, raw, ""))
-            .trim_end_matches(crate::names::is_py_space)
+            .trim_end_matches(char::is_whitespace)
             .to_string();
         add_line(&mut sections, &mut plain, chords, text);
     }
@@ -353,25 +353,11 @@ pub fn parse_lacuerda(page: &str) -> ParsedSheet {
 
 /// El tono si es un tono que se puede usar (para transponer), o vacío.
 pub fn valid_key(key: &str) -> String {
-    let key = py_trim(key);
+    let key = key.trim();
     if !key.is_empty() && split_key(key).is_some() {
         key.to_string()
     } else {
         String::new()
-    }
-}
-
-// ---------------------------------------------------------------- JSON como en Python
-
-/// Si un valor cuenta como verdadero (`bool(x)` de Python).
-fn truthy(v: &Value) -> bool {
-    match v {
-        Value::Null => false,
-        Value::Bool(b) => *b,
-        Value::Number(n) => n.as_f64().is_some_and(|f| f != 0.0),
-        Value::String(s) => !s.is_empty(),
-        Value::Array(a) => !a.is_empty(),
-        Value::Object(o) => !o.is_empty(),
     }
 }
 
@@ -410,80 +396,24 @@ fn text<E>(v: Option<&Value>) -> Result<&str, Error<E>> {
     }
 }
 
-/// Por qué no salió un entero (`int(x)`).
-enum NotInteger {
-    Type,
-    Val,
-}
-
-/// `int(x or 0)` de Python.
-fn py_int(v: Option<&Value>) -> Result<i64, NotInteger> {
-    let Some(v) = v.filter(|v| truthy(v)) else {
-        return Ok(0);
-    };
+/// Un entero de los datos: 0 si no está o es falso, `None` si no es un
+/// número.
+fn whole(v: Option<&Value>) -> Option<i64> {
     match v {
-        Value::Bool(b) => Ok(i64::from(*b)),
-        Value::Number(n) => {
-            if let Some(i) = n.as_i64() {
-                Ok(i)
-            } else if let Some(u) = n.as_u64() {
-                Ok(i64::try_from(u).unwrap_or(i64::MAX))
-            } else {
-                Ok(n.as_f64().map_or(0, |f| f.trunc() as i64))
-            }
-        }
-        Value::String(s) => int_of_str(s).ok_or(NotInteger::Val),
-        _ => Err(NotInteger::Type),
+        Some(v) if truthy(v) => crate::value::int_of(v),
+        _ => Some(0),
     }
 }
 
-/// `int(text)`: espacios alrededor, un signo, cifras de cualquier escritura
-/// y «_» sueltos entre ellas.
-fn int_of_str(s: &str) -> Option<i64> {
-    let s = py_trim(s);
-    let (negative, body) = match s.strip_prefix('-') {
-        Some(b) => (true, b),
-        None => (false, s.strip_prefix('+').unwrap_or(s)),
-    };
-    if body.is_empty() || body.starts_with('_') || body.ends_with('_') || body.contains("__") {
-        return None;
-    }
-    let mut value: i64 = 0;
-    for c in body.chars().filter(|&c| c != '_') {
-        let d = crate::patterns::decimal(c)?;
-        value = value.saturating_mul(10).saturating_add(i64::from(d));
-    }
-    Some(if negative { -value } else { value })
-}
-
-/// `float(x or 0)` de Python.
-fn py_float<E>(v: Option<&Value>) -> Result<f64, Error<E>> {
-    let Some(v) = v.filter(|v| truthy(v)) else {
-        return Ok(0.0);
-    };
+/// Un número de los datos: 0 si no está o es falso, error si no es un
+/// número.
+fn number<E>(v: Option<&Value>) -> Result<f64, Error<E>> {
     match v {
-        Value::Bool(b) => Ok(f64::from(u8::from(*b))),
-        Value::Number(n) => Ok(n.as_f64().unwrap_or(0.0)),
-        Value::String(s) => {
-            let t: String = py_trim(s)
-                .chars()
-                .filter(|&c| c != '_')
-                .map(|c| {
-                    crate::patterns::decimal(c)
-                        .and_then(|d| char::from_digit(d, 10))
-                        .unwrap_or(c)
-                })
-                .collect();
-            t.parse().map_or_else(|_| bad_data("no es un número"), Ok)
+        Some(v) if truthy(v) => {
+            crate::value::float_of(v).map_or_else(|| bad_data("no es un número"), Ok)
         }
-        _ => bad_data("no es un número"),
+        _ => Ok(0.0),
     }
-}
-
-/// `round(x, 2)` de Python: con el valor decimal exacto y, en el empate, al
-/// par.
-fn round2(x: f64) -> f64 {
-    format!("{x:.2}").parse().unwrap_or(x)
 }
 
 // ---------------------------------------------------------------- Ultimate Guitar
@@ -557,7 +487,7 @@ enum Rating {
 
 fn rank_of<E>(r: &Value) -> Result<(bool, i64, Rating), Error<E>> {
     let votes =
-        py_int(get(r, "votes")?).map_err(|_| Error::Data("votos que no son un número".into()))?;
+        whole(get(r, "votes")?).ok_or_else(|| Error::Data("votos que no son un número".into()))?;
     let key = valid_key(text(get(r, "tonality_name")?)?);
     let rating = match get(r, "rating")? {
         Some(v) if truthy(v) => match v {
@@ -589,7 +519,7 @@ fn ug_candidates<E: FetchFailure>(
         format!("{searched_artist} {clean_title}"),
         clean_title.clone(),
     ] {
-        let query = py_trim(&sub(&SPACES, &query, " ")).to_string();
+        let query = sub(&SPACES, &query, " ").trim().to_string();
         if query.is_empty() || seen.contains(&query) {
             continue;
         }
@@ -724,12 +654,12 @@ pub fn ultimate_guitar<E: FetchFailure>(
     } else {
         stated.clone()
     };
-    let capo = match py_int(get(meta, "capo")?) {
-        Ok(0) | Err(_) => sheet.capo,
-        Ok(c) => c,
+    let capo = match whole(get(meta, "capo")?) {
+        Some(0) | None => sheet.capo,
+        Some(c) => c,
     };
-    let votes = py_int(get(best, "votes")?)
-        .map_err(|_| Error::Data("votos que no son un número".into()))?;
+    let votes = whole(get(best, "votes")?)
+        .ok_or_else(|| Error::Data("votos que no son un número".into()))?;
     Ok(Some(ChordSheet {
         source: "Ultimate Guitar",
         url: url.clone(),
@@ -749,7 +679,7 @@ pub fn ultimate_guitar<E: FetchFailure>(
         key,
         capo,
         votes,
-        rating: Some(round2(py_float(get(best, "rating")?)?)),
+        rating: Some(crate::num::round_to(number(get(best, "rating")?)?, 2)),
         versions: candidates.len(),
         sections: sheet.sections,
     }))
@@ -787,7 +717,7 @@ pub fn lacuerda<E: FetchFailure>(
         Err(e) => return Err(Error::Net(e)),
     };
     let found = find_all(&LC_SONGS, &index).into_iter().find_map(|g| {
-        let name = py_trim(&unescape(group(&index, &g, 2))).to_string();
+        let name = (unescape(group(&index, &g, 2))).trim().to_string();
         same_song(artist, title, artist, &name).then(|| (group(&index, &g, 1).to_string(), name))
     });
     let Some((matched, listed)) = found else {
@@ -812,8 +742,8 @@ pub fn lacuerda<E: FetchFailure>(
     let key = valid_key(&sheet.key);
     let (artist, title) = match &name {
         Some(g) => (
-            py_trim(&unescape(group(&page, g, 2))).to_string(),
-            py_trim(&unescape(group(&page, g, 1))).to_string(),
+            (unescape(group(&page, g, 2))).trim().to_string(),
+            (unescape(group(&page, g, 1))).trim().to_string(),
         ),
         None => (artist.to_string(), listed),
     };
@@ -863,7 +793,7 @@ pub fn find<T: Send, E: Send>(
     sources: &[Source<'_, T, E>],
     has_key: impl Fn(&T) -> bool,
 ) -> Found<T, E> {
-    let (artist, title) = (py_trim(artist), py_trim(title));
+    let (artist, title) = (artist.trim(), title.trim());
     let started = Instant::now();
     if title.is_empty() {
         return Found {

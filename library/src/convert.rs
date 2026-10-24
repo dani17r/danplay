@@ -7,7 +7,6 @@
 //!
 //! Dónde está ffmpeg y qué carpetas no se convierten lo dice quien llama
 //! (en Python, `config.find_tool` y `config.NEVER_CONVERT`).
-use crate::names::py_trim;
 use crate::num::round_to;
 use crate::paths::{suffix, with_suffix};
 use crate::processes::{self, Error};
@@ -163,7 +162,7 @@ pub fn convert(
             Err(Error::SpawnFailed(e)) => return Err(e),
         };
         if !worked(&second) {
-            let reason: String = py_trim(&second.stderr_text()).chars().take(160).collect();
+            let reason: String = second.stderr_text().trim().chars().take(160).collect();
             return Ok(ConvertOutcome::Error(reason));
         }
     }

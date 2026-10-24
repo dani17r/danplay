@@ -161,13 +161,12 @@ static CLAIMS: LazyLock<Phrases> = LazyLock::new(|| {
         .chain(branches::LOOSE.iter().map(|b| (*b).to_owned()))
         .collect();
     let python: Vec<String> = branches.iter().map(|b| python_pattern(b, false)).collect();
-    let set =
-        regex::RegexSetBuilder::new(python.iter().map(|b| relaxed(&names::python_semantics(b))))
-            .case_insensitive(true)
-            .size_limit(64 << 20)
-            .dfa_size_limit(64 << 20)
-            .build()
-            .expect("las frases, sin mirar alrededor");
+    let set = regex::RegexSetBuilder::new(python.iter().map(|b| relaxed(&names::own_words(b))))
+        .case_insensitive(true)
+        .size_limit(64 << 20)
+        .dfa_size_limit(64 << 20)
+        .build()
+        .expect("las frases, sin mirar alrededor");
     let exact = python
         .iter()
         .map(|b| names::rx(&format!("(?i){b}")))

@@ -1,12 +1,11 @@
-//! Bajar de YouTube: lo de danplay/youtube.py que no es la red, ni yt-dlp,
-//! ni los hilos. Qué se le pide a yt-dlp (una dirección de YouTube de
-//! verdad o una búsqueda) y con qué opciones, qué se lee de lo que contesta
-//! y de su avance, por qué falló, cómo se llama lo bajado, qué etiquetas son
-//! de fiar, dónde se guarda y qué se apunta en el historial.
+//! Bajar de YouTube: lo que no es la red, ni yt-dlp, ni los hilos. Qué se
+//! le pide a yt-dlp (una dirección de YouTube de verdad o una búsqueda) y
+//! con qué opciones, qué se lee de lo que contesta y de su avance, por qué
+//! falló, cómo se llama lo bajado, qué etiquetas son de fiar, dónde se
+//! guarda y qué se apunta en el historial.
 //!
-//! Python sigue con lo que es suyo: llamar a yt-dlp (su API de Python, que
-//! las pruebas sustituyen), el turno de descarga con su cerrojo y su estado
-//! (`STATE`), los hilos, archivar con `ingest` y lo que toca la base.
+//! Llamar a yt-dlp, el turno de descarga con su cerrojo, los hilos, archivar
+//! con `ingest` y lo que toca la base son de `server::services::youtube`.
 use crate::assistant::links::{self, hostname, urlsplit};
 use crate::index::folders;
 use crate::names;
@@ -114,59 +113,6 @@ pub fn is_list_url(url: &str) -> bool {
     !(path.len() > 1 && path[0] == "embed" && path[1] != "videoseries")
 }
 
-/// La duración de un vídeo como la da yt-dlp.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Seconds {
-    Int(i64),
-    Float(f64),
-}
-
-/// `x // y` de Python con reales (`_float_div_mod`): no siempre es
-/// `floor(x / y)`, que redondea antes de tiempo.
-pub fn floor_div(x: f64, y: f64) -> f64 {
-    let m = x % y;
-    let mut div = (x - m) / y;
-    // que el resto tenga el signo del divisor
-    if m != 0.0 && (y < 0.0) != (m < 0.0) {
-        div -= 1.0;
-    }
-    if div == 0.0 {
-        return 0.0f64.copysign(x / y);
-    }
-    let mut floordiv = div.floor();
-    if div - floordiv > 0.5 {
-        floordiv += 1.0;
-    }
-    floordiv
-}
-
-/// Lo que dice el filtro de un vídeo de `minutes` minutos.
-pub fn too_long(minutes: &str) -> String {
-    format!("dura {minutes} minutos; el tope son {}", MAX_SECONDS / 60)
-}
-
-/// `wanted`, el filtro de yt-dlp: nada de más de media hora. `None` si vale;
-/// si no, por qué. `Err` es el `ValueError` de `int()` con un real que no lo
-/// es (una duración infinita).
-pub fn wanted(duration: Option<Seconds>) -> Result<Option<String>, String> {
-    match duration {
-        Some(Seconds::Int(i)) if i != 0 && i > MAX_SECONDS => {
-            Ok(Some(too_long(&i.div_euclid(60).to_string())))
-        }
-        Some(Seconds::Float(f)) if f != 0.0 && f > MAX_SECONDS as f64 => {
-            let minutes = floor_div(f, 60.0);
-            if minutes.is_nan() {
-                return Err("cannot convert float NaN to integer".into());
-            }
-            if minutes.is_infinite() {
-                return Err("cannot convert float infinity to integer".into());
-            }
-            Ok(Some(too_long(&format!("{minutes:.0}"))))
-        }
-        _ => Ok(None),
-    }
-}
-
 // ---------------------------------------------------------- opciones
 
 /// Las opciones de siempre de yt-dlp, tras `quiet` y `no_warnings` (que
@@ -241,80 +187,39 @@ pub fn outtmpl(tmp: &str) -> String {
 
 // ------------------------------------------- lo que contesta yt-dlp
 
-/// Por qué no se pudo leer un campo como lo leía Python.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum FieldError {
-    /// `ValueError` de `float()`.
-    Value(String),
-    /// `TypeError` de `float()` o de `s[:120]`.
-    Type(String),
-    /// `AttributeError`: no es texto y se le pide `strip`.
-    Attribute(String),
-}
-
-/// El nombre del tipo de Python de un valor.
-pub fn type_name(v: &Value) -> &'static str {
-    match v {
-        Value::Null => "NoneType",
-        Value::Bool(_) => "bool",
-        Value::Number(n) if n.is_f64() => "float",
-        Value::Number(_) => "int",
-        Value::String(_) => "str",
-        Value::Array(_) => "list",
-        Value::Object(_) => "dict",
-    }
-}
-
-/// `a or b`.
+/// `a`, o `b` si `a` no vale nada.
 fn or<'a>(a: &'a Value, b: &'a Value) -> &'a Value {
     if value::truthy(a) { a } else { b }
 }
 
-/// `(v or "").strip()`.
-fn stripped(v: &Value) -> Result<Value, FieldError> {
-    match v {
-        v if !value::truthy(v) => Ok(json!("")),
-        Value::String(s) => Ok(json!(s.trim())),
-        other => Err(FieldError::Attribute(format!(
-            "'{}' object has no attribute 'strip'",
-            type_name(other)
-        ))),
-    }
+/// Un texto sin espacios alrededor; lo que no es texto, vacío.
+fn stripped(v: &Value) -> Value {
+    json!(v.as_str().map_or("", str::trim))
 }
 
-/// `float(v or 0)`.
-fn float_or_zero(v: &Value) -> Result<f64, FieldError> {
-    match v {
-        v if !value::truthy(v) => Ok(0.0),
-        Value::String(s) => {
-            value::parse_float(s).ok_or_else(|| FieldError::Value(format!("«{s}» no es un número")))
-        }
-        Value::Array(_) | Value::Object(_) => Err(FieldError::Type(format!(
-            "float() argument must be a string or a real number, not '{}'",
-            type_name(v)
-        ))),
-        other => Ok(value::float_of(other).unwrap_or(0.0)),
-    }
+/// Un número (o el que dice un texto); si no, 0.
+fn number_or_zero(v: &Value) -> f64 {
+    value::float_of(v).filter(|f| f.is_finite()).unwrap_or(0.0)
 }
 
 /// Los pocos campos que interesan de lo que devuelve yt-dlp (`get(campo)`
 /// da cada uno, `null` si no está). `artist`, `track` y `album` solo los
 /// trae YouTube Music: son los únicos fiables.
-pub fn pick_fields(mut get: impl FnMut(&str) -> Value) -> Result<Map<String, Value>, FieldError> {
+pub fn pick_fields(mut get: impl FnMut(&str) -> Value) -> Map<String, Value> {
     let empty = json!("");
     let mut out = Map::new();
     out.insert("id".into(), or(&get("id"), &empty).clone());
     out.insert("title".into(), or(&get("title"), &empty).clone());
     let channel = or(&get("uploader"), or(&get("channel"), &empty)).clone();
     out.insert("channel".into(), channel);
-    out.insert("duration".into(), json!(float_or_zero(&get("duration"))?));
+    out.insert("duration".into(), json!(number_or_zero(&get("duration"))));
     let url = or(&get("webpage_url"), or(&get("original_url"), &empty)).clone();
     out.insert("url".into(), url);
     out.insert("thumbnail".into(), or(&get("thumbnail"), &empty).clone());
     for k in ["artist", "track", "album"] {
-        out.insert(k.into(), stripped(&get(k))?);
+        out.insert(k.into(), stripped(&get(k)));
     }
-    Ok(out)
+    out
 }
 
 /// `_plain`: un mensaje de yt-dlp en una línea, sin colores ni el «ERROR:»
@@ -488,7 +393,7 @@ impl Bytes {
     fn truthy(self) -> bool {
         match self {
             Self::Int(i) => i != 0,
-            // NaN es verdadero en Python
+            // un NaN cuenta como que se sabe
             Self::Float(f) => f != 0.0,
         }
     }
@@ -536,31 +441,22 @@ pub fn converting() -> Map<String, Value> {
 
 // ----------------------------------------------------- lo bajado
 
-/// `str(v)` de un campo, como lo pasaba Python a `names`.
-fn text_of(v: &Value) -> String {
-    value::str_of(v)
-}
-
-/// `_provisional_name`: el nombre de archivo ya sin el ruido típico de
-/// YouTube (mientras `ingest` decide el de verdad).
-pub fn provisional_name(title: &Value, id: &Value) -> Result<String, FieldError> {
+/// El nombre de archivo ya sin el ruido típico de YouTube (mientras
+/// `ingest` decide el de verdad): el del título, o el del id, o
+/// «descarga».
+pub fn provisional_name(title: &Value, id: &Value) -> String {
     let fallback = json!("descarga");
-    let base = names::clean(&text_of(or(title, or(id, &fallback))));
+    let base = names::clean(&value::str_of(or(title, or(id, &fallback))));
     let clean = names::sanitize(&base);
     if !clean.is_empty() {
-        return Ok(text::head(&clean, 120).to_owned());
+        return text::head(&clean, 120).to_owned();
     }
-    match or(id, &fallback) {
-        Value::String(s) => Ok(text::head(s, 120).to_owned()),
-        other => Err(FieldError::Type(format!(
-            "'{}' object is not subscriptable",
-            type_name(other)
-        ))),
-    }
+    let id = value::str_of(or(id, &fallback));
+    text::head(&id, 120).to_owned()
 }
 
-/// `\s*-\s*topic\s*$` sin mirar mayúsculas (con las de Python: la «ı» y la
-/// «İ» también son una «i»): dónde empieza, si acaba así.
+/// Dónde empieza « - Topic» al final (sin mirar mayúsculas: también con
+/// «ı» o «İ» por la «i»), si acaba así.
 fn topic_suffix(s: &str) -> Option<usize> {
     let end = s.trim_end_matches(char::is_whitespace);
     let mut chars = end.char_indices().rev();
@@ -662,7 +558,7 @@ pub fn folder<E>(
     let inside_one = is_dir
         && managed
             .iter()
-            .any(|f| folders::inside(path, &text_of(&field(f, "path"))));
+            .any(|f| folders::inside(path, &value::str_of(&field(f, "path"))));
     let suggested = if inside_one {
         json!(path)
     } else {
@@ -749,11 +645,11 @@ pub fn history_entry(
 }
 
 /// El motivo de un fallo en una línea corta (para enseñarlo, no para
-/// depurar): su texto o, si no tiene, el nombre de la excepción.
-pub fn short(text: &str, exception: &str) -> String {
+/// depurar), o «error desconocido» si no dice nada.
+pub fn short(text: &str) -> String {
     let joined = text.split_whitespace().collect::<Vec<_>>().join(" ");
     let s = if joined.is_empty() {
-        exception
+        "error desconocido"
     } else {
         &joined
     };

@@ -424,17 +424,6 @@ fn a_non_youtube_link_is_not_passed_to_yt_dlp() {
 }
 
 #[test]
-fn a_long_live_stream_is_rejected() {
-    use library::youtube::{Seconds, wanted};
-    assert!(
-        wanted(Some(Seconds::Int(3 * 3600)))
-            .expect("duración")
-            .is_some_and(|w| w.starts_with("dura 180 minutos"))
-    );
-    assert_eq!(wanted(Some(Seconds::Int(200))), Ok(None));
-}
-
-#[test]
 fn no_chosen_folder_blocks_downloads_and_suggests_one() {
     let Some((app, log)) = ytdl() else { return };
     app.update_config(|c| c.library_chosen = false);

@@ -208,16 +208,7 @@ fn find_combines_the_sources() {
     );
 }
 
-#[test]
-fn python_rounding() {
-    assert_eq!(round2(0.125).to_string(), "0.12");
-    assert_eq!(round2(0.375).to_string(), "0.38");
-    assert_eq!(round2(2.675).to_string(), "2.67");
-    assert_eq!(round2(1.005).to_string(), "1");
-    assert_eq!(round2(4.5).to_string(), "4.5");
-}
-
-// ------------------------------------------------- lo de tests/test_chord_sheets.py
+// ------------------------------------------------- las páginas
 // Las páginas están hechas a mano con la misma forma que las de verdad; la
 // red está cortada: lo que no se conoce es un fallo de red.
 

@@ -39,12 +39,12 @@ pub const REANALYZE_MODES: [&str; 5] = ["repair", "steady", "fill", "drums", "fo
 /// Por qué no hay rejilla.
 #[derive(Debug, Clone, PartialEq)]
 pub enum BeatsError {
-    /// `BeatsError` de Python (en castellano): la ruta contesta 422 (o 503).
+    /// Lo que se le dice a quien la pidió: la ruta contesta 422 (o 503).
     Beats(String),
-    /// Un `ValueError` (o `KeyError`, `TypeError`) de las cuentas: al volver
-    /// a aplicar lo re-analizado se calla; en la ruta, un 500.
+    /// Lo re-analizado que no se puede aplicar con lo que dijo la red: al
+    /// volver a aplicarlo se calla; en la ruta, un 500.
     Value(String),
-    /// Cualquier otra excepción: un 500.
+    /// Cualquier otra cosa (el disco, el detector): un 500.
     Other(String),
 }
 
@@ -60,23 +60,14 @@ fn beats_err(m: impl Into<String>) -> BeatsError {
     BeatsError::Beats(m.into())
 }
 
-/// La excepción de Python de lo que no salió en `analysis::beatgrid`.
+/// Lo que no salió al coser un tramo: con lo que dijo la red no se puede.
 fn failure(f: Failure) -> BeatsError {
-    match f {
-        Failure::Value(m) => BeatsError::Value(m),
-        Failure::Index(m) | Failure::Overflow(m) => BeatsError::Other(m),
-        Failure::ZeroDivision => BeatsError::Other("float division by zero".into()),
-        Failure::Memory => BeatsError::Other("MemoryError".into()),
-    }
+    BeatsError::Value(f.to_string())
 }
 
-/// `pulse.grid`: un `IndexError` («index ...») o un `ValueError`.
+/// Lo que no salió al sacar el «1».
 fn grid_error(m: String) -> BeatsError {
-    if m.starts_with("index ") {
-        BeatsError::Other(m)
-    } else {
-        BeatsError::Value(m)
-    }
+    BeatsError::Value(m)
 }
 
 // ---------------------------------------------------------------- dónde está todo
@@ -261,13 +252,7 @@ fn whole(
         low_fps: raw.low_fps,
         seconds: raw.seconds,
     };
-    ab::whole(&heard, drums.as_deref(), engine, edges, bpm).map_err(|m| {
-        if m.starts_with("index ") {
-            BeatsError::Other(m)
-        } else {
-            BeatsError::Beats(m)
-        }
-    })
+    ab::whole(&heard, drums.as_deref(), engine, edges, bpm).map_err(BeatsError::Beats)
 }
 
 /// La rejilla de antes con los pulsos de `start` a `end` cambiados por los
@@ -538,8 +523,7 @@ fn run(
     if let Some(lib) = crate::services::onnx::library(app) {
         cmd.env("DANPLAY_ONNXRUNTIME", lib);
     }
-    let mut child = cmd
-        .spawn()
+    let mut child = library::processes::spawn(&mut cmd)
         .map_err(|e| beats_err(format!("no pude lanzar el detector de pulso: {e}")))?;
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
@@ -688,7 +672,7 @@ pub fn child_main(args: &[OsString]) -> i32 {
         }
         Err(e) => {
             let why = if e.is_empty() {
-                "Exception".to_owned()
+                "error desconocido".to_owned()
             } else {
                 e
             };

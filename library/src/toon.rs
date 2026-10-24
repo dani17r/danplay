@@ -26,7 +26,7 @@
 //! de primitivos en una línea, tablas para listas de objetos iguales y planos,
 //! y la forma de lista con «- » para lo demás. Solo codifica: no hace falta
 //! leerlo.
-use crate::names::{is_py_space, py_trim};
+
 use std::fmt::Write as _;
 use std::sync::LazyLock;
 
@@ -111,49 +111,7 @@ pub fn encode(value: &Val, delimiter: &str) -> Result<String, Error> {
 
 // ---------------------------------------------------------------- escalares
 
-/// Un número decimal como `repr(float)` de Python: los dígitos justos para
-/// volver al mismo número, en notación científica si el exponente es menor
-/// que -4 o mayor que 15 («1e-05», «1e+16») y con «.0» si no lleva decimales.
-pub fn py_float_repr(v: f64) -> String {
-    let sci = format!("{v:e}");
-    let (mant, exp) = sci.split_once('e').unwrap_or((&sci, "0"));
-    let exp: i32 = exp.parse().unwrap_or(0);
-    let negative = mant.starts_with('-');
-    let digits: String = mant.chars().filter(char::is_ascii_digit).collect();
-    let decpt = exp + 1;
-    let mut out = String::new();
-    if negative {
-        out.push('-');
-    }
-    if decpt > -4 && decpt <= 16 {
-        let len = digits.len() as i32;
-        if decpt <= 0 {
-            out.push_str("0.");
-            out.push_str(&"0".repeat((-decpt) as usize));
-            out.push_str(&digits);
-        } else if decpt >= len {
-            out.push_str(&digits);
-            out.push_str(&"0".repeat((decpt - len) as usize));
-            out.push_str(".0");
-        } else {
-            out.push_str(&digits[..decpt as usize]);
-            out.push('.');
-            out.push_str(&digits[decpt as usize..]);
-        }
-    } else {
-        out.push_str(&digits[..1]);
-        if digits.len() > 1 {
-            out.push('.');
-            out.push_str(&digits[1..]);
-        }
-        out.push('e');
-        out.push(if exp < 0 { '-' } else { '+' });
-        let _ = write!(out, "{:02}", exp.abs());
-    }
-    out
-}
-
-// `v == int(v)` de Python: un decimal sin parte fraccionaria, exacto
+// un decimal sin parte fraccionaria, exacto, va como entero
 #[allow(clippy::float_cmp)]
 fn primitive(v: &Val, delimiter: &str) -> String {
     match v {
@@ -167,7 +125,7 @@ fn primitive(v: &Val, delimiter: &str) -> String {
             } else if f.trunc() == *f && f.abs() < 1e15 {
                 format!("{}", *f as i64)
             } else {
-                py_float_repr(*f)
+                f.to_string()
             }
         }
         Val::Text(s) | Val::Other { text: s, .. } => string(s, delimiter),
@@ -186,7 +144,7 @@ pub fn string(s: &str, delimiter: &str) -> String {
 }
 
 fn needs_quotes(s: &str, delimiter: &str) -> bool {
-    if s.is_empty() || s != py_trim(s) {
+    if s.is_empty() || s != s.trim() {
         return true;
     }
     if RESERVED.contains(&s) || NUMERIC.is_match(s) {
@@ -349,7 +307,7 @@ fn array_lines(
 /// La primera línea de un bloque, con el guion delante y sin su sangría.
 fn dashed(pad: &str, mut inner: Vec<String>) -> Vec<String> {
     if let Some(first) = inner.first_mut() {
-        *first = format!("{pad}- {}", first.trim_start_matches(is_py_space));
+        *first = format!("{pad}- {}", first.trim_start_matches(char::is_whitespace));
     }
     inner
 }
@@ -409,19 +367,17 @@ mod tests {
     }
 
     #[test]
-    fn floats_like_python_repr() {
+    fn numbers_without_exponents() {
         for (v, s) in [
             (0.1, "0.1"),
-            (1.5e-7, "1.5e-07"),
-            (1e16, "1e+16"),
-            (1e15, "1000000000000000.0"),
-            (0.0001, "0.0001"),
-            (1e-5, "1e-05"),
+            (1.5e-7, "0.00000015"),
+            (1e16, "10000000000000000"),
+            (2.0, "2"),
             (-2.5, "-2.5"),
             (123_456.789, "123456.789"),
-            (1.234_567_890_123_456_7e22, "1.2345678901234568e+22"),
+            (f64::NAN, "null"),
         ] {
-            assert_eq!(py_float_repr(v), s);
+            assert_eq!(primitive(&Val::Real(v), ","), s, "{v}");
         }
     }
 
@@ -541,7 +497,7 @@ mod tests {
                 assert_eq!(back, s);
             } else {
                 assert_eq!(out, s);
-                assert_eq!(s, py_trim(&s));
+                assert_eq!(s, s.trim());
                 assert!(!RESERVED.contains(&s.as_str()), "{s:?}");
             }
         }

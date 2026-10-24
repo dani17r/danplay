@@ -197,9 +197,10 @@ pub fn json_from(text: &str) -> Option<Dict> {
 
 // --------------------------------------------------------------- los modelos
 
-/// `a == b` de Python con valores de JSON: un `bool` es un entero y un
+/// Si dos valores de JSON son el mismo: un sí o no cuenta como 1 o 0, y un
 /// entero vale lo que un real con el mismo número.
-pub fn py_eq(a: &Value, b: &Value) -> bool {
+#[allow(clippy::float_cmp, reason = "se busca el mismo número, no uno parecido")]
+pub fn same_value(a: &Value, b: &Value) -> bool {
     let num = |v: &Value| match v {
         Value::Bool(x) => Some(f64::from(u8::from(*x))),
         Value::Number(n) => n.as_f64(),
@@ -219,7 +220,7 @@ pub fn anonymous_ok(mid: &str, extra: &Dict, rule: &Dict) -> bool {
     }
     let field = rule.get("field").map(value::str_of).unwrap_or_default();
     let got = extra.get(&field).unwrap_or(&Value::Null);
-    py_eq(got, rule.get("value").unwrap_or(&Value::Null))
+    same_value(got, rule.get("value").unwrap_or(&Value::Null))
 }
 
 /// La ficha de un modelo: lo que dice el proveedor (`extra`, lo de su

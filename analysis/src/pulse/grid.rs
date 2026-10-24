@@ -784,7 +784,7 @@ fn smooth(beats: &[f64]) -> Vec<f64> {
 fn bars(down_p: &[f64], meter: usize) -> Result<(Vec<usize>, f64), String> {
     let (m, n) = (meter, down_p.len());
     if n == 0 {
-        return Err("index 0 is out of bounds for axis 0 with size 0".into());
+        return Err("la red no dijo nada de esta canción".into());
     }
     let states = m + 1;
     let lp: Vec<f64> = down_p
@@ -1025,7 +1025,7 @@ pub fn finish(beats: &[f64], down: &[f64], meter: Option<i64>) -> Result<Final, 
     // lado)
     let dp: Vec<f64> = down.iter().map(|x| np::sigmoid(*x)).collect();
     if dp.is_empty() {
-        return Err("index 0 is out of bounds for axis 0 with size 0".into());
+        return Err("la red no dijo nada de esta canción".into());
     }
     let cap = dp.len() as i64 - 1;
     let down_p: Vec<f64> = beats

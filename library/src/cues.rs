@@ -271,12 +271,14 @@ pub fn edited_cue_name(
     highpass: bool,
     normalize: bool,
 ) -> String {
-    let py_bool = |v: bool| if v { "True" } else { "False" };
+    // así se han llamado siempre: con otra forma de escribirlo, una guía
+    // editada igual que otra de antes no se reaprovecharía
+    let flag = |v: bool| if v { "True" } else { "False" };
     let key = sha1_hex(&format!(
         "{own}|{a:.3}|{b:.3}|{fi:.3}|{fo:.3}|{}|{}|{}",
-        py_bool(denoise),
-        py_bool(highpass),
-        py_bool(normalize)
+        flag(denoise),
+        flag(highpass),
+        flag(normalize)
     ));
     format!("editada-{}.wav", &key[..14])
 }
@@ -286,11 +288,7 @@ pub fn edited_cue_name(
 pub fn minutes(segundos: f64) -> Result<String, String> {
     let m = (segundos / 60.0).round_ties_even();
     if !m.is_finite() {
-        return Err(if m.is_nan() {
-            "cannot convert float NaN to integer".into()
-        } else {
-            "cannot convert float infinity to integer".into()
-        });
+        return Err("el tope de la grabación no es un número".into());
     }
     Ok(if m <= 1.0 {
         "un minuto".into()

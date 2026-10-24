@@ -138,8 +138,8 @@ fn without_minor(key: &str) -> &str {
 
 /// Semitonos entre dos tonalidades. `None` si no se reconocen.
 pub fn distance(from_key: &str, to_key: &str) -> Option<i64> {
-    let d = index(without_minor(crate::names::py_trim(from_key)))?;
-    let h = index(without_minor(crate::names::py_trim(to_key)))?;
+    let d = index(without_minor(from_key.trim()))?;
+    let h = index(without_minor(to_key.trim()))?;
     Some((h as i64 - d as i64).rem_euclid(12))
 }
 
@@ -204,7 +204,7 @@ fn key_root(k: &str) -> &str {
 
 /// `(índice, es_menor)` de un tono escrito como «Bb», «F#m», «Am», o `None`.
 pub fn split_key(key: &str) -> Option<(usize, bool)> {
-    let k = crate::names::py_trim(key);
+    let k = key.trim();
     let minor = (k.ends_with('m') || k.ends_with("min") || k.ends_with('-')) && !k.ends_with("dim");
     index(key_root(k)).map(|i| (i, minor))
 }
@@ -238,7 +238,7 @@ pub struct RelatedKeys {
 pub fn related_keys(key: &str) -> Option<RelatedKeys> {
     let (i, minor) = split_key(key)?;
     let i = i as i64;
-    let root = key_root(crate::names::py_trim(key));
+    let root = key_root(key.trim());
     // se escribe con bemoles si el tono lo lleva («Bb») o si es de los que
     // van con bemoles en la armadura («F», «Dm»); F#m no es F
     let use_flats = root.chars().skip(1).any(|c| c == 'b')

@@ -692,11 +692,10 @@ fn run_child(app: &App, job: &Value, report: &Report<'_>) -> Result<Dict> {
         if let Some(lib) = onnx::library(app) {
             c.env("DANPLAY_ONNXRUNTIME", lib);
         }
-        let mut child = c
-            .stdin(Stdio::null())
+        c.stdin(Stdio::null())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?;
+            .stderr(Stdio::piped());
+        let mut child = library::processes::spawn(&mut c)?;
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
         let child = Arc::new(Mutex::new(child));
@@ -1434,7 +1433,7 @@ fn drain_queue(app: &App, progress: &Progress) -> Result<Value> {
             Err(StemsError::Other(e)) => {
                 log::warn!("no se pudo separar {it:?}: {e}");
                 let e = if e.is_empty() {
-                    "Exception".to_owned()
+                    "error desconocido".to_owned()
                 } else {
                     e
                 };
@@ -1788,11 +1787,12 @@ pub fn export_mix(app: &App, cid: i64, mix: &Mix, progress: &dyn Fn(f64, f64)) -
         }
         cmd.push(tmp.as_os_str().to_owned());
         let total = length / speed;
-        let mut child = library::processes::order(&ffmpeg, &cmd)
+        let mut order = library::processes::order(&ffmpeg, &cmd);
+        order
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?;
+            .stderr(Stdio::piped());
+        let mut child = library::processes::spawn(&mut order)?;
         let stderr = child.stderr.take();
         let err_reader = stderr.map(|mut s| {
             std::thread::spawn(move || {

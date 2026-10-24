@@ -655,8 +655,8 @@ fn new_custom_id(name: &str, taken: &Dict) -> String {
     pid
 }
 
-/// `max(lo, min(hi, x))` de Python (con un NaN da `hi`, como allí).
-fn clamp_py(x: f64, lo: f64, hi: f64) -> f64 {
+/// `x` entre `lo` y `hi` (un NaN, `hi`).
+fn between(x: f64, lo: f64, hi: f64) -> f64 {
     let m = if x < hi { x } else { hi };
     if m > lo { m } else { lo }
 }
@@ -733,7 +733,7 @@ pub fn save_profile(
                     let Some(x) = value::float_of(v) else {
                         continue;
                     };
-                    Value::from(clamp_py(x, 5.0, 600.0))
+                    Value::from(between(x, 5.0, 600.0))
                 }
                 _ => Value::String(value::str_of(v).trim().to_owned()),
             };

@@ -253,22 +253,14 @@ pub fn normalize(text: &str, results: i64) -> Result<String, String> {
     }
 }
 
-fn field_error(e: yt::FieldError) -> String {
-    match e {
-        yt::FieldError::Value(m) | yt::FieldError::Type(m) | yt::FieldError::Attribute(m) => m,
-    }
-}
-
-/// `_pick_fields`: los pocos campos que interesan de lo que dio yt-dlp.
-/// `Err` es lo que lanzaba Python (un campo que no se deja leer).
+/// Los pocos campos que interesan de lo que dio yt-dlp.
 pub fn pick(v: &Value) -> Result<Map<String, Value>, String> {
     let Value::Object(m) = v else {
-        return Err(format!(
-            "'{}' object has no attribute 'get'",
-            yt::type_name(v)
-        ));
+        return Err("yt-dlp no contesto lo que se esperaba".into());
     };
-    yt::pick_fields(|k| m.get(k).cloned().unwrap_or(Value::Null)).map_err(field_error)
+    Ok(yt::pick_fields(|k| {
+        m.get(k).cloned().unwrap_or(Value::Null)
+    }))
 }
 
 /// `youtube_query_result`: lo que contestó yt-dlp a una consulta, como lo
@@ -497,8 +489,7 @@ pub fn download_one(
     let name = yt::provisional_name(
         d.get("title").unwrap_or(&null),
         d.get("id").unwrap_or(&null),
-    )
-    .map_err(field_error)?;
+    );
     let target = folder.join(library::names::free_name(&folder, &format!("{name}.mp3")));
     songs::move_file(&mp3, &target).map_err(|e| e.to_string())?;
     Ok(yt::downloaded(&d, &path_str(&target), tagged, kbps))
@@ -841,19 +832,16 @@ fn after_of(on_done: OnDone, done: Vec<Map<String, Value>>, job: u64) -> Value {
             Value::Object(plain)
         }
         Ok(Ok(Some(other))) => {
-            log::warn!(
-                "lo que se hacia al terminar la descarga devolvio {}",
-                yt::type_name(&other)
-            );
+            log::warn!("lo que se hacia al terminar la descarga devolvio {other}");
             error("no devolvió un resultado válido".into())
         }
         Ok(Err(why)) => {
             log::warn!("lo que se hacia al terminar la descarga fallo: {why}");
-            error(yt::short(&why, "Exception"))
+            error(yt::short(&why))
         }
         Err(_) => {
             log::warn!("lo que se hacia al terminar la descarga fallo (panic)");
-            error(yt::short("", "Exception"))
+            error(yt::short(""))
         }
     }
 }

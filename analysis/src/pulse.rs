@@ -357,8 +357,7 @@ pub fn low_band(mono: &[f32], fmax: f64) -> Result<(Vec<f32>, f64), String> {
     const HOP: usize = 220;
     if mono.len() < N {
         return Err(format!(
-            "index {} is out of bounds for axis 0 with size {}",
-            N - 1,
+            "el audio es demasiado corto: {} muestras, y hacen falta {N}",
             mono.len()
         ));
     }

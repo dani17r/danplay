@@ -8,7 +8,7 @@
 //! Si falla, falla en silencio y devuelve una lista vacía: el asistente lo
 //! interpreta como «no lo he podido comprobar», no como un error de la app.
 use crate::html::unescape;
-use crate::names::{Re, group, py_trim, rx, sub};
+use crate::names::{Re, group, rx, sub};
 use crate::patterns::{find_all, quote_plus};
 use std::sync::LazyLock;
 
@@ -43,7 +43,9 @@ pub struct Outcome {
 /// Un trozo de HTML como texto: sin etiquetas, sin referencias y con los
 /// espacios juntos.
 pub fn plain_text(raw: &str) -> String {
-    py_trim(&sub(&SPACES, &unescape(&sub(&TAG_MAP, raw, " ")), " ")).to_string()
+    (sub(&SPACES, &unescape(&sub(&TAG_MAP, raw, " ")), " "))
+        .trim()
+        .to_string()
 }
 
 /// `urllib.parse.unquote` de Python: los «%XX» de cada tramo ASCII pasan a
@@ -146,7 +148,7 @@ pub fn search<E>(
     limit: Option<i64>,
     get: impl Fn(&str) -> Result<String, E>,
 ) -> Vec<Outcome> {
-    let query = py_trim(query);
+    let query = query.trim();
     if query.is_empty() {
         return Vec::new();
     }

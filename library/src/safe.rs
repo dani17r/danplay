@@ -12,7 +12,7 @@
 //! `datum` limpia UN valor y `data_block` pone varios bajo una cabecera fija
 //! que dice que son datos. Las dos son puras (sin red ni base de datos) y de
 //! tiempo lineal: se llaman con texto de hasta cientos de KB.
-use crate::names::{is_py_space, py_words};
+
 use unicode_normalization::UnicodeNormalization;
 use unicode_properties::{GeneralCategory, UnicodeGeneralCategory};
 
@@ -111,17 +111,22 @@ pub fn datum(text: &str, n: i64) -> String {
     let s: String = head
         .chars()
         .filter(|&c| !dropped(c))
-        .map(|c| if QUOTES.contains(c) { '\'' } else { c })
+        .map(|c| match c {
+            _ if QUOTES.contains(c) => '\'',
+            // los separadores de información, como espacios
+            '\u{1c}'..='\u{1f}' => ' ',
+            _ => c,
+        })
         .nfc()
         .collect();
-    let s = py_words(&s).collect::<Vec<_>>().join(" ");
+    let s = s.split_whitespace().collect::<Vec<_>>().join(" ");
     let len = s.chars().count();
     if len > n || (cut && len == n) {
         if n == 1 {
             return ELLIPSIS.to_string();
         }
         let kept: String = s.chars().take(n - 1).collect();
-        return format!("{}{ELLIPSIS}", kept.trim_end_matches(is_py_space));
+        return format!("{}{ELLIPSIS}", kept.trim_end_matches(char::is_whitespace));
     }
     if cut {
         return format!("{s}{ELLIPSIS}");
@@ -289,7 +294,7 @@ mod tests {
         assert!(!out.chars().any(|c| forbidden.contains(&c)), "{out:?}");
         assert_eq!(
             out,
-            py_words(out).collect::<Vec<_>>().join(" "),
+            out.split_whitespace().collect::<Vec<_>>().join(" "),
             "espacios simples y sin bordes"
         );
         for c in out.chars() {

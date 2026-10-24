@@ -754,7 +754,7 @@ pub fn run(
         // su propio grupo: cancelar mata también lo que lance
         cmd.process_group(0);
     }
-    let mut child = cmd.spawn()?;
+    let mut child = processes::spawn(&mut cmd)?;
     let (tx, rx) = mpsc::channel::<Line>();
     if let Some(out) = child.stdout.take() {
         read_lines(out, tx.clone(), true);

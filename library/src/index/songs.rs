@@ -138,9 +138,9 @@ fn text_of(v: Option<&Value>, n: usize) -> String {
     text::head(raw.trim(), n).to_owned()
 }
 
-/// Cómo compara Python dos reales al ordenar: 0.0 y -0.0 son iguales (y el
-/// orden de antes se respeta: `sorted` es estable).
-fn py_cmp(a: f64, b: f64) -> std::cmp::Ordering {
+/// Dos reales para ordenar: 0.0 y -0.0 son iguales, y un NaN, igual a
+/// todo (el orden ya que había se respeta: `sort_by` es estable).
+fn by_number(a: f64, b: f64) -> std::cmp::Ordering {
     a.partial_cmp(&b).unwrap_or(std::cmp::Ordering::Equal)
 }
 
@@ -167,7 +167,7 @@ pub fn segments(raw: Option<&Value>, limit: usize) -> Vec<[f64; 2]> {
             out.push([num::round_to(a, 2), num::round_to(b, 2)]);
         }
     }
-    out.sort_by(|x, y| py_cmp(x[0], y[0]).then(py_cmp(x[1], y[1])));
+    out.sort_by(|x, y| by_number(x[0], y[0]).then(by_number(x[1], y[1])));
     let mut merged: Vec<[f64; 2]> = Vec::new();
     for [a, b] in out {
         match merged.last_mut() {
@@ -429,7 +429,7 @@ pub fn cues(raw: Option<&Value>, cues_dir: &str) -> Vec<Dict> {
     }
     out.sort_by(|a, b| {
         let t = |d: &Dict| d.get("t").and_then(Value::as_f64).unwrap_or(0.0);
-        py_cmp(t(a), t(b))
+        by_number(t(a), t(b))
     });
     out
 }
@@ -578,7 +578,7 @@ pub fn clean_study(study: &Value, cues_dir: &str) -> String {
         if !markers.is_empty() {
             markers.sort_by(|a, b| {
                 let t = |d: &Dict| d.get("t").and_then(Value::as_f64).unwrap_or(0.0);
-                py_cmp(t(a), t(b))
+                by_number(t(a), t(b))
             });
             clean.insert(
                 "markers".into(),

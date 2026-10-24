@@ -76,6 +76,6 @@ pub fn details_for(app: &App, song: &Value) -> Result<(Value, Value), ApiError> 
 
 /// La letra y la carátula de una canción, lo que falte (sin la ficha).
 pub fn enrich(app: &App, id: &Value, lyrics: bool, cover: bool) -> Result<Value, ApiError> {
-    let cid = super::tools::py_int(id)?;
+    let cid = super::tools::int_arg(id)?;
     enrich::enrich(app, cid, lyrics, cover, false)
 }

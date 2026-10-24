@@ -1,8 +1,7 @@
-//! Lanzar los programas de fuera (ffmpeg, fpcalc) como lo hacía el núcleo
-//! con `subprocess.run(..., capture_output=True, timeout=...)`: con lo que
+//! Lanzar los programas de fuera (ffmpeg, fpcalc, yt-dlp): con lo que
 //! escriben recogido, con un tope de tiempo pasado el cual se matan, y en
-//! Windows sin abrir una consola por cada uno (ver danplay/no_console.py:
-//! con la app analizando la biblioteca salían ventanas negras a decenas).
+//! Windows sin abrir una consola por cada uno (con la app analizando la
+//! biblioteca salían ventanas negras a decenas).
 use std::ffi::OsStr;
 use std::io::{Read, Write};
 use std::path::Path;
@@ -63,6 +62,25 @@ pub fn order<S: AsRef<OsStr>>(program: &Path, args: &[S]) -> Command {
     cmd
 }
 
+/// Lanza `cmd`. Si el sistema dice que el programa está ocupado («text file
+/// busy»: se acaba de escribir, y otro hilo que lanzaba otra cosa a la vez
+/// lo tenía abierto un instante), lo vuelve a intentar unas pocas veces:
+/// pasa con yt-dlp recién puesto al día, y en las pruebas, con los programas
+/// de mentira.
+pub fn spawn(cmd: &mut Command) -> std::io::Result<Child> {
+    let mut wait = Duration::from_millis(10);
+    for _ in 0..6 {
+        match cmd.spawn() {
+            Err(e) if e.kind() == std::io::ErrorKind::ExecutableFileBusy => {
+                thread::sleep(wait);
+                wait *= 2;
+            }
+            other => return other,
+        }
+    }
+    cmd.spawn()
+}
+
 fn read(mut r: impl Read) -> Vec<u8> {
     let mut out = Vec::new();
     let _ = r.read_to_end(&mut out);
@@ -76,24 +94,21 @@ pub fn run(cmd: &mut Command, cap: Duration) -> Result<Output, Error> {
     launch(cmd, None, cap)
 }
 
-/// Como `run`, dándole `input` por su stdin (el `input=` de
-/// `subprocess.run`): se le escribe mientras tanto (si no, con lo que va
+/// Como `run`, dándole `input` por su stdin: se le escribe mientras tanto (si no, con lo que va
 /// escribiendo él se quedarían esperándose el uno al otro) y se cierra.
 pub fn run_with_input(cmd: &mut Command, input: Vec<u8>, cap: Duration) -> Result<Output, Error> {
     launch(cmd, Some(input), cap)
 }
 
 fn launch(cmd: &mut Command, input: Option<Vec<u8>>, cap: Duration) -> Result<Output, Error> {
-    let mut child: Child = cmd
-        .stdin(if input.is_some() {
-            Stdio::piped()
-        } else {
-            Stdio::null()
-        })
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(Error::SpawnFailed)?;
+    cmd.stdin(if input.is_some() {
+        Stdio::piped()
+    } else {
+        Stdio::null()
+    })
+    .stdout(Stdio::piped())
+    .stderr(Stdio::piped());
+    let mut child: Child = spawn(cmd).map_err(Error::SpawnFailed)?;
     let inside = child.stdin.take().zip(input).map(|(mut s, data)| {
         thread::spawn(move || {
             // si acaba antes de leerlo todo, lo que queda ya no hace falta

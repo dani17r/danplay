@@ -1,17 +1,15 @@
-//! La rejilla del clic de danplay/beatgrid.py, con lo que dijo la red de
-//! una canción: sacarla de toda la canción (también con la batería
-//! separada), «Re-analizar el clic» (cada opción, de toda la canción o de un
-//! tramo cosido a lo de los lados, o con el tempo fijo que cabe justo entre
-//! dos pulsos) y en cuántos sitios suena distinto el clic después.
+//! La rejilla del clic con lo que dijo la red de una canción: sacarla de
+//! toda la canción (también con la batería separada), «Re-analizar el clic»
+//! (cada opción, de toda la canción o de un tramo cosido a lo de los lados,
+//! o con el tempo fijo que cabe justo entre dos pulsos) y en cuántos sitios
+//! suena distinto el clic después.
 //!
-//! Las cuentas son las de numpy en el Python de antes, número a número; lo
-//! que allí salía como excepción sale como `Failure`, con su clase y su
-//! mensaje. Lo guardado (la caché) está en `library::beatgrid`; aquí no se
-//! toca el disco.
+//! Lo guardado (la caché) está en `library::beatgrid`; aquí no se toca el
+//! disco.
 use crate::np;
 use crate::pulse::{self, grid};
 
-/// Las opciones de «Re-analizar el clic» (`beatgrid.REANALYZE_MODES`).
+/// Las opciones de «Re-analizar el clic».
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Mode {
     /// Arreglar los saltos de fase y rellenar los huecos a tempo (si va a
@@ -61,35 +59,40 @@ impl Mode {
     }
 }
 
-/// Lo que en Python salía como excepción: su clase y su mensaje.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// Por qué no salió un tramo.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Failure {
-    /// `IndexError` (de numpy).
-    Index(String),
-    /// `ValueError`.
-    Value(String),
-    /// `OverflowError`.
-    Overflow(String),
-    /// `ZeroDivisionError`.
-    ZeroDivision,
-    /// `MemoryError`: más pulsos de los que caben.
-    Memory,
+    /// No queda ningún pulso.
+    NoBeats,
+    /// Un pulso o un periodo que no es un número (NaN, infinito).
+    NotFinite,
+    /// Un periodo de cero entre pulsos.
+    ZeroPeriod,
+    /// Más pulsos de los que caben.
+    TooMany,
 }
 
-/// Más pulsos que esto en un tramo y no caben (Python se quedaba sin
-/// memoria con una lista así; un tempo de verdad no llega ni a mil).
+impl std::fmt::Display for Failure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::NoBeats => "no queda ningún pulso",
+            Self::NotFinite => "un pulso que no es un número",
+            Self::ZeroPeriod => "un periodo de cero entre pulsos",
+            Self::TooMany => "demasiados pulsos en el tramo",
+        })
+    }
+}
+
+/// Más pulsos que esto en un tramo y no caben (un tempo de verdad no llega
+/// ni a mil).
 const MAX_STEADY: f64 = 20_000_000.0;
 
-/// `round(x)` de Python: al entero, a la par en un empate.
-fn round_int(x: f64) -> Result<f64, Failure> {
-    if x.is_nan() {
-        Err(Failure::Value("cannot convert float NaN to integer".into()))
-    } else if x.is_infinite() {
-        Err(Failure::Overflow(
-            "cannot convert float infinity to integer".into(),
-        ))
-    } else {
+/// Al entero más cercano (al par en un empate).
+fn nearest(x: f64) -> Result<f64, Failure> {
+    if x.is_finite() {
         Ok(x.round_ties_even())
+    } else {
+        Err(Failure::NotFinite)
     }
 }
 
@@ -177,11 +180,7 @@ pub fn stitch(old: &[f64], new: &[f64], start: f64, end: f64) -> Result<Stitched
         .collect();
     sort(&mut all);
     if all.is_empty() {
-        return Err(Failure::Index(
-            "boolean index did not match indexed array along axis 0; \
-             size of axis is 0 but size of corresponding boolean axis is 1"
-                .into(),
-        ));
+        return Err(Failure::NoBeats);
     }
     // fuera los que caen casi encima del anterior
     let mut beats = Vec::with_capacity(all.len());
@@ -206,10 +205,10 @@ pub fn stitch(old: &[f64], new: &[f64], start: f64, end: f64) -> Result<Stitched
             continue;
         };
         if p == 0.0 {
-            return Err(Failure::ZeroDivision);
+            return Err(Failure::ZeroPeriod);
         }
         let n = (b - a) / p;
-        joins.push((side, (n - round_int(n)?).abs() <= 0.25));
+        joins.push((side, (n - nearest(n)?).abs() <= 0.25));
     }
     Ok(Stitched {
         beats,
@@ -232,11 +231,11 @@ pub fn sides(old: &[f64], start: f64, end: f64) -> Option<(f64, f64)> {
 /// caben justo (al menos un hueco), sin los dos de los lados.
 pub fn steady_between(a: f64, b: f64, period: f64) -> Result<Vec<f64>, Failure> {
     if period == 0.0 {
-        return Err(Failure::ZeroDivision);
+        return Err(Failure::ZeroPeriod);
     }
-    let k = round_int((b - a) / period)?.max(1.0);
+    let k = nearest((b - a) / period)?.max(1.0);
     if k > MAX_STEADY {
-        return Err(Failure::Memory);
+        return Err(Failure::TooMany);
     }
     let k = k as i64;
     Ok((1..k).map(|i| a + (b - a) * i as f64 / k as f64).collect())
@@ -349,14 +348,12 @@ mod tests {
         assert_eq!(s.region, (4.9, 8.4));
         assert_eq!(s.joins, [("left", true), ("right", true)]);
         assert!(
-            matches!(stitch(&[], &[1.0], 2.0, 3.0), Err(Failure::Index(_))),
+            matches!(stitch(&[], &[1.0], 2.0, 3.0), Err(Failure::NoBeats)),
             "sin ningún pulso"
         );
         assert_eq!(
             stitch(&[0.0, f64::INFINITY], &[1.0, 1.5, 2.0], 0.5, 2.5),
-            Err(Failure::Overflow(
-                "cannot convert float infinity to integer".into()
-            ))
+            Err(Failure::NotFinite)
         );
         // un hueco con tempo fijo: caben justo
         let holed: Vec<f64> = good
@@ -367,12 +364,9 @@ mod tests {
         assert_eq!(sides(&holed, 4.2, 5.8), Some((4.0, 6.0)));
         assert_eq!(steady_between(4.0, 6.0, 0.5), Ok(vec![4.5, 5.0, 5.5]));
         assert_eq!(sides(&[1.0], 0.5, 2.0), None);
-        assert_eq!(steady_between(0.0, 9.0, 0.0), Err(Failure::ZeroDivision));
-        assert!(matches!(
-            steady_between(0.0, 9.0, f64::NAN),
-            Err(Failure::Value(_))
-        ));
-        assert_eq!(steady_between(0.0, 9.0, 1e-12), Err(Failure::Memory));
+        assert_eq!(steady_between(0.0, 9.0, 0.0), Err(Failure::ZeroPeriod));
+        assert_eq!(steady_between(0.0, 9.0, f64::NAN), Err(Failure::NotFinite));
+        assert_eq!(steady_between(0.0, 9.0, 1e-12), Err(Failure::TooMany));
         assert_eq!(
             steady_between(9.0, 0.0, 0.5),
             Ok(vec![]),

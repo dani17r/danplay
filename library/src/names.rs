@@ -1,5 +1,4 @@
-//! Limpieza y normalización de nombres (lo que hacía danplay/names.py, regla
-//! a regla y con las expresiones en el mismo orden).
+//! Limpieza y normalización de nombres.
 //!
 //! Reglas acordadas con el usuario:
 //!   - sin acentos, pero la ñ se conserva
@@ -8,26 +7,24 @@
 //!   - fuera el ruido de descargas (VIDEO OFICIAL, LETRA, y2mate.com, ...)
 //!   - duplicados: sufijo " - r", " - r2", ...
 //!
-//! Las expresiones son las de Python. Van por el motor rápido de `regex`, y
-//! por `fancy_regex` solo las que miran hacia atrás o hacia delante, que
-//! `regex` no sabe. Si una se pasa de pasos, el texto se queda como estaba en
-//! vez de parar nada.
+//! Las expresiones van por el motor rápido de `regex`, y por `fancy_regex`
+//! solo las que miran hacia atrás o hacia delante, que `regex` no sabe. Si
+//! una se pasa de pasos, el texto se queda como estaba en vez de parar nada.
 use std::fmt::Write as _;
 use std::path::Path;
 use std::sync::LazyLock;
 use unicode_normalization::UnicodeNormalization;
 use unicode_properties::{GeneralCategory, GeneralCategoryGroup, UnicodeGeneralCategory};
 
-/// Lo que Python entiende por `\w` en un texto: letras, números y «_». En
-/// Rust `\w` incluye además las marcas combinadas (el acento suelto de una
-/// «é» descompuesta, como guarda los nombres macOS), y con eso `\b` y `\w`
-/// cortaban en otro sitio que en Python.
-const PY_WORD: &str = r"\p{L}\p{N}_";
+/// Lo que es palabra en un nombre: letras, números y «_». El `\w` de `regex`
+/// cuenta además las marcas combinadas (el acento suelto de una «é»
+/// descompuesta, como guarda los nombres macOS), y con eso `\b` y `\w`
+/// cortarían una palabra por su acento.
+const WORD_CHARS: &str = r"\p{L}\p{N}_";
 
-/// La expresión con `\w`, `\b` y `\s` como los de Python (ver `PY_WORD`;
-/// el `\s` de Python cuenta además los separadores U+001C-U+001F).
-pub(crate) fn python_semantics(pattern: &str) -> String {
-    let word = format!("[{PY_WORD}]");
+/// La expresión con `\w` y `\b` según `WORD_CHARS`.
+pub(crate) fn own_words(pattern: &str) -> String {
+    let word = format!("[{WORD_CHARS}]");
     let boundary = format!("(?:(?<={word})(?!{word})|(?<!{word})(?={word}))");
     let mut out = String::with_capacity(pattern.len() * 2);
     let mut in_class = false;
@@ -35,11 +32,9 @@ pub(crate) fn python_semantics(pattern: &str) -> String {
     while let Some(c) = chars.next() {
         match c {
             '\\' => match chars.next() {
-                Some('w') if in_class => out.push_str(PY_WORD),
+                Some('w') if in_class => out.push_str(WORD_CHARS),
                 Some('w') => out.push_str(&word),
                 Some('b') if !in_class => out.push_str(&boundary),
-                Some('s') if in_class => out.push_str(r"\s\x1c-\x1f"),
-                Some('s') => out.push_str(r"[\s\x1c-\x1f]"),
                 Some(other) => {
                     out.push('\\');
                     out.push(other);
@@ -116,15 +111,15 @@ impl Engine {
 }
 
 /// Una expresión, compilada tres veces. Con un texto ASCII (casi todos los
-/// nombres), con `\b` de ASCII: ahí da lo mismo que el de Unicode y el de
-/// Python, y deja usar el autómata rápido de `regex`, que el `\b` de Unicode
-/// no deja. Con uno que no lo es, tal cual. Y si lleva algo que Rust y
-/// Python no cuentan igual como palabra o espacio (`needs_python`), con la
-/// semántica de Python, que necesita mirar alrededor y es la más lenta.
+/// nombres), con `\b` de ASCII: ahí da lo mismo que el de Unicode, y deja
+/// usar el autómata rápido de `regex`, que el `\b` de Unicode no deja. Con
+/// uno que no lo es, tal cual. Y si lleva algo que `regex` y `WORD_CHARS` no
+/// cuentan igual como palabra (`needs_own_words`), con `own_words`, que
+/// necesita mirar alrededor y es la más lenta.
 pub(crate) struct Re {
     ascii: Engine,
     plain: Engine,
-    python: Engine,
+    words: Engine,
 }
 
 pub(crate) fn rx(pattern: &str) -> Re {
@@ -137,15 +132,14 @@ pub(crate) fn rx(pattern: &str) -> Re {
     Re {
         ascii,
         plain: Engine::new(pattern),
-        python: Engine::new(&python_semantics(pattern)),
+        words: Engine::new(&own_words(pattern)),
     }
 }
 
-/// Lo que es palabra para Rust y no para Python o al revés: las marcas
-/// combinadas, los conectores que no son «_», los números como «½» o «²» y
-/// los de unión (U+200C, U+200D); y los separadores U+001C-U+001F, que para
-/// Python son espacio.
-fn needs_python(text: &str) -> bool {
+/// Si el texto lleva algo que es palabra para `regex` y no según
+/// `WORD_CHARS`, o al revés: las marcas combinadas, los conectores que no
+/// son «_», los números como «½» o «²» y los de unión (U+200C, U+200D).
+fn needs_own_words(text: &str) -> bool {
     text.chars().any(|c| {
         !c.is_ascii()
             && (c.general_category_group() == GeneralCategoryGroup::Mark
@@ -154,17 +148,15 @@ fn needs_python(text: &str) -> bool {
                     GeneralCategory::ConnectorPunctuation | GeneralCategory::OtherNumber
                 )
                 || matches!(c, '\u{200c}' | '\u{200d}'))
-            || matches!(c, '\u{1c}'..='\u{1f}')
     })
 }
 
 impl Re {
     pub(crate) fn pick(&self, text: &str) -> &Engine {
-        // primero lo de Python: los separadores U+001C-U+001F son ASCII
-        if needs_python(text) {
-            &self.python
-        } else if text.is_ascii() {
+        if text.is_ascii() {
             &self.ascii
+        } else if needs_own_words(text) {
+            &self.words
         } else {
             &self.plain
         }
@@ -225,33 +217,9 @@ pub(crate) fn is_match(re: &Re, text: &str) -> bool {
     re.pick(text).is_match(text)
 }
 
-/// Lo que para Python es espacio (`str.isspace`): el de Unicode y además los
-/// separadores U+001C-U+001F.
-pub(crate) fn is_py_space(c: char) -> bool {
-    c.is_whitespace() || matches!(c, '\u{1c}'..='\u{1f}')
-}
-
-/// `str.split()` de Python: las palabras entre espacios.
-pub(crate) fn py_words(s: &str) -> impl Iterator<Item = &str> {
-    s.split(is_py_space).filter(|w| !w.is_empty())
-}
-
-/// `str.strip()` de Python, sin argumentos.
-pub(crate) fn py_trim(s: &str) -> &str {
-    s.trim_matches(is_py_space)
-}
-
-/// `str.strip(chars)` de Python.
+/// El texto sin esos caracteres a los lados.
 pub(crate) fn strip_chars<'a>(s: &'a str, chars: &str) -> &'a str {
     s.trim_matches(|c| chars.contains(c))
-}
-
-/// `str.isalnum()` de Python para un carácter: letras y números de Unicode.
-pub(crate) fn py_isalnum(c: char) -> bool {
-    matches!(
-        c.general_category_group(),
-        GeneralCategoryGroup::Letter | GeneralCategoryGroup::Number
-    )
 }
 
 pub const NOISE: [&str; 37] = [
@@ -357,9 +325,9 @@ pub fn search_form(text: &str) -> String {
     let spaced: String = lowered
         .chars()
         .filter(|c| !matches!(c, '\'' | '’' | '‘' | 'ʼ' | '´' | '`'))
-        .map(|c| if py_isalnum(c) { c } else { ' ' })
+        .map(|c| if char::is_alphanumeric(c) { c } else { ' ' })
         .collect();
-    py_words(&spaced).collect::<Vec<_>>().join(" ")
+    spaced.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 static UPPER_WORD: LazyLock<Re> = LazyLock::new(|| rx(r"[A-Za-zÑñ]{2,}"));
@@ -519,7 +487,7 @@ pub fn final_name(artist: &str, title: &str, feat: &str, extra: &str, ext: &str)
             let _ = write!(n, " ({extra})");
         }
     }
-    py_trim(&sub(&SPACES, &n, " ")).to_string() + ext
+    sub(&SPACES, &n, " ").trim().to_string() + ext
 }
 
 static NOT_WORD: LazyLock<Re> = LazyLock::new(|| rx(r"[^\w\s]"));
@@ -534,7 +502,8 @@ pub fn match_key(s: &str) -> String {
     let s = strip_accents(splitext(s).0).to_lowercase();
     let s = strip_noise(&s).replace(['\'', '\u{2019}'], ""); // D'Clario y DClario son lo mismo
     let s = sub(&NOT_WORD, &s, " ");
-    let mut words: Vec<&str> = py_words(&s)
+    let mut words: Vec<&str> = s
+        .split_whitespace()
         .filter(|p| !STOPWORDS.contains(p) && p.chars().count() > 2)
         .collect();
     words.sort_unstable();
@@ -560,7 +529,9 @@ pub fn free_name(folder: &Path, name: &str) -> String {
 /// La forma plana de un nombre de artista: sin tildes, minúsculas y sin
 /// signos.
 pub fn flat(s: &str) -> String {
-    py_trim(&sub(&NOT_WORD, &strip_accents(s).to_lowercase(), "")).to_string()
+    (sub(&NOT_WORD, &strip_accents(s).to_lowercase(), ""))
+        .trim()
+        .to_string()
 }
 
 /// {clave plana: nombre real de carpeta}, en orden, de las carpetas que hay
@@ -596,14 +567,10 @@ pub struct Detection {
     pub confidence: f64,
 }
 
-fn round2(x: f64) -> f64 {
-    (x * 100.0).round_ties_even() / 100.0
-}
-
 /// El nombre de un artista ya plano, como expresión que admite separadores
 /// entre sus palabras («miel san marcos» casa con «Miel-San Marcos»).
 fn artist_pattern(flat_artist: &str) -> Re {
-    let words: Vec<String> = py_words(flat_artist).map(regex::escape).collect();
+    let words: Vec<String> = flat_artist.split_whitespace().map(regex::escape).collect();
     rx(&format!(r"(?i)\s*\b{}\b\s*", words.join(r"[\s.'\-]*")))
 }
 
@@ -664,7 +631,7 @@ pub fn detect_artist(name: &str, vocab: &[(String, String)]) -> Detection {
         artist: artist.to_string(),
         title,
         feat,
-        confidence: round2(score),
+        confidence: crate::num::round_to(score, 2),
     }
 }
 
@@ -712,7 +679,7 @@ static TOPIC: LazyLock<Re> = LazyLock::new(|| rx(r"(?i)\s*-\s*topic\s*$"));
 /// El canal como artista: «BarakVEVO» → «Barak», «Ish Melton - Topic» → «Ish Melton».
 pub fn channel_as_artist(channel: &str) -> String {
     let c = clean(channel);
-    let c = py_trim(&sub(&TRAILING_VEVO, &c, "")).to_string();
+    let c = sub(&TRAILING_VEVO, &c, "").trim().to_string();
     let c = sub(&CHANNEL_NOISE, &c, "");
     strip_chars(&c, " -–—,|").to_string()
 }

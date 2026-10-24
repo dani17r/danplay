@@ -584,7 +584,7 @@ fn lookup(app: &App, query: &str, key: &str, cancel: &AtomicBool, blocked: &Atom
             let mut d = Dict::new();
             d.insert("ok".into(), false.into());
             let why = if e.is_empty() {
-                "Exception".to_owned()
+                "error desconocido".to_owned()
             } else {
                 e
             };

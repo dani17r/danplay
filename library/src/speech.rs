@@ -7,7 +7,7 @@
 //! copiadas aquí a mano (de su salida, no de su código). Coincide palabra por
 //! palabra en un 96-97 % de un corpus normal; lo que falla son excepciones de
 //! su diccionario (`México`, nombres de letras), que en una guía no aparecen.
-use crate::names::{Re, group, is_py_space, py_trim, rx, sub, sub_with};
+use crate::names::{Re, group, rx, sub, sub_with};
 use crate::patterns::{ascii_digits, whole};
 use std::collections::HashMap;
 use std::sync::LazyLock;
@@ -253,8 +253,18 @@ fn times<'a>(t: &'a str, g: &crate::names::Groups) -> &'a str {
 /// El texto como se dice: sin cifras ni abreviaturas, con su punto al final
 /// (sin él, algunas voces cortan la última sílaba).
 pub fn normalize(text: &str, lang: &str) -> String {
-    let text: String = text.nfc().collect();
-    let mut text = sub(&SPACES, py_trim(&text), " ");
+    // los separadores de información (U+001C-U+001F), como espacios
+    let text: String = text
+        .nfc()
+        .map(|c| {
+            if matches!(c, '\u{1c}'..='\u{1f}') {
+                ' '
+            } else {
+                c
+            }
+        })
+        .collect();
+    let mut text = sub(&SPACES, text.trim(), " ");
     if lang == "en" {
         text = sub_with(&TIMES, &text, |t, g| {
             format!("{} times", number_text(times(t, g), "en"))
@@ -770,12 +780,12 @@ pub fn phonemes(text: &str, dialect: &str) -> String {
     let mut s = String::new();
     for t in across(&tokens) {
         if is_pause(&t) {
-            s = s.trim_end_matches(is_py_space).to_string();
+            s = s.trim_end_matches(char::is_whitespace).to_string();
         }
         s.push_str(&t);
         s.push(' ');
     }
-    py_trim(&s).to_string()
+    s.trim().to_string()
 }
 
 /// Los fonemas como los números que espera una voz de Piper: ^ _ p _ p _ … $
@@ -838,7 +848,7 @@ mod tests {
         assert_eq!(
             normalize("x \x1c p5", "es"),
             "x p cinco.",
-            "U+001C es espacio, como en Python"
+            "U+001C es un espacio"
         );
     }
 

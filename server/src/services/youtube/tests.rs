@@ -107,7 +107,7 @@ fn what_the_finish_returns_becomes_after() {
     );
     assert_eq!(
         after_of(Box::new(|_| Err(String::new())), Vec::new(), job),
-        json!({"state": "error", "error": "Exception", "job": 7})
+        json!({"state": "error", "error": "error desconocido", "job": 7})
     );
     assert_eq!(
         after_of(Box::new(|_| Ok(Some(json!([1])))), Vec::new(), job),
@@ -150,7 +150,9 @@ fn what_is_asked_and_what_comes_back() {
         Value::Object(query_result(&Value::Null, &seen).expect("nada")),
         json!({"ok": false, "reason": "no se encontro nada", "items": []})
     );
-    assert!(query_result(&json!({"duration": "x"}), &seen).is_err());
+    // una duración que no es un número cuenta como 0
+    let odd = query_result(&json!({"duration": "x"}), &seen).expect("uno");
+    assert_eq!(odd["items"][0]["duration"], json!(0.0));
     assert_eq!(single(Value::Null), Err("no se pudo leer el video"));
     assert_eq!(single(json!({"entries": [null]})), Err("lista vacia"));
     assert_eq!(

@@ -97,16 +97,15 @@ fn duplicate_match_key() {
 }
 
 #[test]
-fn words_as_python_understands_them() {
-    assert_eq!(python_semantics(r"[^\w\s]"), r"[^\p{L}\p{N}_\s\x1c-\x1f]");
+fn words_are_letters_numbers_and_underscores() {
+    assert_eq!(own_words(r"[^\w\s]"), r"[^\p{L}\p{N}_\s]");
     assert!(
-        needs_python("c\u{301}") && needs_python("½") && !needs_python("Señor - Mi Gozo (2018)")
+        needs_own_words("c\u{301}")
+            && needs_own_words("½")
+            && !needs_own_words("Señor - Mi Gozo (2018)")
     );
-    assert_eq!(
-        python_semantics(r"@\s*[\w.]+"),
-        r"@[\s\x1c-\x1f]*[\p{L}\p{N}_.]+"
-    );
-    // la marca combinada no es parte de la palabra, como en Python
+    assert_eq!(own_words(r"@\s*[\w.]+"), r"@\s*[\p{L}\p{N}_.]+");
+    // la marca combinada no es parte de la palabra
     assert_eq!(strip_noise("@3c\u{301}i.x hola"), " \u{301}i.x hola");
     assert_eq!(
         clean("Vi\u{301}deo oficial de Mi Gozo"),
@@ -115,10 +114,9 @@ fn words_as_python_understands_them() {
 }
 
 #[test]
-fn control_separators_are_spaces_like_python() {
+fn control_separators_split_words() {
     assert_eq!(match_key("0\u{1f}0\u{80}.mp3"), "");
     assert_eq!(match_key("hola\u{1f}mundo.mp3"), "hola mundo");
-    assert_eq!(py_trim("\u{1c} x \u{1f}"), "x");
 }
 
 // ------------------------------------------------- lo de tests/test_core.py
@@ -637,7 +635,7 @@ mod properties {
     fn the_match_key_is_stable() {
         for s in texts(6) {
             let k = match_key(&format!("{s}.mp3"));
-            let words: Vec<&str> = py_words(&k).collect();
+            let words: Vec<&str> = k.split_whitespace().collect();
             assert!(
                 words.windows(2).all(|w| w[0] < w[1]),
                 "ordenada y sin repetir: {s:?} → {k:?}"

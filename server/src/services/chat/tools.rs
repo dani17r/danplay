@@ -443,16 +443,9 @@ pub struct ServerIo<'a> {
 
 type R<T> = Result<T, ApiError>;
 
-/// `int(v)` de Python, con su `ValueError`/`TypeError` como texto.
-pub fn py_int(v: &Value) -> R<i64> {
-    match v {
-        Value::Null | Value::Array(_) | Value::Object(_) => Err(ApiError::internal(format!(
-            "int() argument must be a string, a bytes-like object or a real number, not '{}'",
-            library::assistant::value::type_name(v)
-        ))),
-        other => value::int_of(other)
-            .ok_or_else(|| ApiError::internal(format!("{other} no es un número entero"))),
-    }
+/// Un entero de lo que pidió el asistente (un número, o un texto con uno).
+pub fn int_arg(v: &Value) -> R<i64> {
+    value::int_of(v).ok_or_else(|| ApiError::internal(format!("{v} no es un número entero")))
 }
 
 fn obj(d: Option<Dict>) -> Value {
@@ -480,7 +473,7 @@ impl Io for ServerIo<'_> {
     }
 
     fn song(&mut self, id: &Value) -> R<Value> {
-        let id = py_int(id)?;
+        let id = int_arg(id)?;
         Ok(obj(songs::by_id(self.app, id)?))
     }
 
@@ -496,15 +489,15 @@ impl Io for ServerIo<'_> {
         let mut fields = Dict::new();
         fields.insert("lyrics".into(), lyrics.clone());
         fields.insert("lyrics_synced".into(), synced.clone());
-        songs::update(self.app, py_int(id)?, &fields).map(|_| ())
+        songs::update(self.app, int_arg(id)?, &fields).map(|_| ())
     }
 
     fn edit(&mut self, id: &Value, fields: &Dict) -> R<Value> {
-        Ok(obj(songs::edit(self.app, py_int(id)?, fields)?))
+        Ok(obj(songs::edit(self.app, int_arg(id)?, fields)?))
     }
 
     fn trash(&mut self, id: &Value) -> R<Value> {
-        songs::trash(self.app, py_int(id)?, false)
+        songs::trash(self.app, int_arg(id)?, false)
     }
 
     fn history(&mut self, limit: i64) -> Option<Value> {
@@ -575,14 +568,14 @@ impl Io for ServerIo<'_> {
         if ints.is_empty() {
             return Ok(json!(0));
         }
-        Ok(json!(playlists::add(self.app, py_int(id)?, &ints)?))
+        Ok(json!(playlists::add(self.app, int_arg(id)?, &ints)?))
     }
 
     fn set_songs(&mut self, id: &Value, ids: &Value) -> R<Value> {
         let ints = lists::ints(ids);
         Ok(Value::Object(playlists::set_songs(
             self.app,
-            py_int(id)?,
+            int_arg(id)?,
             &ints,
         )?))
     }
@@ -602,24 +595,24 @@ impl Io for ServerIo<'_> {
     }
 
     fn remove(&mut self, id: &Value) -> R<()> {
-        playlists::remove(self.app, py_int(id)?)
+        playlists::remove(self.app, int_arg(id)?)
     }
 
     fn remove_songs(&mut self, id: &Value, ids: &[i64]) -> R<()> {
-        playlists::remove_song(self.app, py_int(id)?, ids)
+        playlists::remove_song(self.app, int_arg(id)?, ids)
     }
 
     fn rate(&mut self, id: &Value, stars: i64) -> R<Value> {
-        Ok(json!(songs::rate(self.app, py_int(id)?, stars)?))
+        Ok(json!(songs::rate(self.app, int_arg(id)?, stars)?))
     }
 
     fn favorite(&mut self, id: &Value, value: &Value) -> R<Value> {
-        let ok = songs::favorite(self.app, py_int(id)?, value::truthy(value))?;
+        let ok = songs::favorite(self.app, int_arg(id)?, value::truthy(value))?;
         Ok(json!(ok))
     }
 
     fn export_sheet(&mut self, id: &Value, with_lyrics: &Value) -> R<Value> {
-        let path = playlists::export_sheet(self.app, py_int(id)?, value::truthy(with_lyrics))?;
+        let path = playlists::export_sheet(self.app, int_arg(id)?, value::truthy(with_lyrics))?;
         Ok(json!(path))
     }
 

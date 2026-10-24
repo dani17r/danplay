@@ -51,44 +51,13 @@ fn a_video_shared_from_a_list_is_one_video() {
 }
 
 #[test]
-fn long_videos_are_filtered_like_python() {
-    assert_eq!(wanted(None), Ok(None));
-    assert_eq!(wanted(Some(Seconds::Int(200))), Ok(None));
-    assert_eq!(wanted(Some(Seconds::Int(1800))), Ok(None));
-    assert_eq!(
-        wanted(Some(Seconds::Int(3 * 3600))),
-        Ok(Some("dura 180 minutos; el tope son 30".into()))
-    );
-    assert_eq!(
-        wanted(Some(Seconds::Float(1800.5))),
-        Ok(Some(too_long("30")))
-    );
-    assert_eq!(wanted(Some(Seconds::Float(f64::NAN))), Ok(None));
-    assert_eq!(
-        wanted(Some(Seconds::Float(f64::INFINITY))),
-        Err("cannot convert float NaN to integer".into())
-    );
-    assert_eq!(
-        wanted(Some(Seconds::Float(1e20)))
-            .expect("vale")
-            .expect("larga"),
-        too_long("1666666666666666752")
-    );
-    // `//` de Python: 1 // 0.1 es 9, aunque 1 / 0.1 sea 10
-    assert_eq!((1.0f64 / 0.1).floor().to_bits(), 10.0f64.to_bits());
-    assert_eq!(floor_div(1.0, 0.1).to_bits(), 9.0f64.to_bits());
-    assert_eq!(floor_div(-7.0, 2.0).to_bits(), (-4.0f64).to_bits());
-    assert!(floor_div(0.0, -3.0).is_sign_negative());
-}
-
-#[test]
 fn the_fields_we_keep_from_yt_dlp() {
     let info = json!({
         "id": "uno", "title": "Una", "uploader": "", "channel": "Canal", "duration": 90,
         "original_url": "https://youtu.be/uno", "artist": "  Ish Melton ", "track": null,
     });
     let get = |k: &str| info.get(k).cloned().unwrap_or(Value::Null);
-    let got = pick_fields(get).expect("se leen");
+    let got = pick_fields(get);
     assert_eq!(
         Value::Object(got),
         json!({
@@ -97,20 +66,17 @@ fn the_fields_we_keep_from_yt_dlp() {
             "album": "",
         })
     );
+    // lo que no es lo esperado no rompe nada: un número que llega como
+    // texto vale; un texto que no es un número, 0; lo que no es texto, vacío
     let odd = json!({"duration": "12.5", "artist": 5});
-    let get = |k: &str| odd.get(k).cloned().unwrap_or(Value::Null);
+    let got = pick_fields(|k: &str| odd.get(k).cloned().unwrap_or(Value::Null));
     assert_eq!(
-        pick_fields(get),
-        Err(FieldError::Attribute(
-            "'int' object has no attribute 'strip'".into()
-        ))
+        (got["duration"].clone(), got["artist"].clone()),
+        (json!(12.5), json!(""))
     );
     let bad = json!({"duration": "doce"});
-    let get = |k: &str| bad.get(k).cloned().unwrap_or(Value::Null);
-    assert_eq!(
-        pick_fields(get),
-        Err(FieldError::Value("«doce» no es un número".into()))
-    );
+    let got = pick_fields(|k: &str| bad.get(k).cloned().unwrap_or(Value::Null));
+    assert_eq!(got["duration"], json!(0.0));
 }
 
 #[test]
@@ -189,24 +155,12 @@ fn the_downloaded_file_is_named_without_youtube_noise() {
             &json!("Palisades - Personal (Official Video)"),
             &json!("uno")
         ),
-        Ok("Palisades - Personal".into())
+        "Palisades - Personal"
     );
-    assert_eq!(
-        provisional_name(&json!(""), &json!("")),
-        Ok("descarga".into())
-    );
-    assert_eq!(
-        provisional_name(&json!(null), &json!("abc")),
-        Ok("abc".into())
-    );
+    assert_eq!(provisional_name(&json!(""), &json!("")), "descarga");
+    assert_eq!(provisional_name(&json!(null), &json!("abc")), "abc");
     let long = "palabra ".repeat(40);
-    assert!(
-        provisional_name(&json!(long), &json!("x"))
-            .expect("vale")
-            .chars()
-            .count()
-            <= 120
-    );
+    assert!(provisional_name(&json!(long), &json!("x")).chars().count() <= 120);
     assert_eq!(
         outtmpl("/tmp/danplay-yt-1"),
         "/tmp/danplay-yt-1/%(id)s.%(ext)s".replace('/', std::path::MAIN_SEPARATOR_STR)
@@ -274,8 +228,8 @@ fn the_history_row_points_at_the_song_you_had() {
         (row.get("song_id"), row.get("target")),
         (Some(&Value::Null), Some(&json!("")))
     );
-    assert_eq!(short("  mucho \n texto ", "Error"), "mucho texto");
-    assert_eq!(short(" ", "RuntimeError"), "RuntimeError");
+    assert_eq!(short("  mucho \n texto "), "mucho texto");
+    assert_eq!(short(" "), "error desconocido");
 }
 
 // ------------------------------------------------- lo de tests/test_core.py
@@ -316,16 +270,13 @@ fn provisional_name_is_already_clean() {
             &json!("BARAK - Sera Llena La Tierra (VIDEO OFICIAL) HD"),
             &json!("xyz")
         ),
-        Ok("Barak - Sera Llena La Tierra".into())
+        "Barak - Sera Llena La Tierra"
     );
 }
 
 #[test]
 fn falls_back_to_id_without_title() {
-    assert_eq!(
-        provisional_name(&json!(""), &json!("abc123")),
-        Ok("abc123".into())
-    );
+    assert_eq!(provisional_name(&json!(""), &json!("abc123")), "abc123");
 }
 
 #[test]

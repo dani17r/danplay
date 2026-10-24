@@ -16,14 +16,13 @@ pub const MARGIN: f64 = 0.03;
 /// El fundido más largo del editor.
 pub const EDIT_FADE_MAX: f64 = 5.0;
 
-/// `max(a, b)` de Python: `a`, salvo que `b` sea mayor (con un NaN, el
-/// primero).
-fn py_max(a: f64, b: f64) -> f64 {
+/// El mayor de los dos (con un NaN de por medio, el primero).
+fn larger(a: f64, b: f64) -> f64 {
     if b > a { b } else { a }
 }
 
-/// `min(a, b)` de Python.
-fn py_min(a: f64, b: f64) -> f64 {
+/// El menor de los dos (con un NaN de por medio, el primero).
+fn smaller(a: f64, b: f64) -> f64 {
     if b < a { b } else { a }
 }
 
@@ -502,8 +501,8 @@ pub fn trim(
     end: Option<f64>,
 ) -> Option<(usize, usize, f64, f64)> {
     let total = length as f64 / f64::from(rate.max(1));
-    let a = py_max(0.0, py_min(start, total));
-    let b = end.map_or(total, |end| py_max(a, py_min(end, total)));
+    let a = larger(0.0, smaller(start, total));
+    let b = end.map_or(total, |end| larger(a, smaller(end, total)));
     if b - a < 0.05 {
         return None;
     }
@@ -557,7 +556,7 @@ pub fn fades(
         return Err("division by zero".into());
     }
     let half_len = x.len() as f64 / f64::from(rate) / 2.0;
-    let cap = |v: f64| py_max(0.0, py_min(py_min(v, EDIT_FADE_MAX), half_len));
+    let cap = |v: f64| larger(0.0, smaller(smaller(v, EDIT_FADE_MAX), half_len));
     let (fi, fo) = (cap(input), cap(output));
     let n = x.len();
     if fi > 0.0 {
