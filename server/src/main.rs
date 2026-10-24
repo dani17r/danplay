@@ -1,7 +1,7 @@
-//! `danplay-server`: la API de Rust por un socket, con los mismos argumentos
-//! que el núcleo empaquetado de Python de hasta la 1.30. La app no lo usa
-//! (lleva el núcleo dentro): es para las pruebas de la interfaz y los
-//! diferenciales con el de Python.
+//! `danplay-server`: la API del núcleo por un socket, con los mismos
+//! argumentos que el núcleo empaquetado de Python de hasta la 1.30. La app no
+//! lo usa (lleva el núcleo dentro): es para las pruebas de la interfaz (las
+//! e2e) y para desarrollarla con `vp dev`.
 //!
 //! ```text
 //! danplay-server --uds RUTA          socket Unix (Linux y macOS)
@@ -70,13 +70,16 @@ fn alive(_pid: i32) -> bool {
     true
 }
 
+/// El proceso que hay que vigilar según `DANPLAY_PARENT_PID`: ninguno si no
+/// está o no es un número de proceso que valga.
+fn parent_pid(raw: Option<&str>) -> Option<i32> {
+    raw.and_then(|p| p.trim().parse::<i32>().ok())
+        .filter(|p| *p > 0)
+}
+
 /// Se apaga si la app desaparece: nada de núcleos huérfanos.
 fn watch_parent(stop: std::sync::mpsc::Sender<()>) {
-    let Some(pid) = std::env::var("DANPLAY_PARENT_PID")
-        .ok()
-        .and_then(|p| p.trim().parse::<i32>().ok())
-        .filter(|p| *p > 0)
-    else {
+    let Some(pid) = parent_pid(std::env::var("DANPLAY_PARENT_PID").ok().as_deref()) else {
         return;
     };
     let _ = std::thread::Builder::new()
@@ -192,5 +195,31 @@ fn main() {
     if let Err(e) = run(app, address, Some(stop_rx)) {
         let _ = writeln!(std::io::stderr(), "danplay: no se pudo escuchar: {e}");
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// tests/test_serve.py: se vigila el proceso que dice la variable; uno
+    /// que ya terminó no está; y un número raro no vigila nada.
+    #[test]
+    fn the_parent_is_watched_only_with_a_valid_pid() {
+        assert_eq!(parent_pid(Some(" 4242 ")), Some(4242));
+        for raw in [None, Some(""), Some("abc"), Some("0"), Some("-5")] {
+            assert_eq!(parent_pid(raw), None, "{raw:?}");
+        }
+        let me = i32::try_from(std::process::id()).expect("pid");
+        assert!(alive(me));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_finished_process_is_not_alive() {
+        let mut child = std::process::Command::new("true").spawn().expect("lanzar");
+        let pid = i32::try_from(child.id()).expect("pid");
+        child.wait().expect("esperar");
+        assert!(!alive(pid));
     }
 }

@@ -7,6 +7,10 @@ struct Fake {
     songs: BTreeMap<i64, Value>,
     lists: BTreeMap<i64, (String, Vec<i64>)>,
     calls: Vec<String>,
+    /// (qué, límite) de cada búsqueda: en la biblioteca, en YouTube, en la web
+    limits: Vec<(&'static str, i64)>,
+    /// los campos de cada `edit`
+    edits: Vec<Dict>,
 }
 
 fn song(id: i64, artist: &str, title: &str) -> Value {
@@ -33,8 +37,9 @@ type R<T> = Result<T, String>;
 
 impl Io for Fake {
     type Error = String;
-    fn search(&mut self, query: &str, _: &str, _: i64, _: bool) -> R<Value> {
+    fn search(&mut self, query: &str, _: &str, limit: i64, _: bool) -> R<Value> {
         self.calls.push(format!("search {query}"));
+        self.limits.push(("biblioteca", limit));
         Ok(Value::Array(
             self.songs
                 .values()
@@ -62,7 +67,8 @@ impl Io for Fake {
     fn save_lyrics(&mut self, _: &Value, _: &Value, _: &Value) -> R<()> {
         Ok(())
     }
-    fn edit(&mut self, id: &Value, _: &Dict) -> R<Value> {
+    fn edit(&mut self, id: &Value, fields: &Dict) -> R<Value> {
+        self.edits.push(fields.clone());
         self.song(id)
     }
     fn trash(&mut self, _: &Value) -> R<Value> {
@@ -154,7 +160,11 @@ impl Io for Fake {
     fn export_sheet(&mut self, _: &Value, _: &Value) -> R<Value> {
         Ok(json!("/Listas/domingo.html"))
     }
-    fn lyrics_by_name(&mut self, _: &Value, _: &Value) -> R<Value> {
+    fn lyrics_by_name(&mut self, artist: &Value, title: &Value) -> R<Value> {
+        // lo que daría LRCLIB por artista y título (lo de `old_names_still_work`)
+        if artist == "Barak" && title == "Mi Gozo" {
+            return Ok(json!({"lyrics": "Barak/Mi Gozo", "source": "lrclib"}));
+        }
         Ok(Value::Null)
     }
     fn lyrics_of(&mut self, _: &Value, _: &Value, _: &Value, _: &Value) -> R<Value> {
@@ -195,8 +205,9 @@ impl Io for Fake {
     fn youtube_unavailable(&mut self) -> R<Value> {
         Ok(json!(""))
     }
-    fn youtube_info(&mut self, query: &str, _: i64) -> R<Value> {
+    fn youtube_info(&mut self, query: &str, limit: i64) -> R<Value> {
         self.calls.push(format!("info {query}"));
+        self.limits.push(("youtube", limit));
         Ok(
             json!({"ok": true, "items": [{"title": "T", "channel": "C", "duration": 200.5, "url": "u"}]}),
         )
@@ -209,7 +220,8 @@ impl Io for Fake {
             json!({"active": false, "phase": "", "name": "", "percent": 0, "index": 0, "total": 0, "error": ""}),
         )
     }
-    fn web_search(&mut self, _: &str, _: i64) -> R<Value> {
+    fn web_search(&mut self, _: &str, limit: i64) -> R<Value> {
+        self.limits.push(("web", limit));
         Ok(json!([]))
     }
     fn default_quality(&mut self) -> R<Value> {
@@ -497,4 +509,60 @@ fn the_dialog_warns_of_a_recent_download() {
         describe("delete_playlist", &args(json!({"name": "nadie"})), &mut f).unwrap_or_default(),
         "Borrar el repertorio la lista nadie. Las canciones no se borran."
     );
+}
+
+// ------------------------------------------------- lo de tests/test_ai.py
+
+/// Un límite negativo era «sin límite» para SQLite; los demás, a su tope.
+#[test]
+fn tools_have_limits() {
+    let mut f = fake();
+    for limit in [json!(-1), json!(1_000_000_000_i64), json!("muchas")] {
+        run_ok(&mut f, "search_songs", json!({"query": "", "limit": limit}));
+    }
+    run_ok(
+        &mut f,
+        "search_youtube",
+        json!({"query": "x", "limit": 500}),
+    );
+    run_ok(&mut f, "search_web", json!({"query": "x", "limit": 500}));
+    assert_eq!(
+        f.limits,
+        [
+            ("biblioteca", 1),
+            ("biblioteca", 200),
+            ("biblioteca", 30),
+            ("youtube", 20),
+            ("web", 10)
+        ]
+    );
+}
+
+/// Una clave de más llegaba a `library.update` y podía pisar el estudio o
+/// los acordes.
+#[test]
+fn assistant_edit_only_touches_declared_fields() {
+    let mut f = fake();
+    let r = run_ok(
+        &mut f,
+        "edit_song",
+        json!({"id": 1, "title": "Nuevo", "study": "{}", "chords": "x", "lyrics_synced": "y"}),
+    );
+    assert_eq!(r["ok"], json!(true));
+    assert_eq!(f.edits, [args(json!({"title": "Nuevo"}))]);
+    let r = run_ok(&mut f, "edit_song", json!({"id": 1, "study": "{}"}));
+    assert!(r.get("error").is_some(), "{r}");
+}
+
+/// Los nombres viejos siguen valiendo: sin id, la letra va por artista y
+/// título (el alias quita el id: ver `alias` en el servidor).
+#[test]
+fn lyrics_without_id_go_by_artist_and_title() {
+    let mut f = fake();
+    let r = run_ok(
+        &mut f,
+        "get_lyrics",
+        json!({"artist": "Barak", "title": "Mi Gozo"}),
+    );
+    assert_eq!(r["lyrics"], json!("Barak/Mi Gozo"));
 }

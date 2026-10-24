@@ -444,4 +444,199 @@ mod tests {
         );
         assert_eq!(encode(&Val::Null, ";"), Err(Error::Delimiter));
     }
+
+    /// Lo de tests/test_ai.py: la especificación de TOON, caso a caso.
+    #[test]
+    #[allow(
+        clippy::approx_constant,
+        reason = "el -3.14 de la prueba de Python, no π"
+    )]
+    fn toon_follows_the_spec() {
+        use serde_json::json;
+        let enc = |v: serde_json::Value| encode(&Val::from(v), ",").expect("toon");
+        assert_eq!(
+            enc(json!({"user": {"id": 123, "name": "Ada"}})),
+            "user:\n  id: 123\n  name: Ada"
+        );
+        assert_eq!(
+            enc(json!({"tags": ["admin", "ops", "dev"]})),
+            "tags[3]: admin,ops,dev"
+        );
+        assert_eq!(
+            enc(json!({"items": [
+                {"sku": "A1", "qty": 2, "price": 9.99},
+                {"sku": "B2", "qty": 1, "price": 14.5},
+            ]})),
+            "items[2]{sku,qty,price}:\n  A1,2,9.99\n  B2,1,14.5"
+        );
+        assert_eq!(
+            enc(json!({"items": [1, {"a": 1}, "text"]})),
+            "items[3]:\n  - 1\n  - a: 1\n  - text"
+        );
+        assert_eq!(enc(json!({"e": [], "o": {}})), "e: []\no:");
+        // números, booleanos y nulos tal cual; los flotantes enteros sin «.0»
+        let numbers = Val::Object(vec![
+            ("a".into(), Val::Real(2.0)),
+            ("b".into(), Val::Real(-3.14)),
+            ("c".into(), Val::Null),
+            ("d".into(), Val::Bool(true)),
+            ("e".into(), Val::Real(f64::NAN)),
+        ]);
+        assert_eq!(
+            encode(&numbers, ",").expect("toon"),
+            "a: 2\nb: -3.14\nc: null\nd: true\ne: null"
+        );
+        // comillas SOLO cuando hace falta, con sus escapes
+        assert_eq!(
+            enc(json!({
+                "a": "Hello world",
+                "b": "123",
+                "c": "true",
+                "d": " x",
+                "e": "",
+                "f": "a:b",
+                "g": "x,y",
+                "h": "-1x",
+                "i": "say \"hi\"",
+                "j": "l1\nl2",
+                "k": "Barak - Mi Gozo (En Vivo)",
+            })),
+            "a: Hello world\nb: \"123\"\nc: \"true\"\nd: \" x\"\ne: \"\"\nf: \"a:b\"\ng: \"x,y\"\n\
+             h: \"-1x\"\ni: \"say \\\"hi\\\"\"\nj: \"l1\\nl2\"\nk: Barak - Mi Gozo (En Vivo)"
+        );
+        assert_eq!(enc(json!({"my-key": [1, 2, 3]})), "\"my-key\"[3]: 1,2,3");
+        // una lista de objetos desiguales o anidados va en forma de lista
+        assert_eq!(
+            enc(json!({"d": [{"ok": true, "m": []}, {"ok": false, "m": [{"id": 1}]}]})),
+            "d[2]:\n  - ok: true\n    m: []\n  - ok: false\n    m[1]{id}:\n      1"
+        );
+        // otro delimitador se declara en la cabecera y vale en todas partes
+        assert_eq!(
+            encode(
+                &Val::from(json!({"items": [{"sku": "A1", "name": "x,y"}]})),
+                "|"
+            )
+            .expect("toon"),
+            "items[1|]{sku|name}:\n  A1|x,y"
+        );
+        assert_eq!(encode(&Val::from(json!({})), ";"), Err(Error::Delimiter));
+    }
+
+    // --------------------------------------- lo de tests/test_properties.py
+    // Con cualquier texto y cualquier valor (en Python con Hypothesis; aquí
+    // con un generador fijo).
+
+    use crate::testkit::{CASES, Gen, NASTY};
+
+    /// Cuando va entre comillas, el escape es el de JSON: se puede leer igual.
+    #[test]
+    fn a_text_round_trips_through_toon() {
+        let mut g = Gen::new(21);
+        for _ in 0..CASES {
+            let s = g.text(60, NASTY);
+            let out = string(&s, ",");
+            if out.starts_with('"') {
+                let back: String = serde_json::from_str(&out)
+                    .unwrap_or_else(|e| panic!("{s:?} → {out:?} no es JSON: {e}"));
+                assert_eq!(back, s);
+            } else {
+                assert_eq!(out, s);
+                assert_eq!(s, py_trim(&s));
+                assert!(!RESERVED.contains(&s.as_str()), "{s:?}");
+            }
+        }
+    }
+
+    /// Un número entero cualquiera, también de los que no caben en 64 bits
+    /// (los de Python no tienen tope).
+    fn integer(g: &mut Gen) -> String {
+        match g.below(3) {
+            0 => g.between(-1000, 1000).to_string(),
+            1 => (g.between(i64::MIN / 2, i64::MAX / 2) * 2).to_string(),
+            _ => {
+                let digits: String = (0..g.between(1, 40))
+                    .map(|_| char::from(b'0' + g.below(10) as u8))
+                    .collect();
+                format!("{}{digits}", if g.below(2) == 0 { "-" } else { "" })
+            }
+        }
+    }
+
+    /// Un decimal cualquiera salvo NaN (los infinitos y el -0.0, sí).
+    fn real(g: &mut Gen) -> f64 {
+        loop {
+            let bits = g.below(usize::MAX) as u64;
+            let x = match g.below(4) {
+                0 => f64::from_bits(bits),
+                1 => *g.pick(&[0.0, -0.0, f64::INFINITY, f64::NEG_INFINITY, 1e16, 1e-5]),
+                _ => g.between(-100_000, 100_000) as f64 / 64.0,
+            };
+            if !x.is_nan() {
+                return x;
+            }
+        }
+    }
+
+    /// `JSONISH` de Python: escalares, listas y diccionarios anidados, con
+    /// unas 20 hojas como mucho.
+    fn jsonish(g: &mut Gen, leaves: &mut usize) -> Val {
+        if *leaves == 0 || g.below(3) > 0 {
+            *leaves = leaves.saturating_sub(1);
+            return match g.below(6) {
+                0 => Val::Null,
+                1 => Val::Bool(g.below(2) == 0),
+                2 => Val::Integer(integer(g)),
+                3 => Val::Real(real(g)),
+                _ => Val::Text(g.text(20, NASTY)),
+            };
+        }
+        let n = g.below(5);
+        if g.below(2) == 0 {
+            Val::List((0..n).map(|_| jsonish(g, leaves)).collect())
+        } else {
+            Val::Object(
+                (0..n)
+                    .map(|_| (g.text(10, NASTY), jsonish(g, leaves)))
+                    .collect(),
+            )
+        }
+    }
+
+    #[test]
+    fn toon_encodes_anything() {
+        let mut g = Gen::new(22);
+        for _ in 0..CASES {
+            let mut leaves = 20;
+            let value = jsonish(&mut g, &mut leaves);
+            assert!(encode(&value, ",").is_ok(), "{value:?}");
+        }
+    }
+
+    #[test]
+    fn a_list_of_uniform_rows_is_a_table() {
+        let mut g = Gen::new(23);
+        for _ in 0..CASES {
+            let rows: Vec<Val> = (0..g.between(1, 10))
+                .map(|_| {
+                    obj(&[
+                        ("id", Val::Integer(integer(&mut g))),
+                        ("title", Val::Text(g.text(20, NASTY))),
+                    ])
+                })
+                .collect();
+            let n = rows.len();
+            let out = encode(&obj(&[("songs", Val::List(rows))]), ",").expect("toon");
+            let mut lines = out.split('\n');
+            // las columnas, en el orden de la primera fila
+            assert_eq!(
+                lines.next(),
+                Some(format!("songs[{n}]{{id,title}}:").as_str())
+            );
+            assert_eq!(
+                lines.count(),
+                n,
+                "una línea por fila, aunque un título lleve saltos: {out:?}"
+            );
+        }
+    }
 }

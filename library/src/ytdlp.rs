@@ -1,14 +1,11 @@
-//! yt-dlp al día: lo de danplay/ytdlp.py que no es la red ni cargar el
-//! módulo de Python. Qué versión es más nueva, qué motor de JavaScript hay
-//! y si le vale a yt-dlp, qué versión descargada toca usar (y cuál se
-//! aparta), qué rueda de PyPI se baja y con qué yt-dlp-ejs, si coincide con
-//! lo que publica PyPI, y descomprimirla sin que un nombre raro escriba
-//! fuera ni el total se dispare.
+//! yt-dlp al día (lo que era danplay/ytdlp.py): qué versión es más nueva,
+//! qué motor de JavaScript hay y si le vale a yt-dlp, qué versión descargada
+//! toca usar (y cuál se aparta), qué rueda de PyPI se baja y con qué
+//! yt-dlp-ejs, si coincide con lo que publica PyPI, y descomprimirla sin que
+//! un nombre raro escriba fuera ni el total se dispare.
 //!
-//! Python sigue con lo que es suyo: pedir a PyPI (las pruebas cortan la red
-//! en Python), el buscador de módulos que hace que `import yt_dlp` cargue la
-//! carpeta descargada, el cerrojo de lectura y escritura alrededor, y la
-//! caché del motor de JavaScript.
+//! Bajarlo, el cerrojo alrededor y la caché del motor de JavaScript son de
+//! `server::services::ytdlp`.
 use crate::{processes, py};
 use serde_json::Value;
 use sha2::{Digest, Sha256};

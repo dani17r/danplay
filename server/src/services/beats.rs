@@ -85,18 +85,21 @@ fn grid_error(m: String) -> BeatsError {
 
 // ---------------------------------------------------------------- dónde está todo
 
-/// El grafo de Beat This! (`danplay/data/pulse/beat_this.onnx`).
+/// El grafo de Beat This! (`data/pulse/beat_this.onnx`).
 pub fn graph(app: &App) -> PathBuf {
+    // el de las pruebas: el detector de mentira no lo lee (y uno que no
+    // está es «aquí no hay detector»)
+    #[cfg(test)]
+    if let Some(g) = tests::graph_override() {
+        return g;
+    }
     app.resources.join("pulse").join("beat_this.onnx")
 }
 
 /// `beatgrid.available()`: por qué no se puede calcular aquí, o vacío.
 pub fn available(app: &App) -> String {
     // con otro detector (`set_detector`), ONNX Runtime es cosa suya
-    let custom = DETECTOR
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .is_some();
+    let custom = custom_detector().is_some();
     if !custom && crate::services::onnx::library(app).is_none() {
         return "falta onnxruntime en esta instalación de DanPlay".into();
     }
@@ -508,7 +511,9 @@ pub fn from_api(v: &Value) -> Json {
 /// Con qué se lanza el detector: el propio programa con `--pulse`. La app
 /// que lleve el enrutador dentro tiene que contestar a ese argumento con
 /// `child_main` (como `danplay-server`); quien quiera otro (las pruebas),
-/// `set_detector`.
+/// `set_detector`, o desde fuera del proceso `DANPLAY_PULSE_DETECTOR` (una
+/// lista JSON: `["python3", "detector.py"]`), como hacen las pruebas de la
+/// API de Python contra este núcleo.
 static DETECTOR: Mutex<Option<Vec<OsString>>> = Mutex::new(None);
 
 /// Cambia el programa del detector (`[programa, argumentos...]`, a los que
@@ -517,12 +522,22 @@ pub fn set_detector(command: Vec<OsString>) {
     *DETECTOR.lock().unwrap_or_else(PoisonError::into_inner) = Some(command);
 }
 
-fn detector() -> Vec<OsString> {
+/// El detector puesto a mano (`set_detector` o `DANPLAY_PULSE_DETECTOR`).
+fn custom_detector() -> Option<Vec<OsString>> {
     if let Some(c) = DETECTOR
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
         .clone()
     {
+        return Some(c);
+    }
+    let raw = std::env::var("DANPLAY_PULSE_DETECTOR").ok()?;
+    let command: Vec<String> = serde_json::from_str(&raw).ok()?;
+    (!command.is_empty()).then(|| command.into_iter().map(OsString::from).collect())
+}
+
+fn detector() -> Vec<OsString> {
+    if let Some(c) = custom_detector() {
         return c;
     }
     let exe = std::env::current_exe().map_or_else(
@@ -752,6 +767,21 @@ struct Queue {
     failed: HashMap<String, String>,
     progress: HashMap<String, f64>,
     worker: bool,
+    /// el hilo, parado por una prueba (lo que en Python era tener `_WAKE`):
+    /// lo que se pide se queda en la cola tal cual, para mirarla
+    #[cfg(test)]
+    paused: bool,
+}
+
+/// Si una prueba paró el hilo (`tests::Paused`).
+#[cfg(test)]
+const fn held(q: &Queue) -> bool {
+    q.paused
+}
+
+#[cfg(not(test))]
+const fn held(_: &Queue) -> bool {
+    false
 }
 
 static QUEUE: LazyLock<Mutex<Queue>> = LazyLock::new(|| Mutex::new(Queue::default()));
@@ -829,14 +859,21 @@ fn work() {
     loop {
         let (path, app) = {
             let mut q = QUEUE.lock().unwrap_or_else(PoisonError::into_inner);
-            loop {
-                if let Some(next) = q.waiting.pop_front() {
+            let next = loop {
+                if !held(&q)
+                    && let Some(next) = q.waiting.pop_front()
+                {
                     break next;
                 }
                 q = WAKE.wait(q).unwrap_or_else(PoisonError::into_inner);
-            }
+            };
+            // con el mismo cerrojo con que sale de la cola: si no, durante un
+            // momento no estaba ni en la cola ni calculándose (`idle` decía
+            // que ya no quedaba nada, `progress` que no se pidió, y pedirla
+            // otra vez la volvía a poner en cola)
+            q.busy = Some(next.0.clone());
+            next
         };
-        QUEUE.lock().unwrap_or_else(PoisonError::into_inner).busy = Some(path.clone());
         let p = PathBuf::from(&path);
         let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| grid_of(&app, &p)));
         let failed = match outcome {
@@ -869,3 +906,6 @@ pub fn idle(timeout: Duration) -> bool {
         .unwrap_or_else(PoisonError::into_inner);
     !r.timed_out()
 }
+
+#[cfg(test)]
+pub(crate) mod tests;

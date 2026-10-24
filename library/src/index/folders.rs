@@ -594,3 +594,18 @@ fn walk(
     }
     true
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Pegar «/» a una cadena decía que /musica-copia estaba dentro de
+    /// /musica (lo de tests/test_core.py).
+    #[test]
+    fn being_inside_the_library_is_decided_by_components() {
+        assert!(inside("/musica/artistas/x.mp3", "/musica"));
+        assert!(inside("/musica", "/musica"));
+        assert!(!inside("/musica-copia/x.mp3", "/musica"));
+        assert!(!inside("/otro/x.mp3", "/musica"));
+    }
+}

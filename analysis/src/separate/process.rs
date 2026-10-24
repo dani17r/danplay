@@ -890,3 +890,6 @@ pub fn run_max(
         levels: heard,
     })
 }
+
+#[cfg(test)]
+mod tests;

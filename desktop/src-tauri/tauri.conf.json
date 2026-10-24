@@ -3,9 +3,9 @@
   "productName": "DanPlay",
   "identifier": "local.danplay.app",
   "build": {
-    "beforeDevCommand": "npm run dev",
+    "beforeDevCommand": "vp run dev",
     "devUrl": "http://localhost:5273",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "vp run build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -22,6 +22,7 @@
       },
       {
         "label": "mini",
+        "create": false,
         "url": "index.html?mini=1",
         "title": "DanPlay",
         "width": 340,
@@ -36,6 +37,7 @@
       },
       {
         "label": "projection",
+        "create": false,
         "url": "index.html?projection=1",
         "title": "DanPlay · Proyección",
         "width": 1280,

@@ -16,9 +16,8 @@
   <img alt="Windows" src="https://img.shields.io/badge/Windows-portable%20%2B%20instalador-0078d4?logo=windows&logoColor=white">
   <img alt="Vue 3" src="https://img.shields.io/badge/Vue-3-42b883?logo=vue.js&logoColor=white">
   <img alt="Rust" src="https://img.shields.io/badge/Rust-Tauri%202-b7410e?logo=rust&logoColor=white">
-  <img alt="Python" src="https://img.shields.io/badge/Python-3.13-3776ab?logo=python&logoColor=white">
-  <img alt="Version" src="https://img.shields.io/badge/version-1.30.0-4ade80">
-  <img alt="Pruebas" src="https://img.shields.io/badge/pruebas-1.602%20en%20verde-2ea043">
+  <img alt="Version" src="https://img.shields.io/badge/version-1.40.0-4ade80">
+  <img alt="Pruebas" src="https://img.shields.io/badge/pruebas-2.671%20en%20verde-2ea043">
 </p>
 
 <!--
@@ -142,14 +141,14 @@ OpenRouter… o un modelo en tu propio equipo.
 
 ## Instalación
 
-Se construye desde el código. Hacen falta Node 24 y Rust (Python y
-[uv](https://docs.astral.sh/uv/), solo para las pruebas del núcleo de
-Python, que sigue en el repositorio de testigo):
+Se construye desde el código. Hacen falta Node 24,
+[Vite+](https://viteplus.dev) (`vp`, que se encarga de Bun) y Rust. Nada
+más: todo DanPlay es Rust y la interfaz.
 
 ```bash
 git clone https://github.com/dani17r/danplay.git && cd danplay
 
-cd desktop && npm ci && cd ..
+cd desktop && vp install && cd ..
 
 cp .env.example .env        # y rellena las claves que quieras usar
 ./scripts/build.sh          # interfaz + datos + app, con el núcleo dentro
@@ -170,10 +169,10 @@ sin esas dos funciones:
 sudo apt install ffmpeg libchromaprint-tools
 ```
 
-`scripts/build.sh --package` genera además un `.deb` y un `.AppImage`. No
-llevan Python: el núcleo va dentro de la app, con sus datos (los modelos del
-pulso y del separador, las voces y ONNX Runtime, que los mueve) y sus
-programas (ffmpeg, fpcalc, QuickJS y yt-dlp). Tampoco `mutagen` (GPL): las
+`scripts/build.sh --package` genera además un `.deb` y un `.AppImage`. El
+núcleo va dentro de la app, con sus datos (los modelos del pulso y del
+separador, las voces y ONNX Runtime, que los mueve) y sus programas
+(ffmpeg, fpcalc, QuickJS y yt-dlp). No llevan `mutagen` (GPL): las
 etiquetas las escribe el núcleo, con lofty — [por qué importa](docs/DEPENDENCIES.md#mutagen-ya-no-va-en-los-paquetes).
 
 > **Nota sobre las claves.** DanPlay funciona sin ninguna clave: escanea,
@@ -274,23 +273,10 @@ genero:alabanza anio:2019     todo combinable
 
 ## Desde la terminal
 
-Todo lo que hace la app se puede hacer sin ella, con la línea de órdenes del
-núcleo de Python (`./danplay.sh`, desde el `.venv` del proyecto; la app ya no
-la usa):
-
-```bash
-danplay status                       configuración y resumen
-danplay scan                         (re)indexar
-danplay search artista:barak vivo    búsqueda avanzada
-danplay import --dry-run             ver qué haría con Entrada/ sin tocar nada
-danplay youtube <url|texto>          descargar de YouTube y archivar
-danplay duplicates                   informe (nunca borra solo)
-danplay playlist                     repertorios
-danplay organize rolas               renombrar una carpeta existente
-danplay watch                        procesa Entrada/ según caen archivos
-danplay pulse                        el clic de toda la biblioteca, otra vez
-danplay reuse                        recuperar pistas, clic y listas de otra copia
-```
+El núcleo de Python de hasta la 1.30 traía una línea de órdenes (`danplay
+status`, `scan`, `import`, `youtube`…). En la 1.40 se fue con él: todo se
+hace desde la app. Para desarrollar, `danplay-server` sirve la API del
+núcleo por un socket (ver [Contribuir](docs/CONTRIBUTING.md)).
 
 ## Cómo está hecho
 
@@ -320,10 +306,9 @@ Cuatro capas, cada una en lo que mejor se le da:
   el índice al día con lo que cambia en el disco. Y dos redes con ONNX
   Runtime, sin PyTorch: Demucs, que separa las pistas, y Beat This!, que saca
   el pulso y el «1» para el metrónomo.
-- **Python**: el núcleo de antes, que sigue en el repositorio con la misma API
-  (`danplay/`, con su puente PyO3 en `core/`) para sus pruebas y para
-  comparar el de Rust con él, respuesta a respuesta. La app ya no lo lleva
-  (ver [la migración](docs/MIGRATION.md)).
+- Hasta la 1.30 el núcleo era **Python**, un programa aparte. Pasó a Rust
+  módulo a módulo, con la misma API, y en la 1.40 salió del repositorio con
+  sus pruebas ya pasadas a Rust (ver [la migración](docs/MIGRATION.md)).
 
 El código está en inglés; los comentarios y todo lo que ve el usuario, en
 castellano.
@@ -525,27 +510,45 @@ Prefiero decirlo aquí que en un issue:
 | [Contrato interno](docs/INTERNAL-CONTRACT.md) | Qué se dicen las capas: comandos, eventos y nombres de cada campo. |
 | [Windows](docs/WINDOWS.md) | Las dos formas (portátil e instalador), cómo se construyen desde Linux y qué cambia respecto a Linux. |
 | [Contribuir](docs/CONTRIBUTING.md) | Cómo montar el entorno, ejecutar las pruebas y en qué se puede ayudar. |
+| [La migración](docs/MIGRATION.md) | Cómo pasó el núcleo de Python a Rust, fase a fase, y lo que se ganó. |
+| [Las pruebas de Python, en Rust](docs/TESTS-PORT.md) | Dónde está ahora cada prueba que era de Python. |
 | [Cambios](CHANGELOG.md) | Qué trae cada versión. |
 | [Dependencias](docs/DEPENDENCIES.md) | Qué usa DanPlay de otros y con qué licencia. |
 
 ## Pruebas
 
 ```bash
-./scripts/test.sh
+./scripts/test.sh            # todo, como la CI, más las e2e y las de humo
+./scripts/test.sh --quick    # sin las e2e ni las de humo
 ```
 
-1.598 pruebas repartidas así (la CI las pasa todas menos las de humo, que
+Solo hacen falta Rust, Vite+ y ffmpeg (para la biblioteca de prueba). Una
+tanda suelta:
+
+```bash
+cargo test --release -p danplay-server   # un crate (library, analysis, engine…)
+cd desktop && vp test run                # la interfaz
+cargo build -p danplay-server && (cd desktop && vp run e2e)   # los flujos en Chrome
+```
+
+2.671 pruebas repartidas así (la CI las pasa todas menos las de humo, que
 necesitan la app ya compilada):
 
 | Tanda | Pruebas |
 | --- | --- |
-| Núcleo Python: nombres, etiquetas (mp3, flac, ogg, m4a…), índice y esquema, duplicados, teoría, la API entera sobre una biblioteca temporal de verdad, el vigilante de carpetas (mover, borrar, renombrar, carpetas que se van y vuelven), IA con cualquier proveedor, asistente, descargas y yt-dlp, separar en pistas (el motor contra una red de mentira, la cola, las carpetas, la mezcla), el pulso de Beat This! (también contra una red de mentira) y el clic de la mezcla, CLI, privacidad | 596 |
-| Interfaz: componentes, páginas, reactividad, teclado y accesibilidad, listas grandes y agrupadas, temas, contratos, chat, modo estudio y su mezclador, proyección | 808 |
+| Núcleo, la biblioteca (`danplay-library`): nombres, etiquetas (mp3, flac, ogg, m4a…), índice y esquema, duplicados, teoría y cifrados, IA con cualquier proveedor, el asistente por dentro, listas, los datos de fuera como dato | 543 |
+| Núcleo, la API (`danplay-server`): la API entera sobre una biblioteca temporal de verdad, el vigilante de carpetas (mover, borrar, renombrar, carpetas que se van y vuelven), descargas y yt-dlp, separar en pistas (contra una red de mentira: la cola, las carpetas, la mezcla), el pulso y su cola, el chat contra IA de mentira, privacidad; y el núcleo por un socket | 541 |
+| Núcleo, el análisis (`danplay-analysis`): el pulso de Beat This!, el clic de la mezcla, el separador (Demucs y el Mega53), los pesos de PyTorch leídos sin PyTorch, la guía automática, las voces | 61 |
+| El motor de audio (`danplay-engine`): decodificar, estirar y remuestrear, las pistas juntas, el pulso y el sonido del clic | 69 |
+| La app de escritorio (`danplay-app`): reproductor (con audio de verdad), cola, sesión, bandeja, núcleo, permisos por ventana, metrónomo (la cuenta y sus sonidos), limitador, las pistas separadas sonando juntas | 102 |
+| La app del celular (`danplay-mobile`): lo que contesta en vez del núcleo, sus listas y la música del teléfono | 16 |
+| Interfaz: componentes, páginas, reactividad, teclado y accesibilidad, listas grandes y agrupadas, temas, contratos, chat, modo estudio y su mezclador, proyección | 1.288 |
 | Interfaz: rutas de medios en cada sistema | 7 |
-| Rust: reproductor (con audio de verdad), cola, sesión, bandeja, núcleo, permisos por ventana, metrónomo (la cuenta y sus sonidos), limitador, las pistas separadas sonando juntas | 143 |
-| Rust: hashes y forma de onda | 14 |
-| De punta a punta: la interfaz contra el núcleo de verdad, en Chrome (Playwright) | 12 |
+| De punta a punta: la interfaz contra el núcleo de verdad (`danplay-server`), en Chrome (Playwright) | 26 |
 | Humo sobre la app **ya compilada** o empaquetada (el binario de un .deb o el AppImage) | 18 |
+
+Las del núcleo eran de Python hasta la 1.40: se pasaron a Rust una a una,
+con las mismas comprobaciones ([dónde está cada una](docs/TESTS-PORT.md)).
 
 La biblioteca de prueba **se genera**: mp3 de verdad hechos con ffmpeg. Antes
 hacía falta la música de quien ejecutara las pruebas y en cualquier otra
@@ -558,11 +561,12 @@ socket ni puerto TCP abierto, que encuentra ONNX Runtime y ffmpeg, que saca
 el pulso de una canción, que una segunda instancia se va sin tocar la
 primera y que al cerrarla no queda ningún proceso suyo.
 
-Además, en cada push: estilo y formato (ruff, ESLint, stylelint, Prettier,
-rustfmt, clippy sin avisos), tipos (basedpyright, vue-tsc), cobertura mínima
-(núcleo 70 %, interfaz 84 %), que el código solo-Windows compila, que
-`src/icons.js` sigue siendo lo que genera `npm run icons` y los avisos de
-seguridad de todas las dependencias.
+Además, en cada push: estilo y formato (ESLint, stylelint, Oxfmt, rustfmt,
+clippy sin avisos), tipos (vue-tsc), cobertura mínima de la interfaz (84 %
+de las líneas), las pruebas del núcleo también en Windows, que el código
+solo-Windows de la app compila, que `src/icons.js` sigue siendo lo que
+genera `vp run icons` y los avisos de seguridad de las dependencias (`cargo
+audit` y `bun audit`).
 
 ## Licencia
 

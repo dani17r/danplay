@@ -20,12 +20,14 @@ APP="$TARGET/release/danplay-app"
 step () { printf '\n\033[36m== %s\033[0m\n' "$1"; }
 die () { printf '\n\033[31mERROR\033[0m  %s\n' "$1" >&2; exit 1; }
 
+# la interfaz se compila con Vite+ (vp), que usa Bun (y lo baja si no esta)
+command -v vp >/dev/null 2>&1 || die "falta Vite+ (vp): curl -fsSL https://vite.plus | bash"
 mkdir -p dist/installers
 
 step "1/3  interfaz (Vite)"
-( cd desktop && npx vite build )
+( cd desktop && vp build )
 
-step "2/3  datos que viajan con la app (ONNX Runtime y danplay/data)"
+step "2/3  datos que viajan con la app (ONNX Runtime y data/)"
 ./scripts/data.sh
 # el nucleo de Python empaquetado de hasta la 1.30 (core/) y el de un solo
 # archivo de antes (binaries/), si quedaron: ya no viajan
@@ -39,7 +41,7 @@ if [ "${1:-}" = "--package" ]; then
     # La compila `tauri build` (con su entorno: compilarla tambien con cargo
     # era hacerlo dos veces), pero sin empaquetar todavia: antes se saca con
     # ella la foto del catalogo (abajo).
-    ( cd desktop && npx tauri build --no-bundle )
+    ( cd desktop && vp exec tauri build --no-bundle )
 else
     # workspace de Cargo: sale en target/ de la raiz
     cargo build --release -p danplay-app
@@ -69,7 +71,7 @@ if [ "${1:-}" = "--package" ]; then
     # Sin `|| true`: si el empaquetado falla hay que enterarse. Antes se lo
     # tragaba y luego se copiaban los paquetes VIEJOS con fecha nueva, que es
     # la peor forma de fallar: parece que funciono y arrancas la app de ayer.
-    ( cd desktop && npx tauri bundle --bundles deb,appimage )
+    ( cd desktop && vp exec tauri bundle --bundles deb,appimage )
 
     # Y fuera tambien los de la version anterior en el destino, por lo mismo.
     rm -f dist/installers/*.deb dist/installers/*.AppImage

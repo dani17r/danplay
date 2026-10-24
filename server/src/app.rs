@@ -39,7 +39,7 @@ pub struct State {
     pub playlists_lock: RLock,
     /// el diario: lo último escrito y lo recuperado (`journal._STATE`)
     pub journal: journal::State,
-    /// los datos que viajan con la app (`danplay/data`: la foto del
+    /// los datos que viajan con la app (`data/`: la foto del
     /// catálogo de modelos, las voces...)
     pub resources: PathBuf,
     /// ffmpeg, fpcalc...: dónde están, y cuándo se miró (`convert.tool`)
@@ -111,8 +111,8 @@ impl App {
 
     /// La app empaquetada (la de escritorio, con el núcleo dentro): la
     /// configuración del entorno sin mirar el proyecto aunque esté en este
-    /// equipo (ni su .env, ni su danplay.db, ni su `danplay/data`, ni su
-    /// .venv), y los datos que viajan con ella en `resources`. Sin esto, la
+    /// equipo (ni su .env, ni su danplay.db, ni su `data/`), y los datos
+    /// que viajan con ella en `resources`. Sin esto, la
     /// app compilada en el equipo donde está el código se creía en
     /// desarrollo: el núcleo de Python lo sabía por `sys.frozen`.
     pub fn packaged(guard: Guard, resources: PathBuf) -> Self {
@@ -195,6 +195,16 @@ impl App {
         found
     }
 
+    /// En las pruebas: que la app crea que ese programa no está, aunque esté
+    /// en el PATH (en Python, `monkeypatch` de `available`). Vale una hora:
+    /// el «visto» queda en el futuro y `elapsed()` da cero hasta entonces.
+    #[cfg(test)]
+    pub(crate) fn hide_tool(&self, name: &str) {
+        let mut tools = self.tools.lock().unwrap_or_else(PoisonError::into_inner);
+        let later = Instant::now() + Duration::from_secs(3600);
+        tools.insert(name.to_owned(), (None, later));
+    }
+
     /// Lo que dice `config.env(name, default)` de Python (el entorno, los
     /// archivos de ajustes y los nombres de antes).
     pub fn env(&self, name: &str, default: &str) -> String {
@@ -244,7 +254,7 @@ pub fn frozen() -> bool {
 /// respaldo, como en config.py), o la carpeta del ejecutable.
 pub fn project_root() -> PathBuf {
     let dev = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
-    if !frozen() && dev.join("danplay").is_dir() {
+    if !frozen() && dev.join("Cargo.toml").is_file() {
         return PathBuf::from(library::py::normpath(&dev.to_string_lossy()));
     }
     std::env::current_exe()
@@ -253,8 +263,8 @@ pub fn project_root() -> PathBuf {
         .unwrap_or_default()
 }
 
-/// Dónde están los datos que viajan con la app: `DANPLAY_RESOURCES`, o los
-/// del proyecto (`danplay/data`), o `data/` junto al ejecutable.
+/// Dónde están los datos que viajan con la app: `DANPLAY_RESOURCES`, o
+/// `data/` en la raíz del proyecto (o junto al ejecutable).
 fn resources_dir() -> PathBuf {
     if let Some(dir) = RESOURCES.get() {
         return dir.clone();
@@ -262,9 +272,53 @@ fn resources_dir() -> PathBuf {
     if let Some(dir) = std::env::var_os("DANPLAY_RESOURCES").filter(|d| !d.is_empty()) {
         return PathBuf::from(dir);
     }
-    let dev = project_root().join("danplay").join("data");
-    if dev.is_dir() {
-        return dev;
-    }
     project_root().join("data")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn meta_keys(app: &App) -> Vec<String> {
+        app.db(|c| {
+            let mut stmt = c.prepare("SELECT key FROM meta")?;
+            stmt.query_map([], |r| r.get::<_, String>(0))?
+                .collect::<library::rusqlite::Result<Vec<_>>>()
+        })
+        .expect("leer")
+    }
+
+    /// Lo de tests/test_schema.py (`with library.connect() as conn`): lo que
+    /// se escribe dentro se confirma al acabar bien y se deshace si algo
+    /// falla. Como en Python, escribir abre la transacción (`index::begin`,
+    /// lo que hacen las funciones de la biblioteca antes de escribir). Que la
+    /// conexión quede cerrada al salir lo da Rust: se suelta con el bloque.
+    #[test]
+    fn a_db_block_commits_or_rolls_back() {
+        let app = crate::tests::app();
+        app.db(|c| -> Result<(), ApiError> {
+            library::index::begin(c)?;
+            c.execute("INSERT INTO meta (key, value) VALUES ('prueba', 1)", [])?;
+            Ok(())
+        })
+        .expect("escribir");
+        let failed = app.db(|c| -> Result<(), ApiError> {
+            library::index::begin(c)?;
+            c.execute("INSERT INTO meta (key, value) VALUES ('deshecha', 1)", [])?;
+            Err(ApiError::internal("algo fallo"))
+        });
+        assert!(failed.is_err());
+        // con el permiso de escribir pedido antes, igual
+        let failed = app.db_write(|c| -> Result<(), ApiError> {
+            c.execute("INSERT INTO meta (key, value) VALUES ('tampoco', 1)", [])?;
+            Err(ApiError::internal("algo fallo"))
+        });
+        assert!(failed.is_err());
+        let keys = meta_keys(&app);
+        assert!(keys.iter().any(|k| k == "prueba"), "{keys:?}");
+        assert!(
+            !keys.iter().any(|k| k == "deshecha" || k == "tampoco"),
+            "{keys:?}"
+        );
+    }
 }

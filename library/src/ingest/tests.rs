@@ -52,6 +52,7 @@ impl Outside for Fake {
         from_tags(self, path).map_err(|e| format!("{e:?}"))
     }
     fn fingerprint_step(&mut self, _: &String) -> Result<Json, String> {
+        self.calls.push("huella".into());
         Err("AcoustID caído".into())
     }
     fn heuristic_step(&mut self, path: &String, vocab: &Vocab) -> Result<Json, String> {
@@ -268,6 +269,47 @@ fn a_known_name_skips_the_cascade_and_a_category_has_its_folder() {
     assert!(
         !f.calls.iter().any(|c| c.starts_with("ia:")),
         "ni IA: el nombre ya venía"
+    );
+}
+
+/// Con `known`, se archiva con ese nombre y no se llama a la huella ni a la
+/// IA (lo de tests/test_core.py): el nombre de una descarga lo pone YouTube.
+#[test]
+fn a_process_with_a_known_name_skips_the_cascade() {
+    let root = library();
+    let mut f = Fake::default();
+    let p = file(&format!(
+        "{root}/Entrada/Que Se Abra El Cielo (Drum Cam).mp3"
+    ));
+    let known = Json::Dict(vec![
+        (t("artist"), s("Ish Melton")),
+        (t("title"), s("Que Se Abra El Cielo (Drum Cam)")),
+        (t("feat"), s("")),
+        (t("source"), s("youtube")),
+        (t("confidence"), Json::Float(0.85)),
+    ]);
+    let folders = folders();
+    let r = process(&mut f, p, &Vocab, asked(false), &known, &folders).expect("vale");
+    assert_eq!((r.action, &r.artist), ("moved", &s("Ish Melton")));
+    let target = std::path::PathBuf::from(plain(r.target.as_ref().expect("hay destino")));
+    assert_eq!(
+        target.file_name().and_then(|n| n.to_str()),
+        Some("Ish Melton - Que Se Abra El Cielo (Drum Cam).mp3")
+    );
+    assert_eq!(
+        target
+            .parent()
+            .and_then(Path::file_name)
+            .and_then(|n| n.to_str()),
+        Some("Ish Melton")
+    );
+    assert_eq!(r.source, s("youtube"));
+    assert!(
+        !f.calls
+            .iter()
+            .any(|c| c == "huella" || c.starts_with("ia:")),
+        "ni huella ni IA: el nombre ya venía decidido: {:?}",
+        f.calls
     );
 }
 

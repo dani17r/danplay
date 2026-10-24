@@ -1,6 +1,7 @@
 //! Lo de tests/test_mega.py que no necesita ffmpeg: el espectrograma, el
 //! orden de la red y el reparto con una red de mentira.
 use super::*;
+use std::path::Path;
 
 #[test]
 #[allow(clippy::many_single_char_names)]
@@ -174,4 +175,229 @@ fn split_adds_up_and_follows_what_the_net_hears() {
         stem_of("piano").iter().all(|v| v.abs() < 1e-3),
         "lo que la red no oye no se reparte"
     );
+}
+
+// ------------------------------------------- la pasada entera, con ffmpeg
+
+/// Las cabezas del Mega53, en su orden (las de la prueba de Python).
+const HEADS: [&str; 20] = [
+    "drums",
+    "percussion",
+    "congas",
+    "tambourine",
+    "bass",
+    "vocal",
+    "lead-vocal",
+    "back-vocal",
+    "guitar",
+    "electric-guitar",
+    "acoustic-guitar",
+    "piano",
+    "digital-piano",
+    "keys",
+    "organ",
+    "synth",
+    "strings",
+    "bowed_strings",
+    "brass",
+    "wind",
+];
+
+/// El archivo de cada pista (`stems.SOURCES` de la biblioteca).
+const FILES: [(&str, &str); 16] = [
+    ("drums", "Bateria"),
+    ("percussion", "Percusion"),
+    ("vocals", "Voces"),
+    ("lead", "Voz"),
+    ("backing", "Coros"),
+    ("bass", "Bajo"),
+    ("guitar", "Guitarra"),
+    ("eguitar", "Guitarra-electrica"),
+    ("aguitar", "Guitarra-acustica"),
+    ("piano", "Piano"),
+    ("organ", "Organo"),
+    ("keys", "Teclados"),
+    ("strings", "Cuerdas"),
+    ("brass", "Metales"),
+    ("wind", "Vientos"),
+    ("other", "Otros"),
+];
+
+/// Un wav estéreo de 16 bits con la misma señal en los dos canales.
+fn write_wav(path: &Path, x: &[f64]) {
+    let mut data = Vec::with_capacity(x.len() * 4);
+    for v in x {
+        // como `astype("<i2")` de numpy: hacia el cero
+        let s = (v * 32767.0) as i16;
+        data.extend(s.to_le_bytes());
+        data.extend(s.to_le_bytes());
+    }
+    let rate = u32::try_from(RATE).expect("cabe");
+    let size = u32::try_from(data.len()).expect("cabe");
+    let mut out = b"RIFF".to_vec();
+    out.extend((36 + size).to_le_bytes());
+    out.extend(b"WAVEfmt ");
+    out.extend(16u32.to_le_bytes());
+    out.extend(1u16.to_le_bytes());
+    out.extend(2u16.to_le_bytes());
+    out.extend(rate.to_le_bytes());
+    out.extend((rate * 4).to_le_bytes());
+    out.extend(4u16.to_le_bytes());
+    out.extend(16u16.to_le_bytes());
+    out.extend(b"data");
+    out.extend(size.to_le_bytes());
+    out.extend(data);
+    std::fs::write(path, out).expect("escribir el wav");
+}
+
+/// Lo de tests/test_mega.py: la pasada de máxima calidad sobre las pistas
+/// buenas de una canción de 4 s (batería, bajo y voces) con una red de
+/// mentira. La percusión sale; sin coros, las voces quedan como estaban; lo
+/// que no suena no es pista, y todo junto suena como la canción.
+#[test]
+#[allow(
+    clippy::too_many_lines,
+    reason = "la canción, el trabajo y lo que se mira, como en Python"
+)]
+fn the_max_pass_keeps_what_sounds_and_the_rest_is_other() {
+    use crate::separate::process::{JobNet, decode};
+    use crate::separate::{Job, Pares, Warning, run_max};
+    let Some(ffmpeg) = crate::testkit::ffmpeg() else {
+        println!("sin ffmpeg: la pasada de máxima calidad no se comprueba");
+        return;
+    };
+    let ffmpeg = ffmpeg.to_string_lossy().into_owned();
+    let dir = crate::testkit::Scratch::new("maxima");
+    let text = |p: &Path| p.to_string_lossy().into_owned();
+    let n = RATE * 4;
+    let tone = |hz: f64, a: f64| -> Vec<f64> {
+        (0..n)
+            .map(|i| a * (2.0 * std::f64::consts::PI * hz * i as f64 / RATE as f64).sin())
+            .collect()
+    };
+    let parts: [(&str, Vec<f64>); 4] = [
+        (
+            "drums",
+            tone(200.0, 0.2)
+                .iter()
+                .zip(tone(3000.0, 0.2))
+                .map(|(a, b)| a + b)
+                .collect(),
+        ),
+        ("bass", tone(60.0, 0.3)),
+        ("vocals", tone(440.0, 0.2)),
+        ("guitar", tone(700.0, 0.2)),
+    ];
+    let mut total = vec![0f64; n];
+    for (name, x) in &parts {
+        write_wav(&dir.join(format!("{name}.wav")), x);
+        for (t, v) in total.iter_mut().zip(x) {
+            *t += v;
+        }
+    }
+    let song = dir.join("cancion.wav");
+    write_wav(&song, &total);
+    let manifest = dir.join("mega53.json");
+    std::fs::write(
+        &manifest,
+        serde_json::json!({"heads": HEADS, "chunk": 44_100 * 2}).to_string(),
+    )
+    .expect("manifiesto");
+    let out = dir.join("pistas");
+    let job = Job {
+        input: text(&song),
+        ffmpeg: ffmpeg.clone(),
+        output: text(&out),
+        files: Pares(
+            FILES
+                .iter()
+                .map(|(s, f)| ((*s).to_owned(), format!("{f}.flac")))
+                .collect(),
+        ),
+        rest: "other".into(),
+        carry: Some(Pares(
+            ["drums", "bass", "vocals"]
+                .iter()
+                .map(|k| ((*k).to_owned(), text(&dir.join(format!("{k}.wav")))))
+                .collect(),
+        )),
+        nets: None,
+        keep: None,
+        waves: Some(text(&out.join("ondas.json"))),
+        format: None,
+        threads: None,
+        mega: Some(JobNet {
+            graph: "x".into(),
+            manifest: text(&manifest),
+            weights: "y".into(),
+            take: Vec::new(),
+        }),
+    };
+    let hz = FREQS as f64 / (RATE as f64 / 2.0);
+    let fr = |a: f64, b: f64| ((a * hz) as usize, (b * hz) as usize);
+    let bands = vec![
+        ("congas".to_owned(), fr(150.0, 260.0)),
+        ("drums".to_owned(), fr(2500.0, 3500.0)),
+        ("electric-guitar".to_owned(), fr(600.0, 800.0)),
+        ("lead-vocal".to_owned(), fr(380.0, 500.0)),
+    ];
+    let mut said = Vec::new();
+    let r = run_max(
+        &job,
+        &mut |_, _, _, _| {
+            Ok(Box::new(Bands {
+                heads: HEADS.map(str::to_owned).to_vec(),
+                bands: bands.clone(),
+            }))
+        },
+        &mut |w| {
+            said.push(w);
+            Ok(())
+        },
+    )
+    .expect("separa");
+    let tracks: Vec<&str> = r.stems.iter().map(|(s, _)| s.as_str()).collect();
+    for s in ["drums", "percussion", "bass", "vocals", "eguitar", "other"] {
+        assert!(tracks.contains(&s), "falta {s}: {tracks:?}");
+    }
+    for s in ["lead", "backing", "piano", "strings"] {
+        assert!(!tracks.contains(&s), "{s} no suena: {tracks:?}");
+    }
+    // todo junto suena como la canción
+    let mix = decode(&ffmpeg, &text(&song)).expect("la canción");
+    let mut sum = vec![0f32; mix.len()];
+    for (_, name) in &r.stems {
+        let x = decode(&ffmpeg, &text(&out.join(name))).expect("una pista");
+        assert_eq!(x.len(), mix.len(), "{name}");
+        for (s, v) in sum.iter_mut().zip(&x) {
+            *s += v;
+        }
+    }
+    let worst = sum
+        .iter()
+        .zip(&mix)
+        .map(|(a, b)| (a - b).abs())
+        .fold(0f32, f32::max);
+    assert!(worst < 2e-3, "se aparta {worst}");
+    let percussion = r
+        .levels
+        .iter()
+        .find(|(s, _)| s == "percussion")
+        .map(|(_, l)| l.db)
+        .expect("el nivel de la percusión");
+    assert!(percussion > -20.0, "{percussion}");
+    assert!(said.contains(&Warning::Step("compose")), "{said:?}");
+    let waves: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(out.join("ondas.json")).expect("ondas"))
+            .expect("ondas");
+    let mut drawn: Vec<&str> = waves["tracks"]
+        .as_object()
+        .expect("pistas")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    drawn.sort_unstable();
+    let mut made = tracks.clone();
+    made.sort_unstable();
+    assert_eq!(drawn, made);
 }

@@ -89,6 +89,13 @@ pub fn cached_cover(path: &Path) -> Option<Cover> {
     found
 }
 
+/// Lo que ocupa ahora la caché de carátulas y su tope (para las pruebas).
+#[cfg(test)]
+pub fn cover_cache_bytes() -> (usize, usize) {
+    let cache = COVERS.lock().unwrap_or_else(PoisonError::into_inner);
+    (cache.bytes, COVER_CACHE_MAX_BYTES)
+}
+
 /// `tags.forget_cover(path)`: olvida lo recordado de un archivo (por si se
 /// tocó sin cambiar la fecha).
 pub fn forget_cover(path: &Path) {
@@ -519,5 +526,34 @@ mod tests {
             Err(RangeError::Malformed(_))
         ));
         assert!(matches!(parse_range("bytes=0-1,1-5", 100), Ok(r) if r == vec![(0, 6)]));
+    }
+
+    /// Lo que se declara al sistema al asociar los tipos de audio con
+    /// DanPlay (tauri.conf.json) es lo que sirve la API: si no, el sistema
+    /// abre con DanPlay un tipo que luego se sirve como otro (lo de
+    /// tests/test_core.py).
+    #[test]
+    fn every_association_declares_the_type_the_api_serves() {
+        let conf = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../desktop/src-tauri/tauri.conf.json"
+        );
+        let conf: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(conf).expect("tauri.conf.json"))
+                .expect("JSON");
+        let associations = conf["bundle"]["fileAssociations"]
+            .as_array()
+            .expect("fileAssociations");
+        assert_eq!(associations.len(), AUDIO_TYPES.len());
+        for a in associations {
+            let ext = format!(".{}", a["ext"][0].as_str().expect("ext"));
+            let served = AUDIO_TYPES.iter().find(|(e, _)| *e == ext).map(|(_, t)| *t);
+            assert_eq!(
+                a["mimeType"].as_str(),
+                served,
+                "{ext} se declara como {} al sistema pero se sirve como {served:?}",
+                a["mimeType"]
+            );
+        }
     }
 }

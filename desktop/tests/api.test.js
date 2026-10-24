@@ -211,7 +211,7 @@ describe('in the browser, the UI learns about core changes', () => {
 // ---------------------------------------------------------------------------
 // Que llama cada metodo del `api`: el verbo, la ruta y el cuerpo. Es el
 // contrato con el nucleo visto desde aqui (las rutas estan en
-// docs/INTERNAL-CONTRACT.md y en danplay/api.py). Si un nombre cambia en un
+// docs/INTERNAL-CONTRACT.md y en server/src/routes/). Si un nombre cambia en un
 // lado y no en el otro, esta tabla lo dice; y si se añade un metodo sin
 // ponerlo aqui, tambien.
 describe('what each method requests from the core', () => {

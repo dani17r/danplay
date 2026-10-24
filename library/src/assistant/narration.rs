@@ -435,6 +435,156 @@ mod tests {
         assert!(!claims_action("Tienes 18 canciones de Barak."));
     }
 
+    // ----------------------------------------- lo de tests/test_ai.py
+
+    /// Las herramientas que declara el asistente y sus nombres viejos, como
+    /// las ve `PSEUDO_CALL` (y `tool_names` en el servidor).
+    fn declared_tools() -> Tools {
+        let names: Vec<String> = crate::assistant::tools::declared()
+            .iter()
+            .filter_map(|t| t["function"]["name"].as_str().map(str::to_owned))
+            .chain(
+                crate::assistant::tools::TOOL_ALIASES
+                    .iter()
+                    .map(|(k, _)| (*k).to_owned()),
+            )
+            .collect();
+        Tools::new(&names)
+    }
+
+    /// Algún modelo, en vez de llamar a la herramienta, escribe la llamada:
+    /// «búsqueda: search_songs query="rey infinito"». Si es solo eso y se
+    /// entiende, se ejecuta; si no se entiende, se le obliga a usar
+    /// herramientas de verdad (lo de la conversación, en
+    /// server/src/services/chat/tests.rs).
+    #[test]
+    fn a_tool_call_written_as_text_is_understood() {
+        let tools = declared_tools();
+        assert!(tools.is_pseudo_call(r#"search_songs query="artist:Barak" sort="duration""#));
+        assert!(tools.is_pseudo_call("play_song(12)") && tools.is_pseudo_call("list_playlists"));
+        assert!(!tools.is_pseudo_call("Busca con search_songs si quieres."));
+        assert!(!tools.is_pseudo_call("Tienes 18 canciones de Barak."));
+        assert_eq!(
+            tools.parse_pseudo_call("set_stars id=1 stars=5"),
+            Some(("set_stars".into(), serde_json::json!({"id": 1, "stars": 5})))
+        );
+        assert_eq!(
+            tools.parse_pseudo_call(r#"create_playlist name="Domingo" ids=[1, 2]"#),
+            Some((
+                "create_playlist".into(),
+                serde_json::json!({"name": "Domingo", "ids": [1, 2]})
+            ))
+        );
+        assert_eq!(tools.parse_pseudo_call("nada que ver"), None);
+        // con lo que le ponen delante algunos modelos
+        assert_eq!(
+            tools.parse_pseudo_call(r#"búsqueda: search_songs query="rey infinito""#),
+            Some((
+                "search_songs".into(),
+                serde_json::json!({"query": "rey infinito"})
+            ))
+        );
+        assert!(tools.is_pseudo_call(r#"- `search_songs query="x"`"#));
+        // lo que no se entiende (un JSON roto) no es una llamada
+        assert_eq!(tools.parse_pseudo_call(r#"set_stars: {"id": 1,"#), None);
+    }
+
+    /// «Di solo: listo» costaba cuatro llamadas: «listo» disparaba al juez. El
+    /// juez es para cuando la persona PIDIÓ hacer algo (lo de la
+    /// conversación, en server/src/services/chat/tests.rs).
+    #[test]
+    fn an_action_is_asked_only_when_it_is_asked() {
+        for text in [
+            "crea una lista con las de Barak",
+            "¿puedes marcarla como favorita?",
+            "añádela a Domingo",
+            "ponle 4",
+            "bájame lo de Barak",
+            "arregla la lista",
+        ] {
+            assert!(wants_action(text), "{text}");
+        }
+        for text in ["Di solo: listo", "¿de que año es Kind of Blue?", "hola"] {
+            assert!(!wants_action(text), "{text}");
+        }
+    }
+
+    // Narrar no es hacer: el corpus (lo de tests/test_core.py). El asistente
+    // decía «Descargando…», «Añadida a la lista», «Ya la creé» sin llamar a
+    // nada. `claims_action` es la primera red; narration/corpus.json (antes
+    // tests/narration.json) es el corpus con el que se afinó: 179 frases que
+    // afirman una acción y 134 que no (datos musicales, preguntas,
+    // condicionales, letras citadas, muletillas). Lo que se tolera —frases
+    // sobre el estado de la biblioteca que sin herramientas conviene forzar a
+    // comprobar, y un par de muletillas— está apuntado en el propio archivo.
+    // Cambiar una rama sin pasar por aquí es jugar a ciegas.
+
+    fn corpus() -> Value {
+        serde_json::from_str(include_str!("narration/corpus.json")).expect("el corpus")
+    }
+
+    fn corpus_list(v: &Value, key: &str) -> Vec<String> {
+        v[key]
+            .as_array()
+            .unwrap_or_else(|| panic!("falta «{key}»"))
+            .iter()
+            .map(|t| t.as_str().expect("texto").to_owned())
+            .collect()
+    }
+
+    #[test]
+    fn the_detector_recognizes_the_whole_narration_corpus() {
+        let d = corpus();
+        let tolerated = corpus_list(&d, "no_saltan_aunque_afirman");
+        let missed: Vec<String> = corpus_list(&d, "afirman")
+            .into_iter()
+            .filter(|t| !claims_action(t) && !tolerated.contains(t))
+            .collect();
+        assert!(
+            missed.is_empty(),
+            "narraciones que ya no se detectan: {missed:?}"
+        );
+        assert!(tolerated.len() <= 2, "que no crezca lo que se deja pasar");
+    }
+
+    #[test]
+    fn the_detector_does_not_fire_on_informative_text() {
+        let d = corpus();
+        let tolerated = corpus_list(&d, "saltan_aunque_no_afirman");
+        let fps: Vec<String> = corpus_list(&d, "no_afirman")
+            .into_iter()
+            .filter(|t| claims_action(t) && !tolerated.contains(t))
+            .collect();
+        assert!(
+            fps.is_empty(),
+            "frases informativas que ahora saltan: {fps:?}"
+        );
+        assert!(tolerated.len() <= 15, "que no crezca lo que salta de más");
+    }
+
+    /// Si una rama nueva arregla un caso tolerado, hay que quitarlo de la
+    /// lista para que la prueba lo proteja de verdad.
+    #[test]
+    fn the_tolerated_cases_are_still_the_intended_ones() {
+        let d = corpus();
+        let fixed: Vec<String> = corpus_list(&d, "no_saltan_aunque_afirman")
+            .into_iter()
+            .filter(|t| claims_action(t))
+            .collect();
+        assert!(
+            fixed.is_empty(),
+            "ya se detectan, quítalas de la lista: {fixed:?}"
+        );
+        let quiet: Vec<String> = corpus_list(&d, "saltan_aunque_no_afirman")
+            .into_iter()
+            .filter(|t| !claims_action(t))
+            .collect();
+        assert!(
+            quiet.is_empty(),
+            "ya no saltan, quítalas de la lista: {quiet:?}"
+        );
+    }
+
     /// `cargo test --release -p danplay-library measure_narration -- --ignored --nocapture`
     #[test]
     #[ignore = "solo para medir"]
@@ -445,9 +595,7 @@ mod tests {
     )]
     fn measure_narration() {
         use std::time::Instant;
-        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../tests/narration.json");
-        let v: Value =
-            serde_json::from_str(&std::fs::read_to_string(path).expect("corpus")).expect("json");
+        let v = corpus();
         let mut texts: Vec<String> = Vec::new();
         for list in v.as_object().expect("dict").values() {
             texts.extend(

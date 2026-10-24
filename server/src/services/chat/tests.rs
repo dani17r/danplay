@@ -8,9 +8,8 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
 use std::sync::Mutex;
 
-/// El registro es uno para todo el proceso: las pruebas que lo tocan van de
-/// una en una.
-static REGISTRY_TESTS: Mutex<()> = Mutex::new(());
+mod ai_cases;
+mod intake_cases;
 
 fn run(app: &App, name: &str, args: Value) -> Value {
     tools::run_tool(app, name, &args, &mut Turn::default())
@@ -78,9 +77,7 @@ fn empty_library_tools() {
 
 #[test]
 fn the_registry_of_confirmations() {
-    let _one = REGISTRY_TESTS
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let _one = crate::testkit::registry();
     let app = crate::tests::app();
     let made =
         crate::services::playlists::create(&app, "Domingo", Some(""), Some("")).expect("lista");
@@ -253,6 +250,7 @@ fn fake_ai(answers: Vec<Value>) -> (String, std::sync::Arc<Mutex<Vec<Value>>>) {
 
 #[test]
 fn a_whole_turn_against_a_fake_model() {
+    let _one = crate::testkit::registry();
     let app = crate::tests::app();
     let (url, seen) = fake_ai(vec![
         json!({"content": "", "tool_calls": [{"id": "c1", "type": "function", "function": {"name": "list_playlists", "arguments": "{}"}}]}),

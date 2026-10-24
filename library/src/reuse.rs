@@ -280,3 +280,42 @@ pub fn shift_study(study: &Dict, lag: f64) -> Dict {
     }
     out
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    /// Lo de tests/test_reuse.py: el estudio de una canción que vuelve en
+    /// otro archivo se corre lo que se corre el audio. Lo que quedaría antes
+    /// del principio, fuera (y los compases se cuentan desde lo que queda).
+    #[test]
+    fn the_study_moves_with_the_offset() {
+        let study = json!({
+            "loop": [5, 8],
+            "markers": [{"t": 0.1, "label": "fuera"}, {"t": 10, "end": 20, "label": "coro"}],
+            "cues": [{"t": 9.5, "file": "/x.wav"}],
+            "metronome": {"bpm": 120, "own": {"beats": [0.2, 0.7, 1.2], "bars": [0, 2], "meter": 4}},
+            "speed": 0.9,
+        });
+        let study = study.as_object().expect("un diccionario");
+        let out = shift_study(study, -0.5);
+        assert_eq!(out["loop"], json!([4.5, 7.5]));
+        assert_eq!(
+            out["markers"],
+            json!([{"t": 9.5, "end": 19.5, "label": "coro"}])
+        );
+        assert_eq!(out["cues"][0]["t"], 9.0);
+        assert_eq!(out["speed"], 0.9);
+        assert_eq!(
+            out["metronome"]["own"],
+            json!({"beats": [0.2, 0.7], "bars": [1], "meter": 4})
+        );
+        assert_eq!(out["metronome"]["bpm"], 120);
+        assert_eq!(
+            &shift_study(study, 0.001),
+            study,
+            "lo que no se oye no se toca"
+        );
+    }
+}

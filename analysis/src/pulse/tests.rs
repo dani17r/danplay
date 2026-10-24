@@ -13,8 +13,11 @@ fn spectrogram_has_50_frames_per_second_and_hears_pitch() {
     };
     let (grave, high) = (spectrogram(&sine(110.0)), spectrogram(&sine(4000.0)));
     assert_eq!(grave.frames, 1 + 2 * RATE as usize / HOP);
+    assert_eq!(high.frames, grave.frames);
+    assert_eq!(grave.data.len(), grave.frames * MELS);
+    // la banda más fuerte de la trama 50
     let loudest_band = |e: &Spectrum| {
-        let middle = &e.data[(e.frames / 2) * MELS..(e.frames / 2 + 1) * MELS];
+        let middle = &e.data[50 * MELS..51 * MELS];
         middle
             .iter()
             .enumerate()
@@ -24,8 +27,11 @@ fn spectrogram_has_50_frames_per_second_and_hears_pitch() {
             )
             .0
     };
-    assert!(loudest_band(&grave) < loudest_band(&high));
-    assert_eq!(spectrogram(&[0.0; 100]).frames, 2);
+    // un tono grave en las bandas de abajo, uno agudo en las de arriba
+    assert!(loudest_band(&grave) < 30 && 30 < loudest_band(&high));
+    // algo cortísimo (menos que media ventana) no revienta
+    let short = spectrogram(&[0.0; 100]);
+    assert_eq!((short.frames, short.data.len()), (2, 2 * MELS));
 }
 
 #[test]
@@ -81,10 +87,20 @@ fn song(frames: usize) -> Spectrum {
 fn chunks_join_frame_by_frame() {
     for frames in [300, 1500, 4000, 9999] {
         let mut seen = Vec::new();
-        let (beat, down) = logits(&song(frames), fake_net(25), |h, t| {
-            seen.push((h, t));
-        })
+        let mut rows_seen = Vec::new();
+        let mut net = fake_net(25);
+        let (beat, down) = logits(
+            &song(frames),
+            |data, rows| {
+                rows_seen.push(rows);
+                net(data, rows)
+            },
+            |h, t| {
+                seen.push((h, t));
+            },
+        )
         .expect("la red");
+        assert!(rows_seen.iter().all(|r| *r <= CHUNK), "{rows_seen:?}");
         assert_eq!(beat.len(), frames);
         for t in 0..frames {
             assert_eq!(beat[t] > 0.0, t % 25 == 0, "trama {t} de {frames}");
@@ -155,6 +171,82 @@ fn grid_stays_on_one_level_from_start_to_end() {
     assert!((g.end.bpm - 100.0).abs() < 0.2, "{}", g.end.bpm);
     assert_eq!(g.end.meter, 4);
     assert_eq!(g.end.bars, (0..60).step_by(4).collect::<Vec<i64>>());
+    // («closed» lo pone siempre el núcleo al guardarla: `beats::final_json`)
+    assert_eq!(g.end.first_downbeat, 0);
+}
+
+#[test]
+fn each_beat_falls_between_frames_where_it_is() {
+    // la red mira cada 20 ms; el clic no baila con ella
+    let period = 60.0 / 97.0; // no cae en tramas enteras
+    let beats: Vec<f64> = (0..80).map(|i| 0.5 + period * f64::from(i)).collect();
+    let downbeats: Vec<f64> = beats.iter().step_by(4).copied().collect();
+    let (b, d) = net(&beats, &downbeats, 60.0);
+    let got = grid(&b, &d, Options::default()).expect("rejilla").end.beats;
+    assert_eq!(got.len(), beats.len());
+    let worst = got
+        .iter()
+        .zip(&beats)
+        .map(|(a, b)| (a - b).abs())
+        .fold(0.0, f64::max);
+    assert!(worst < 0.002, "{worst}");
+}
+
+#[test]
+fn a_free_part_has_no_click_and_a_hole_in_tempo_is_filled() {
+    let period = 0.5;
+    let first: Vec<f64> = (0..24).map(|i| 1.0 + period * f64::from(i)).collect(); // hasta 12,5
+    let hole = first[23] + 4.0 * period; // cuatro pulsos sin nada, a tempo
+    let second: Vec<f64> = (0..24).map(|i| hole + period * f64::from(i)).collect(); // hasta 25,5
+    // una parte libre: no es un número entero de pulsos
+    let free = second[23] + 3.3;
+    let third: Vec<f64> = (0..24).map(|i| free + period * f64::from(i)).collect();
+    let all: Vec<f64> = [first.clone(), second.clone(), third.clone()].concat();
+    let downbeats: Vec<f64> = all.iter().step_by(4).copied().collect();
+    let (b, d) = net(&all, &downbeats, 60.0);
+    let got = grid(&b, &d, Options::default()).expect("rejilla").end.beats;
+    // el hueco a tempo, relleno; la parte libre, sin nada
+    assert_eq!(
+        got.iter()
+            .filter(|b| first[23] < **b && **b < second[0])
+            .count(),
+        3,
+        "{got:?}"
+    );
+    assert!(
+        !got.iter().any(|b| second[23] < *b && *b < third[0]),
+        "{got:?}"
+    );
+    // sin clic antes del primero ni después del último
+    assert!((got[0] - first[0]).abs() <= 0.004, "{}", got[0]);
+    assert!((got[got.len() - 1] - third[23]).abs() <= 0.004);
+    // (y con dos golpes solos no hay rejilla: `reports_when_there_is_no_beat`)
+}
+
+#[test]
+fn the_one_stays_put_unless_the_song_says_otherwise() {
+    // un «1» que la red se salta no rompe el compás (antes salían compases
+    // de 8); un compás de dos que la red oye una y otra vez, sí
+    let period = 0.5;
+    let beats: Vec<f64> = (0..64).map(|i| 1.0 + period * f64::from(i)).collect();
+    let downbeats: Vec<f64> = beats.iter().step_by(4).copied().collect();
+    let missing: Vec<f64> = downbeats
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| *i != 5)
+        .map(|(_, d)| *d)
+        .collect();
+    let (b, d) = net(&beats, &missing, 60.0);
+    let g = grid(&b, &d, Options::default()).expect("rejilla");
+    assert_eq!(g.end.bars, (0..64).step_by(4).collect::<Vec<i64>>());
+    // un compás de dos (el 2/4 antes del coro): los «1» de después se oyen
+    // dos tiempos antes de donde tocaban, una y otra vez
+    let mut shifted: Vec<f64> = beats[..32].iter().step_by(4).copied().collect();
+    shifted.extend((0..8).map(|k| beats[34 + 4 * k]));
+    let (b, d) = net(&beats, &shifted, 60.0);
+    let bars = grid(&b, &d, Options::default()).expect("rejilla").end.bars;
+    let at = bars.iter().position(|b| *b == 32).expect("el compás 32");
+    assert_eq!((bars[at + 1], bars[bars.len() - 1]), (34, 62), "{bars:?}");
 }
 
 #[test]
@@ -198,5 +290,26 @@ fn net_output_loads_back_unchanged() {
     assert_eq!(raw::read(&path), None);
     assert!(!path.exists());
     assert_eq!(raw::read(&path), None);
+    std::fs::remove_dir_all(&dir).expect("borrar");
+}
+
+#[test]
+fn what_the_network_heard_survives_a_cut() {
+    // guardarlo va a un temporal: un corte a medias no deja un archivo roto;
+    // y uno roto (de antes) se descarta en vez de tumbar el análisis
+    let dir = std::env::temp_dir().join(format!("danplay-corte-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).expect("carpeta");
+    let path = dir.join("x.npz");
+    raw::save(&path, &[0.0; 100], &[0.0; 100], &[0.0; 200], 100.0, 2.0).expect("guardar");
+    let loaded = raw::read(&path).expect("leer");
+    assert_eq!(loaded.seconds, 2.0);
+    assert!(!dir.join("x.npz.part").exists());
+    // cortado a medias
+    let whole = std::fs::read(&path).expect("leer");
+    std::fs::write(&path, &whole[..40]).expect("cortar");
+    assert_eq!(raw::read(&path), None);
+    assert!(!path.exists(), "el roto se quita: se vuelve a calcular");
+    assert_eq!(raw::read(&dir.join("no-esta.npz")), None);
     std::fs::remove_dir_all(&dir).expect("borrar");
 }

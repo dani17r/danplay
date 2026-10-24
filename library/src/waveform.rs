@@ -1,5 +1,5 @@
 //! La forma de onda de una canción, para pintarla en el modo estudio (lo que
-//! hacía danplay/waveform.py, que ahora es la puerta de Python).
+//! hacía danplay/waveform.py en el núcleo de Python).
 //!
 //! Son `buckets` columnas a lo largo de la canción, cada una con su pico y su
 //! RMS entre 0 y 1. El pico da la silueta; el RMS es lo que se oye como

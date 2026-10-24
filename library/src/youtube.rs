@@ -319,6 +319,19 @@ pub fn pick_fields(mut get: impl FnMut(&str) -> Value) -> Result<Map<String, Val
 /// `_plain`: un mensaje de yt-dlp en una línea, sin colores ni el «ERROR:»
 /// del principio.
 pub fn plain(message: &str) -> String {
+    let clean = uncolored(message);
+    let text = py::words(&clean).collect::<Vec<_>>().join(" ");
+    match text
+        .strip_prefix("ERROR:")
+        .or_else(|| text.strip_prefix("WARNING:"))
+    {
+        Some(rest) => rest.trim_start_matches(py::isspace).to_owned(),
+        None => text,
+    }
+}
+
+/// Un mensaje de yt-dlp sin sus colores (`\x1b[...m`), tal cual lo demás.
+pub fn uncolored(message: &str) -> String {
     let mut clean = String::with_capacity(message.len());
     let mut rest = message;
     while let Some(i) = rest.find('\x1b') {
@@ -340,14 +353,7 @@ pub fn plain(message: &str) -> String {
         }
     }
     clean.push_str(rest);
-    let text = py::words(&clean).collect::<Vec<_>>().join(" ");
-    match text
-        .strip_prefix("ERROR:")
-        .or_else(|| text.strip_prefix("WARNING:"))
-    {
-        Some(rest) => rest.trim_start_matches(py::isspace).to_owned(),
-        None => text,
-    }
+    clean
 }
 
 /// Lo que dice yt-dlp cuando la red falla (no cuando un vídeo no existe).

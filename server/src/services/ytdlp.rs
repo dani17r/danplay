@@ -597,8 +597,10 @@ impl Stderr {
             self.tail.remove(0);
         }
         self.tail.push(line.to_owned());
-        let error = line.starts_with("ERROR:");
-        if error || line.starts_with("WARNING:") || line.starts_with("Deprecated Feature:") {
+        // con color (si alguien lo fuerza) «ERROR:» no va al principio
+        let head = library::youtube::uncolored(line);
+        let error = head.starts_with("ERROR:");
+        if error || head.starts_with("WARNING:") || head.starts_with("Deprecated Feature:") {
             self.flush();
             self.pending = Some((error, line.to_owned()));
         } else if let Some((_, text)) = self.pending.as_mut()
@@ -1032,4 +1034,4 @@ pub fn update(app: &App, progress: &dyn Fn(i64, &str)) -> Result<Value, UpdateEr
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

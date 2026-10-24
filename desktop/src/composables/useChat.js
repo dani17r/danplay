@@ -16,6 +16,7 @@ import { notify } from './useNotices.js'
 import { requireTerms, useTerms } from './useTerms.js'
 import { useDownloads } from './useDownloads.js'
 import { ensureDownloadFolder } from '../utils/downloadFolder.js'
+import { hooks, NO_HOOKS, connectChat, chatAttention } from './chatLink.js'
 
 /** @typedef {import('../api.js').ChatContext} ChatContext */
 /** @typedef {import('../api.js').ChatMessage} ChatMessage  un mensaje tal como se pinta y se guarda */
@@ -59,20 +60,6 @@ export const ASK_AGAIN = 'vuelve a proponerme la descarga de las que faltan'
 const STORE_PLAN_ROWS = 25
 /** Cuántas filas de la tabla de una lista se guardan. */
 const STORE_SETLIST_ROWS = 60
-
-/**
- * Lo que la app hace por el chat. Por defecto nada: sin app conectada (las
- * pruebas del componente suelto) el chat funciona igual. `go` abre otra
- * página de la app (la de Ajustes, desde la franja del proveedor).
- * @type {{ reload: () => any, action: (a: any) => any, context: () => (ChatContext|null), go: (view: {kind: string}) => any }}
- */
-const hooks = { reload: () => {}, action: () => {}, context: () => null, go: () => {} }
-const NO_HOOKS = () => ({
-  reload: () => {},
-  action: () => {},
-  context: () => null,
-  go: () => {}
-})
 
 const messages = ref(/** @type {ChatMessage[]} */ ([]))
 /** Lo escrito en la caja: se conserva al cambiar de página. */
@@ -132,17 +119,9 @@ const chatTitle = computed(
   () => chats.value.find((c) => c.id === chatId.value)?.title || 'Nueva conversación'
 )
 
-/**
- * La app se conecta al chat: qué hacer con sus órdenes y qué tiene la persona
- * delante. `context` se llama al mandar cada mensaje, no antes: así no depende
- * de lo que cambia cuatro veces por segundo mientras suena algo.
- * @param {Partial<typeof hooks>} h
- * @returns {() => void} cómo desconectarse
- */
-export function connectChat(h) {
-  Object.assign(hooks, h)
-  return () => Object.assign(hooks, NO_HOOKS())
-}
+// Lo que la app hace por el chat y cómo se conecta viven en chatLink.js, que
+// la app carga al arrancar sin traerse todo esto.
+export { connectChat }
 
 // ------------------------------------------------------- texto como dato
 // Lo que viene de fuera (títulos de YouTube, canales, nombres) se guarda y se
@@ -1571,6 +1550,8 @@ const waitingCard = computed(() => {
 })
 /** Hay una tarjeta esperando y la página del asistente no se ve. */
 const attention = computed(() => !visible.value && !!waitingCard.value)
+// la barra lateral lo lee de chatLink.js, sin cargar el asistente
+watch(attention, (on) => (chatAttention.value = on), { immediate: true })
 watch(attention, (on) => {
   const id = waitingCard.value?.confirm?.id
   if (!on || !id || warned.has(id)) return

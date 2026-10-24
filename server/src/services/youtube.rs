@@ -66,6 +66,32 @@ pub struct State {
     cancel: AtomicBool,
     /// el ejecutable, su versión y su motor de JavaScript
     pub ytdlp: ytdlp::State,
+    /// Lo que se finge en las pruebas.
+    #[cfg(test)]
+    pub testing: Mutex<testing::Testing>,
+}
+
+/// Lo que las pruebas cambian o miran de las descargas de una app.
+#[cfg(test)]
+pub mod testing {
+    use serde_json::{Map, Value};
+    use std::sync::Arc;
+
+    /// `download(consulta)` de mentira para `run_many`.
+    pub type Download = Arc<dyn Fn(&str) -> Result<Vec<Map<String, Value>>, String> + Send + Sync>;
+
+    #[derive(Default)]
+    pub struct Testing {
+        pub download: Option<Download>,
+        /// {active, after} justo al soltar cada turno.
+        pub releases: Vec<Value>,
+    }
+
+    impl std::fmt::Debug for Testing {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("Testing")
+        }
+    }
 }
 
 impl Default for State {
@@ -85,6 +111,8 @@ impl Default for State {
             turn: Mutex::new(s),
             cancel: AtomicBool::new(false),
             ytdlp: ytdlp::State::default(),
+            #[cfg(test)]
+            testing: Mutex::default(),
         }
     }
 }
@@ -141,6 +169,13 @@ pub fn release(app: &App, job: Option<u64>) {
     if job.is_some_and(|j| job_of(&s) != j) {
         return;
     }
+    #[cfg(test)]
+    app.downloads
+        .testing
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .releases
+        .push(json!({"active": s.get("active"), "after": s.get("after")}));
     s.insert("active".into(), json!(false));
     let phase = if canceled(app) { "canceled" } else { "done" };
     s.insert("phase".into(), json!(phase));
@@ -850,6 +885,29 @@ pub fn run_many(
     job: Option<u64>,
     on_done: Option<OnDone>,
 ) -> Vec<Map<String, Value>> {
+    run_many_with(app, queries, w, claimed, job, on_done, &download)
+}
+
+/// Lo que baja cada consulta de `run_many`: `download` (las pruebas ponen
+/// uno de mentira, como hacía el `monkeypatch` de Python).
+type Fetch<'a> = &'a dyn Fn(
+    &App,
+    &str,
+    &Wanted,
+    &mut dyn FnMut(Map<String, Value>),
+    &dyn Fn() -> bool,
+) -> Result<Vec<Map<String, Value>>, String>;
+
+/// `run_many` con lo que baja cada consulta.
+fn run_many_with(
+    app: &App,
+    queries: &[String],
+    w: &Wanted,
+    claimed: bool,
+    job: Option<u64>,
+    on_done: Option<OnDone>,
+    fetch: Fetch<'_>,
+) -> Vec<Map<String, Value>> {
     let queries: Vec<String> = queries
         .iter()
         .map(|q| py::strip(q).to_owned())
@@ -866,7 +924,7 @@ pub fn run_many(
     let mut done: Vec<Map<String, Value>> = Vec::new();
     let mut current = String::new();
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        each_query(app, &queries, w, token, &mut done, &mut current)
+        each_query(app, &queries, w, token, &mut done, &mut current, fetch)
     }));
     let why = match outcome {
         Ok(Ok(())) => None,
@@ -904,6 +962,7 @@ fn each_query(
     token: u64,
     done: &mut Vec<Map<String, Value>>,
     current: &mut String,
+    fetch: Fetch<'_>,
 ) -> Result<(), String> {
     for (position, query) in queries.iter().enumerate() {
         if canceled(app) {
@@ -923,7 +982,23 @@ fn each_query(
             }
             publish(app, &p, token);
         };
-        let mut rs = download(app, query, w, &mut step, &|| canceled(app))?;
+        // en las pruebas, la descarga de mentira de `testing` va por delante
+        // de la que se le pase
+        #[cfg(test)]
+        let fake = app
+            .downloads
+            .testing
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .download
+            .clone();
+        #[cfg(test)]
+        let mut rs = match fake {
+            Some(fake) => fake(query)?,
+            None => fetch(app, query, w, &mut step, &|| canceled(app))?,
+        };
+        #[cfg(not(test))]
+        let mut rs = fetch(app, query, w, &mut step, &|| canceled(app))?;
         for r in &mut rs {
             r.entry("requested").or_insert_with(|| json!(query));
         }

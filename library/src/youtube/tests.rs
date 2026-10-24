@@ -279,3 +279,71 @@ fn the_history_row_points_at_the_song_you_had() {
     assert_eq!(short("  mucho \n texto ", "Error"), "mucho texto");
     assert_eq!(short(" ", "RuntimeError"), "RuntimeError");
 }
+
+// ------------------------------------------------- lo de tests/test_core.py
+// Todo sin red: se comprueban las decisiones del módulo, no que YouTube conteste.
+
+#[test]
+fn recognizes_youtube_urls() {
+    for (value, expected) in [
+        ("https://www.youtube.com/watch?v=abc", true),
+        ("https://youtu.be/abc", true),
+        ("https://music.youtube.com/watch?v=abc", true),
+        ("https://ejemplo.com/cancion.mp3", false),
+        ("barak sera llena la tierra", false),
+        ("", false),
+    ] {
+        assert_eq!(is_url(value), expected, "{value}");
+    }
+}
+
+#[test]
+fn plain_text_becomes_a_search() {
+    let text = "barak sera llena la tierra";
+    assert_eq!(normalize(text), Ok(Target::Search(text.into())));
+    assert_eq!(search(text, "3"), "ytsearch3:barak sera llena la tierra");
+}
+
+#[test]
+fn a_url_is_kept_as_is() {
+    let u = "https://youtu.be/abc?si=xyz";
+    assert_eq!(normalize(u), Ok(Target::Url(u.into())));
+}
+
+/// El ruido de YouTube se quita antes de tocar el disco.
+#[test]
+fn provisional_name_is_already_clean() {
+    assert_eq!(
+        provisional_name(
+            &json!("BARAK - Sera Llena La Tierra (VIDEO OFICIAL) HD"),
+            &json!("xyz")
+        ),
+        Ok("Barak - Sera Llena La Tierra".into())
+    );
+}
+
+#[test]
+fn falls_back_to_id_without_title() {
+    assert_eq!(
+        provisional_name(&json!(""), &json!("abc123")),
+        Ok("abc123".into())
+    );
+}
+
+#[test]
+fn qualities_match_the_app() {
+    assert_eq!(kbps("high"), "320");
+    assert_eq!(kbps("medium"), "192");
+}
+
+/// Sin datos de YouTube Music no se escribe nada: la cascada decide. Si se
+/// etiquetara con el canal, `from_tags` lo aceptaría con 0.95 de confianza y
+/// archivaría la canción bajo un artista inventado.
+#[test]
+fn never_tags_with_the_channel_name() {
+    // (el canal, «Fulanito Music», ni se mira)
+    assert_eq!(trusted_tags("", "", ""), None);
+    assert_eq!(trusted_tags("Barak", "", ""), None);
+    // «- Topic» es el canal automático de YouTube Music, no un artista
+    assert_eq!(trusted_tags(" - Topic", "Algo", ""), None);
+}

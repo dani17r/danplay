@@ -22,6 +22,9 @@
  * a sonar normal.
  */
 import { ref, computed, watch, onMounted, onUnmounted, shallowRef } from 'vue'
+// su CSS viene con él: es una isla y no se carga al arrancar (islands.js). Antes
+// que lo demás, como iba antes que el de driver.js (useStudyTour.js)
+import '../styles/study.css'
 import { api, app as tauriApp, errorMessage, pickAudio, pickSavePath, JOBS } from '../api.js'
 import { notify } from '../composables/useNotices.js'
 import { ask } from '../composables/useDialog.js'

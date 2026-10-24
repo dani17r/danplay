@@ -14,6 +14,8 @@ import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { api, core, projection } from './api.js'
 import { usePlayback } from './composables/usePlayback.js'
 import { parseLrc, stripLrc, currentLine } from './utils/lrc.js'
+// lo suyo, solo en esta ventana (en la grande no hace falta)
+import './styles/projection.css'
 
 const player = usePlayback()
 const { track, playing, position } = player
@@ -166,8 +168,7 @@ onMounted(async () => {
   // ficha, el asistente) cambia el nucleo y no lo que suena: sin esto, al
   // proyector no llegaba hasta cambiar de cancion.
   const stop = await core.onChanged(() => loadSong(track.value?.id ?? null))
-  if (gone)
-    stop() // se cerro mientras se apuntaba
+  if (gone) stop() // se cerro mientras se apuntaba
   else stopChanges = stop
   try {
     fullscreen.value = await projection.isFullscreen()

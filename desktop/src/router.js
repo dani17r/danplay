@@ -3,6 +3,8 @@
 // Entrada, Duplicados y «Acerca de DanPlay». Van por el enrutador para cargarse al abrirlas (cada
 // una es un trozo aparte del paquete: el arranque no carga Ajustes ni el
 // chat) y para que el asistente se quede vivo en <KeepAlive> al salir de él.
+// Sus trozos son islas (islands.js): la barra lateral los adelanta al pasar
+// el ratón por su enlace, y al pulsarlo ya están.
 //
 // La historia es de memoria: no hay barra de direcciones que enseñar, y la
 // misma página sirve también la ventanita (?mini=1) y la proyección
@@ -11,40 +13,14 @@
 // La lista de canciones (Todas, Favoritos, Artistas, un repertorio…) no es
 // una ruta: es la vista de siempre, y cuál se ve lo dice `view` en App.vue.
 import { createRouter, createMemoryHistory } from 'vue-router'
+import { pages } from './islands.js'
 
 /** Cada página, por su `view.kind`. */
-export const PAGE_ROUTES = [
-  {
-    path: '/settings',
-    name: 'settings',
-    component: () => import('./components/SettingsPage.vue')
-  },
-  {
-    path: '/chat',
-    name: 'chat',
-    component: () => import('./components/ChatPage.vue')
-  },
-  {
-    path: '/downloads',
-    name: 'downloads',
-    component: () => import('./components/DownloadsPage.vue')
-  },
-  {
-    path: '/inbox',
-    name: 'inbox',
-    component: () => import('./components/InboxPage.vue')
-  },
-  {
-    path: '/duplicates',
-    name: 'duplicates',
-    component: () => import('./components/DuplicatesPage.vue')
-  },
-  {
-    path: '/about',
-    name: 'about',
-    component: () => import('./components/AboutPage.vue')
-  }
-]
+export const PAGE_ROUTES = Object.entries(pages).map(([name, page]) => ({
+  path: '/' + name,
+  name,
+  component: () => page.load()
+}))
 
 /** La ruta de una vista: la de su página, o la de la lista. @param {{kind: string}} view */
 export function routeFor(view) {

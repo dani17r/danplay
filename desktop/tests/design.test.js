@@ -141,7 +141,9 @@ describe('animations', () => {
   })
 
   it('whoever asks for reduced motion gets it across the WHOLE app', () => {
-    const block = CSS.slice(CSS.lastIndexOf('prefers-reduced-motion'))
+    // la de motion.css: detrás van los estilos de las islas (study.css,
+    // chat.css), que traen sus propios retoques de movimiento reducido
+    const block = CSS.slice(CSS.search(/prefers-reduced-motion:reduce\)\{\*,/))
     expect(block, 'falta la regla global').toMatch(/\*,\s*\*::before,\s*\*::after/)
     // ...pero los indicadores de «esto sigue en marcha» no se congelan
     expect(block).toMatch(/\.spinner[^{]*\{[^}]*infinite/)
@@ -484,8 +486,9 @@ describe('sorting by a column', () => {
     expect(requests.length).toBeGreaterThan(4)
     const core = coreSource()
     for (const [field] of requests) {
+      // SORT_FIELDS de library/src/index/search.rs: ("campo", "c.columna", tipo)
       expect(core, `el nucleo no sabe ordenar por «${field}»`).toMatch(
-        new RegExp(`"${field}":\\s*\\(`)
+        new RegExp(`\\("${field}",\\s*"c\\.`)
       )
     }
     // por texto se espera de la A a la Z; por duracion, lo mas largo primero
@@ -1005,8 +1008,9 @@ describe('advanced search', () => {
     const fields = w.emitted('sort').map(([field]) => field)
     const core = coreSource()
     for (const field of fields) {
+      // SORT_FIELDS de library/src/index/search.rs: ("campo", "c.columna", tipo)
       expect(core, `el nucleo no sabe ordenar por «${field}»`).toMatch(
-        new RegExp(`"${field}":\\s*\\(`)
+        new RegExp(`\\("${field}",\\s*"c\\.`)
       )
     }
   })

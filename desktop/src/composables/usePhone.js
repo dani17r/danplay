@@ -1,6 +1,6 @@
 // @ts-check
 // Llevar canciones separadas a la app del celular: cada una en su
-// `.danpista`, dentro de `Celular/` en su biblioteca (`danplay/bundle.py`).
+// `.danpista`, dentro de `Celular/` en su biblioteca (`server/src/services/bundle.rs`).
 // Al acabar se abre la carpeta con el archivo marcado: de ahí se arrastra a
 // WhatsApp, Drive o al teléfono por cable.
 import { api, app as tauriApp, errorMessage, JOBS } from '../api.js'

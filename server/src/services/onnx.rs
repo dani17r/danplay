@@ -1,9 +1,8 @@
-//! Dónde está la biblioteca de ONNX Runtime (`pulse.onnxruntime_library`
-//! de Python, que la sacaba del paquete `onnxruntime`): la cargan el
-//! separador, las voces y el pulso. La lleva la app, la oficial de
+//! Dónde está la biblioteca de ONNX Runtime: la cargan el separador, las
+//! voces y el pulso. La lleva la app, la oficial de
 //! github.com/microsoft/onnxruntime, entre sus datos (`data/`, ver
-//! scripts/data.sh); en desarrollo vale también la del paquete de Python del
-//! proyecto.
+//! scripts/data.sh); en desarrollo, la que ese guion deja en
+//! desktop/src-tauri/data.
 use crate::app::{App, project_root};
 use std::path::{Path, PathBuf};
 
@@ -30,23 +29,6 @@ fn in_folder(dir: &Path) -> Option<PathBuf> {
     found.into_iter().next()
 }
 
-/// `onnxruntime/capi/` de los `site-packages` de un entorno de Python.
-fn in_venv(venv: &Path) -> Option<PathBuf> {
-    let lib = venv.join("lib");
-    let mut places: Vec<PathBuf> = std::fs::read_dir(&lib)
-        .ok()
-        .into_iter()
-        .flatten()
-        .filter_map(Result::ok)
-        .map(|e| e.path().join("site-packages"))
-        .collect();
-    places.push(venv.join("Lib").join("site-packages"));
-    places.sort();
-    places
-        .iter()
-        .find_map(|p| in_folder(&p.join("onnxruntime").join("capi")))
-}
-
 /// Dónde deja cada paquete los datos de la app (`data/`), visto desde la
 /// carpeta del ejecutable: a su lado (Windows, el portátil y la compilación
 /// en target/), en `usr/lib/DanPlay` (.deb y .AppImage, con el ejecutable en
@@ -60,12 +42,11 @@ pub fn packaged_data(exe_dir: &Path) -> [PathBuf; 3] {
     ]
 }
 
-/// La biblioteca de ONNX Runtime (`pulse.onnxruntime_library`): la que
-/// digan `DANPLAY_ONNXRUNTIME` o `ORT_DYLIB_PATH` (el archivo o su carpeta);
-/// la de los datos de la app; la de `data/` donde lo deje cada paquete
-/// (`packaged_data`) o junto al ejecutable; o, en desarrollo, la del
-/// paquete `onnxruntime` del entorno de Python del proyecto. `None` si no
-/// hay.
+/// La biblioteca de ONNX Runtime: la que digan `DANPLAY_ONNXRUNTIME` o
+/// `ORT_DYLIB_PATH` (el archivo o su carpeta); la de los datos de la app; la
+/// de `data/` donde lo deje cada paquete (`packaged_data`) o junto al
+/// ejecutable; o, en desarrollo, la de desktop/src-tauri/data (la que baja
+/// scripts/data.sh). `None` si no hay.
 pub fn library(app: &App) -> Option<PathBuf> {
     library_in(Some(&app.resources))
 }
@@ -93,22 +74,19 @@ pub fn library_in(resources: Option<&Path>) -> Option<PathBuf> {
         dirs.extend(packaged_data(&exe_dir));
         dirs.push(exe_dir);
     }
-    if let Some(found) = dirs.iter().find_map(|d| in_folder(d)) {
-        return Some(found);
-    }
-    let mut venvs: Vec<PathBuf> = Vec::new();
-    if let Some(v) = std::env::var_os("VIRTUAL_ENV").filter(|v| !v.is_empty()) {
-        venvs.push(PathBuf::from(v));
-    }
-    // la del entorno de Python del proyecto, solo en desarrollo
+    // la que deja scripts/data.sh para la app de escritorio, solo en desarrollo
     if !crate::app::frozen() {
-        venvs.push(project_root().join(".venv"));
+        dirs.push(
+            project_root()
+                .join("desktop")
+                .join("src-tauri")
+                .join("data"),
+        );
     }
-    venvs.iter().find_map(|v| in_venv(v))
+    dirs.iter().find_map(|d| in_folder(d))
 }
 
-/// Por qué no se puede usar ONNX Runtime aquí (lo que decía Python cuando
-/// faltaba el paquete), o vacío si se puede.
+/// Por qué no se puede usar ONNX Runtime aquí, o vacío si se puede.
 pub fn missing(app: &App) -> String {
     if library(app).is_some() {
         String::new()

@@ -3,10 +3,9 @@
 #
 #   ./scripts/bump-version.sh 1.2.0
 #
-# La version se escribe en tres sitios: el nucleo Python (danplay/__init__.py,
-# de donde la lee pyproject.toml), el workspace de Cargo (Cargo.toml de la
-# raiz, que heredan los dos crates; Tauri y maturin la toman de ahi) y la
-# interfaz (desktop/package.json). Ademas la repiten los cerrojos y la
+# La version se escribe en dos sitios: el workspace de Cargo (Cargo.toml de
+# la raiz, que heredan todos los crates; Tauri la toma de ahi) y la interfaz
+# (desktop/package.json). Ademas la repiten el cerrojo de Cargo y la
 # insignia del README. Hay una prueba que falla si no coinciden
 # (test_all_the_pieces_carry_the_same_version), pero mejor no darle la ocasion.
 #
@@ -22,20 +21,20 @@ case "$new_version" in
     *) echo "uso: $0 X.Y.Z" >&2; exit 2 ;;
 esac
 
-current=$(sed -n 's/^__version__ = "\([^"]*\)"/\1/p' danplay/__init__.py)
-[ -n "$current" ] || { echo "no encuentro la version actual en danplay/__init__.py" >&2; exit 1; }
+# la del workspace: la primera `version = ` de Cargo.toml
+current=$(sed -n '0,/^version = "/s/^version = "\([^"]*\)"/\1/p' Cargo.toml)
+[ -n "$current" ] || { echo "no encuentro la version actual en Cargo.toml" >&2; exit 1; }
 if [ "$new_version" = "$current" ]; then
     echo "ya esta en $current" >&2; exit 1
 fi
 
 # Solo la linea que toca en cada archivo: la version del paquete, nunca la de
 # una dependencia que casualmente lleve el mismo numero.
-sed -i "s/^__version__ = \"$current\"/__version__ = \"$new_version\"/" danplay/__init__.py
 sed -i "0,/^version = \"$current\"/s//version = \"$new_version\"/" Cargo.toml
 sed -i "0,/\"version\": \"$current\"/s//\"version\": \"$new_version\"/" desktop/package.json
 sed -i "s|badge/version-$current-|badge/version-$new_version-|" README.md
 
-# El cerrojo de Cargo lleva la version de los dos crates del workspace: si no
+# El cerrojo de Cargo lleva la version de los crates del workspace: si no
 # se toca, el siguiente `cargo build` lo reescribe y el arbol queda sucio.
 if [ -f Cargo.lock ]; then
     awk -v a="$current" -v n="$new_version" '
@@ -43,28 +42,12 @@ if [ -f Cargo.lock ]; then
         mine && /^version = / { sub("\"" a "\"", "\"" n "\""); mine = 0 }
         { print }' Cargo.lock > Cargo.lock.tmp && mv Cargo.lock.tmp Cargo.lock
 fi
-# el de npm, que repite la version dos veces (raiz y paquete "")
-if [ -f desktop/package-lock.json ]; then
-    python3 - "$new_version" <<'EOF'
-import json, sys, pathlib
-p = pathlib.Path("desktop/package-lock.json")
-d = json.loads(p.read_text(encoding="utf-8"))
-d["version"] = sys.argv[1]
-if "" in d.get("packages", {}):
-    d["packages"][""]["version"] = sys.argv[1]
-p.write_text(json.dumps(d, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-EOF
-fi
-# y el de uv, que apunta la version del propio paquete y la del crate
-if command -v uv >/dev/null 2>&1 && [ -f uv.lock ]; then
-    uv lock --quiet || echo "  (uv lock no pudo: ejecutalo tu antes del commit)" >&2
-else
-    echo "  sin uv: ejecuta «uv lock» antes del commit para poner al dia uv.lock" >&2
-fi
+# (el de Bun, desktop/bun.lock, no apunta la version de la interfaz: nada que
+# tocar. El package-lock.json de npm si la llevaba, y se fue con npm.)
 
 echo "version: $current -> $new_version"
 grep -n -e "\"$new_version\"" -e "version-$new_version-" \
-    danplay/__init__.py Cargo.toml desktop/package.json README.md | sed 's/^/  /'
+    Cargo.toml desktop/package.json README.md | sed 's/^/  /'
 echo
 echo "Ahora: ./scripts/test.sh --quick, commit propio («chore: subir a $new_version»),"
 echo "y para publicarla: git tag v$new_version && git push --tags (la CI construye los paquetes)."

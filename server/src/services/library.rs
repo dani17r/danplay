@@ -320,3 +320,110 @@ pub fn brief_by_path(app: &App) -> Result<Vec<(String, Dict)>, ApiError> {
         .map(|r| (index::get_str(&r, "path").to_owned(), r))
         .collect())
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::testkit::{call, ffmpeg, get, run_job};
+    use serde_json::{Value, json};
+    use std::path::Path;
+
+    /// La canción «Estudio» de la biblioteca, por su ruta.
+    fn study_song(app: &crate::App, path: &str) -> Value {
+        get(app, "/api/search?q=Estudio")["songs"]
+            .as_array()
+            .expect("canciones")
+            .iter()
+            .find(|s| s["path"] == path)
+            .unwrap_or_else(|| panic!("no está {path}"))
+            .clone()
+    }
+
+    fn scan(app: &crate::App, lib: &Path) {
+        let (s, v) = call(
+            app,
+            "POST",
+            "/api/folders",
+            Some(json!({"path": lib.to_string_lossy(), "label": "prueba"})),
+        );
+        assert!(s == 200 || s == 409, "{s} {v}");
+        run_job(app, "/api/scan", "scan", None);
+    }
+
+    /// Lo de tests/test_formats.py, el caso real: un flac (o un ogg, o un
+    /// opus) con su modo estudio, se pierde el índice y al reescanear el
+    /// estudio tiene que estar. Antes, en esos formatos se escribía y nunca
+    /// se leía.
+    #[test]
+    fn with_the_db_lost_study_comes_back_from_the_file() {
+        let Some(ffmpeg) = ffmpeg() else {
+            println!("sin ffmpeg: el estudio de un flac no se comprueba");
+            return;
+        };
+        for (ext, codec) in [("flac", "flac"), ("ogg", "libvorbis"), ("opus", "libopus")] {
+            let app = crate::tests::app();
+            let lib = app.config().library.clone();
+            let file = lib
+                .join("Artistas/Barak")
+                .join(format!("Barak - Estudio.{ext}"));
+            std::fs::create_dir_all(file.parent().expect("carpeta")).expect("carpeta");
+            let made = std::process::Command::new(&ffmpeg)
+                .args([
+                    "-v",
+                    "error",
+                    "-y",
+                    "-f",
+                    "lavfi",
+                    "-i",
+                    "anullsrc=r=44100:cl=mono",
+                ])
+                .args(["-t", "1", "-codec:a", codec])
+                .arg(&file)
+                .status()
+                .is_ok_and(|s| s.success());
+            if !made {
+                println!("este ffmpeg no sabe escribir {ext}: se salta");
+                continue;
+            }
+            let changes = library::tags::Changes {
+                artist: Some("Barak".into()),
+                title: Some("Estudio".into()),
+                ..library::tags::Changes::default()
+            };
+            library::tags::write(&file, &changes).expect("etiquetas");
+            let path = file.to_string_lossy().into_owned();
+            scan(&app, &lib);
+            let cid = study_song(&app, &path)["id"].as_i64().expect("id");
+            let (s, d) = call(
+                &app,
+                "PUT",
+                &format!("/api/song/{cid}/study"),
+                Some(json!({"loop": [1, 2], "notes": "despacio"})),
+            );
+            assert_eq!(s, 200, "{ext}: {d}");
+            let saved: Value = serde_json::from_str(
+                get(&app, &format!("/api/song/{cid}"))["study"]
+                    .as_str()
+                    .expect("estudio"),
+            )
+            .expect("json");
+            assert_eq!(saved["notes"], "despacio", "{ext}");
+
+            // se pierde el índice
+            let db = app.config().database.clone();
+            for suffix in ["", "-wal", "-shm"] {
+                let _ = std::fs::remove_file(format!("{}{suffix}", db.display()));
+            }
+            scan(&app, &lib);
+            // la búsqueda da filas ligeras: el estudio, en la ficha entera
+            let cid = study_song(&app, &path)["id"].as_i64().expect("id");
+            let back = get(&app, &format!("/api/song/{cid}"));
+            let study: Value =
+                serde_json::from_str(back["study"].as_str().expect("estudio")).expect("json");
+            assert_eq!(
+                study,
+                json!({"loop": [1.0, 2.0], "notes": "despacio"}),
+                "{ext}"
+            );
+        }
+    }
+}

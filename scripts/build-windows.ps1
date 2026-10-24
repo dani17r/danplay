@@ -10,6 +10,7 @@
 #
 # Lo que hace falta tener puesto:
 #   - Node 24                https://nodejs.org/
+#   - Vite+ (vp)             irm https://vite.plus/ps1 | iex   (y Bun lo baja vp)
 #   - Rust (MSVC)            https://rustup.rs/
 #   - Herramientas de compilacion de Visual Studio (Desktop C++)
 #   - WebView2 viene ya en Windows 10/11 actualizados
@@ -26,7 +27,7 @@ Set-Location $root
 function Step($text) { Write-Host "`n== $text" -ForegroundColor Cyan }
 function Fail($text) { Write-Host "`n$text" -ForegroundColor Red; exit 1 }
 
-foreach ($program in @('node', 'npm', 'cargo', 'rustc')) {
+foreach ($program in @('node', 'vp', 'cargo', 'rustc')) {
     if (-not (Get-Command $program -ErrorAction SilentlyContinue)) {
         Fail "Falta $program. Mira la cabecera de este archivo."
     }
@@ -50,14 +51,14 @@ function Download($url, $sha, $name) {
 # --- interfaz ----------------------------------------------------------------
 Step '1/4  interfaz (Vite)'
 Push-Location desktop
-if (-not (Test-Path node_modules)) { npm ci }
-npx vite build
+if (-not (Test-Path node_modules)) { vp install --frozen-lockfile }
+vp build
 Pop-Location
 
-# --- datos: lo de danplay/data y ONNX Runtime --------------------------------
+# --- datos: lo de data/ y ONNX Runtime --------------------------------
 # Lo mismo que scripts/data.sh en Linux y macOS, con la misma version y suma:
 # para subirla, se cambian aqui, alli y en .github/workflows/windows.yml.
-Step '2/4  datos que viajan con la app (ONNX Runtime y danplay/data)'
+Step '2/4  datos que viajan con la app (ONNX Runtime y data/)'
 $data = 'desktop/src-tauri/data'
 Get-ChildItem $data -Exclude LEEME.txt | Remove-Item -Recurse -Force
 $ort = Download 'https://github.com/microsoft/onnxruntime/releases/download/v1.31.0/onnxruntime-win-x64-1.31.0.zip' `
@@ -77,7 +78,7 @@ try {
     $zip.Dispose()
 }
 foreach ($item in 'pulse', 'separator', 'voices.json', 'models-snapshot.json') {
-    Copy-Item -Recurse "danplay/data/$item" $data
+    Copy-Item -Recurse "data/$item" $data
 }
 
 # --- ffmpeg, fpcalc, QuickJS y yt-dlp ----------------------------------------
@@ -128,7 +129,7 @@ Step '4/4  aplicacion de escritorio (Tauri), con el nucleo dentro'
 if ($Installer) {
     Push-Location desktop
     # sin empaquetar todavia: antes se saca con ella la foto del catalogo
-    npx tauri build --no-bundle
+    vp exec tauri build --no-bundle
     Pop-Location
     # La de hoy, para que el instalador no salga con una lista de hace meses
     # (sin red, viaja la del repositorio). Con -Wait: es una app de ventanas.
@@ -136,7 +137,7 @@ if ($Installer) {
          -ArgumentList '--models-snapshot', "$data/models-snapshot.json"
     if ($p.ExitCode -ne 0) { Write-Host '   sin red: viaja la foto del repositorio' -ForegroundColor Yellow }
     Push-Location desktop
-    npx tauri bundle --bundles nsis
+    vp exec tauri bundle --bundles nsis
     Pop-Location
 } else {
     cargo build --release -p danplay-app

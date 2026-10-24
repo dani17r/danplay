@@ -95,6 +95,38 @@ pub struct Cues {
     /// lo que se está bajando, por paquete
     installs: Arc<Mutex<HashMap<String, DownloadProgress>>>,
     voice: Arc<VoiceCache>,
+    /// la voz de mentira de las pruebas (`fake_voice`)
+    #[cfg(test)]
+    fake: Mutex<Option<FakeVoice>>,
+}
+
+/// Una voz de mentira para las pruebas (lo que en Python eran `cues.say`,
+/// `cues.installed` y `cues.install` sustituidos): dice medio segundo de un
+/// tono, sin bajar nada ni cargar ONNX Runtime.
+#[cfg(test)]
+#[derive(Debug, Default)]
+struct FakeVoice {
+    /// si las voces están ya bajadas (si no, pedir una la «empieza a bajar»)
+    installed: bool,
+    /// las que se empezaron a bajar, en orden
+    started: Vec<String>,
+}
+
+/// Desde ahora, en esta app, la voz de mentira: con las voces bajadas o no.
+#[cfg(test)]
+pub fn fake_voice(app: &App, installed: bool) {
+    let mut fake = lock(&app.cues.fake);
+    let started = fake.take().map(|f| f.started).unwrap_or_default();
+    *fake = Some(FakeVoice { installed, started });
+}
+
+/// Las voces que se empezaron a bajar con la voz de mentira puesta.
+#[cfg(test)]
+pub fn fake_started(app: &App) -> Vec<String> {
+    lock(&app.cues.fake)
+        .as_ref()
+        .map(|f| f.started.clone())
+        .unwrap_or_default()
 }
 
 impl std::fmt::Debug for Cues {
@@ -173,6 +205,10 @@ fn missing_files(v: &Dict) -> Vec<VoiceFile> {
 
 /// Si esa voz ya está bajada entera.
 pub fn installed(app: &App, voice_id: &str) -> bool {
+    #[cfg(test)]
+    if let Some(f) = lock(&app.cues.fake).as_ref() {
+        return f.installed;
+    }
     find(app, voice_id).is_ok_and(|v| missing_files(&v).is_empty())
 }
 
@@ -231,6 +267,11 @@ fn download(f: &VoiceFile, advance: &dyn Fn(i64)) -> std::result::Result<(), Str
 /// Baja lo que le falte a la voz, en segundo plano. Devuelve cómo va:
 /// {installed, progress}; `Err` con el motivo si falló.
 pub fn install(app: &App, voice_id: &str) -> Result<Value> {
+    #[cfg(test)]
+    if let Some(f) = lock(&app.cues.fake).as_mut() {
+        f.started.push(voice_id.to_owned());
+        return Ok(json!({"installed": false}));
+    }
     let v = find(app, voice_id)?;
     let missing = missing_files(&v);
     if missing.is_empty() {
@@ -386,6 +427,14 @@ fn say_with(
 /// El texto dicho por esa voz: (muestras en mono, su frecuencia). La voz
 /// tiene que estar bajada.
 fn say(app: &App, text: &str, voice_id: &str) -> Result<(Vec<f32>, u32)> {
+    #[cfg(test)]
+    if lock(&app.cues.fake).is_some() {
+        // 0,3·sen(n/5) en 8000 muestras a 16 kHz: medio segundo de un tono
+        let tone = (0..8000)
+            .map(|n| 0.3 * (f64::from(n) / 5.0).sin() as f32)
+            .collect();
+        return Ok((tone, 16_000));
+    }
     let v = find(app, voice_id)?;
     if !missing_files(&v).is_empty() {
         return Err(cue("esa voz aún no está bajada"));
@@ -754,5 +803,178 @@ mod tests {
         assert_eq!(install(&app, "nadie"), Err(cue("no conozco esa voz")));
         assert!(!installed(&app, "nadie"));
         assert_eq!(own_file(&app, "/etc/passwd", true), None);
+    }
+
+    /// tests/test_cues.py: las voces y lo que pesan.
+    #[test]
+    fn the_voices_and_what_they_weigh() {
+        let app = crate::tests::app();
+        let all: HashMap<String, Dict> = voices(&app)
+            .expect("catálogo")
+            .into_iter()
+            .map(|v| (py::str_of(&v["id"]), v))
+            .collect();
+        assert_eq!(
+            all.values().filter(|v| v["engine"] == "supertonic").count(),
+            10
+        );
+        assert_eq!(all["piper-es_AR-daniela-high"]["lang"], "Argentina");
+        assert!(!all.values().any(|v| py::truthy(&v["installed"])));
+        let size = all["st-F1"]["size"].as_f64().expect("tamaño");
+        assert!(390e6 < size && size < 410e6, "{size}");
+        // cada archivo con su sha256 y su revisión fijada
+        for id in ["st-M3", "piper-es_MX-ald-medium"] {
+            for f in find(&app, id).expect("la voz")["files"]
+                .as_array()
+                .expect("archivos")
+            {
+                assert_eq!(f["sha256"].as_str().map(str::len), Some(64));
+                assert!(f["bytes"].as_i64().is_some_and(|b| b > 0));
+                let url = f["url"].as_str().expect("url");
+                assert!(
+                    url.contains("/resolve/") && !url.contains("/main/"),
+                    "{url}"
+                );
+            }
+        }
+        assert_eq!(find(&app, "robot"), Err(cue("no conozco esa voz")));
+    }
+
+    /// Un servidor de archivos de mentira en 127.0.0.1: a cada GET, el que
+    /// acabe como su ruta. Su dirección (con la barra del final).
+    fn serve(files: Vec<(String, Vec<u8>)>) -> String {
+        use std::io::{Read as _, Write as _};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("puerto");
+        let port = listener.local_addr().expect("puerto").port();
+        let files = Arc::new(files);
+        std::thread::spawn(move || {
+            for mut stream in listener.incoming().flatten() {
+                let files = files.clone();
+                std::thread::spawn(move || {
+                    let mut head = Vec::new();
+                    let mut buf = [0u8; 1024];
+                    while !head.windows(4).any(|w| w == b"\r\n\r\n") {
+                        match stream.read(&mut buf) {
+                            Ok(0) | Err(_) => return,
+                            Ok(n) => head.extend_from_slice(&buf[..n]),
+                        }
+                    }
+                    let head = String::from_utf8_lossy(&head).into_owned();
+                    let path = head.split(' ').nth(1).unwrap_or_default().to_owned();
+                    let found = files.iter().find(|(p, _)| path.ends_with(p.as_str()));
+                    let (status, body): (&str, &[u8]) =
+                        found.map_or(("404 Not Found", b""), |(_, d)| ("200 OK", d));
+                    let _ = write!(
+                        stream,
+                        "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        body.len()
+                    );
+                    let _ = stream.write_all(body);
+                });
+            }
+        });
+        format!("http://127.0.0.1:{port}/")
+    }
+
+    /// El catálogo de verdad, con las voces de Piper bajándose de `base` y
+    /// los archivos de `voice` como esos (lo que pesan) y con esos sha256.
+    fn catalog_with(
+        app: &App,
+        base: &str,
+        voice: &str,
+        files: &[(String, Vec<u8>)],
+        sums: &[String],
+    ) -> Catalog {
+        let text = std::fs::read_to_string(app.resources.join("voices.json")).expect("voces");
+        let mut v: Value = serde_json::from_str(&text).expect("json");
+        v["piper"]["base"] = json!(base);
+        let entry = v["piper"]["voices"]
+            .as_array_mut()
+            .expect("voces")
+            .iter_mut()
+            .find(|e| e["id"] == voice)
+            .expect("la voz");
+        for (f, ((_, data), sum)) in entry["files"]
+            .as_array_mut()
+            .expect("archivos")
+            .iter_mut()
+            .zip(files.iter().zip(sums))
+        {
+            f["bytes"] = json!(data.len());
+            f["sha256"] = json!(sum);
+        }
+        Catalog::begin(v)
+    }
+
+    /// Hasta que deje de bajarse (bien o mal): el error de esa voz, si lo hay.
+    fn until_done(app: &App, voice: &str) -> String {
+        let end = Instant::now() + Duration::from_secs(30);
+        loop {
+            let item = voices(app)
+                .expect("catálogo")
+                .into_iter()
+                .find(|v| v["id"] == voice)
+                .expect("la voz");
+            let error = item.get("error").map(py::str_of).unwrap_or_default();
+            if !error.is_empty() || installed(app, voice) {
+                return error;
+            }
+            assert!(Instant::now() < end, "la voz no acaba de bajarse");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    /// tests/test_cues.py: bajar una voz comprueba lo que llega. (En Python,
+    /// un `urlopen` de mentira; aquí, un servidor de archivos en local.)
+    #[test]
+    fn installing_a_voice_checks_what_arrives() {
+        let voice = "piper-es_ES-carlfm-x_low";
+        let probe = crate::tests::app();
+        let paths: Vec<String> = find(&probe, voice).expect("la voz")["files"]
+            .as_array()
+            .expect("archivos")
+            .iter()
+            .map(|f| f["path"].as_str().expect("ruta").to_owned())
+            .collect();
+        // lo que sirve (más ligero que la voz de verdad: lo que cuenta es
+        // que se compruebe lo que llega)
+        let good: Vec<(String, Vec<u8>)> = paths
+            .iter()
+            .enumerate()
+            .map(|(i, p)| (p.clone(), vec![b'x'; 100 + i]))
+            .collect();
+        let base = serve(good.clone());
+        // lo que llega no es lo que debe: no se queda nada
+        let app = crate::tests::app();
+        let wrong: Vec<String> = good.iter().map(|_| "0".repeat(64)).collect();
+        let _ = app
+            .cues
+            .catalog
+            .set(Ok(catalog_with(&app, &base, voice, &good, &wrong)));
+        let _ = install(&app, voice);
+        let error = until_done(&app, voice);
+        assert!(error.contains("sha256"), "{error}");
+        assert!(!installed(&app, voice));
+        let piper = voices_dir(&app).join("piper");
+        let parts = std::fs::read_dir(piper.join("es_ES-carlfm-x_low")).map_or(0, |d| {
+            d.flatten()
+                .filter(|e| e.file_name().to_string_lossy().ends_with(".part"))
+                .count()
+        });
+        assert_eq!(parts, 0);
+        // con lo de verdad (aquí, su sha256 cambiado a lo que llega)
+        let app = crate::tests::app();
+        let right: Vec<String> = good
+            .iter()
+            .map(|(_, d)| library::ytdlp::sha256_hex(d))
+            .collect();
+        let _ = app
+            .cues
+            .catalog
+            .set(Ok(catalog_with(&app, &base, voice, &good, &right)));
+        let _ = install(&app, voice);
+        assert_eq!(until_done(&app, voice), "");
+        assert_eq!(install(&app, voice), Ok(json!({"installed": true})));
+        assert!(installed(&app, voice));
     }
 }

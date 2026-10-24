@@ -1,0 +1,207 @@
+{
+ "mutagen": "1.48.1",
+ "fields": {
+  "artist": "Miel San Marcos",
+  "title": "Señor, Tú eres fiel",
+  "album": "Pentecostés",
+  "year": "2018",
+  "genre": "Adoración",
+  "album_artist": "Varios",
+  "comment": "en vivo",
+  "lyrics": "Primera línea\nsegunda, con ñandú",
+  "key": "F#m",
+  "bpm": 72.5,
+  "stars": 3,
+  "favorite": "1",
+  "blur": "0",
+  "tags": "domingo; rapida",
+  "playlists": "Domingo, tarde;",
+  "study": "{\"loop\": [1.0, 2.5], \"notes\": \"cejilla 2 — ¡ojo!\"}"
+ },
+ "files": {
+  "fields.mp3": {
+   "artist": "Miel San Marcos",
+   "title": "Señor, Tú eres fiel",
+   "album": "Pentecostés",
+   "year": "2018",
+   "genre": "Adoración",
+   "album_artist": "Varios",
+   "stars": 3,
+   "play_count": 0,
+   "favorite": true,
+   "lyrics": "Primera línea\nsegunda, con ñandú",
+   "key": "F#m",
+   "bpm": 72.0,
+   "cover": true,
+   "comment": "en vivo",
+   "duration": 0.5485714285714286,
+   "bitrate": 63992,
+   "tags": [
+    "domingo",
+    "rapida"
+   ],
+   "playlists": [
+    "Domingo, tarde"
+   ],
+   "blur": false,
+   "study": "{\"loop\": [1.0, 2.5], \"notes\": \"cejilla 2 — ¡ojo!\"}"
+  },
+  "fields.flac": {
+   "artist": "Miel San Marcos",
+   "title": "Señor, Tú eres fiel",
+   "album": "Pentecostés",
+   "year": "2018",
+   "genre": "Adoración",
+   "album_artist": "Varios",
+   "stars": 3,
+   "play_count": 0,
+   "favorite": true,
+   "lyrics": "Primera línea\nsegunda, con ñandú",
+   "key": "F#m",
+   "bpm": 72.0,
+   "cover": true,
+   "comment": "en vivo",
+   "duration": 0.5,
+   "bitrate": 912,
+   "tags": [
+    "domingo",
+    "rapida"
+   ],
+   "playlists": [
+    "Domingo, tarde"
+   ],
+   "blur": false,
+   "study": "{\"loop\": [1.0, 2.5], \"notes\": \"cejilla 2 — ¡ojo!\"}"
+  },
+  "fields.ogg": {
+   "artist": "Miel San Marcos",
+   "title": "Señor, Tú eres fiel",
+   "album": "Pentecostés",
+   "year": "2018",
+   "genre": "Adoración",
+   "album_artist": "Varios",
+   "stars": 3,
+   "play_count": 0,
+   "favorite": true,
+   "lyrics": "Primera línea\nsegunda, con ñandú",
+   "key": "F#m",
+   "bpm": 72.0,
+   "cover": true,
+   "comment": "en vivo",
+   "duration": 0.5,
+   "bitrate": 60000,
+   "tags": [
+    "domingo",
+    "rapida"
+   ],
+   "playlists": [
+    "Domingo, tarde"
+   ],
+   "blur": false,
+   "study": "{\"loop\": [1.0, 2.5], \"notes\": \"cejilla 2 — ¡ojo!\"}"
+  },
+  "fields.opus": {
+   "artist": "Miel San Marcos",
+   "title": "Señor, Tú eres fiel",
+   "album": "Pentecostés",
+   "year": "2018",
+   "genre": "Adoración",
+   "album_artist": "Varios",
+   "stars": 3,
+   "play_count": 0,
+   "favorite": true,
+   "lyrics": "Primera línea\nsegunda, con ñandú",
+   "key": "F#m",
+   "bpm": 72.0,
+   "cover": true,
+   "comment": "en vivo",
+   "duration": 0.5,
+   "bitrate": 2096,
+   "tags": [
+    "domingo",
+    "rapida"
+   ],
+   "playlists": [
+    "Domingo, tarde"
+   ],
+   "blur": false,
+   "study": "{\"loop\": [1.0, 2.5], \"notes\": \"cejilla 2 — ¡ojo!\"}"
+  },
+  "fields.m4a": {
+   "artist": "Miel San Marcos",
+   "title": "Señor, Tú eres fiel",
+   "album": "Pentecostés",
+   "year": "2018",
+   "genre": "Adoración",
+   "album_artist": "Varios",
+   "stars": 3,
+   "play_count": 0,
+   "favorite": true,
+   "lyrics": "Primera línea\nsegunda, con ñandú",
+   "key": "F#m",
+   "bpm": 72.0,
+   "cover": true,
+   "comment": "en vivo",
+   "duration": 0.5232199546485261,
+   "bitrate": 1666,
+   "tags": [
+    "domingo",
+    "rapida"
+   ],
+   "playlists": [
+    "Domingo, tarde"
+   ],
+   "blur": false,
+   "study": "{\"loop\": [1.0, 2.5], \"notes\": \"cejilla 2 — ¡ojo!\"}"
+  },
+  "fields.wav": {
+   "artist": "Miel San Marcos",
+   "title": "Señor, Tú eres fiel",
+   "album": "Pentecostés",
+   "year": "2018",
+   "genre": "Adoración",
+   "album_artist": "Varios",
+   "stars": 3,
+   "play_count": 0,
+   "favorite": true,
+   "lyrics": "Primera línea\nsegunda, con ñandú",
+   "key": "F#m",
+   "bpm": 72.0,
+   "cover": true,
+   "comment": "en vivo",
+   "duration": 0.5,
+   "bitrate": 705600,
+   "tags": [
+    "domingo",
+    "rapida"
+   ],
+   "playlists": [
+    "Domingo, tarde"
+   ],
+   "blur": false,
+   "study": "{\"loop\": [1.0, 2.5], \"notes\": \"cejilla 2 — ¡ojo!\"}"
+  },
+  "play_count.mp3": {
+   "artist": "",
+   "title": "",
+   "album": "",
+   "year": "",
+   "genre": "",
+   "album_artist": "",
+   "stars": 2,
+   "play_count": 17,
+   "favorite": false,
+   "lyrics": "",
+   "key": "",
+   "bpm": 0.0,
+   "cover": false,
+   "comment": "",
+   "duration": 0.5485714285714286,
+   "bitrate": 63992,
+   "tags": [],
+   "playlists": [],
+   "blur": false,
+   "study": ""
+  }
+ }
+}

@@ -1,5 +1,4 @@
-# entorno y dependencias
-.venv/
+# dependencias
 node_modules/
 
 # secretos y datos del usuario
@@ -19,13 +18,11 @@ target/
 dist/
 dist-mobile/
 build/
-__pycache__/
-*.pyc
-.pytest_cache/
 
 # lo que viaja con la app y se baja o se copia al compilar: ffmpeg, fpcalc,
 # QuickJS y yt-dlp (scripts/tools-*.sh) y los datos con ONNX Runtime
-# (scripts/data.sh); y el nucleo de Python empaquetado de hasta la 1.30
+# (scripts/data.sh); y el nucleo de Python empaquetado de hasta la 1.30, si
+# quedo
 desktop/src-tauri/tools/*
 !desktop/src-tauri/tools/LEEME.txt
 desktop/src-tauri/data/*
@@ -37,11 +34,9 @@ desktop/src-tauri/core/
 
 # informes de pruebas y caches de herramientas
 coverage/
-htmlcov/
-.coverage
-.coverage.*
 desktop/playwright-report/
 desktop/test-results/
-.ruff_cache/
-.hypothesis/
-*.egg-info/
+
+# restos de Python de antes de la 1.40 (si quedaron en tu copia)
+__pycache__/
+*.pyc

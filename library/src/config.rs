@@ -9,6 +9,8 @@
 //! usará el núcleo cuando esté entero en Rust, y tests/test_config_rust.py
 //! comprueba que las dos digan lo mismo.
 pub mod dotenv;
+#[cfg(test)]
+mod tests;
 
 use crate::py;
 use std::collections::HashMap;
@@ -487,6 +489,13 @@ impl Config {
     /// DANPLAY_TOOLS_DIR y junto al ejecutable (la app empaquetada lleva
     /// ffmpeg y fpcalc dentro, sobre todo en Windows), y por último en el PATH.
     pub fn find_tool(&self, name: &str) -> Option<PathBuf> {
+        let suffixes: &[&str] = if cfg!(windows) { &[".exe", ""] } else { &[""] };
+        self.find_tool_with(name, suffixes)
+    }
+
+    /// `find_tool` con los sufijos de ejecutable que se le digan (los de
+    /// Windows también se prueban en Linux).
+    fn find_tool_with(&self, name: &str, suffixes: &[&str]) -> Option<PathBuf> {
         let mut candidates: Vec<PathBuf> = Vec::new();
         if !self.tools_dir.is_empty() {
             candidates.push(PathBuf::from(&self.tools_dir));
@@ -494,7 +503,6 @@ impl Config {
         if self.frozen {
             candidates.push(self.project_root.clone());
         }
-        let suffixes: &[&str] = if cfg!(windows) { &[".exe", ""] } else { &[""] };
         for folder in &candidates {
             for suffix in suffixes {
                 let p = folder.join(format!("{name}{suffix}"));

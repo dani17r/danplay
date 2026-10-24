@@ -3,7 +3,7 @@
 Lo que cambia en cada versión que se entrega. El detalle de por qué está
 hecho así, en [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-## Sin publicar
+## 1.40.0 — 2026-10-23
 
 El núcleo, en Rust y dentro de la app: lo que hacía en Python, ahora en
 Rust (ver [docs/MIGRATION.md](docs/MIGRATION.md)). Por fuera todo sigue
@@ -17,6 +17,13 @@ igual; por dentro va más rápido y gasta menos.
   dentro: yt-dlp, su programa oficial, que se pone al día solo desde
   Descargas, y ONNX Runtime, que mueve el clic, separar en pistas y las
   voces de las guías.
+- **Arranca más ligera**: la interfaz se carga por partes, mientras se usa:
+  al abrir la app, solo lo que se ve (la mitad de código y un 40 % menos
+  de estilos); el modo estudio, la ficha, las otras vistas de la lista o
+  los ajustes llegan al pasar el ratón por su botón o en un rato libre, y
+  ya están cuando se abren. La ventanita del reproductor y la proyección se
+  crean la primera vez que se usan: con la app recién abierta son 3
+  procesos en vez de 5 y unos 90 MB menos de memoria.
 - **El índice en Rust**: la base se abre con SQLite desde Rust, y buscar,
   recorrer las carpetas, escanear, cada canción, las listas, lo abierto
   desde fuera, las conversaciones y el diario van en Rust. Recorrer las
@@ -32,18 +39,31 @@ igual; por dentro va más rápido y gasta menos.
   importar lo que hay en Entrada/.
 - **Arreglado**: el segundo intento de convertir un archivo (sin la
   carátula) no funcionaba nunca; un tiempo «inf» en un marcador se guardaba
-  como algo que la interfaz no podía leer.
+  como algo que la interfaz no podía leer; si algo escribía en la base a la
+  vez que un escaneo (el diario, una descarga), podían quedarse sin entrar
+  las canciones de esa tanda; y una base borrada con la app abierta volvía
+  vacía, sin poder guardar nada, hasta reiniciar. Y lo que destaparon las
+  pruebas al pasar a Rust: un error de yt-dlp escrito con color perdía su
+  motivo («yt-dlp terminó con el código 1»); el clic de una canción se podía
+  calcular dos veces si se pedía justo cuando salía de la cola; y los textos
+  que llegan de fuera (títulos de YouTube, páginas) dejaban pasar algunos
+  caracteres de formato invisibles.
 - **Lo de dentro, en inglés**: carpetas, crates, módulos, funciones y
   variables (lo que se ve sigue en castellano). Lo guardado con nombre en
   castellano se renombra solo al arrancar, sin perder nada: en los datos de
   DanPlay, `pulso/`, `separador/`, `guias/`, `voces/`, `diario.json` y
-  `terminos.json`; en las carpetas de música, `.danplay-pistas.json`,
+  `terminos.json` (y si conviven el nombre de antes y el de ahora, se
+  juntan, con lo más reciente de cada cosa); en las carpetas de música, `.danplay-pistas.json`,
   `.danplay-ondas.json` y `.danplay/diario.json` (los de antes se siguen
   leyendo); y las preferencias de la interfaz. El `.danpista` del celular no
   cambia.
-- **Para quien compila**: los paquetes, sin PyInstaller ni uv (Python y uv,
-  solo para las pruebas del núcleo de Python, que sigue en el repositorio);
-  `scripts/data.sh` deja los datos y ONNX Runtime en `data/`, la foto del
+- **Para quien compila**: Python ya no está en el repositorio. Sus casi
+  1.000 pruebas, pasadas a Rust una a una con los mismos valores esperados
+  (dónde está cada una, en [docs/TESTS-PORT.md](docs/TESTS-PORT.md)); las de
+  la interfaz de extremo a extremo, contra `danplay-server`; los datos que
+  viajan con la app, de `danplay/data` a `data/`. Los paquetes, sin
+  PyInstaller ni uv; `scripts/data.sh` deja los datos y ONNX Runtime en
+  `desktop/src-tauri/data/`, la foto del
   catálogo de modelos la saca la propia app (`--models-snapshot`) y
   `build-windows-cross.sh` ya no lleva el Python embebido ni pide
   `--no-crate`. QuickJS-NG en vez de Deno para los retos de YouTube
@@ -51,7 +71,8 @@ igual; por dentro va más rápido y gasta menos.
   `./scripts/github.sh tests|packages|download`, `./scripts/test.sh
   --quick`, `./scripts/dev.sh --sandbox [--clean]`, `build-android.sh
   --emulator`, `tools-macos.sh --with-ffprobe` y `build-windows-cross.sh
-  --installer --with-tools`.
+  --installer --with-tools`. La interfaz se instala con Bun y se compila,
+  se prueba y se formatea con Vite+ (`vp`, con Oxfmt en vez de Prettier).
 
 ## 1.30.0 — 2026-10-17
 

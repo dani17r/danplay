@@ -5,6 +5,8 @@
 use super::*;
 use serde_json::json;
 
+mod compat;
+
 #[test]
 fn rounds_like_python() {
     assert_eq!(round(2.675, 2), 2.67);

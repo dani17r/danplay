@@ -1,6 +1,6 @@
 //! El separador por dentro: Demucs v4 (HTDemucs) con ONNX Runtime.
 //!
-//! La red va en un grafo ONNX sin pesos (`danplay/data/separator/`); los
+//! La red va en un grafo ONNX sin pesos (`data/separator/`); los
 //! pesos son el archivo oficial del autor, que se baja la primera vez. Lo que
 //! Demucs hace con PyTorch alrededor de la red se hace aquí igual (antes, en
 //! danplay/separation.py, con numpy; cuenta a cuenta como allí):
