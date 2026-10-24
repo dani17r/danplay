@@ -1,13 +1,9 @@
-//! Configuración central (lo que era danplay/config.py). Todo se puede
-//! sobreescribir por variables de entorno.
+//! Configuración central. Todo se puede sobreescribir por variables de
+//! entorno.
 //!
 //! Los datos del usuario (base de datos y claves) viven SIEMPRE en su home,
 //! nunca dentro del programa: así la app se puede empaquetar y repartir sin
 //! arrastrar la biblioteca de nadie.
-//!
-//! De momento manda la de Python (las pruebas la cambian ahí); esta es la que
-//! usará el núcleo cuando esté entero en Rust, y tests/test_config_rust.py
-//! comprueba que las dos digan lo mismo.
 pub mod dotenv;
 #[cfg(test)]
 mod tests;
@@ -48,15 +44,14 @@ const ALIAS: [(&str, &str); 10] = [
     ("DEEPINFRA_CHAT_MODEL", "DEEPINFRA_MODELO_CHAT"),
 ];
 
-/// El entorno del proceso, como lo ve `os.getenv` (no se toca nunca: los
-/// ajustes del archivo van aparte, ver `Config::getenv`).
+/// El entorno del proceso (no se toca nunca: los ajustes del archivo van
+/// aparte, ver `Config::getenv`).
 fn process_env(name: &str) -> Option<String> {
     std::env::var(name).ok()
 }
 
-/// `config.env(name, default)` de Python sobre el entorno del proceso (que es
-/// donde Python deja lo de los archivos de ajustes): la variable, o la de su
-/// nombre antiguo, o `default`.
+/// Una variable del entorno del proceso, sin los archivos de ajustes (eso es
+/// `Config::getenv`): la variable, o la de su nombre antiguo, o `default`.
 pub fn env_or_default(name: &str, default: &str) -> String {
     if let Some(v) = process_env(name).filter(|v| !v.is_empty()) {
         return v;
@@ -68,7 +63,7 @@ pub fn env_or_default(name: &str, default: &str) -> String {
     process_env(old).unwrap_or_else(|| default.to_owned())
 }
 
-/// La carpeta de casa (`Path.home()`).
+/// La carpeta de casa.
 pub fn home() -> PathBuf {
     PathBuf::from(paths::expand_home("~"))
 }
@@ -203,7 +198,7 @@ fn migrate(old: &Path, new: &Path) {
     }
 }
 
-/// Un valor escrito como lo relee python-dotenv, igual que se guardó.
+/// Un valor escrito para que se relea igual que se guardó.
 ///
 /// Sin comillas, lo que va detrás de « #» es un comentario: la carpeta
 /// `/home/ana/Musica #2` se releía como `/home/ana/Musica`, y los espacios
@@ -229,7 +224,7 @@ fn key_of(line: &str) -> &str {
 #[derive(Debug, Clone)]
 #[allow(
     clippy::struct_excessive_bools,
-    reason = "los interruptores de config.py, uno a uno"
+    reason = "los interruptores de la configuración, uno a uno"
 )]
 pub struct Config {
     /// dentro del paquete (.deb, .AppImage, instalador)
@@ -266,8 +261,8 @@ pub struct Config {
 }
 
 impl Config {
-    /// Lee la configuración como al importar config.py: las carpetas (y las
-    /// crea, solo para su dueño), las migraciones de una instalación anterior,
+    /// Lee la configuración al arrancar: las carpetas (y las crea, solo para
+    /// su dueño), las migraciones de una instalación anterior,
     /// los archivos de ajustes y cada valor.
     pub fn load(frozen: bool, project_root: PathBuf) -> Self {
         let data_override = process_env("DANPLAY_DATA_DIR").unwrap_or_default();
@@ -344,8 +339,8 @@ impl Config {
     /// Una configuración en esas carpetas, sin mirar las de nadie: ni las
     /// del sistema, ni el .env del proyecto, ni migrar nada de una
     /// instalación anterior. Solo el danplay.env de `config_dir` (si lo hay)
-    /// y el entorno del proceso. Para las pruebas de Rust, que no pueden
-    /// cambiar el entorno del proceso como hacen las de Python.
+    /// y el entorno del proceso. Para las pruebas, que no pueden cambiar el
+    /// entorno del proceso.
     pub fn isolated(data_dir: PathBuf, config_dir: PathBuf, library: PathBuf) -> Self {
         let _ = private_dir(&data_dir);
         let _ = private_dir(&config_dir);
@@ -437,8 +432,8 @@ impl Config {
         self.review_dir = self.library.join("Revisar");
     }
 
-    /// `os.getenv(name)` después de leer los ajustes: el entorno del proceso
-    /// manda, y si no, lo que dicen los archivos.
+    /// Una variable después de leer los ajustes: el entorno del proceso manda,
+    /// y si no, lo que dicen los archivos.
     pub fn getenv(&self, name: &str) -> Option<String> {
         process_env(name).or_else(|| self.file_env.get(name).cloned())
     }
@@ -540,7 +535,7 @@ fn executable(p: &Path) -> bool {
     }
 }
 
-/// `shutil.which(name)`: el primero del PATH que se pueda ejecutar.
+/// El programa `name`: el primero del PATH que se pueda ejecutar.
 pub fn which(name: &str) -> Option<PathBuf> {
     let path = process_env("PATH")?;
     let exts: Vec<String> = if cfg!(windows) {

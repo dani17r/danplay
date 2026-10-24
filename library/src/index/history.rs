@@ -33,7 +33,7 @@ pub fn log_download(conn: &Connection, entry: &Dict) -> rusqlite::Result<()> {
         row.insert(k.into(), Value::from(i64::from(on)));
     }
     for k in TEXT_FIELDS {
-        // `str(row[k] or "")`
+        // el texto, o vacío si no hay nada
         let v = &row[k];
         let text = if value::truthy(v) {
             value::str_of(v)
@@ -111,7 +111,8 @@ fn part(conn: &Connection, since: f64) -> rusqlite::Result<Dict> {
     out.insert("prompt".into(), or_zero("prompt"));
     out.insert("completion".into(), or_zero("completion"));
     let cost = f.get("cost").and_then(Value::as_f64).unwrap_or(0.0);
-    // `round(f["cost"] or 0, 6)`: un entero 0 sigue siendo 0
+    // el coste con seis decimales; un entero se queda como está, y sin coste,
+    // un 0 entero
     let cost = match f.get("cost") {
         Some(v) if value::truthy(v) && v.is_f64() => Value::from(num::round_to(cost, 6)),
         Some(v) if value::truthy(v) => v.clone(),

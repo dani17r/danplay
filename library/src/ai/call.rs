@@ -1,5 +1,5 @@
 //! Una llamada al modelo, con sus tolerancias y el respaldo entre
-//! proveedores: el corazón de danplay/ai.py, sobre `client` (sin el SDK).
+//! proveedores, sobre `client` (sin el SDK).
 //!
 //! Tolerar es la parte importante: no hay dos servicios que acepten los mismos
 //! parámetros. `complete` quita lo que el servidor rechaza, reintenta y se
@@ -10,9 +10,6 @@
 //! saldo, clave rechazada, límite de peticiones, caído: `failures::classify`) y
 //! quién contestó en su lugar. `status` lo cuenta a la interfaz sin repetir ni
 //! una palabra del proveedor.
-//!
-//! Es lo que usará el núcleo entero en Rust; hoy Python hace esto mismo con
-//! el SDK de OpenAI (que las pruebas sustituyen) y usa de aquí las reglas.
 use super::client::{Client, HttpError, StreamError};
 use super::{catalog, failures, providers, request};
 use crate::index::Dict;
@@ -63,11 +60,11 @@ pub struct Context<'a> {
     pub verified: &'a Path,
     /// el interruptor general de Ajustes
     pub enabled: bool,
-    /// `config.env` (con los nombres viejos de las variables)
+    /// `Config::env` (con los nombres viejos de las variables)
     pub env: &'a dyn Fn(&str, &str) -> String,
     pub now: &'a dyn Fn() -> f64,
     pub account: &'a dyn Fn(&Usage),
-    /// lo que se apunta en el registro (`log.info`)
+    /// lo que se apunta en el registro (como información)
     pub log: &'a dyn Fn(&str),
 }
 
@@ -339,7 +336,7 @@ pub enum AiError {
     NoProvider,
 }
 
-/// Lo que se pide en una llamada (los mismos nombres que `ai.complete`).
+/// Lo que se pide en una llamada (los mismos nombres que `complete`).
 #[derive(Default)]
 pub struct CallRequest<'a> {
     pub model: String,
@@ -1271,7 +1268,7 @@ pub fn try_free(ctx: &Context<'_>, order: Option<&[String]>, timeout: f64) -> Di
 
 /// `try_free`, preguntando a cada gratuito en la dirección que diga
 /// `base_url_of` (si dice alguna; las pruebas ponen ahí sus servidores de
-/// mentira, como hacía el `_build_client` de Python).
+/// mentira).
 fn try_free_at(
     ctx: &Context<'_>,
     order: Option<&[String]>,

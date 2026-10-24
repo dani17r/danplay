@@ -1,5 +1,5 @@
 //! TOON (Token-Oriented Object Notation): lo que devuelven las herramientas,
-//! en el formato que menos tokens gasta (lo que hacía danplay/toon.py).
+//! en el formato que menos tokens gasta.
 //!
 //! Los resultados de las herramientas del asistente son casi siempre listas de
 //! objetos iguales (canciones, repertorios, resultados de búsqueda). En JSON
@@ -16,10 +16,9 @@
 //! ```
 //!
 //! Medido sobre los resultados reales de DanPlay ahorra entre un tercio y la
-//! mitad de los tokens de cada resultado (ver tests/test_ai.py). Es lo que se
-//! MANDA al modelo; lo que el modelo devuelve sigue siendo JSON, que es lo que
-//! ha visto un millón de veces y lo que garantizan los modos JSON de los
-//! proveedores.
+//! mitad de los tokens de cada resultado. Es lo que se MANDA al modelo; lo que
+//! el modelo devuelve sigue siendo JSON, que es lo que ha visto un millón de
+//! veces y lo que garantizan los modos JSON de los proveedores.
 //!
 //! Sigue la especificación 1.x (github.com/toon-format/spec): comillas solo
 //! cuando hace falta, números y booleanos tal cual, `null` para None, listas
@@ -30,13 +29,13 @@
 use std::fmt::Write as _;
 use std::sync::LazyLock;
 
-/// Un valor que se codifica: lo que en Python es un `dict`, una lista, un
-/// escalar o cualquier otra cosa (que va como su texto).
+/// Un valor que se codifica: un objeto, una lista, un escalar o cualquier otra
+/// cosa (que va como su texto).
 #[derive(Debug, Clone, PartialEq)]
 pub enum Val {
     Null,
     Bool(bool),
-    /// Un entero, ya escrito (en Python no tiene tope).
+    /// Un entero, ya escrito (sin tope de cifras).
     Integer(String),
     Real(f64),
     Text(String),
@@ -45,7 +44,7 @@ pub enum Val {
     Object(Vec<(String, Val)>),
     /// Lo que no es nada de lo anterior: su texto, y si es «verdadero» (un
     /// objeto vacío se escribe distinto en una lista). En una lista no se sabe
-    /// escribir: es un error, como en Python.
+    /// escribir: es un error.
     Other {
         text: String,
         truthy: bool,
@@ -88,7 +87,7 @@ impl std::fmt::Display for Error {
 const RESERVED: [&str; 3] = ["true", "false", "null"];
 const INDENT: &str = "  ";
 
-// `re.match` de Python con `$`: vale también con un salto de línea al final
+// las dos valen también con un salto de línea al final («abc\n» es una clave)
 static KEY_OK: LazyLock<regex::Regex> = LazyLock::new(|| {
     regex::Regex::new(r"\A[A-Za-z_][A-Za-z0-9_.]*\n?\z").expect("expresión de clave")
 });
@@ -401,12 +400,9 @@ mod tests {
         assert_eq!(encode(&Val::Null, ";"), Err(Error::Delimiter));
     }
 
-    /// Lo de tests/test_ai.py: la especificación de TOON, caso a caso.
+    /// La especificación de TOON, caso a caso.
     #[test]
-    #[allow(
-        clippy::approx_constant,
-        reason = "el -3.14 de la prueba de Python, no π"
-    )]
+    #[allow(clippy::approx_constant, reason = "es el -3.14 de los ejemplos, no π")]
     fn toon_follows_the_spec() {
         use serde_json::json;
         let enc = |v: serde_json::Value| encode(&Val::from(v), ",").expect("toon");
@@ -478,9 +474,8 @@ mod tests {
         assert_eq!(encode(&Val::from(json!({})), ";"), Err(Error::Delimiter));
     }
 
-    // --------------------------------------- lo de tests/test_properties.py
-    // Con cualquier texto y cualquier valor (en Python con Hypothesis; aquí
-    // con un generador fijo).
+    // ---------------------------------------------------------- propiedades
+    // Con cualquier texto y cualquier valor (de un generador fijo).
 
     use crate::testkit::{CASES, Gen, NASTY};
 
@@ -504,7 +499,7 @@ mod tests {
     }
 
     /// Un número entero cualquiera, también de los que no caben en 64 bits
-    /// (los de Python no tienen tope).
+    /// (un entero no tiene tope).
     fn integer(g: &mut Gen) -> String {
         match g.below(3) {
             0 => g.between(-1000, 1000).to_string(),
@@ -533,7 +528,7 @@ mod tests {
         }
     }
 
-    /// `JSONISH` de Python: escalares, listas y diccionarios anidados, con
+    /// Un valor cualquiera: escalares, listas y diccionarios anidados, con
     /// unas 20 hojas como mucho.
     fn jsonish(g: &mut Gen, leaves: &mut usize) -> Val {
         if *leaves == 0 || g.below(3) > 0 {

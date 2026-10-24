@@ -24,8 +24,8 @@ fn same_or_under(path: &str, folder: &str) -> bool {
     paths::common(&[path, folder]).is_some_and(|c| c == paths::normalize(folder))
 }
 
-/// `str(Path(path).expanduser().resolve())`: la ruta de verdad de lo que
-/// eligió el usuario.
+/// La ruta de verdad de lo que eligió el usuario (con «~» y los enlaces
+/// resueltos).
 pub fn resolve(path: &str) -> String {
     paths::real(&paths::expand_home(path))
 }
@@ -165,7 +165,7 @@ pub fn check_overlap(
                 "el {percent}% de sus archivos ya estan indexados desde «{other}»: parecen la misma musica duplicada"
             ),
         );
-        // en el orden de Python: kind, other, percent, message
+        // en el orden de siempre: kind, other, percent, message
         let message = d.shift_remove("message").unwrap_or_default();
         d.insert("percent".into(), Value::from(percent));
         d.insert("message".into(), message);
@@ -300,7 +300,7 @@ pub fn relocation_for(conn: &Connection, path: &str) -> rusqlite::Result<Option<
 /// Lo que puede salir mal al llevar una carpeta a su sitio nuevo.
 #[derive(Debug)]
 pub enum MoveError {
-    /// Lo que se le dice al usuario (en Python era un `ValueError`).
+    /// Lo que se le dice al usuario.
     Invalid(String),
     Sqlite(rusqlite::Error),
 }
@@ -467,7 +467,7 @@ pub fn excluded(dir_path: &str, dir_name: &str, exclusions: &[Dict]) -> bool {
 /// Lo que se encontró al recorrer una carpeta.
 #[derive(Debug, Default)]
 pub struct Walk {
-    /// Los archivos de audio, en el orden de `os.walk`.
+    /// Los archivos de audio, en el orden del recorrido.
     pub paths: Vec<String>,
     /// Las carpetas de pistas separadas y su manifiesto (lo que tenía dentro).
     pub stems: Vec<(String, Value)>,
@@ -499,7 +499,7 @@ fn stems_folder(folder: &str, found: &mut Walk) -> bool {
     true
 }
 
-/// `Path(name).suffix.lower()`: lo de después del último punto, si no es el
+/// La extensión en minúsculas: lo de después del último punto, si no es el
 /// primero ni el último carácter.
 fn suffix_lower(name: &str) -> String {
     match name.rfind('.') {
@@ -509,10 +509,9 @@ fn suffix_lower(name: &str) -> String {
 }
 
 /// Los archivos de audio de la carpeta, sin las excluidas ni las de pistas
-/// separadas, en el orden de `os.walk` (de arriba abajo, cada carpeta en el
-/// orden en que la da el sistema). Como `os.walk`, no entra en enlaces a
-/// carpetas y se salta lo que no puede leer. Con `limit`, para en cuanto
-/// tiene esos.
+/// separadas, de arriba abajo (cada carpeta en el orden en que la da el
+/// sistema). No entra en enlaces a carpetas y se salta lo que no puede leer.
+/// Con `limit`, para en cuanto tiene esos.
 pub fn audio_files(
     root: &str,
     exclusions: &[Dict],
@@ -540,8 +539,8 @@ fn walk(
         let name = entry.file_name();
         let Some(name) = name.to_str().map(str::to_owned) else {
             // un nombre que no es UTF-8 (un disco que viene de Windows o de
-            // un FAT viejo): si es audio, se avisa; si es carpeta, Python
-            // tampoco podía entrar con él en la base
+            // un FAT viejo): si es audio, se avisa; si es carpeta, no se
+            // entra (con ese nombre no cabe en la base)
             let lossy = name.to_string_lossy().into_owned();
             let is_dir = entry.file_type().is_ok_and(|t| t.is_dir());
             if !is_dir && extensions.contains(&suffix_lower(&lossy)) {
@@ -553,7 +552,7 @@ fn walk(
             files.push(name);
             continue;
         };
-        // `entry.is_dir()` de Python sigue los enlaces; entrar, no
+        // un enlace a una carpeta cuenta como carpeta, pero no se entra
         let is_link = kind.is_symlink();
         let is_dir = if is_link {
             std::fs::metadata(entry.path()).is_ok_and(|m| m.is_dir())
@@ -566,9 +565,8 @@ fn walk(
             files.push(name);
         }
     }
-    // como `dn[:] = [...]` en Python: primero se mira qué subcarpetas valen
-    // (y se leen los manifiestos de las de pistas), después los archivos de
-    // aquí, y después se entra en cada una
+    // primero se mira qué subcarpetas valen (y se leen los manifiestos de las
+    // de pistas), después los archivos de aquí, y después se entra en cada una
     let mut keep: Vec<String> = Vec::new();
     for (name, is_link) in dirs {
         if excluded(dir, &name, exclusions) {
@@ -601,7 +599,7 @@ mod tests {
     use super::*;
 
     /// Pegar «/» a una cadena decía que /musica-copia estaba dentro de
-    /// /musica (lo de tests/test_core.py).
+    /// /musica.
     #[test]
     fn being_inside_the_library_is_decided_by_components() {
         assert!(inside("/musica/artistas/x.mp3", "/musica"));

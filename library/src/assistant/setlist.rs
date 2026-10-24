@@ -1,12 +1,12 @@
 //! Una lista de canciones contra un repertorio: comprobarla o meterla, por
-//! código (lo que era danplay/chat/setlist.py).
+//! código.
 //!
 //! Es lo que hay detrás de `find_songs` y `fill_playlist` del asistente: qué
 //! se pide (la lista pegada o lo que manda el modelo), cada canción junto a
 //! lo que se encontró, qué se hace con la lista según las palabras de la
 //! persona, la tarjeta para bajar lo que falta y el informe en pasado. Lo que
 //! toca la base (buscar en la biblioteca, cambiar la lista bajo su cerrojo,
-//! apuntar la tarjeta) sigue en Python, que pasa aquí lo que hay.
+//! apuntar la tarjeta) lo hace el servidor, que pasa aquí lo que hay.
 use super::intake::{Intent, MAX_NOTE, MAX_SETLIST_ITEMS, MAX_TITLE, MAX_URL, SetlistParse};
 use super::links::{clean_youtube_url, host_of};
 use super::text;
@@ -299,7 +299,7 @@ pub fn item_from_text(raw: &str) -> Dict {
     ])
 }
 
-/// `str(raw.get(k) or "").strip()[:n]`
+/// El texto de `k`, sin espacios a los lados y con `n` caracteres como mucho.
 fn field(raw: &Dict, k: &str, n: usize) -> String {
     crate::text::head(or_empty(get(raw, k)).trim(), n).to_owned()
 }
@@ -747,8 +747,8 @@ pub enum Change {
 pub const FILL_EMPTY: &str = "no encontre ninguna de esas canciones en la biblioteca: no \
                               toque la lista (dejarla vacia no es lo que pidio)";
 
-/// Qué se hace con la lista en cada modo (lo hace Python, bajo el cerrojo de
-/// las listas).
+/// Qué se hace con la lista en cada modo (lo hace quien llama, bajo el
+/// cerrojo de las listas).
 pub fn fill_change(mode: &str, ids: &[i64], before: &[i64]) -> Change {
     match mode {
         "add" => {
@@ -960,7 +960,7 @@ where
         } else {
             String::new()
         };
-        // la forma de `plan.register`: casillas sin marcar para lo dudoso
+        // la forma del registro del plan: casillas sin marcar para lo dudoso
         plan_rows.push(dic([
             ("n", at_of(r, "n")?.clone()),
             ("item", item.into()),
@@ -1018,7 +1018,7 @@ pub struct Filled<'a> {
 }
 
 /// El resultado de `fill_playlist`: lo que lee el modelo y, en `_ui`, la
-/// tabla entera (la tarjeta la pone Python en `_ui.confirm`).
+/// tabla entera (la tarjeta la pone el servidor en `_ui.confirm`).
 pub fn fill_result(f: Filled<'_>) -> Result<Dict, Error> {
     let pl = f.playlist;
     let rows_v = as_values(f.rows);
@@ -1269,7 +1269,7 @@ pub fn report(ui: &Value, confirm: bool) -> Result<String, Error> {
             _ => {}
         }
     }
-    // `by_id.setdefault(id, r)`: la primera fila de cada canción
+    // la primera fila de cada canción
     let mut by_id: Vec<(&Value, &Value)> = Vec::new();
     for r in rows {
         let s = at(r, "song")?;
@@ -1377,7 +1377,7 @@ pub fn report_found(found_rows: &[Value]) -> Result<Option<String>, Error> {
     )))
 }
 
-/// `ASK` como lo usa Python: {clave: (para el modelo, para la persona)}.
+/// `ASK` como tabla: {clave: (para el modelo, para la persona)}.
 pub fn ask_table() -> Vec<(&'static str, (&'static str, &'static str))> {
     ASK.iter().map(|(k, m, p)| (*k, (*m, *p))).collect()
 }

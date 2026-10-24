@@ -14,12 +14,12 @@ fn versions_compare_as_numbers() {
     assert!(newer("2026.9.1", "2026.08.19"));
     assert!(!newer("2026.08.19", "2026.8.19"));
     assert!(nums("").is_empty() && nums("sin cifras").is_empty());
-    // como las tuplas: lo que sigue igual y es más largo, es mayor
+    // si todo lo común es igual, la más larga es mayor
     assert!(newer("1.2.0", "1.2"));
-    // sin tope de tamaño, como los `int` de Python
+    // sin tope de tamaño
     assert!(newer("100000000000000000000001", "99999999999999999999999"));
     assert_eq!(nums("v000.0010"), ["0", "10"]);
-    // las cifras de Unicode cuentan (es lo que hacen `\d` e `int()`)
+    // las cifras de Unicode cuentan
     assert_eq!(nums("٢٠٢٦.٨"), ["2026", "8"]);
     // las de matemáticas van en cinco tiras de diez seguidas
     assert_eq!(nums("\u{1d7d1}\u{1d7e1}x٢٠٢٦"), ["39", "2026"]);
@@ -205,7 +205,7 @@ fn network_failures_in_one_sentence() {
         why(None, "<urlopen error [Errno -2] Name or service not known>"),
         "sin conexion a internet"
     );
-    // «resolution» no es «resolve»: se dice tal cual, como en Python
+    // «resolution» no es «resolve»: se dice tal cual, como hasta la 1.30
     let dns = "<urlopen error [Errno -3] Temporary failure in name resolution>";
     assert_eq!(why(None, dns), dns);
     let long = "x".repeat(300);

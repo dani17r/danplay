@@ -64,8 +64,8 @@ fn image_size_from_odd_headers() {
     assert_eq!(image_size(&file(&dir, "sin-sof.jpg", &no_sof)), Ok((0, 0)));
     assert_eq!(image_size(&file(&dir, "texto.png", b"hola")), Ok((0, 0)));
     assert_eq!(image_size(&file(&dir, "vacio.gif", b"")), Ok((0, 0)));
-    // cortado a medias: un error (en Python, un struct.error), que la puerta
-    // de Python apunta y convierte en (0, 0)
+    // cortado a medias: un error, que quien lo usa apunta y convierte en
+    // (0, 0)
     let mut truncated = b"\xff\xd8\xff\xe1\x40\x00".to_vec();
     truncated.extend([0u8; 10]);
     assert_eq!(
@@ -81,7 +81,7 @@ fn image_size_from_odd_headers() {
         .is_err()
     );
     assert!(image_size(&dir.join("no-esta.png")).is_err());
-    // un VP8X cortado da lo que haya, como `int.from_bytes` de Python
+    // un VP8X cortado da lo que haya
     assert_eq!(
         image_size(&file(&dir, "vp8x-corto.webp", b"RIFF\0\0\0\0WEBPVP8X")),
         Ok((1, 1))
@@ -236,10 +236,10 @@ fn second_try_drops_the_cover_but_keeps_the_audio() {
     std::fs::remove_dir_all(&dir).expect("borrar");
 }
 
-// ------------------------------------------------ lo de tests/test_media.py
+// ------------------------------------------------ convertir y las carátulas
 
-/// Una imagen de un color, de ese tamaño, en el formato que diga el nombre
-/// (`_image` de las pruebas de Python). `false` si ese ffmpeg no lo escribe.
+/// Una imagen de un color, de ese tamaño, en el formato que diga el nombre.
+/// `false` si ese ffmpeg no lo escribe.
 fn image(ffmpeg: &Path, path: &Path, size: &str, extra: &[&str]) -> bool {
     Command::new(ffmpeg)
         .args(["-y", "-loglevel", "error", "-f", "lavfi"])

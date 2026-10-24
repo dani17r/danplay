@@ -20,7 +20,8 @@
 //! - lo que solo sale de las etiquetas se propone para revisar, no como
 //!   seguro.
 //!
-//! Mover la canción (y escribir sus etiquetas) lo hace library/tidy.py.
+//! Mover la canción (y escribir sus etiquetas) lo hace el servidor
+//! (`services::songs`).
 use super::{Dict, fetch_all, get_str};
 use crate::names;
 use crate::paths;

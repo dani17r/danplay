@@ -292,7 +292,7 @@ fn the_reasons_are_said_in_spanish() {
 }
 
 #[test]
-fn a_song_reads_like_python_rounds() {
+fn a_song_brief_rounds_half_to_even() {
     let b = song_brief(&song(1, "Barak", "Mi Gozo")).unwrap_or_default();
     assert_eq!(
         (b["duration"].clone(), b["bpm"].clone()),
@@ -506,7 +506,7 @@ fn the_dialog_warns_of_a_recent_download() {
     );
 }
 
-// ------------------------------------------------- lo de tests/test_ai.py
+// --------------------------------------------------------- límites y campos
 
 /// Un límite negativo era «sin límite» para SQLite; los demás, a su tope.
 #[test]
@@ -533,8 +533,8 @@ fn tools_have_limits() {
     );
 }
 
-/// Una clave de más llegaba a `library.update` y podía pisar el estudio o
-/// los acordes.
+/// Una clave de más llegaba a lo que guarda la canción y podía pisar el
+/// estudio o los acordes.
 #[test]
 fn assistant_edit_only_touches_declared_fields() {
     let mut f = fake();

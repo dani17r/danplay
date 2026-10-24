@@ -1,17 +1,16 @@
 //! Narrar no es hacer: detectar cuándo el modelo dice que ha hecho algo que no
-//! ha hecho (lo que hacía danplay/chat/narration.py; ver docs/ARCHITECTURE.md,
-//! «El asistente»).
+//! ha hecho (ver docs/ARCHITECTURE.md, «El asistente»).
 //!
 //! Tres piezas: las llamadas escritas como texto en vez de hechas, las frases
-//! que afirman una acción (la lista sale de un corpus real, tests/narration.json)
-//! y, cuando las frases no bastan, el propio modelo como juez de una palabra
-//! (eso lo pregunta Python: aquí solo se decide si merece la pena).
+//! que afirman una acción (la lista sale de un corpus real,
+//! narration/corpus.json) y, cuando las frases no bastan, el propio modelo
+//! como juez de una palabra (la pregunta la hace `Chat::judge`: aquí solo se
+//! decide si merece la pena).
 //!
-//! Las expresiones son las de Python, rama a rama (`branches`, sacadas del propio
-//! módulo), con su `\w`, `\b` y `\s` (`names::rx`), y con lo que Rust lee de
-//! otra forma ya cambiado al compilarlas: `\S` y `\W` con los espacios y las
-//! letras de Python, y el `$` sin MULTILINE, que en Python también vale justo
-//! antes de un salto de línea final.
+//! Las expresiones van rama a rama (`branches`), con el `\w`, el `\b` y el
+//! `\s` de `names::rx`, y con lo que `regex` lee de otra forma ya cambiado al
+//! compilarlas: `\S` y `\W` con esos mismos espacios y letras, y el `$` sin
+//! MULTILINE, que también vale justo antes de un salto de línea final.
 use super::text as tx;
 use crate::names::{self, Re};
 use crate::patterns;
@@ -20,8 +19,9 @@ use std::sync::LazyLock;
 
 mod branches;
 
-/// La expresión de Python lista para `names::rx`: `\S`, `\W` y (sin
-/// MULTILINE) `$` como los entiende Python.
+/// La expresión de una rama lista para `names::rx`: `\S` lo que no es espacio
+/// ni separador 0x1c-0x1f, `\W` lo que no es letra, cifra ni «_», y (sin
+/// MULTILINE) `$` al final o justo antes de un salto de línea final.
 fn python_pattern(pattern: &str, multiline: bool) -> String {
     let mut out = String::with_capacity(pattern.len() + 32);
     let mut in_class = false;
@@ -147,8 +147,8 @@ fn relaxed(pattern: &str) -> String {
 /// cada una con la expresión de verdad y, delante, todas juntas sin lo que
 /// no consume nada (`relaxed`) en un `RegexSet` del motor rápido, que dice en
 /// una sola pasada cuáles podrían casar. Solo esas se miran de verdad: da lo
-/// mismo que la expresión entera de Python (importa si casa alguna) y es
-/// mucho más rápido que llevarla entera por `fancy_regex`.
+/// mismo que la expresión entera (importa si casa alguna) y es mucho más
+/// rápido que llevarla entera por `fancy_regex`.
 struct Phrases {
     set: regex::RegexSet,
     exact: Vec<Re>,
@@ -222,8 +222,8 @@ impl Tools {
     }
 }
 
-/// `int(v)` o `float(v)` de unas cifras de cualquier escritura (lo que deja
-/// pasar `-?\d+` y `-?\d+\.\d+`).
+/// El número, entero o real, de unas cifras de cualquier escritura (lo que
+/// deja pasar `-?\d+` y `-?\d+\.\d+`).
 fn number(v: &str) -> Option<Value> {
     let (neg, body) = v.strip_prefix('-').map_or((false, v), |b| (true, b));
     let ascii = |s: &str| -> Option<String> {
@@ -237,7 +237,7 @@ fn number(v: &str) -> Option<Value> {
     let sign = if neg { "-" } else { "" };
     if let Some(digits) = ascii(body) {
         let text = format!("{sign}{digits}");
-        // un entero que no cabe en 64 bits: como real (Python lo tendría entero)
+        // un entero que no cabe en 64 bits, como real
         return Some(text.parse::<i64>().map_or_else(
             |_| Value::from(text.parse::<f64>().unwrap_or(0.0)),
             Value::from,
@@ -434,7 +434,7 @@ mod tests {
         assert!(!claims_action("Tienes 18 canciones de Barak."));
     }
 
-    // ----------------------------------------- lo de tests/test_ai.py
+    // -------------------------------------- las llamadas escritas y el juez
 
     /// Las herramientas que declara el asistente y sus nombres viejos, como
     /// las ve `PSEUDO_CALL` (y `tool_names` en el servidor).
@@ -508,10 +508,10 @@ mod tests {
         }
     }
 
-    // Narrar no es hacer: el corpus (lo de tests/test_core.py). El asistente
-    // decía «Descargando…», «Añadida a la lista», «Ya la creé» sin llamar a
-    // nada. `claims_action` es la primera red; narration/corpus.json (antes
-    // tests/narration.json) es el corpus con el que se afinó: 179 frases que
+    // Narrar no es hacer: el corpus. El asistente decía «Descargando…»,
+    // «Añadida a la lista», «Ya la creé» sin llamar a nada. `claims_action` es
+    // la primera red; narration/corpus.json (antes tests/narration.json) es el
+    // corpus con el que se afinó: 179 frases que
     // afirman una acción y 134 que no (datos musicales, preguntas,
     // condicionales, letras citadas, muletillas). Lo que se tolera —frases
     // sobre el estado de la biblioteca que sin herramientas conviene forzar a

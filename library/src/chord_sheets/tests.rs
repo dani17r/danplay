@@ -438,8 +438,6 @@ fn lacuerda_through_the_artist_page() {
 fn the_key_that_can_be_asserted() {
     assert_eq!(sheet_key(false, "G"), "G");
     assert_eq!(sheet_key(true, "G"), "", "con cejilla, lo escrito no suena");
-    // (y `sheet_key(None)`, sin cifrado, era de Python: aquí no hay cifrado
-    // que mirar)
 }
 
 #[test]

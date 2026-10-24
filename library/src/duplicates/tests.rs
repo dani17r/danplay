@@ -10,8 +10,8 @@ fn scratch(name: &str) -> PathBuf {
     dir
 }
 
-/// Los números de rapidfuzz 3.14 (`fuzz.ratio`, `fuzz.token_set_ratio`),
-/// hasta el último decimal.
+/// Los números de rapidfuzz 3.14 (`ratio`, `token_set_ratio`), hasta el
+/// último decimal.
 #[test]
 fn rapidfuzz_scores() {
     for (a, b, r, t) in [
@@ -115,7 +115,7 @@ fn same_song_in_another_file() {
         ]
     );
     // uno contenido en otro: la puntuación de conjuntos da 100 (también
-    // «barak» solo, como en Python)
+    // «barak» solo)
     let paths = make_paths(&[
         "barak gozo.mp3",
         "barak gozo vivo estudio.mp3",
@@ -180,13 +180,12 @@ fn strip_duplicate_suffix() {
     }
 }
 
-/// Los hashes en paralelo dan lo mismo que el de un solo archivo (en Python,
-/// el de Rust frente al de `hashlib`).
+/// Los hashes en paralelo dan lo mismo que el de un solo archivo.
 #[test]
 fn parallel_and_single_hashes_match() {
     let dir = scratch("hashes");
     let f = dir.join("x.mp3");
-    // 200 000 bytes que no se repiten (como `os.urandom`, pero fijos)
+    // 200 000 bytes que no se repiten (como al azar, pero fijos)
     let mut state = 0x2545_f491_4f6c_dd1d_u64;
     let data: Vec<u8> = (0..200_000)
         .map(|_| {
@@ -207,8 +206,8 @@ fn parallel_and_single_hashes_match() {
     std::fs::remove_dir_all(&dir).expect("borrar");
 }
 
-/// Todos contra todos, sin atajos: la referencia (lo que hacía la prueba de
-/// Python con `fuzz.token_set_ratio` de rapidfuzz).
+/// Todos contra todos, sin atajos: la referencia (con `token_set_ratio` en
+/// cada pareja).
 fn brute_force_groups(paths: &[PathBuf], threshold: f64) -> Vec<Vec<usize>> {
     let mk: Vec<String> = paths
         .iter()
@@ -290,9 +289,9 @@ fn the_shortcut_finds_exactly_the_same_duplicate_groups() {
             make_paths(&[".mp3", "a.mp3", "el la de.mp3", "AAA.mp3", "aaa.mp3"]),
         ),
     ];
-    // 400 nombres «Artista - tres palabras» con un generador fijo (en Python,
-    // `random.seed(4)`; aquí no hace falta la misma secuencia, sino muchas
-    // combinaciones que se repiten en parte)
+    // 400 nombres «Artista - tres palabras» con un generador fijo (no hace
+    // falta una secuencia concreta, sino muchas combinaciones que se repiten
+    // en parte)
     let words = [
         "barak", "gozo", "vivo", "santo", "fuego", "gloria", "rey", "cristo", "amor", "cielo",
         "paz", "luz",

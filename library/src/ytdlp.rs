@@ -15,8 +15,8 @@ use std::time::Duration;
 
 // ------------------------------------------------------------- versiones
 
-/// Un número de una versión, de cualquier tamaño (los `int` de Python):
-/// sus cifras sin ceros delante, «0» si es cero.
+/// Un número de una versión, de cualquier tamaño (sin tope de cifras): sus
+/// cifras sin ceros delante, «0» si es cero.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Number(String);
 
@@ -74,7 +74,7 @@ fn decimal_value(c: char) -> u8 {
 }
 
 /// `version_tuple`: «2026.08.19» y «2026.8.19» son la misma: los números
-/// que lleva (cada tira de cifras, como `re.findall(r"\d+")` e `int()`).
+/// que lleva (cada tira de cifras, de cualquier escritura).
 pub fn version_tuple(v: &str) -> Vec<Number> {
     let mut out = Vec::new();
     let mut run = String::new();
@@ -92,7 +92,8 @@ pub fn version_tuple(v: &str) -> Vec<Number> {
     out
 }
 
-/// Si `a` es una versión más nueva que `b` (como tuplas de Python).
+/// Si `a` es una versión más nueva que `b`: número a número, y si todo lo
+/// común es igual, la que sigue (la más larga) es mayor.
 pub fn newer(a: &str, b: &str) -> bool {
     version_tuple(a) > version_tuple(b)
 }
@@ -128,8 +129,8 @@ pub struct RuntimeSpec {
     pub binary: &'static str,
     /// Lo que se le pregunta para que diga su versión.
     pub args: &'static [&'static str],
-    /// La expresión con la que se lee su versión (la de Python, para quien
-    /// la quiera ver).
+    /// La expresión con la que se lee su versión, para quien la quiera ver (la
+    /// lee `version_at`).
     pub pattern: &'static str,
     /// La versión más vieja que acepta yt-dlp.
     pub minimum: [u32; 3],
@@ -220,8 +221,8 @@ fn version_at(says: Says, line: &str) -> Option<&str> {
     (!found.is_empty()).then_some(found)
 }
 
-/// `re.search(pattern, out, re.MULTILINE)`: la primera línea (al principio
-/// del texto o tras un «\n») donde casa.
+/// La versión de la primera línea (al principio del texto o tras un «\n»)
+/// donde casa la del motor.
 fn read_version(says: Says, out: &str) -> String {
     let mut at = 0;
     loop {
@@ -257,8 +258,8 @@ pub fn parse_runtime(spec: &RuntimeSpec, path: &str, out: &str) -> Runtime {
     }
 }
 
-/// Lo que escribió un programa como lo leía `text=True`: con los saltos de
-/// línea de Windows («\r\n», «\r») como «\n».
+/// Lo que escribió un programa como texto: con los saltos de línea de Windows
+/// («\r\n», «\r») como «\n».
 fn text_of(bytes: &[u8]) -> String {
     String::from_utf8_lossy(bytes)
         .replace("\r\n", "\n")
@@ -326,7 +327,7 @@ pub fn hint(found: &[Runtime]) -> String {
 
 // ------------------------------------------------- la versión descargada
 
-/// La marca `current` no es UTF-8 (en Python, `UnicodeDecodeError`).
+/// La marca `current` no es UTF-8.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NotUtf8(pub Vec<u8>);
 
@@ -337,7 +338,7 @@ pub fn marked_version(root: &Path) -> Result<Option<String>, NotUtf8> {
         return Ok(None);
     };
     let text = String::from_utf8(bytes).map_err(|e| NotUtf8(e.into_bytes()))?;
-    // `read_text` lee con los saltos de línea de siempre
+    // los saltos de línea de Windows («\r\n», «\r»), como «\n»
     let text = text.replace("\r\n", "\n").replace('\r', "\n");
     Ok(Some(text.trim().to_owned()))
 }

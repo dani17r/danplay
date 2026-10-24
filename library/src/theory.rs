@@ -1,5 +1,5 @@
-//! Teoría musical: transposición de acordes y tonalidades (lo que hacía
-//! danplay/theory.py, con la misma expresión para reconocer un acorde).
+//! Teoría musical: transposición de acordes y tonalidades (con la misma
+//! expresión de siempre para reconocer un acorde).
 //!
 //! Determinista a propósito: transponer es matemática, no se le pregunta a una
 //! IA.
@@ -83,7 +83,7 @@ static CHORD: LazyLock<Re> = LazyLock::new(|| {
     ))
 });
 
-/// La posición de una nota (`INDEX_SQL[note]` en Python).
+/// El semitono de una nota (C es 0), o None si no está en la tabla.
 pub fn index(note: &str) -> Option<usize> {
     INDEX.iter().find(|(n, _)| *n == note).map(|&(_, i)| i)
 }
@@ -335,7 +335,7 @@ mod tests {
         assert_eq!(split_key("C-"), Some((0, true)));
     }
 
-    // ------------------------------------------- lo de tests/test_core.py
+    // ---------------------------------------------------- entre tonalidades
 
     #[test]
     fn transposition_between_keys() {
@@ -371,7 +371,7 @@ mod tests {
         assert_eq!(to_latin("| Bb | Gm7 |"), "| Sib | Solm7 |");
     }
 
-    /// Lo de tests/test_ai.py: los tonos vecinos de uno.
+    /// Los tonos vecinos de uno.
     #[test]
     fn neighbor_keys() {
         let g = related_keys("G").expect("G");
@@ -382,14 +382,13 @@ mod tests {
         assert!(related_keys("nada").is_none());
     }
 
-    // --------------------------------------- lo de tests/test_properties.py
-    // En Python, Hypothesis sacaba notas y semitonos al azar; aquí son pocos y
-    // se prueban todos (las notas de la tabla, de -36 a 36 semitonos), y los
-    // textos salen de un generador fijo.
+    // ---------------------------------------------------------- propiedades
+    // Las notas y los semitonos son pocos y se prueban todos (las notas de la
+    // tabla, de -36 a 36 semitonos), y los textos salen de un generador fijo.
 
     use crate::testkit::{CASES, Gen, NASTY};
 
-    /// Las notas de la tabla, sin repetir (`sorted(INDEX_SQL)` de Python).
+    /// Las notas de la tabla, ordenadas y sin repetir.
     fn notes() -> Vec<&'static str> {
         let mut out: Vec<&str> = INDEX.iter().map(|(n, _)| *n).collect();
         out.sort_unstable();
@@ -397,7 +396,7 @@ mod tests {
         out
     }
 
-    /// `INDEX_SQL[note]`: falla si no es una nota de la tabla.
+    /// El semitono de una nota: falla si no es una nota de la tabla.
     fn pitch(note: &str) -> i64 {
         INDEX.iter().find(|(n, _)| *n == note).map_or_else(
             || panic!("{note:?} no es una nota de la tabla"),

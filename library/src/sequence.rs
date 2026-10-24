@@ -1,6 +1,6 @@
 //! Abrir una secuencia descargada: la carpeta de pistas de una canción (como
-//! las de MultiTracks.com o Loop Community) con su proyecto de Ableton (lo de
-//! danplay/sequence.py que no es lanzar ffmpeg ni meterla en la biblioteca).
+//! las de MultiTracks.com o Loop Community) con su proyecto de Ableton (lo que
+//! no es lanzar ffmpeg ni meterla en la biblioteca).
 //!
 //! Viene así: `Titulo-Artista-Tono-124.00bpm/`, con `MultiTracks/*.wav` (cada
 //! instrumento, el «Click Track» y la «Guide» que canta las partes), la
@@ -167,7 +167,8 @@ pub fn parse_name(name: &str) -> Map<String, Value> {
     let mut bpm = 0.0;
     let mut text = name.trim().to_owned();
     if let Some(groups) = patterns::search(&BPM, &text) {
-        // `float(m[1].replace(",", "."))`: con las cifras de cualquier escritura
+        // el número del grupo 1, con «,» por punto y las cifras de cualquier
+        // escritura
         let digits: String = names::group(&text, &groups, 1)
             .chars()
             .map(|c| match c {
@@ -356,8 +357,8 @@ pub fn read_als(path: &Path) -> Result<Project, SequenceError> {
     let master = masters.first().copied().unwrap_or(&root);
     let mut tempo = 0.0;
     for ev in master.path(&["Tempo", "ArrangerAutomation", "Events", "FloatEvent"]) {
-        // `float(ev.get("Value") or 0)`: sin valor es 0 (y vale); uno que no
-        // es un número no vale, y se mira el siguiente
+        // sin valor es 0 (y vale); uno que no es un número no vale, y se mira
+        // el siguiente
         let value = ev.get("Value").filter(|v| !v.is_empty()).unwrap_or("0");
         if let Some(t) = value::parse_float(value) {
             tempo = t;
@@ -696,8 +697,9 @@ pub fn target_name(artist: &str, title: &str) -> String {
 
 // ------------------------------------------------------------ la onda
 
-/// La suma de numpy (por parejas, de ocho en ocho) de unos float64: la misma
-/// cuenta que hace `np.mean`, para que salga el mismo número.
+/// La suma por parejas de unos float64 (en bloques de 128, con ocho
+/// acumuladores): la misma cuenta, paso a paso, con la que se sacaba la media
+/// hasta la 1.30, para que salga el mismo número.
 pub fn pairwise_sum(x: &[f64]) -> f64 {
     const BLOCK: usize = 128;
     let n = x.len();
@@ -778,6 +780,6 @@ pub fn waves_text(waves: &[(String, Vec<f64>, Vec<f64>)]) -> String {
     let mut out = Map::new();
     out.insert("buckets".into(), Value::from(WAVE_BUCKETS));
     out.insert("tracks".into(), Value::Object(tracks));
-    // `json.dumps` sin más: con «, » y «: », y lo que no es ASCII escapado
+    // en JSON, con lo que no es ASCII escapado
     crate::stems::ascii_json(&Value::Object(out).to_string())
 }

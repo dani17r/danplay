@@ -1,6 +1,6 @@
 //! El emparejador con la biblioteca: decide si una canción pedida «ya la
-//! tenemos» (lo que hacía danplay/chat/resolve.py, con las mismas cuentas y en
-//! el mismo orden: los empates se deciden por centésimas).
+//! tenemos» (con las mismas cuentas que las versiones de antes y en el mismo
+//! orden: los empates se deciden por centésimas).
 //!
 //! Es la pieza detrás de «biblioteca primero»: antes de proponer bajar nada de
 //! YouTube, cada título de una lista pegada (o de una petición suelta) se mira
@@ -353,7 +353,7 @@ fn strip_dup(text: &str) -> String {
     c[..k].iter().collect()
 }
 
-/// `re.split(r"\s+[-–—|]\s+", text)`: «Artista - Titulo».
+/// El texto partido por `\s+[-–—|]\s+`: «Artista - Titulo».
 fn split_seg(text: &str) -> Vec<String> {
     let c: Vec<char> = text.chars().collect();
     let mut out = Vec::new();
@@ -384,7 +384,7 @@ fn split_seg(text: &str) -> Vec<String> {
     out
 }
 
-/// `re.split(r"\s*\+\s*|\s*/\s*", text)`: las partes de un medley.
+/// El texto partido por `\s*\+\s*|\s*/\s*`: las partes de un medley.
 fn split_medley(text: &str) -> Vec<String> {
     let c: Vec<char> = text.chars().collect();
     let mut out = Vec::new();
@@ -780,7 +780,7 @@ fn build_forms(
     }
 }
 
-/// La fila ligera que se devuelve (la misma forma que `tools._song_brief`).
+/// La fila ligera que se devuelve (la misma forma que `tools::song_brief`).
 fn light(row: &Dict) -> Dict {
     let num = |k: &str| row.get(k).and_then(Value::as_f64).unwrap_or(0.0);
     let text = |k: &str| Value::String(field(row, k).to_owned());
@@ -875,9 +875,11 @@ fn entry(row: &Dict) -> Entry {
 
 const COLS: &str = "id, path, file, folder, artist, title, album, feat, duration, \"key\", bpm, stars, favorite, match_key";
 
-/// El orden en que CPython recorre un `set` de enteros no negativos (su
-/// tabla, con la misma sonda y los mismos crecimientos). Python reparte en ese
-/// orden los empates de `Counter.most_common`; aquí se calcula igual.
+/// Un conjunto de enteros no negativos que se recorre en el orden de su tabla:
+/// direccionamiento abierto (el hueco y, si caben, los nueve siguientes; luego
+/// `i * 5 + 1 + perturb`) que crece al llenarse tres quintos. Los empates de
+/// los recuentos se reparten en ese orden, el de las versiones de antes: con
+/// los mismos datos entran las mismas candidatas.
 struct IntSet {
     table: Vec<Option<usize>>,
     fill: usize,
@@ -988,7 +990,7 @@ impl Base<'_> {
 }
 
 impl Index {
-    /// Lee la biblioteca con la conexión `conn` (la de `library.connect()`).
+    /// Lee la biblioteca con la conexión `conn`.
     /// Con más de `full_limit` canciones solo las cuenta.
     pub fn load(conn: &Connection, db: &Path, full_limit: usize) -> rusqlite::Result<Self> {
         let count: Option<i64> = conn.query_row("SELECT COUNT(*) FROM songs", [], |r| r.get(0))?;
@@ -1162,8 +1164,7 @@ enum TokenRole {
     Explained,
 }
 
-/// La comparación palabra a palabra de `eval` (ver chat/resolve.py:
-/// `_eval_tokens`).
+/// La comparación palabra a palabra de `eval`.
 #[allow(
     clippy::too_many_lines,
     reason = "las cuentas de `_eval_tokens`, en su orden"
@@ -1228,7 +1229,7 @@ fn eval_tokens(
         if qpos[i].is_some() {
             continue;
         }
-        #[allow(clippy::float_cmp, reason = "`_weight(t) == 1.0` de Python")]
+        #[allow(clippy::float_cmp, reason = "una palabra de contenido pesa 1.0 justo")]
         let content = weight(t) == 1.0;
         if free_q(t) && i >= q_free_from {
             kind_of[i] = TokenRole::Free;
@@ -1544,7 +1545,7 @@ pub struct Candidate {
     pub why: &'static str,
 }
 
-/// Qué se hizo con lo pedido (ver `Resolution` en chat/resolve.py).
+/// Qué se hizo con lo pedido.
 #[derive(Debug, Clone)]
 pub struct Resolution {
     pub status: &'static str,
@@ -1617,8 +1618,8 @@ impl Index {
         ids.extend(self.bag.get(&key).into_iter().flatten());
         ids.extend(self.joined.get(&q.fcore.concat()).into_iter().flatten());
         if !content.is_empty() {
-            // `Counter` en el orden en que Python recorre cada `set`: decide
-            // qué empates entran en los 400
+            // los recuentos, en el orden de `IntSet`: decide qué empates
+            // entran en los 400
             let mut hits: Vec<(usize, usize)> = Vec::new();
             let mut at: HashMap<usize, usize> = HashMap::new();
             for t in &content {
@@ -1871,8 +1872,11 @@ impl Index {
             .map(|e| e.song.clone()))
     }
 
-    /// ¿Tenemos esta canción? (ver `match_song` en chat/resolve.py).
-    #[allow(clippy::too_many_arguments, reason = "los de `_match`")]
+    /// ¿Tenemos esta canción?
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "todo lo que se sabe de lo pedido"
+    )]
     pub fn matching(
         &self,
         title: &str,

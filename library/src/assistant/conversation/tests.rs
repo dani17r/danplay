@@ -299,7 +299,7 @@ fn too_many_calls_are_refused_and_the_budget_runs_out() {
 }
 
 #[test]
-fn the_pieces_read_like_python() {
+fn the_pieces_give_the_expected_texts() {
     assert_eq!(clip("abc", 5), "abc");
     assert_eq!(clip("ab  cdef", 4), "ab\n[recortado]");
     assert!(pseudo_ok("fill_playlist", &json!({"mode": "CHECK"})));

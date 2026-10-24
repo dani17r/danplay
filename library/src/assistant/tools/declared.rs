@@ -1,6 +1,5 @@
-//! Lo que se le declara al modelo de cada herramienta (el `TOOLS` de
-//! chat/tools.py), en el mismo orden y con las mismas palabras: cada
-//! declaración va en cada llamada y se paga.
+//! Lo que se le declara al modelo de cada herramienta, en el orden y con las
+//! palabras de siempre: cada declaración va en cada llamada y se paga.
 use serde_json::{Map, Value, json};
 use std::sync::LazyLock;
 

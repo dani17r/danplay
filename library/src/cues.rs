@@ -1,7 +1,7 @@
-//! Las guías habladas (danplay/cues.py) sin su sonido: el catálogo de las
-//! voces (`data/voices.json`: qué voces hay, dónde va cada archivo y qué le
-//! falta a cada una), el nombre del archivo de cada guía, lo que puede durar
-//! un audio importado y la carpeta de las pruebas, que se vacía sola.
+//! Las guías habladas, sin su sonido: el catálogo de las voces
+//! (`data/voices.json`: qué voces hay, dónde va cada archivo y qué le falta a
+//! cada una), el nombre del archivo de cada guía, lo que puede durar un audio
+//! importado y la carpeta de las pruebas, que se vacía sola.
 use crate::num;
 use crate::paths;
 use crate::text;
@@ -18,7 +18,7 @@ use unicode_normalization::UnicodeNormalization;
 /// las de Piper (cada una el suyo), cada archivo con su sha256 y lo que pesa.
 pub struct Catalog(Value);
 
-/// `Path(p).name`: la última parte de la ruta.
+/// La última parte de la ruta.
 fn file_name(p: &str) -> &str {
     p.split('/')
         .rfind(|s| !s.is_empty() && *s != ".")
@@ -60,8 +60,8 @@ impl Catalog {
             .collect()
     }
 
-    /// La voz por su id (`cues._find`), con su motor y los archivos que
-    /// necesita, cada uno con su URL y dónde va («dest», bajo `voices`).
+    /// La voz por su id, con su motor y los archivos que necesita, cada uno
+    /// con su URL y dónde va («dest», bajo `voices`).
     pub fn voice(&self, voices: &Path, id: &str) -> Option<Map<String, Value>> {
         let is_this = |v: &&Value| v.get("id").and_then(Value::as_str) == Some(id);
         let path_value = |p: &Path| Value::String(p.to_string_lossy().into_owned());
@@ -134,16 +134,15 @@ pub fn is_missing(dest: &Path, bytes: i64) -> bool {
     std::fs::metadata(dest).map_or(true, |m| i64::try_from(m.len()) != Ok(bytes))
 }
 
-/// Cómo va lo que se está bajando de un paquete de voces (lo que lleva
-/// `cues._INSTALLS`).
+/// Cómo va lo que se está bajando de un paquete de voces.
 pub struct DownloadProgress {
     pub got: i64,
     pub total: i64,
     pub error: String,
 }
 
-/// Todas las voces (`cues.voices`): las bajadas y las que se pueden bajar,
-/// con lo que pesa lo que les falta y, si se están bajando, por dónde van.
+/// Todas las voces: las bajadas y las que se pueden bajar, con lo que pesa lo
+/// que les falta y, si se están bajando, por dónde van.
 pub fn voices<S: BuildHasher>(
     cat: &Catalog,
     dir: &Path,
@@ -241,10 +240,10 @@ fn sha1_hex(text: &str) -> String {
         })
 }
 
-/// La frase de una guía dicha (`cues.make`: sin espacios a los lados y
-/// hasta 300 letras) y el nombre de su archivo: «<slug>-<clave>.wav», con
-/// la clave de la versión, la voz y la frase (la misma frase con la misma
-/// voz es el mismo archivo). `None` si no hay nada que decir.
+/// La frase de una guía dicha (sin espacios a los lados y hasta 300 letras) y
+/// el nombre de su archivo: «<slug>-<clave>.wav», con la clave de la versión,
+/// la voz y la frase (la misma frase con la misma voz es el mismo archivo).
+/// `None` si no hay nada que decir.
 pub fn spoken_cue_name(text: &str, voice: &str, version: i64) -> Option<(String, String)> {
     let text = text::head(text.trim(), 300);
     if text.is_empty() {
@@ -257,9 +256,8 @@ pub fn spoken_cue_name(text: &str, voice: &str, version: i64) -> Option<(String,
     ))
 }
 
-/// El nombre de una guía editada (`cues.edit_clip`): «editada-<clave>.wav»,
-/// con la clave de la de antes y de lo que se le hizo (lo mismo, el mismo
-/// archivo).
+/// El nombre de una guía editada: «editada-<clave>.wav», con la clave de la de
+/// antes y de lo que se le hizo (lo mismo, el mismo archivo).
 #[allow(clippy::too_many_arguments, clippy::fn_params_excessive_bools)] // lo que se le hizo, tal cual
 pub fn edited_cue_name(
     own: &str,
@@ -283,8 +281,7 @@ pub fn edited_cue_name(
     format!("editada-{}.wav", &key[..14])
 }
 
-/// «un minuto», «5 minutos» (`cues._minutes`). `Err` con el `ValueError` de
-/// `round()` si no es un número.
+/// «un minuto», «5 minutos» (redondeando al par). `Err` si no es un número.
 pub fn minutes(segundos: f64) -> Result<String, String> {
     let m = (segundos / 60.0).round_ties_even();
     if !m.is_finite() {
@@ -298,8 +295,8 @@ pub fn minutes(segundos: f64) -> Result<String, String> {
 }
 
 /// Lo que puede durar un audio importado como guía y lo que se dice si dura
-/// más (`cues.import_recording`): hasta lo que dura la canción (`longest`)
-/// y como mucho `max_import`; sin la canción, `max_seconds`.
+/// más: hasta lo que dura la canción (`longest`) y como mucho `max_import`;
+/// sin la canción, `max_seconds`.
 pub fn import_limit(
     longest: Option<f64>,
     max_seconds: f64,
@@ -321,8 +318,7 @@ pub fn import_limit(
 
 // ------------------------------------------------------------ las pruebas
 
-/// Quita de `dir` lo de hace más de `max_age` segundos (`cues.sweep_previews`).
-/// Devuelve cuántas.
+/// Quita de `dir` lo de hace más de `max_age` segundos. Devuelve cuántas.
 pub fn sweep_previews(dir: &Path, max_age: f64) -> usize {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)

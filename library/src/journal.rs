@@ -26,8 +26,8 @@
 //! que cambiaron de sitio; lo demás, ya está en la base.
 //!
 //! El hilo que lo escribe cada pocos segundos, el cerrojo de las listas, el
-//! aviso a la interfaz y reescribir las listas exportadas siguen en
-//! danplay/journal.py, que usa esto.
+//! aviso a la interfaz y reescribir las listas exportadas van en el servidor
+//! (`services::journal`), que usa esto.
 use crate::index::{Dict, begin, fetch_all, fetch_one, get_str, next_song_id, now, scan};
 use crate::num;
 use crate::paths;
@@ -142,7 +142,7 @@ fn basename_of_root(root: &str) -> String {
     paths::file_name(root.trim_end_matches(sep()))
 }
 
-/// `x not in (None, "", 0, 0.0)` de Python: lo que cuenta como «algo puesto».
+/// Lo que cuenta como «algo puesto»: ni null, ni vacío, ni cero, ni false.
 fn something(v: &Value) -> bool {
     match v {
         Value::Null => false,
@@ -158,7 +158,7 @@ fn something(v: &Value) -> bool {
 /// existen; `app`, «DanPlay <versión>».
 #[allow(
     clippy::too_many_lines,
-    reason = "la ficha de cada canción y de cada lista, como journal.py"
+    reason = "la ficha de cada canción y de cada lista"
 )]
 pub fn snapshot(
     conn: &Connection,
@@ -194,7 +194,7 @@ pub fn snapshot(
         .iter()
         .filter_map(|r| r.get("id").and_then(Value::as_i64))
         .collect();
-    // las que no están, en orden de id (en Python salían en el orden de un set)
+    // las que no están, en orden de id
     let mut gone: Vec<i64> = listed
         .iter()
         .copied()
@@ -378,7 +378,7 @@ pub fn latest(targets: &[PathBuf]) -> Option<Dict> {
             .and_then(Value::as_f64)
             .unwrap_or(0.0)
     };
-    // como `max` de Python: con empate, el primero
+    // el mayor; con empate, el primero
     targets
         .iter()
         .filter_map(|p| load(p))
@@ -439,7 +439,7 @@ fn index<'a>(rows: &'a [Dict], roots: &[String]) -> Index<'a> {
     ix
 }
 
-/// `reuse._close`: dos duraciones que son la misma canción.
+/// Dos duraciones que son la misma canción.
 fn close(a: Option<&Value>, b: Option<&Value>) -> bool {
     let f = |v: Option<&Value>| match v {
         Some(x) if value::truthy(x) => value::float_of(x),
@@ -527,10 +527,7 @@ pub struct Reconciled {
 
 /// Compara el diario con lo que hay y recupera lo que se perdió (ver
 /// arriba). Quien llama tiene el cerrojo de las listas y confirma.
-#[allow(
-    clippy::too_many_lines,
-    reason = "el algoritmo de journal.py, paso a paso"
-)]
+#[allow(clippy::too_many_lines, reason = "el algoritmo entero, paso a paso")]
 pub fn reconcile(
     conn: &Connection,
     journal: &Dict,

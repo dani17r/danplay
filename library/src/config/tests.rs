@@ -1,11 +1,10 @@
-//! La configuración (lo de tests/test_config_rust.py y lo de las herramientas
-//! de tests/test_core.py). En Python se comparaba con la de danplay/config.py
-//! y con python-dotenv; aquí, con lo que daban ellas.
+//! La configuración: las herramientas, lo que se lee al arrancar y el archivo
+//! de ajustes, comparado con lo que leían y escribían las versiones de antes.
 use super::*;
 use crate::testkit::Scratch;
 use serde_json::{Value, json};
 
-// ------------------------------------------------- lo de tests/test_core.py
+// ------------------------------------------------------------- herramientas
 // Estos caminos no se ejecutan nunca en Linux, así que se fuerzan aquí. Lo
 // que de verdad corre en Windows lo prueba la integración continua, pero
 // estas cazan los descuidos sin esperar a un push.
@@ -50,7 +49,7 @@ fn on_windows_the_exe_suffix_is_tried() {
     assert_eq!(cfg.find_tool_with("fpcalc", &[".exe", ""]), Some(tool));
 }
 
-// ------------------------------------------ lo de tests/test_config_rust.py
+// ------------------------------------------------ lo que se lee al arrancar
 
 /// La configuración que se lee al arrancar, en un proceso aparte con ese
 /// entorno (el del proceso no se puede cambiar desde una prueba): esta misma
@@ -112,7 +111,7 @@ fn config_in(env: &[(&str, String)], root: &Path) -> Value {
 }
 
 /// Lo que da la configuración sin ajustes: las mismas carpetas y los valores
-/// de siempre (los de config.py).
+/// de siempre.
 #[cfg(target_os = "linux")]
 fn defaults(data: &Path, cfg: &Path, library: &Path, home: &Path) -> Value {
     let p = |p: PathBuf| p.to_string_lossy().into_owned();
@@ -158,7 +157,7 @@ fn config_reads_the_environment_and_the_settings_file() {
         dir.join("config/danplay"),
         dir.join("Musica"),
     );
-    // como tests/conftest.py: todo lo del usuario, en el temporal
+    // todo lo del usuario, en el temporal
     let base = vec![
         ("HOME", s(home.clone())),
         ("XDG_CONFIG_HOME", s(dir.join("config"))),
@@ -244,12 +243,12 @@ fn config_reads_the_environment_and_the_settings_file() {
     );
 }
 
-/// El archivo de ajustes se lee como lo lee python-dotenv (1.2.4). Los casos
-/// (los textos que la prueba de Python sacaba con Hypothesis de estas líneas,
-/// y lo que leía `DotEnv` con interpolación y sin pisar el entorno) se
-/// generaron una vez con python-dotenv y están en dotenv_cases.json.
+/// El archivo de ajustes se lee como lo leían las versiones de antes (con
+/// dotenv 1.2.4). Los casos (textos hechos al azar con estas líneas, y lo que
+/// se leía de ellos con interpolación y sin pisar el entorno) se sacaron una
+/// vez de ese lector y están en dotenv_cases.json.
 #[test]
-fn settings_file_is_read_like_python_dotenv() {
+fn settings_file_is_read_as_in_the_saved_cases() {
     let cases: Value = serde_json::from_str(include_str!("dotenv_cases.json")).expect("los casos");
     let env = |n: &str| match n {
         "HOME" => Some("/home/x".to_owned()),
@@ -266,12 +265,12 @@ fn settings_file_is_read_like_python_dotenv() {
     }
 }
 
-/// Lo que se guarda en danplay.env se escribe como en config.py y se relee
-/// igual (con python-dotenv, sin interpolar: lo que lleva «${» se relee
-/// interpolado, como lo leerá Python).
+/// Lo que se guarda en danplay.env se escribe como lo escribían las versiones
+/// de antes (entre comillas si hace falta) y se relee igual. Lo que lleva «${»
+/// no se relee: al leerlo se interpola.
 #[test]
-fn saved_values_are_written_like_python_and_read_back() {
-    // los ejemplos fijos de la prueba de Python, con lo que escribía config.py
+fn saved_values_are_quoted_when_needed_and_read_back() {
+    // unos ejemplos fijos, con lo que escribían las versiones de antes
     for (value, written) in [
         ("/home/ana/Musica #2", "'/home/ana/Musica #2'"),
         (" lados ", "' lados '"),

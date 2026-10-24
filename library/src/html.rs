@@ -1,7 +1,7 @@
-//! `html.unescape` de Python: las referencias de HTML5 (`&amp;`, `&#241;`,
-//! `&eacute`…) con las reglas del estándar, también para las mal escritas: un
-//! número fuera de rango es «�», los de Windows-1252 son su carácter, y de un
-//! nombre sin punto y coma vale el más largo que exista («&notit;» es «¬it;»).
+//! Traducir las referencias de HTML5 (`&amp;`, `&#241;`, `&eacute`…) con las
+//! reglas del estándar, también las mal escritas: un número fuera de rango es
+//! «�», los de Windows-1252 son su carácter, y de un nombre sin punto y coma
+//! vale el más largo que exista («&notit;» es «¬it;»).
 mod entities;
 
 use entities::{ENTITIES, INVALID_CHARREFS, INVALID_CODEPOINTS};

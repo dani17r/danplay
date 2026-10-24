@@ -1,5 +1,5 @@
-//! El lector de listas pegadas, por código y sin modelo (lo que hacía
-//! danplay/chat/intake.py, paso a paso y en el mismo orden).
+//! El lector de listas pegadas, por código y sin modelo (paso a paso y en el
+//! mismo orden que en las versiones de antes).
 //!
 //! Cada semana llega por WhatsApp la lista de canciones del domingo, con
 //! `*negritas*`, emojis, `@menciones` de quien canta o toca, «Voz», «(En Su
@@ -32,12 +32,12 @@
 //!   `people`: nunca se pierde una línea sin dejar rastro.
 //! * Prefiere no detectar una lista a detectarla mal.
 //!
-//! Las expresiones de Python que miran alrededor (`(?<![^\W_])`…) o que se
-//! leen con `lastgroup` están escritas a mano, carácter a carácter, con la
-//! misma regla: lo que Python entiende por letra, cifra o espacio (`text`).
+//! Las expresiones que miran alrededor (`(?<![^\W_])`…) o que se leen por el
+//! nombre del grupo que casó están escritas a mano, carácter a carácter, con
+//! una sola regla de lo que es letra, cifra o espacio (`text`).
 #![allow(
     clippy::many_single_char_names,
-    reason = "los escáneres leen carácter a carácter con los nombres de Python (s, c, a, b, n…)"
+    reason = "los escáneres leen carácter a carácter con nombres cortos (s, c, a, b, n…)"
 )]
 
 use super::links;
@@ -74,11 +74,10 @@ const NAME_WORDS: usize = 8; // palabras de una mención
 
 // ------------------------------------------------------------------- datos
 
-/// Una canción de la lista pegada, tal como se leyó (ver `SetItem` en
-/// chat/intake.py: `n` es la posición de lectura; `query`, la forma de
-/// búsqueda del título; `people`, las @menciones; `note`, lo entre paréntesis,
-/// lo escrito a mano y el tono; `url`, la forma canónica del enlace y `kind`
-/// qué enlace es).
+/// Una canción de la lista pegada, tal como se leyó (`n` es la posición de
+/// lectura; `query`, la forma de búsqueda del título; `people`, las
+/// @menciones; `note`, lo entre paréntesis, lo escrito a mano y el tono;
+/// `url`, la forma canónica del enlace y `kind` qué enlace es).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SetItem {
     pub n: usize,
@@ -154,8 +153,8 @@ fn prepare(text: &str) -> String {
     tx::nfc(&s)
 }
 
-/// `\d{1,2}` desde `at`: (cuántas, valor), con la vuelta atrás de Python
-/// (primero dos, luego una) a cargo de quien llama.
+/// `\d{1,2}` desde `at`: (cuántas, valor), con la vuelta atrás (primero dos,
+/// luego una) a cargo de quien llama.
 fn digits_at(c: &[char], at: usize, max: usize) -> usize {
     let mut n = 0;
     while n < max && at + n < c.len() && tx::is_digit(c[at + n]) {
@@ -912,8 +911,8 @@ fn add(toks: &mut Vec<T>, t: T) {
     toks.push(t);
 }
 
-/// Qué pieza empieza en `c[a]` (`_TOKEN` de Python, alternativa a
-/// alternativa y en su orden): (tipo de pieza, fin, número leído).
+/// Qué pieza empieza en `c[a]` (alternativa a alternativa y en su orden):
+/// (tipo de pieza, fin, número leído).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum G {
     Gap,
@@ -1898,7 +1897,8 @@ fn is_order(text: &str, has_url: bool) -> bool {
 }
 
 /// Las fechas (`\b\d{1,2}[/.-]\d{1,2}(?:[/.-]\d{2,4})?\b|\b\d{1,2} de [a-záéíóúñ]+(?: de \d{4})?\b`,
-/// sin mirar mayúsculas y con el `\b` de Python).
+/// sin mirar mayúsculas y con un `\b` que toma por palabra las letras, las
+/// cifras y «_»).
 static DATE: LazyLock<fancy_regex::Regex> = LazyLock::new(|| {
     let w = r"[\p{L}\p{N}_]";
     let b = format!("(?:(?<={w})(?!{w})|(?<!{w})(?={w}))");

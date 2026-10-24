@@ -46,7 +46,7 @@ fn youtube_links() {
     );
 }
 
-// ------------------------------------------------- lo de tests/test_intake.py
+// ----------------------------------------------------- las listas de verdad
 // La parte gorda son las muestras de intake/samples.json (antes
 // tests/fixtures/intake_samples.json): listas de WhatsApp de verdad con
 // nombres, siglas e ids de vídeo inventados, variantes de formato, medleys
@@ -126,10 +126,7 @@ fn text(v: &Value, k: &str) -> String {
 }
 
 /// Lo que no cuadra entre una lectura y la esperada (vacío = vale).
-#[allow(
-    clippy::too_many_lines,
-    reason = "el comparador de la prueba de Python, de una pieza"
-)]
+#[allow(clippy::too_many_lines, reason = "el comparador, de una pieza")]
 fn diff(got: &SetlistParse, exp: &Value) -> Vec<String> {
     let want_setlist = exp["is_setlist"] == serde_json::json!(true);
     if got.is_setlist != want_setlist {
@@ -322,8 +319,7 @@ fn the_data_contract() {
         (MAX_SETLIST_ITEMS, MAX_TITLE, MAX_URL, MAX_NOTE),
         (60, 200, 300, 200)
     );
-    // (el orden de los campos de las «dataclasses» era de Python; lo que
-    // valen sin nada sí cuenta)
+    // lo que valen sin nada
     assert_eq!(
         SetlistParse::default(),
         SetlistParse {
@@ -567,8 +563,7 @@ fn a_role_after_a_mention_is_the_note_not_a_surname() {
     assert_eq!(got, want);
 }
 
-/// (En Python también None, un número, bytes o una lista: aquí el texto
-/// siempre lo es.)
+/// Un texto vacío, o solo de espacios, no es una lista.
 #[test]
 fn what_is_not_text_is_not_a_setlist() {
     for value in ["", "   \n\t "] {
@@ -579,7 +574,7 @@ fn what_is_not_text_is_not_a_setlist() {
 // -------------------------------------------------------------- read_intent
 
 #[test]
-#[allow(clippy::too_many_lines, reason = "la tabla entera de Python")]
+#[allow(clippy::too_many_lines, reason = "la tabla entera, de una pieza")]
 fn read_intent_cases() {
     let fields = |i: Intent| -> Vec<&'static str> {
         [
@@ -695,7 +690,7 @@ fn read_intent_cases() {
 fn read_intent_in_uppercase_and_without_text() {
     assert!(read_intent("VERIFICA LA LISTA").check);
     assert!(read_intent("NO BAJES NADA").no_download);
-    // (y con None o un número, en Python; aquí basta el texto vacío)
+    // y sin texto, nada
     assert_eq!(read_intent(""), Intent::default());
 }
 
@@ -937,7 +932,7 @@ fn over_200_kb_is_cut_and_does_not_hang() {
 
 // ---------------------------------------------------------------- propiedades
 
-/// Un generador fijo (en Python, Hypothesis).
+/// Un generador fijo.
 struct Gen(u64);
 
 impl Gen {

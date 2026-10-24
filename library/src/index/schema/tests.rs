@@ -1,9 +1,8 @@
-//! Lo de tests/test_schema.py y tests/test_schema_rust.py: el esquema lleva
-//! su versión (`PRAGMA user_version`) y cada cambio es una migración que se
-//! aplica una sola vez. Una base nueva, una de antes de las versiones, una
-//! del esquema en castellano y una de la versión 3 acaban igual, y como las
-//! dejaba Python (python_cases.json: lo que hacía danplay/library/db.py con
-//! cada una, guardado una vez).
+//! El esquema lleva su versión (`PRAGMA user_version`) y cada cambio es una
+//! migración que se aplica una sola vez. Una base nueva, una de antes de las
+//! versiones, una del esquema en castellano y una de la versión 3 acaban
+//! igual, y como las dejaban las versiones de antes (lo que hacían con cada
+//! una, guardado una vez en el JSON de los casos).
 use super::*;
 use crate::index::{COLUMNS, next_song_id, open};
 use crate::testkit::Scratch;
@@ -11,16 +10,15 @@ use rusqlite::types::ValueRef;
 use serde_json::{Value, json};
 use std::cell::RefCell;
 
-/// Abre y prepara la base como la primera vez que la abría
-/// `library.connect()` de Python (aquí, sin la caché de bases ya
-/// preparadas: cada llamada vuelve a mirar).
+/// Abre y prepara la base como la primera vez que se abre (sin la caché de
+/// bases ya preparadas: cada llamada vuelve a mirar).
 fn prepared(path: &Path) -> Connection {
     let conn = open(path).expect("abrir");
     prepare(&conn).expect("preparar");
     conn
 }
 
-/// Una conexión sin nada de DanPlay: la de `sqlite3.connect`.
+/// Una conexión sin nada de DanPlay: la de SQLite a secas.
 fn raw(path: &Path) -> Connection {
     Connection::open(path).expect("abrir")
 }
@@ -177,7 +175,7 @@ fn recording(calls: &RefCell<Vec<i64>>) -> Steps<'_> {
         .collect()
 }
 
-// ------------------------------------------------------ tests/test_schema.py
+// ---------------------------------------------------------- las migraciones
 
 #[test]
 fn a_new_db_starts_at_the_latest_version() {
@@ -361,8 +359,8 @@ fn a_failing_migration_leaves_nothing_half_done() {
     );
 }
 
-/// También lo de tests/test_schema_rust.py: preparar una base de un DanPlay
-/// más nuevo no aplica nada ni le baja la versión.
+/// Preparar una base de un DanPlay más nuevo no aplica nada ni le baja la
+/// versión.
 #[test]
 fn a_db_from_a_newer_danplay_is_left_alone() {
     let dir = Scratch::new("esquema-mas-nueva");
@@ -391,7 +389,7 @@ fn new_or_migrated_dbs_end_with_the_same_columns() {
     assert_eq!(columns(&old, "songs"), columns(&new, "songs"));
 }
 
-// ------------------------------------------------ tests/test_schema_rust.py
+// ---------------------------------- como las dejaban las versiones de antes
 
 fn cell(v: ValueRef<'_>) -> Value {
     match v {
@@ -447,7 +445,8 @@ fn dump(path: &Path) -> Value {
     })
 }
 
-/// Lo que dejaba Python, con las filas en el mismo orden que `dump`.
+/// Lo que dejaban las versiones de antes, con las filas en el mismo orden que
+/// `dump`.
 fn as_python_left_it(case: &str) -> Value {
     let all: Value = serde_json::from_str(include_str!("python_cases.json")).expect("lo de Python");
     let mut d = all[case].clone();
@@ -468,10 +467,10 @@ fn as_python_left_it(case: &str) -> Value {
 }
 
 /// Partiendo de la misma base (nueva, de antes de las versiones, en
-/// castellano, de la versión 3), Rust la deja como Python: mismas tablas,
-/// índices, triggers, versión y datos.
+/// castellano, de la versión 3), queda como la dejaban las versiones de antes:
+/// mismas tablas, índices, triggers, versión y datos.
 #[test]
-fn rust_leaves_the_db_like_python() {
+fn prepared_dbs_match_what_the_old_version_left() {
     let dir = Scratch::new("esquema-como-python");
     let builds: [(&str, Build<'_>); 4] = [
         ("empty", &|p: &Path| drop(raw(p))),

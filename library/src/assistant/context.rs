@@ -1,8 +1,8 @@
 //! Lo que el modelo ve de cada turno además del mensaje: la ventana de
 //! historial, las notas de lo que hizo de verdad en los anteriores y el estado
-//! real de la app (lo que hay, lo que la persona tiene delante). Lo que era
-//! danplay/chat/context.py; reunir los datos (la base, las listas, la
-//! descarga en marcha) sigue en Python, y aquí se escribe el texto.
+//! real de la app (lo que hay, lo que la persona tiene delante). Reunir los
+//! datos (la base, las listas, la descarga en marcha) lo hace el servidor; aquí
+//! se escribe el texto.
 use super::narration::{claims_action, has_markers};
 pub use super::value::Error;
 use super::value::{
@@ -33,7 +33,7 @@ pub const CONTEXT_ROWS: usize = 20;
 /// Desde qué mensaje empieza la ventana: los últimos que caben, empezando por
 /// uno del usuario. Devuelve el índice del primero que se queda (la ventana es
 /// `messages[start:]`). Se mira de atrás adelante y solo lo que hace falta:
-/// `text_len(i)` es `len(str(m.get("text") or ""))` del mensaje `i`, e
+/// `text_len(i)` es lo largo del texto del mensaje `i` (0 si no tiene), e
 /// `is_ai(i)` si su `role` es «ai».
 pub fn window_start<E>(
     n: usize,
@@ -323,20 +323,20 @@ pub fn screen_note(context: &Value) -> Result<Vec<String>, Error> {
     Ok(lines)
 }
 
-/// Lo que Python reunió para la nota del estado. Cada parte es None si no se
+/// Lo que se reunió para la nota del estado. Cada parte es None si no se
 /// pudo leer, y entonces no se dice nada de ella.
 #[derive(Debug, Default)]
 pub struct State {
     /// «dd/mm/AAAA»
     pub today: String,
-    /// `library.stats_of()` y `library.top_artists(12)`
+    /// los números de la biblioteca y sus 12 artistas con más canciones
     pub stats: Option<(Dict, Vec<Value>)>,
-    /// `playlists.list_all()`
+    /// todas las listas
     pub lists: Option<Vec<Value>>,
-    /// `youtube.STATE`
+    /// la descarga en marcha
     pub download: Option<Dict>,
     /// las últimas descargas buenas (como mucho 3), cada una con si su
-    /// canción sigue siendo esa (`_still_there`), y la hora de ahora
+    /// canción sigue siendo esa, y la hora de ahora
     pub recent: Option<(Vec<(Dict, bool)>, f64)>,
 }
 
@@ -350,8 +350,8 @@ pub fn context_note(messages: &[Dict], context: &Value, state: &State) -> Result
         vec!["ESTADO REAL DE LA APP AHORA (manda sobre lo que hayas dicho antes):".to_owned()];
     lines.extend(screen_note(context)?);
     lines.push(format!("- Hoy es {}.", state.today));
-    // cada línea, si se puede escribir: lo que en Python fallaba dentro de
-    // su `try` (una clave que no está) se la saltaba
+    // cada línea, si se puede escribir: la que no (una clave que no está) se
+    // salta
     if let Some((stats, top)) = &state.stats
         && let Ok(line) = stats_line(stats, top)
     {
@@ -454,7 +454,8 @@ fn download_line(e: &Dict) -> Result<String, Error> {
     ))
 }
 
-/// `a // b` de Python con reales.
+/// La división entera de reales, hacia abajo (-1 entre 60 da -1): el resto
+/// lleva el signo del divisor.
 fn floordiv(a: f64, b: f64) -> f64 {
     let m = a % b;
     let mut div = (a - m) / b;
@@ -472,8 +473,8 @@ fn floordiv(a: f64, b: f64) -> f64 {
     }
 }
 
-/// Cada descarga reciente en una frase; None si una no se entiende (Python
-/// se saltaba entonces la línea entera).
+/// Cada descarga reciente en una frase; None si una no se entiende (y
+/// entonces se salta la línea entera).
 fn recent_parts(recent: &[(Dict, bool)], now: f64) -> Option<Vec<String>> {
     let mut parts = Vec::new();
     for (h, still) in recent {
@@ -627,7 +628,7 @@ mod tests {
         assert_eq!(screen_note(&bad), Err(Error::NotInteger("\"x\"".into())));
     }
 
-    /// Lo de tests/test_ai.py: lo que se ve, lo seleccionado y lo que suena.
+    /// Lo que se ve, lo seleccionado y lo que suena.
     #[test]
     fn screen_state_tells_what_is_seen_selected_playing() {
         let lines = screen_note(&json!({
@@ -692,7 +693,7 @@ mod tests {
 
     #[test]
     #[allow(clippy::float_cmp)]
-    fn python_floor_division() {
+    fn floor_division_rounds_down() {
         assert_eq!(floordiv(119.0, 60.0), 1.0);
         assert_eq!(floordiv(-1.0, 60.0), -1.0);
         assert_eq!(floordiv(120.0, 60.0), 2.0);

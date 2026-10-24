@@ -1,7 +1,7 @@
 //! La biblioteca de DanPlay: lo que hace el núcleo con la música del disco
 //! (el índice, las etiquetas con lofty, los nombres, las listas, el
-//! asistente, la configuración). Salió del núcleo de Python de hasta la
-//! 1.30, con sus mismas reglas; la usan la API (`server`) y las apps.
+//! asistente, la configuración). Hace lo mismo que el núcleo de hasta la 1.30,
+//! con sus mismas reglas; la usan la API (`server`) y las apps.
 pub mod ai;
 pub mod assistant;
 pub mod beatgrid;

@@ -1,11 +1,11 @@
-//! Leer un `.env` exactamente como python-dotenv (su `parser.py` y su
-//! `variables.py`): `export`, claves y valores entre comillas simples o
-//! dobles (con sus escapes), comentarios tras « #» en los valores sin
-//! comillas, y `${NOMBRE:-por defecto}` en los valores.
+//! Leer un `.env` exactamente como lo leían las versiones de antes (con dotenv
+//! 1.2.4): `export`, claves y valores entre comillas simples o dobles (con sus
+//! escapes), comentarios tras « #» en los valores sin comillas, y
+//! `${NOMBRE:-por defecto}` en los valores.
 //!
 //! Es el archivo de ajustes de DanPlay (`danplay.env`): lo escribe la app,
 //! pero también lo puede tocar la persona a mano, y tiene que leerse igual
-//! que lo leía Python.
+//! que lo leían las versiones de antes.
 use std::collections::HashMap;
 
 /// Lo que va quedando por leer del archivo.
@@ -15,7 +15,7 @@ struct Reader<'a> {
 }
 
 fn is_inline_space(c: char) -> bool {
-    // `[^\S\r\n]`: espacio de Python (`\s`), salvo los saltos de línea
+    // cualquier espacio, salvo los saltos de línea
     char::is_whitespace(c) && c != '\r' && c != '\n'
 }
 
@@ -104,8 +104,7 @@ fn decode(value: &str, double: bool) -> String {
 }
 
 /// Una línea (o varias, con comillas): la clave y su valor (None si no
-/// lleva `=`). None si no hay nada o la línea no se entiende (python-dotenv
-/// la salta).
+/// lleva `=`). None si no hay nada o la línea no se entiende (se salta).
 fn binding(r: &mut Reader<'_>) -> Option<(String, Option<String>)> {
     let result = (|| {
         r.skip_while(char::is_whitespace);
@@ -145,7 +144,8 @@ fn binding(r: &mut Reader<'_>) -> Option<(String, Option<String>)> {
                     None | Some('\n' | '\r') => String::new(),
                     _ => {
                         let part = r.skip_while(|c| c != '\r' && c != '\n');
-                        // `re.sub(r"\s+#.*", "", part).rstrip()`
+                        // sin lo que va de un espacio y «#» en adelante, ni los
+                        // espacios del final
                         let cut = part
                             .char_indices()
                             .find(|&(i, c)| {

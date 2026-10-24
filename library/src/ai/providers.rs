@@ -1,5 +1,4 @@
-//! Proveedores de IA: el catálogo, los perfiles guardados y cuál está activo
-//! (lo que era danplay/providers.py).
+//! Proveedores de IA: el catálogo, los perfiles guardados y cuál está activo.
 //!
 //! Todos hablan el mismo protocolo (el «chat completions» de OpenAI), así que
 //! un solo cliente sirve para OpenAI, Anthropic, Google, DeepInfra,
@@ -127,7 +126,7 @@ fn text(d: &Dict, k: &str) -> String {
     d.get(k).and_then(Value::as_str).unwrap_or("").to_owned()
 }
 
-/// `str(d.get(k) or "")`.
+/// El texto de un valor, o vacío si no hay nada.
 fn str_or_empty(v: Option<&Value>) -> String {
     match v {
         Some(x) if value::truthy(x) => value::str_of(x),
@@ -135,7 +134,7 @@ fn str_or_empty(v: Option<&Value>) -> String {
     }
 }
 
-/// `dict(d.get(k) or {})` (solo un diccionario cuenta).
+/// El objeto de un valor, o uno vacío (solo un objeto cuenta).
 fn dict_or_empty(v: Option<&Value>) -> Dict {
     match v {
         Some(Value::Object(o)) => o.clone(),
@@ -218,7 +217,7 @@ static STORE: Mutex<Option<Stored>> = Mutex::new(None);
 
 /// La configuración de antes (solo DeepInfra, en danplay.env) pasa a un
 /// perfil. Nadie tiene que volver a pegar su clave al actualizar. `env` es
-/// `config.env` (con los nombres viejos de las variables).
+/// `Config::env` (con los nombres viejos de las variables).
 fn migrate_legacy(path: &Path, env: &dyn Fn(&str, &str) -> String, out: &mut Warnings) -> Dict {
     let mut data = json!({"version": 1, "active": "", "profiles": {}});
     let key = std::env::var("DEEPINFRA_API_KEY").unwrap_or_default();
@@ -296,7 +295,7 @@ fn write_file(path: &Path, data: &Dict) -> std::io::Result<()> {
     crate::config::write_private(path, &value::pretty(&Value::Object(data.clone())))
 }
 
-/// Lo guardado en `path` (leído una vez y recordado). `env` es `config.env`.
+/// Lo guardado en `path` (leído una vez y recordado). `env` es `Config::env`.
 pub fn read(path: &Path, env: &dyn Fn(&str, &str) -> String, out: &mut Warnings) -> Arc<Dict> {
     let mut store = STORE.lock().unwrap_or_else(PoisonError::into_inner);
     if let Some(g) = store.as_ref()
@@ -343,9 +342,9 @@ fn edit<T>(
 /// Por qué no se pudo cambiar lo guardado.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EditError {
-    /// lo que pedía no vale (en Python, `ValueError`)
+    /// lo que pedía no vale
     Invalid(String),
-    /// no se pudo escribir el archivo (`OSError`)
+    /// no se pudo escribir el archivo
     Disk(String),
 }
 
@@ -423,8 +422,8 @@ pub fn public(pid: &str, prof: &Dict) -> Dict {
     out
 }
 
-/// `str.format(**fields)` para una URL con huecos («https://{resource}…»).
-/// None si falta un hueco o no se entiende (Python lo dejaba tal cual).
+/// Una URL con huecos («https://{resource}…») rellenos con `fields`. None si
+/// falta un hueco o no se entiende (y entonces la URL se queda tal cual).
 fn format_url(url: &str, fields: &Dict) -> Option<String> {
     let mut out = String::with_capacity(url.len());
     let mut chars = url.chars().peekable();
@@ -464,7 +463,8 @@ fn format_url(url: &str, fields: &Dict) -> Option<String> {
     Some(out)
 }
 
-/// `float(x or 60)`, como Python: si no es un número, el de siempre (entero).
+/// El tiempo límite, como real (sin él, 60.0); si no es un número, el de
+/// siempre (60, entero).
 fn timeout_of(v: Option<&Value>) -> Value {
     match v {
         // uno que no es finito («inf», «nan» escritos en un borrador) tampoco:

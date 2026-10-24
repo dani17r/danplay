@@ -13,8 +13,9 @@ fn popm_stars_like_windows_media_player() {
 }
 
 #[test]
-fn rounds_like_python() {
-    // round() de Python va al par: un RATING de 50 son 2 estrellas, no 3
+fn rounds_half_to_even() {
+    // se redondea al par, como hasta la 1.30: un RATING de 50 son 2
+    // estrellas, no 3
     assert_eq!(rating_to_stars("50"), 2);
     assert_eq!(rating_to_stars("70"), 4);
     assert_eq!(rating_to_stars("80"), 4);
@@ -164,12 +165,11 @@ fn non_audio_reads_empty() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-// ------------------------------------------------- lo de tests/test_core.py
+// ---------------------------------------------------------------- en un mp3
 
 use crate::testkit::{Scratch, make_audio, make_mp3, without_ffmpeg};
 
-/// El mp3 de dos segundos de `test_core.mp3` (allí, el de la biblioteca de
-/// quien prueba si lo había; aquí siempre uno sintético).
+/// Un mp3 sintético de dos segundos.
 fn two_second_mp3(dir: &Scratch) -> Option<std::path::PathBuf> {
     make_mp3(&dir.join("prueba.mp3"), "", "", "", 2.0, None)
 }
@@ -178,8 +178,7 @@ fn changes() -> Changes {
     Changes::default()
 }
 
-/// Lo que escribía cada función de danplay/tags.py, una tras otra, se lee
-/// de vuelta.
+/// Cada campo, escrito uno tras otro, se lee de vuelta.
 #[test]
 fn tags_round_trip() {
     let dir = Scratch::new("ida-y-vuelta");
@@ -218,7 +217,7 @@ fn tags_round_trip() {
         write(&mp3, step).expect("escribir");
     }
     write_cover(&mp3, &jpeg, "image/jpeg").expect("portada");
-    // `set_labels(["domingo", "rapida"])`, ya unidas como `_join_list`
+    // las etiquetas libres, ya unidas en un solo texto
     write(
         &mp3,
         &Changes {
@@ -297,7 +296,7 @@ fn mp3_duration_still_right() {
     assert!(seconds > 1.5, "{seconds}");
 }
 
-// ----------------------------------------------- lo de tests/test_formats.py
+// ---------------------------------------------------- en todos los formatos
 // Las etiquetas en todos los formatos que DanPlay organiza, con archivos de
 // verdad hechos con ffmpeg: lo que se escribe tiene que volver al leer. Antes
 // solo se probaba el mp3, y en flac, ogg y opus el modo estudio se escribía y
@@ -313,8 +312,8 @@ const FORMATS: [(&str, &[&str]); 6] = [
     ("wav", &["-codec:a", "pcm_s16le"]),
 ];
 
-/// Un archivo de ese formato (`_make` de Python); sin ffmpeg, o si este no
-/// sabe escribirlo, se dice y se salta.
+/// Un archivo de ese formato; sin ffmpeg, o si este no sabe escribirlo, se
+/// dice y se salta.
 fn made(dir: &Scratch, ext: &str, name: &str, seconds: f64) -> Option<std::path::PathBuf> {
     let codec = FORMATS
         .iter()
@@ -338,8 +337,7 @@ fn all_our_own_fields_come_back_when_read() {
         let Some(path) = made(&dir, ext, "prueba", 1.0) else {
             continue;
         };
-        // lo que escribía cada función de tags.py, una tras otra (las listas,
-        // ya unidas como `_join_list`)
+        // cada campo, uno tras otro (las listas, ya unidas en un solo texto)
         let steps = [
             Changes {
                 artist: some("Barak"),
@@ -453,7 +451,7 @@ fn the_duration_does_not_come_out_zero() {
 }
 
 /// Sin etiquetas se lee lo básico (la duración) y nada más: ni portada ni
-/// campos (`read` de Python daba `{}`).
+/// campos.
 #[test]
 fn without_tags_the_basics_are_read() {
     let dir = Scratch::new("sin-etiquetas");
@@ -473,11 +471,11 @@ fn without_tags_the_basics_are_read() {
     assert!(read_cover(&path).is_none());
 }
 
-// -------------------------------------------- lo de tests/test_tags_lofty.py
-// lofty (lo de ahora) y mutagen (lo de antes) leen y escriben lo mismo. Las
-// bibliotecas de verdad están etiquetadas con mutagen: lo que escribió tiene
-// que leerse igual. Sin Python, mutagen ya no puede hacer de testigo en vivo:
-// los archivos que etiquetó (mutagen 1.48.1) y lo que leía de ellos se
+// -------------------------------------------------- lo que etiquetó mutagen
+// lofty (lo de ahora) y mutagen (lo de hasta la 1.30) leen y escriben lo
+// mismo. Las bibliotecas de verdad están etiquetadas con mutagen: lo que
+// escribió tiene que leerse igual. mutagen ya no está para hacer de testigo en
+// vivo: los archivos que etiquetó (mutagen 1.48.1) y lo que leía de ellos se
 // guardaron una vez en mutagen/ (expected.json).
 
 mod mutagen_cases {
@@ -486,7 +484,7 @@ mod mutagen_cases {
     use lofty::id3::v2::Id3v2Version;
     use serde_json::{Value, json};
 
-    /// Lo que se escribió en cada archivo (`FIELDS` de Python).
+    /// Lo que se escribió en cada archivo.
     const ARTIST: &str = "Miel San Marcos";
     const TITLE: &str = "Señor, Tú eres fiel";
     const STUDY: &str = r#"{"loop": [1.0, 2.5], "notes": "cejilla 2 — ¡ojo!"}"#;
@@ -517,7 +515,7 @@ mod mutagen_cases {
         all["files"][name].clone()
     }
 
-    /// Lo que se escribió, como lo escribía `tags._write_fields`.
+    /// Los campos que se escribieron en los archivos de mutagen/.
     fn fields() -> Changes {
         let some = |s: &str| Some(s.to_owned());
         Changes {
@@ -541,7 +539,7 @@ mod mutagen_cases {
         }
     }
 
-    /// `tags.read_all` como lo daba Python (`as_dict` del núcleo).
+    /// Lo leído, con los campos y los nombres de expected.json.
     fn as_python(d: &Tags) -> Value {
         json!({
             "artist": d.artist,
@@ -567,8 +565,8 @@ mod mutagen_cases {
         })
     }
 
-    /// `_same` de Python: todo igual, la duración casi (cada uno la mide a
-    /// su manera) y del bitrate solo si hay o no.
+    /// Todo igual, la duración casi (cada uno la mide a su manera) y del
+    /// bitrate solo si hay o no.
     fn assert_same(lofty: &Value, mutagen: &Value, what: &str) {
         for (key, mine) in lofty.as_object().expect("campos") {
             let theirs = &mutagen[key];
@@ -608,7 +606,7 @@ mod mutagen_cases {
     }
 
     /// Lo que escribe lofty se lee como leía mutagen lo que escribía él. (Que
-    /// mutagen lo lea, el testigo de Python, ya no se puede mirar.)
+    /// mutagen lo lea ya no se puede mirar.)
     #[test]
     fn what_lofty_writes_reads_like_what_mutagen_wrote() {
         let dir = Scratch::new("lofty-escribe");
@@ -633,7 +631,7 @@ mod mutagen_cases {
                 &read_by_mutagen(&format!("fields.{ext}")),
                 ext,
             );
-            // el bpm se redondea al par, como round() de Python
+            // el bpm se redondea al par, como hasta la 1.30
             assert_eq!(mine.bpm, 72.0, "{ext}");
             assert_eq!(mine.stars, 3, "{ext}");
             assert_eq!(mine.playlists, ["Domingo, tarde"], "{ext}");

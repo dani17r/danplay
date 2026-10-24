@@ -65,7 +65,7 @@ fn a_url_template_with_fields() {
     assert!(resolve("azure", broken.as_object().expect("objeto")).is_none());
 }
 
-// ------------------------------------------------- lo de tests/test_ai.py
+// ------------------------------------------------------------- los perfiles
 // Los perfiles van a un archivo temporal; nada toca la red ni la
 // configuración de nadie.
 
@@ -126,7 +126,7 @@ impl Profiles {
         active(&self.data())
     }
 
-    /// `ai.available()` con la IA encendida: un perfil activo que se puede usar.
+    /// Con la IA encendida: un perfil activo que se puede usar.
     fn available(&self) -> bool {
         usable(self.active().as_ref()).0
     }
@@ -346,7 +346,7 @@ fn active_probe() {
     println!("DANPLAY-AI:{a}");
 }
 
-/// `providers.active()` en otro proceso, con ese ai.json y solo esas variables.
+/// `providers::active` en otro proceso, con ese ai.json y solo esas variables.
 fn active_in(path: &Path, env: &[(&str, &str)]) -> Value {
     let out = std::process::Command::new(std::env::current_exe().expect("la prueba"))
         .args(["ai::providers::tests::active_probe", "--exact", "--ignored"])

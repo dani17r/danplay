@@ -2,8 +2,8 @@
 //! lo que se guarda de su modo estudio.
 //!
 //! Lo que además toca su archivo o lo de alrededor (escribir sus etiquetas,
-//! mandarla a la papelera, moverla de carpeta y llevarle lo calculado) sigue
-//! en library/songs.py, que usa esto.
+//! mandarla a la papelera, moverla de carpeta y llevarle lo calculado) lo
+//! hace el servidor (`services::songs`), que usa esto.
 use super::{Dict, SCAN_BATCH, begin, fetch_all, fetch_one, markers};
 use crate::num;
 use crate::paths;
@@ -67,7 +67,7 @@ pub fn update(conn: &Connection, cid: i64, fields: &Dict) -> rusqlite::Result<Op
 /// biblioteca: una canción movida sigue sonando desde su sitio nuevo, y la
 /// que ya no está sale de la cola.
 pub fn paths_of(conn: &Connection, ids: &[i64]) -> rusqlite::Result<Vec<(i64, Option<String>)>> {
-    // en el orden en que llegan, sin repetir (como `dict.fromkeys`)
+    // en el orden en que llegan, sin repetir
     let mut out: Vec<(i64, Option<String>)> = Vec::new();
     for &i in ids.iter().filter(|&&i| i > 0) {
         if !out.iter().any(|(k, _)| *k == i) {
@@ -120,7 +120,8 @@ pub const METERS: [i64; 12] = [0, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 /// Como mucho seis carriles de guías.
 pub const MAX_CUE_LANES: usize = 6;
 
-/// `float(x)` de un valor que puede faltar, con «o esto» si es falso (`float(x or d)`).
+/// El número de un valor que puede faltar: `default` si falta o es falso,
+/// None si no es un número.
 fn float_or(v: Option<&Value>, default: f64) -> Option<f64> {
     match v {
         Some(x) if value::truthy(x) => value::float_of(x),
@@ -128,8 +129,8 @@ fn float_or(v: Option<&Value>, default: f64) -> Option<f64> {
     }
 }
 
-/// El texto de un valor que puede faltar, limpio y recortado:
-/// `str(x or "").strip()[:n]`.
+/// El texto de un valor que puede faltar, sin espacios a los lados y con `n`
+/// caracteres como mucho.
 fn text_of(v: Option<&Value>, n: usize) -> String {
     let raw = match v {
         Some(x) if value::truthy(x) => value::str_of(x),
@@ -186,12 +187,12 @@ fn segments_value(s: &[[f64; 2]]) -> Value {
     )
 }
 
-/// `round(float(t.get(k, 1.0)), 2)` si vale (entre `lo` y `hi` y distinto de
-/// `skip`): el volumen o el panorama de una pista.
+/// El valor de `k` (o `default`) con dos decimales, si vale (entre `lo` y `hi`
+/// y distinto de `skip`): el volumen o el panorama de una pista.
 fn level(t: &Dict, k: &str, default: f64, lo: f64, hi: f64, skip: f64) -> Option<f64> {
     let raw = t.get(k).map_or(Some(default), value::float_of)?;
     let x = num::round_to(raw, 2);
-    #[allow(clippy::float_cmp, reason = "como `gain != 1.0` en Python")]
+    #[allow(clippy::float_cmp, reason = "el valor que no se guarda, ya redondeado")]
     let keep = lo <= x && x <= hi && x != skip;
     keep.then_some(x)
 }
@@ -296,8 +297,8 @@ pub fn own_click(own: Option<&Value>) -> Option<Dict> {
 }
 
 /// La clave de un carril de guías: corta y sin nada raro (va en el JSON del
-/// estudio y en la etiqueta del archivo). `^[a-z][a-z0-9]{0,11}$` de Python:
-/// el `$` deja pasar un salto de línea al final.
+/// estudio y en la etiqueta del archivo). Es `^[a-z][a-z0-9]{0,11}`, y como en
+/// las versiones de antes, con un salto de línea al final también vale.
 fn lane_key(key: &str) -> bool {
     let key = key.strip_suffix('\n').unwrap_or(key);
     let mut chars = key.chars();
@@ -471,8 +472,8 @@ fn metronome(metro: &Dict) -> Dict {
 }
 
 /// Un marcador, limpio. Al final, un tiempo que no es un número de verdad
-/// («inf», «nan» escritos como texto) no vale: Python lo guardaba como
-/// `Infinity`, que no es JSON y la interfaz no podía leer.
+/// («inf», «nan» escritos como texto) no vale: las versiones de antes lo
+/// guardaban como `Infinity`, que no es JSON y la interfaz no podía leer.
 fn marker(m: &Dict) -> Option<Dict> {
     let raw_t = m.get("t").filter(|v| !v.is_null())?;
     let t = value::float_of(raw_t)?;

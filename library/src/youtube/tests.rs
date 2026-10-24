@@ -232,7 +232,7 @@ fn the_history_row_points_at_the_song_you_had() {
     assert_eq!(short(" "), "error desconocido");
 }
 
-// ------------------------------------------------- lo de tests/test_core.py
+// ------------------------------------------------------------------ sin red
 // Todo sin red: se comprueban las decisiones del módulo, no que YouTube conteste.
 
 #[test]

@@ -1,7 +1,6 @@
-//! Los enlaces de YouTube que llegan en un texto: cómo los parte
-//! `urllib.parse.urlsplit` de Python, qué dominio dicen de verdad
-//! (`youtube.host_of`, con su lista cerrada `ALLOWED_HOSTS`) y cuál es el id
-//! del vídeo o de la lista.
+//! Los enlaces de YouTube que llegan en un texto: cómo se parten
+//! (`urlsplit`), qué dominio dicen de verdad (`host_of`, con su lista cerrada
+//! `ALLOWED_HOSTS`) y cuál es el id del vídeo o de la lista.
 //!
 //! Se mira el DOMINIO de verdad, nunca el texto: «youtube.com.evil.example»,
 //! «youtube.com@evil» o «evil.example/watch?v=…» no son de YouTube.
@@ -22,7 +21,7 @@ pub fn allowed(host: &str) -> bool {
     ALLOWED_HOSTS.contains(&host)
 }
 
-/// Una dirección partida como `urllib.parse.urlsplit`.
+/// Una dirección partida en sus cinco trozos (`urlsplit`).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Parts {
     pub scheme: String,
@@ -36,9 +35,9 @@ fn scheme_char(c: char) -> bool {
     c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.')
 }
 
-/// `urllib.parse.urlsplit(url)` de Python 3.13; `None` donde Python da
-/// `ValueError` (corchetes de IPv6 mal puestos, un dominio que con NFKC
-/// cambia de forma).
+/// Una dirección partida en esquema, sitio, ruta, consulta y fragmento, con las
+/// reglas de las versiones de antes; `None` si no se puede (corchetes de IPv6
+/// mal puestos, un dominio que con NFKC cambia de forma).
 pub fn urlsplit(url: &str) -> Option<Parts> {
     // solo por la izquierda: hay quien cuenta con el espacio del final
     let url = url.trim_start_matches(|c: char| c <= ' ');
@@ -162,7 +161,7 @@ fn plain_authority(netloc: &str) -> bool {
         && port.is_none_or(|p| p.len() <= 5 && p.chars().all(|c| c.is_ascii_digit()))
 }
 
-/// `youtube.host_of`: el dominio de una dirección, o "" si no lo es. Una
+/// El dominio de una dirección, o "" si no lo es. Una
 /// dirección cuyo «sitio» trae algo más que un nombre (una barra invertida,
 /// un usuario@, espacios...) devuelve su «sitio» tal cual, que nunca está en
 /// `ALLOWED_HOSTS`: cada librería de red la lee a su manera.
@@ -221,7 +220,7 @@ fn param<'a>(params: &'a [(String, String)], key: &str) -> &'a str {
 ///
 /// El id de lista solo se da cuando NO hay vídeo (`/playlist?list=…`): un
 /// `list=` junto a un `v=` es el mix desde el que se compartió el enlace y se
-/// descarta. Lo que lee `chat/intake.py`.
+/// descarta.
 pub fn youtube_parts(url: &str) -> Option<(String, String)> {
     let text = url.trim();
     if text.is_empty() || text::len(text) > 2000 {
@@ -285,7 +284,7 @@ pub fn youtube_video_id(url: &str) -> String {
     youtube_parts(url).map(|(v, _)| v).unwrap_or_default()
 }
 
-/// `urllib.parse.unquote` (UTF-8, con «�» donde no lo es).
+/// Los «%XX» como bytes, leídos como UTF-8 (con «�» donde no lo es).
 pub fn unquote(s: &str) -> String {
     if !s.contains('%') {
         return s.to_owned();
@@ -310,14 +309,13 @@ pub fn unquote(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-/// Si `urllib.parse.parse_qs(query)` trae `key` (con algún valor que no
-/// esté vacío).
+/// Si la consulta trae `key` (con algún valor que no esté vacío).
 pub fn parse_qs_has(query: &str, key: &str) -> bool {
     parse_qs_first(query, key).is_some()
 }
 
-/// El primer valor de `key` según `urllib.parse.parse_qs` (los vacíos no
-/// cuentan; «+» es espacio).
+/// El primer valor de `key` en la consulta (los vacíos no cuentan; «+» es
+/// espacio).
 fn parse_qs_first(query: &str, key: &str) -> Option<String> {
     for pair in query.split('&') {
         if pair.is_empty() {
@@ -336,8 +334,8 @@ fn parse_qs_first(query: &str, key: &str) -> Option<String> {
     None
 }
 
-/// El id de un vídeo de YouTube, o "" si no es un enlace de un vídeo (lo que
-/// lee `chat/resolve.py`, con `parse_qs`).
+/// El id de un vídeo de YouTube, o "" si no es un enlace de un vídeo (el que
+/// mira el emparejador).
 pub fn video_id(url: &str) -> String {
     let u: String = url.trim().chars().take(500).collect();
     if u.is_empty() {

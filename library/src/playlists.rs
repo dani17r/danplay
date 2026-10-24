@@ -1,12 +1,10 @@
-//! Listas de reproducción, favoritos y valoraciones (lo que hacía
-//! danplay/playlists.py con la base).
+//! Listas de reproducción, favoritos y valoraciones (lo que toca la base).
 //!
 //! Todo lo que se puede guardar dentro del archivo, se guarda ahí también
 //! (estrellas en POPM, favorito y listas en TXXX), para que la biblioteca
 //! siga siendo portátil aunque se pierda la base de datos. Escribir dentro
-//! de los archivos lo hace quien llama (en Python, con lo que devuelve
-//! `stamp_targets`), igual que el cerrojo de las listas y el aviso a la
-//! interfaz.
+//! de los archivos lo hace quien llama (con lo que devuelve `stamp_targets`),
+//! igual que el cerrojo de las listas y el aviso a la interfaz.
 //!
 //! Lo que escribe aquí da por hecho que quien llama abrió la transacción de
 //! escritura de antemano (`BEGIN IMMEDIATE`) cuando hay que leer y escribir
@@ -555,7 +553,8 @@ pub fn cards(conn: &Connection, ids: &[i64]) -> rusqlite::Result<Vec<(i64, Dict)
     Ok(out)
 }
 
-/// `Path(file).stem` de Python.
+/// El nombre del archivo sin la carpeta ni la extensión (un punto al
+/// principio o al final no la separa).
 fn path_stem(file: &str) -> String {
     let trimmed = file.trim_end_matches(['/', std::path::MAIN_SEPARATOR]);
     let name = trimmed
@@ -735,7 +734,7 @@ pub fn keep_cards(conn: &Connection, ids: &[i64]) -> rusqlite::Result<()> {
     Ok(())
 }
 
-/// `reuse._close`: dos duraciones que son la misma canción.
+/// Dos duraciones que son la misma canción.
 fn close(a: &Value, b: &Value) -> bool {
     let f = |v: &Value| {
         if value::truthy(v) {

@@ -1,9 +1,9 @@
 //! Lo que una función quiere dejar apuntado en el registro («no pude borrar
 //! la miniatura de...»). La biblioteca no escribe registros: los devuelve,
-//! y quien la llama los apunta en el suyo (Python, en su `logging`, con el
-//! mismo nivel y el mismo nombre de módulo que antes).
+//! y quien la llama los apunta en el suyo (con el mismo nivel y el mismo
+//! nombre de módulo que antes).
 
-/// Lo grave que es: lo que en Python era `log.info` o `log.warning`.
+/// Lo grave que es: para saberlo (`Info`) o porque algo salió mal (`Warning`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Level {
     Info,

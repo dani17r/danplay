@@ -1,5 +1,5 @@
-//! Aprovechar lo ya hecho de una canción que vuelve en otro archivo (lo de
-//! danplay/reuse.py que no toca audio ni archivos).
+//! Aprovechar lo ya hecho de una canción que vuelve en otro archivo (lo que no
+//! toca audio ni archivos).
 //!
 //! Cuando entra una canción, se busca su «gemela»: la misma (artista y
 //! título, o el nombre del archivo, normalizados con `names::match_key`) y
@@ -7,8 +7,8 @@
 //! las apartadas (las de una carpeta que se movió) o en los manifiestos de
 //! las pistas separadas. Si la hay, se mide cuánto está corrido un archivo
 //! respecto al otro y se adopta lo suyo ya en su sitio: las pistas, la
-//! rejilla del clic y lo del modo estudio. Medir el desfase, mover las
-//! pistas y la rejilla sigue en reuse.py.
+//! rejilla del clic y lo del modo estudio. Medir el desfase y mover las
+//! pistas y la rejilla lo hace el servidor (`services::reuse`).
 use crate::index::scan::{DURATION_TOL, ident};
 use crate::index::{Dict, fetch_all, get_str};
 use crate::num;
@@ -20,7 +20,7 @@ use std::collections::{HashMap, HashSet};
 /// Por debajo de esto, el desfase no se corrige (no se oye).
 pub const SMALL_LAG: f64 = 0.003;
 
-/// `float(v or 0)` de Python; None si no es un número.
+/// Los segundos de un valor: sin él (o vacío), cero; None si no es un número.
 fn seconds(v: Option<&Value>) -> Option<f64> {
     match v {
         Some(x) if value::truthy(x) => value::float_of(x),
@@ -87,8 +87,11 @@ pub fn twins(conn: &Connection, song: &Dict) -> rusqlite::Result<Vec<Dict>> {
 /// De esas canciones (recién llegadas), las que tienen gemela en la
 /// biblioteca o pistas separadas de otro archivo: solo esas merecen el
 /// trabajo de `settle`. `manifests` es {clave: [duraciones]} de las carpetas
-/// de pistas (lo lee reuse.py).
-#[allow(clippy::implicit_hasher, reason = "lo que llega de Python, un dict")]
+/// de pistas (los lee quien llama).
+#[allow(
+    clippy::implicit_hasher,
+    reason = "lo que llega de quien llama, un mapa"
+)]
 pub fn with_twins(
     conn: &Connection,
     ids: &[i64],
@@ -137,8 +140,7 @@ pub fn with_twins(
     Ok(out)
 }
 
-/// Un «1» como índice de pulso: `b in index` de Python, donde 2.0 y True
-/// valen como 2 y 1.
+/// Un valor como índice de pulso: 2.0 y true valen como 2 y 1.
 fn bar_index(b: &Value) -> Option<usize> {
     match b {
         Value::Bool(x) => Some(usize::from(*x)),
@@ -155,7 +157,7 @@ fn bar_index(b: &Value) -> Option<usize> {
 /// t + lag). Lo que quedaría antes del principio, fuera.
 #[allow(
     clippy::too_many_lines,
-    reason = "cada parte del estudio, como reuse.py"
+    reason = "cada parte del estudio, una tras otra"
 )]
 pub fn shift_study(study: &Dict, lag: f64) -> Dict {
     if study.is_empty() || lag.abs() < SMALL_LAG {
@@ -287,9 +289,9 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    /// Lo de tests/test_reuse.py: el estudio de una canción que vuelve en
-    /// otro archivo se corre lo que se corre el audio. Lo que quedaría antes
-    /// del principio, fuera (y los compases se cuentan desde lo que queda).
+    /// El estudio de una canción que vuelve en otro archivo se corre lo que se
+    /// corre el audio. Lo que quedaría antes del principio, fuera (y los
+    /// compases se cuentan desde lo que queda).
     #[test]
     fn the_study_moves_with_the_offset() {
         let study = json!({

@@ -25,8 +25,8 @@ fn parses_the_query() {
 }
 
 #[test]
-fn python_set_order() {
-    // `list({0, 8, 16, 1})` en CPython: la tabla de 8 los deja así
+fn int_set_iterates_in_table_order() {
+    // en la tabla de 8, con su sonda, quedan así
     let mut s = IntSet::new();
     for k in [0, 8, 16, 1] {
         s.add(k);
@@ -47,17 +47,15 @@ fn python_set_order() {
     );
 }
 
-/// Lo de tests/test_names.py: las palabras de una búsqueda son las de su
-/// forma (`search_tokens` en Python, aquí `toks`).
+/// Las palabras de una búsqueda son las de su forma (`toks`).
 #[test]
 fn search_tokens_are_the_words_of_the_form() {
     assert_eq!(toks("*Cena Del Señor* ✅"), ["cena", "del", "señor"]);
     assert!(toks("").is_empty());
 }
 
-/// La segunda pasada, tolerante, pliega solo la ñ («senor» encuentra
-/// «señor»; `fold_enye` en Python, aquí `fold`); la forma normal no la
-/// pliega: «mañana» no es «manana».
+/// La segunda pasada, tolerante, pliega solo la ñ («senor» encuentra «señor»;
+/// `fold`); la forma normal no la pliega: «mañana» no es «manana».
 #[test]
 fn the_second_pass_folds_only_the_enye() {
     assert_eq!(
