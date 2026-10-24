@@ -842,7 +842,8 @@ mod tests {
     fn pull_steady(e: &Engine, frames: usize) -> Vec<f32> {
         let mut out = vec![0f32; frames * 2];
         for chunk in out.chunks_mut(882) {
-            let limit = Instant::now() + Duration::from_millis(150);
+            // 150 ms no llegaban en la CI: si ya hay audio, no se espera nada
+            let limit = Instant::now() + Duration::from_secs(2);
             while lock(&e.deck().render).blocks_ready() == 0 && Instant::now() < limit {
                 std::thread::sleep(Duration::from_millis(2));
             }

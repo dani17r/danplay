@@ -2265,10 +2265,13 @@ describe('the 1.28.2 study mode', () => {
     held.playback.emit({ playing: true, position: 51 })
     await mountView()
     const before = notices.value.length
-    // una pausa a mano, a mitad del tramo: nada que decir
+    // una pausa a mano, a mitad del tramo: nada que decir (de lo que monta
+    // la vista puede llegar otro aviso a la vez: se mira solo este)
+    const stopped = () =>
+      notices.value.slice(before).filter((n) => n.message.includes('Se paró al acabar el tramo'))
     held.playback.emit({ playing: false, position: 55 })
     await flushPromises()
-    expect(notices.value.length).toBe(before)
+    expect(stopped()).toEqual([])
     // al acabar el tramo el motor la para y la deja en su principio
     held.playback.emit({ playing: true, position: 59.6 })
     await flushPromises()

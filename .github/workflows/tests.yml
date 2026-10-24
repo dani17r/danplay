@@ -71,8 +71,9 @@ jobs:
           prefix-key: v1-rust
       - name: ffmpeg (para generar la biblioteca de prueba)
         run: choco install ffmpeg --no-progress -y
+      # todas, aunque falle una: así se ven todas las de Windows de una vez
       - name: pruebas
-        run: cargo test --release -p danplay-library -p danplay-analysis -p danplay-server
+        run: cargo test --release --no-fail-fast -p danplay-library -p danplay-analysis -p danplay-server
 
   frontend:
     name: interfaz

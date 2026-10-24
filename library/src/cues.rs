@@ -374,14 +374,19 @@ mod tests {
         let st = cat.voice(Path::new("/v"), "st-F1").expect("st");
         assert_eq!(st["pack"], "supertonic-3");
         assert_eq!(st["files"][0]["url"], "https://x/resolve/abc/onnx/tts.json");
-        assert_eq!(st["files"][0]["dest"], "/v/supertonic-3/onnx/tts.json");
+        // como rutas: en Windows, `join` pone «\» y la del catálogo trae «/»
+        let dest = |v: &Value| std::path::PathBuf::from(v.as_str().expect("ruta"));
+        assert_eq!(
+            dest(&st["files"][0]["dest"]),
+            Path::new("/v/supertonic-3/onnx/tts.json")
+        );
         let pi = cat
             .voice(Path::new("/v"), "piper-es_AR-daniela-high")
             .expect("piper");
         assert_eq!(pi["pack"], "piper-es_AR-daniela-high");
         assert_eq!(
-            pi["files"][0]["dest"],
-            "/v/piper/es_AR-daniela-high/es_AR-daniela-high.onnx"
+            dest(&pi["files"][0]["dest"]),
+            Path::new("/v/piper/es_AR-daniela-high/es_AR-daniela-high.onnx")
         );
         assert!(cat.voice(Path::new("/v"), "robot").is_none());
 

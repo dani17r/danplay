@@ -99,9 +99,10 @@ fn saved_read_relocated_and_pruned() {
     let file = cache_file(&cache, song.as_os_str());
     let text = std::fs::read_to_string(&file).expect("guardada");
     let stamp = mtime(&std::fs::metadata(&song).expect("meta"));
+    let quoted = |p: &Path| serde_json::to_string(&p.to_string_lossy()).expect("json");
     assert!(text.starts_with(&format!(
-        "{{\"path\":\"{}\",\"mtime\":{},\"peaks\":[",
-        song.display(),
+        "{{\"path\":{},\"mtime\":{},\"peaks\":[",
+        quoted(&song),
         repr_float(stamp)
     )));
     // la segunda vez sale de la caché: se nota cambiándola a mano
@@ -139,8 +140,8 @@ fn saved_read_relocated_and_pruned() {
     let text = std::fs::read_to_string(cache_file(&cache, moved.as_os_str())).expect("movida");
     assert!(
         text.starts_with(&format!(
-            "{{\"path\": \"{}\", \"mtime\": 123.5, \"peaks\": [",
-            moved.display()
+            "{{\"path\": {}, \"mtime\": 123.5, \"peaks\": [",
+            quoted(&moved)
         )),
         "{text}"
     );

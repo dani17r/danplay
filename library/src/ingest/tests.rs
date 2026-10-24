@@ -1,6 +1,7 @@
 use super::*;
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 fn s(x: &str) -> Json {
     Json::str(x)
@@ -207,7 +208,10 @@ fn the_tags_decide_and_the_folder_already_there_is_reused() {
     assert_eq!(plain(&r.title), "mi gozo");
     assert_eq!(r.source, s("tags"));
     let target = plain(r.target.as_ref().expect("hay destino"));
-    assert_eq!(target, format!("{root}/Artistas/Barak/Barak - mi gozo.mp3"));
+    assert_eq!(
+        PathBuf::from(&target),
+        PathBuf::from(format!("{root}/Artistas/Barak/Barak - mi gozo.mp3"))
+    );
     assert!(Path::new(&target).is_file());
     assert!(
         f.calls.iter().any(|c| c.starts_with("etiquetas:")),
@@ -231,8 +235,8 @@ fn nothing_known_goes_to_review_and_a_twin_gets_a_suffix() {
     );
     assert_eq!(r.source, s("none"));
     assert_eq!(
-        plain(r.target.as_ref().expect("hay destino")),
-        format!("{root}/Revisar/cancion rara - r.mp3")
+        PathBuf::from(plain(r.target.as_ref().expect("hay destino"))),
+        PathBuf::from(format!("{root}/Revisar/cancion rara - r.mp3"))
     );
     assert_eq!(
         r.warnings,
@@ -263,8 +267,10 @@ fn a_known_name_skips_the_cascade_and_a_category_has_its_folder() {
     let r = process(&mut f, p, &Vocab, asked(false), &known, &folders).expect("vale");
     assert_eq!(r.action, "moved");
     assert_eq!(
-        plain(r.target.as_ref().expect("hay destino")),
-        format!("{root}/Tutoriales y Play Along/Que Se Abra El Cielo (Drum Cam).mp3")
+        PathBuf::from(plain(r.target.as_ref().expect("hay destino"))),
+        PathBuf::from(format!(
+            "{root}/Tutoriales y Play Along/Que Se Abra El Cielo (Drum Cam).mp3"
+        ))
     );
     assert!(
         !f.calls.iter().any(|c| c.starts_with("ia:")),
@@ -389,12 +395,20 @@ fn paths_keep_what_is_not_utf8() {
         [t("canci"), vec![0xDCFF], t("n.mp3")].concat()
     );
     assert_eq!(stem(&name), [t("canci"), vec![0xDCFF], t("n")].concat());
+    // `str(Path(a) / b)`: en Windows, con «\\» (como `ntpath` en Python)
+    let native = |p: &str| {
+        t(&if cfg!(windows) {
+            p.replace('/', "\\")
+        } else {
+            p.to_owned()
+        })
+    };
     assert_eq!(
         join(&t("/m//x/"), &name),
-        [t("/m/x/Entrada/canci"), vec![0xDCFF], t("n.mp3")].concat()
+        [native("/m/x/Entrada/canci"), vec![0xDCFF], t("n.mp3")].concat()
     );
-    assert_eq!(join(&t("/m"), &t("/abs")), t("/abs"));
-    assert_eq!(join(&t("/m"), &t("")), t("/m"));
+    assert_eq!(join(&t("/m"), &t("/abs")), native("/abs"));
+    assert_eq!(join(&t("/m"), &t("")), native("/m"));
     assert_eq!(
         txt(&Json::Str(name)).expect("vale"),
         "Entrada/canci\u{FFFD}n.mp3"

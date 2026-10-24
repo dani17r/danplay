@@ -158,9 +158,12 @@ fn the_downloaded_version_is_used_only_if_whole_and_newer() {
     std::fs::write(root.join("2099.1.1").join("yt_dlp").join("__init__.py"), "")
         .expect("en la prueba");
     let folder = format!("{root_s}/2099.1.1");
+    let (version, at) = downloaded(&root_s, "")
+        .expect("en la prueba")
+        .expect("entera");
     assert_eq!(
-        downloaded(&root_s, "").expect("en la prueba"),
-        Some(("2099.1.1".into(), folder.clone()))
+        (version.as_str(), std::path::PathBuf::from(at)),
+        ("2099.1.1", root.join("2099.1.1"))
     );
     assert_eq!(
         downloaded(&root_s, "2026.8.19")
