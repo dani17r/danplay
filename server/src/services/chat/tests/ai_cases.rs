@@ -1,7 +1,7 @@
-//! Lo de tests/test_ai.py que es de la conversación y de las herramientas
-//! del servidor: un turno entero contra una IA de mentira (un servidor HTTP
-//! local que contesta según lo que le piden) y las herramientas con sus
-//! argumentos. Lo que es de `library::ai` va en library/src/ai/*/tests.rs.
+//! Las pruebas de la conversación y de las herramientas del servidor: un
+//! turno entero contra una IA de mentira (un servidor HTTP local que
+//! contesta según lo que le piden) y las herramientas con sus argumentos.
+//! Lo que es de `library::ai` va en library/src/ai/*/tests.rs.
 use super::*;
 use library::value;
 use std::net::TcpListener;
@@ -475,10 +475,10 @@ fn budget_only_warns() {
     assert!(r.get("budget").is_none(), "{r}");
 }
 
-/// `"arguments": "null"` dejaba args=None y el diálogo de confirmación
-/// reventaba fuera de todo try: un 500 en vez de una respuesta. Una
-/// confirmación sin nada que confirmar no se pide: el modelo recibe el error
-/// y la persona no ve un diálogo de «borrar la canción None».
+/// `"arguments": "null"` no tumba el turno (un 500 en vez de una
+/// respuesta). Una confirmación sin nada que confirmar no se pide: el
+/// modelo recibe el error y la persona no ve un diálogo para borrar una
+/// canción que no es ninguna.
 #[test]
 fn null_arguments_do_not_crash_the_chat() {
     let _turn = serial();
@@ -640,10 +640,10 @@ fn chat_is_exported_as_text() {
     assert_eq!(r.status, 404);
 }
 
-// ------------------------------------------- lo de tests/test_ai_status.py
+// ------------------------------------------------- el estado del proveedor
 // El estado del proveedor visto desde fuera: la franja del chat
 // (/api/chat/tools), «Reintentar» (/api/ai/recheck) y el bucle del chat. Lo
-// demás de ese archivo, en library/src/ai/call/tests/status.rs.
+// demás del estado, en library/src/ai/call/tests/status.rs.
 //
 // La marca de «caído» es de todo el proceso, y guardar un perfil en otra
 // prueba la borra (`reset_client`): lo que cuenta llamadas lo intenta unas

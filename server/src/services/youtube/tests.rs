@@ -202,9 +202,8 @@ fn the_folder_must_be_one_of_yours() {
     assert!(env.contains("DANPLAY_LIBRARY="));
 }
 
-// ------------------------------------------------- lo de tests/test_core.py
-// Todo sin red: en vez de yt-dlp, una descarga de mentira (en Python, el
-// `monkeypatch` de `youtube.download`).
+// ------------------------------------------------- el turno y el avance
+// Todo sin red: en vez de yt-dlp, una descarga de mentira.
 
 /// Una descarga que apunta lo que se le pidió y dice que fue bien.
 fn result(ok: bool, title: &str, reason: &str) -> Map<String, Value> {
@@ -373,7 +372,7 @@ fn a_failed_download_does_not_leave_the_turn_held() {
     assert!(s["error"].as_str().is_some_and(|e| e.contains("red")));
 }
 
-// ---------------------------------------------- tests/test_youtube_after.py
+// ------------------------------------------------- lo de al terminar
 // `run_many(on_done)`: lo que hay que hacer AL TERMINAR corre dentro del
 // turno, antes de soltarlo; `after` está antes de que `active` pase a falso;
 // el token de `claim` hace que una descarga vieja no pise a la nueva; y

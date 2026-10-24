@@ -12,8 +12,8 @@ fn is_library(name: &str) -> bool {
     name.starts_with("libonnxruntime.") || name == "onnxruntime.dll"
 }
 
-/// La primera biblioteca de ONNX Runtime de esa carpeta (en orden, como
-/// `sorted` en Python).
+/// La primera biblioteca de ONNX Runtime de esa carpeta, por orden de
+/// nombre.
 fn in_folder(dir: &Path) -> Option<PathBuf> {
     let mut found: Vec<PathBuf> = std::fs::read_dir(dir)
         .ok()?

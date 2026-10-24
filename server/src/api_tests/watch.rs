@@ -1,7 +1,7 @@
-//! tests/test_watch.py: la biblioteca sigue al disco. Canciones movidas,
-//! borradas o renombradas por fuera de la app, carpetas que se mueven
-//! enteras o desaparecen (un disco sin montar) y vuelven. (Lo del vigilante
-//! mismo, lo que lo hace sin pulsar nada, está en `services::watcher`.)
+//! La biblioteca sigue al disco. Canciones movidas, borradas o renombradas
+//! por fuera de la app, carpetas que se mueven enteras o desaparecen (un
+//! disco sin montar) y vuelven. (Lo del vigilante mismo, lo que lo hace sin
+//! pulsar nada, está en `services::watcher`.)
 //!
 //! Cada prueba tiene su biblioteca y su base de datos temporales: aquí se
 //! mueven y se borran carpetas enteras, y eso no puede tocar la música de

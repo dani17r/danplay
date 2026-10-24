@@ -1,6 +1,6 @@
-//! El índice alrededor de `library::index` (lo de danplay/library/scan.py y
-//! songs.py que usan las rutas): el escaneo con todo lo de después, meter un
-//! archivo suelto, sacar uno que ya no está y dónde está cada canción.
+//! El índice alrededor de `library::index`, lo que usan las rutas: el escaneo
+//! con todo lo de después, meter un archivo suelto, sacar uno que ya no está
+//! y dónde está cada canción.
 use crate::app::App;
 use crate::error::ApiError;
 use crate::services::{folders, journal, playlists, reuse, tags};
@@ -12,8 +12,8 @@ use std::path::{Path, PathBuf};
 /// Cuánto se guarda una canción apartada esperando a que su archivo vuelva.
 pub const MISSING_DAYS: f64 = 30.0;
 
-/// `_carry_grid`: el mismo archivo en otro sitio: su clic sigue valiendo
-/// (sin esto se volvía a calcular, 15-20 s por canción, al mover la carpeta).
+/// El mismo archivo en otro sitio: su clic sigue valiendo (sin esto se volvía
+/// a calcular, 15-20 s por canción, al mover la carpeta).
 pub fn carry_grid(app: &App, old: &Dict, new_path: &str) {
     let size = old.get("size").and_then(library::value::int_of);
     let mtime = old.get("mtime").and_then(library::value::float_of);
@@ -35,9 +35,9 @@ pub fn carry_grid(app: &App, old: &Dict, new_path: &str) {
     library::beatgrid::moved(&old_key, &new_key, new_path);
 }
 
-/// `_purge_missing`: olvida del todo las canciones apartadas hace más de un
-/// mes y sus recientes (en las listas se quedan con su ficha: «No está»).
-/// Confirma. Cuántas.
+/// Olvida del todo las canciones apartadas hace más de `days` días (un mes,
+/// `MISSING_DAYS`) y sus recientes (en las listas se quedan con su ficha: «No
+/// está»). Confirma. Cuántas.
 pub fn purge_missing(conn: &Connection, days: f64) -> library::rusqlite::Result<usize> {
     let cutoff = index::now() - days * 86_400.0;
     let ids: Vec<i64> = fetch_all(
@@ -104,10 +104,10 @@ pub fn forget_cached(app: &App, paths: &[String]) {
     crate::services::ai::log_warnings("danplay.library", warnings);
 }
 
-/// `library.scan(progress)`: el índice al día con las carpetas gestionadas,
-/// y lo de después (las pistas, las ondas y carátulas de lo que se fue, las
-/// listas y el estudio que traen los archivos, las listas que la tenían
-/// como «No está»). Las cifras del escaneo.
+/// El índice al día con las carpetas gestionadas, y lo de después (las
+/// pistas, las ondas y carátulas de lo que se fue, las listas y el estudio
+/// que traen los archivos, las listas que la tenían como «No está»). Las
+/// cifras del escaneo.
 #[allow(
     clippy::too_many_lines,
     reason = "los pasos de library.scan, en su orden"
@@ -225,8 +225,8 @@ pub fn scan(app: &App, progress: &mut dyn FnMut(usize, usize)) -> Result<Value, 
     }))
 }
 
-/// `restore_playlists_from_tags(found)`: las listas y pertenencias que
-/// dicen los archivos (solo AÑADE lo que falte). Cuántas pertenencias.
+/// Las listas y pertenencias que dicen los archivos (solo AÑADE lo que
+/// falte). Cuántas pertenencias.
 pub fn restore_playlists(app: &App, found: &[(String, Vec<String>)]) -> Result<usize, ApiError> {
     if found.is_empty() {
         return Ok(0);
@@ -251,9 +251,8 @@ pub fn scan_job(app: &App, p: &crate::jobs::Progress) -> Result<Value, crate::jo
     Ok(r)
 }
 
-/// `index_file(path, roots, vocab)`: mete en el índice un archivo recién
-/// llegado, sin reescanear todo. La fila, o `None` (no está, o fuera de las
-/// carpetas gestionadas).
+/// Mete en el índice un archivo recién llegado, sin reescanear todo. La fila,
+/// o `None` (no está, o fuera de las carpetas gestionadas).
 pub fn index_file(
     app: &App,
     path: &str,
@@ -289,8 +288,8 @@ pub fn index_file(
     Ok(r.row)
 }
 
-/// `forget_path(path)`: saca del índice lo que estaba en esa ruta (se
-/// aparta, por si vuelve). No toca el disco. Cuántas filas.
+/// Saca del índice lo que estaba en esa ruta (se aparta, por si vuelve). No
+/// toca el disco. Cuántas filas.
 pub fn forget_path(app: &App, path: &str) -> Result<usize, ApiError> {
     let abs = library::paths::absolute(path);
     let n = app.db(|c| index::to_missing(c, std::slice::from_ref(&abs)))?;
@@ -299,8 +298,8 @@ pub fn forget_path(app: &App, path: &str) -> Result<usize, ApiError> {
     Ok(n)
 }
 
-/// `paths_of(ids)`: dónde está ahora cada canción de la biblioteca, o
-/// `None` si su archivo no está.
+/// Dónde está ahora cada canción de la biblioteca, o `None` si su archivo no
+/// está.
 pub fn paths_of(app: &App, ids: &[i64]) -> Result<Vec<(i64, Option<String>)>, ApiError> {
     let ids: Vec<i64> = ids.iter().copied().filter(|&i| i > 0).collect();
     if ids.is_empty() {
@@ -309,7 +308,7 @@ pub fn paths_of(app: &App, ids: &[i64]) -> Result<Vec<(i64, Option<String>)>, Ap
     app.db(|c| songs::paths_of(c, &ids))
 }
 
-/// `brief_by_path()`: {ruta: datos básicos} de toda la biblioteca.
+/// {ruta: datos básicos} de toda la biblioteca.
 pub fn brief_by_path(app: &App) -> Result<Vec<(String, Dict)>, ApiError> {
     Ok(app
         .db(index::search::brief_rows)?
@@ -346,10 +345,9 @@ mod tests {
         run_job(app, "/api/scan", "scan", None);
     }
 
-    /// Lo de tests/test_formats.py, el caso real: un flac (o un ogg, o un
-    /// opus) con su modo estudio, se pierde el índice y al reescanear el
-    /// estudio tiene que estar. Antes, en esos formatos se escribía y nunca
-    /// se leía.
+    /// El caso real: un flac (o un ogg, o un opus) con su modo estudio, se
+    /// pierde el índice y al reescanear el estudio tiene que estar. Antes, en
+    /// esos formatos se escribía y nunca se leía.
     #[test]
     fn with_the_db_lost_study_comes_back_from_the_file() {
         let Some(ffmpeg) = ffmpeg() else {

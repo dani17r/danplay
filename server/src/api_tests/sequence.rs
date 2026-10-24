@@ -1,5 +1,5 @@
-//! tests/test_sequence.py: abrir una secuencia descargada, la carpeta de
-//! pistas con su proyecto de Ableton, como las de MultiTracks.com.
+//! Abrir una secuencia descargada, la carpeta de pistas con su proyecto de
+//! Ableton, como las de MultiTracks.com.
 use crate::app::App;
 use crate::testkit::{call, configured_library, ffmpeg, get, run_job};
 use library::sequence as lseq;
@@ -347,7 +347,7 @@ fn opening_it_leaves_it_ready_to_play() {
     let end = study["markers"][3]["end"].as_f64().expect("final");
     assert!((end - 16.0).abs() < 0.05, "{end}");
     // el clic exacto, y sigue valiendo aunque cambie la forma de sacar las
-    // demás (en Python, `VERSION + 1`; aquí, lo guardado de otra versión)
+    // demás (se guarda como si fuera de otra versión, `VERSION + 1`)
     let mix = Path::new(&path);
     let cache = app.config().data_dir.join("beats").join(format!(
         "{}.json",

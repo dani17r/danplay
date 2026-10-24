@@ -1,22 +1,22 @@
-//! La papelera del sistema (`library.trash_path`, que en Python era
-//! `send2trash` y, si fallaba, `gio trash`). Borrar música sin vuelta atrás
-//! no es una opción: si no se puede mandar a la papelera, se dice y no se
-//! toca nada.
+//! La papelera del sistema (y, si falla, `gio trash`). Borrar música sin
+//! vuelta atrás no es una opción: si no se puede mandar a la papelera, se
+//! dice y no se toca nada.
 //!
-//! - Linux (y los demás Unix con escritorio): la papelera de freedesktop.org,
-//!   como `send2trash`: la de la carpeta personal (`$XDG_DATA_HOME/Trash`) si
-//!   el archivo está en el mismo disco; si no, la del disco del archivo
-//!   (`.Trash/<uid>` o `.Trash-<uid>`). Con su `.trashinfo` al lado, para que
-//!   el gestor de archivos sepa devolverlo a su sitio. Si eso falla, `gio
-//!   trash`, que conoce las papeleras de cada volumen.
+//! - Linux (y los demás Unix con escritorio): la papelera de
+//!   freedesktop.org, según su especificación: la de la carpeta personal
+//!   (`$XDG_DATA_HOME/Trash`) si el archivo está en el mismo disco; si no,
+//!   la del disco del archivo (`.Trash/<uid>` o `.Trash-<uid>`). Con su
+//!   `.trashinfo` al lado, para que el gestor de archivos sepa devolverlo a
+//!   su sitio. Si eso falla, `gio trash`, que conoce las papeleras de cada
+//!   volumen.
 //! - macOS: el Finder (`osascript`).
 //! - Windows: la Papelera de reciclaje (PowerShell, con
 //!   `Microsoft.VisualBasic.FileIO`).
 use serde_json::{Value, json};
 use std::path::Path;
 
-/// `trash_path(path)`: {ok}, {ok, missing} si ya no estaba, o {ok: false,
-/// error} con el motivo.
+/// Manda `path` a la papelera: {ok}, {ok, missing} si ya no estaba, o {ok:
+/// false, error} con el motivo.
 pub fn trash_path(path: &Path) -> Value {
     if std::fs::symlink_metadata(path).is_err() {
         return json!({"ok": true, "missing": true});
@@ -122,7 +122,7 @@ pub fn test_trash() -> std::path::PathBuf {
 
 #[cfg(all(unix, not(target_os = "macos")))]
 mod freedesktop {
-    //! La papelera de freedesktop.org, como la usa `send2trash`.
+    //! La papelera de freedesktop.org, como dice su especificación.
     use std::os::unix::fs::MetadataExt;
     use std::path::{Path, PathBuf};
 
@@ -193,7 +193,7 @@ mod freedesktop {
 // (lo usan la papelera de Linux y, en las pruebas, la propia en todos los
 // sistemas)
 
-/// `urllib.parse.quote(path)`: lo que no es seguro, en %XX (la «/» no).
+/// La ruta con lo que no es seguro en %XX (la «/» no).
 #[cfg(any(test, all(unix, not(target_os = "macos"))))]
 fn quote(path: &str) -> String {
     use std::fmt::Write as _;

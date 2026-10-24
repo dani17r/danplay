@@ -1,6 +1,6 @@
-//! tests/test_api.py: la lista del reproductor. Abrir una canción desde el
-//! explorador NO la importa a la biblioteca: se guarda que sonó, para volver
-//! a ella. Y la forma de lo que se guarda de los chats y del estudio.
+//! La lista del reproductor. Abrir una canción desde el explorador NO la
+//! importa a la biblioteca: se guarda que sonó, para volver a ella. Y la
+//! forma de lo que se guarda de los chats y del estudio.
 use crate::testkit::{api_library, call, get, mp3};
 use serde_json::{Value, json};
 

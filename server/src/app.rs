@@ -1,5 +1,5 @@
 //! El estado de la app: la configuración, el índice, los trabajos en marcha
-//! y los cerrojos que en Python eran variables de módulo.
+//! y los cerrojos que comparten todas las rutas.
 //!
 //! `App` es un asa barata (un `Arc` por dentro): se clona para llevarla a un
 //! hilo (un trabajo, el diario).
@@ -30,32 +30,32 @@ pub struct Guard {
 #[derive(Debug)]
 pub struct State {
     config: RwLock<Arc<Config>>,
-    /// los trabajos largos (`jobs.py`)
+    /// los trabajos largos
     pub jobs: Jobs,
     pub guard: Guard,
-    /// un escaneo a la vez (`library.db._SCAN_LOCK`)
+    /// un escaneo a la vez
     pub scan_lock: RLock,
-    /// un escritor de listas a la vez (`playlists.LOCK`)
+    /// un escritor de listas a la vez
     pub playlists_lock: RLock,
-    /// el diario: lo último escrito y lo recuperado (`journal._STATE`)
+    /// el diario: lo último escrito y lo recuperado
     pub journal: journal::State,
     /// los datos que viajan con la app (`data/`: la foto del
     /// catálogo de modelos, las voces...)
     pub resources: PathBuf,
-    /// ffmpeg, fpcalc...: dónde están, y cuándo se miró (`convert.tool`)
+    /// ffmpeg, fpcalc...: dónde están, y cuándo se miró
     tools: Mutex<HashMap<String, (Option<PathBuf>, Instant)>>,
     /// se está apagando: los hilos de fondo paran
     pub stopping: std::sync::atomic::AtomicBool,
-    /// la cola de separar en pistas y su proceso (`stems._queue`...)
+    /// la cola de separar en pistas y su proceso
     pub separator: crate::services::stems::Separator,
-    /// las voces que se bajan y la voz cargada (`cues._INSTALLS`, `_LOADED`)
+    /// las voces que se bajan y la voz cargada
     pub cues: crate::services::cues::Cues,
-    /// la descarga de YouTube de ahora y yt-dlp (`youtube.STATE`, `ytdlp`)
+    /// la descarga de YouTube de ahora y yt-dlp
     pub downloads: crate::services::youtube::State,
     /// lo que queda por aprovechar de otra copia de cada canción y los
-    /// manifiestos de las pistas (`reuse._QUEUE`, `_MANIFESTS`)
+    /// manifiestos de las pistas
     pub reuse: crate::services::reuse::State,
-    /// el vigilante de carpetas (`watcher._WATCHER`)
+    /// el vigilante de carpetas
     pub watcher: crate::services::watcher::Slot,
 }
 
@@ -76,8 +76,7 @@ const RECHECK: Duration = Duration::from_secs(5);
 impl App {
     /// La app con esa configuración. Prepara la carpeta de datos (los
     /// nombres de antes) y el índice (su esquema, sus migraciones y las
-    /// guías de antes), como al importar config.py y abrir la base por
-    /// primera vez. No arranca nada de fondo: eso es `start`.
+    /// guías de antes). No arranca nada de fondo: eso es `start`.
     pub fn new(config: Config, guard: Guard) -> Self {
         crate::startup::rename_old_data(&config.data_dir);
         let app = Self(Arc::new(State {
@@ -102,9 +101,8 @@ impl App {
         app
     }
 
-    /// La app con la configuración del entorno (como al importar config.py):
-    /// `DANPLAY_DATA_DIR`, `DANPLAY_CONFIG_DIR`, `DANPLAY_LIBRARY`, el
-    /// danplay.env...
+    /// La app con la configuración del entorno: `DANPLAY_DATA_DIR`,
+    /// `DANPLAY_CONFIG_DIR`, `DANPLAY_LIBRARY`, el danplay.env...
     pub fn from_env(guard: Guard) -> Self {
         Self::new(Config::load(frozen(), project_root()), guard)
     }
@@ -114,7 +112,7 @@ impl App {
     /// equipo (ni su .env, ni su danplay.db, ni su `data/`), y los datos
     /// que viajan con ella en `resources`. Sin esto, la
     /// app compilada en el equipo donde está el código se creía en
-    /// desarrollo: el núcleo de Python lo sabía por `sys.frozen`.
+    /// desarrollo.
     pub fn packaged(guard: Guard, resources: PathBuf) -> Self {
         PACKAGED.store(true, std::sync::atomic::Ordering::Relaxed);
         if let Some(dir) = std::env::var_os("DANPLAY_RESOURCES").filter(|d| !d.is_empty()) {
@@ -196,7 +194,7 @@ impl App {
     }
 
     /// En las pruebas: que la app crea que ese programa no está, aunque esté
-    /// en el PATH (en Python, `monkeypatch` de `available`). Vale una hora:
+    /// en el PATH. Vale una hora:
     /// el «visto» queda en el futuro y `elapsed()` da cero hasta entonces.
     #[cfg(test)]
     pub(crate) fn hide_tool(&self, name: &str) {
@@ -205,8 +203,8 @@ impl App {
         tools.insert(name.to_owned(), (None, later));
     }
 
-    /// Lo que dice `config.env(name, default)` de Python (el entorno, los
-    /// archivos de ajustes y los nombres de antes).
+    /// Un ajuste: el entorno, los archivos de ajustes y los nombres de
+    /// antes, o `default`.
     pub fn env(&self, name: &str, default: &str) -> String {
         self.config().env(name, default)
     }
@@ -233,7 +231,7 @@ fn finish<T>(conn: &Connection, result: Result<T, ApiError>) -> Result<T, ApiErr
     }
 }
 
-/// `str(path)` de pathlib: sin barras repetidas ni al final.
+/// La ruta como texto: sin barras repetidas ni al final.
 pub fn path_str(path: &Path) -> String {
     library::paths::clean(&path.to_string_lossy())
 }
@@ -251,7 +249,7 @@ pub fn frozen() -> bool {
 }
 
 /// La raíz del proyecto en desarrollo (su .env y su danplay.db cuentan como
-/// respaldo, como en config.py), o la carpeta del ejecutable.
+/// respaldo), o la carpeta del ejecutable.
 pub fn project_root() -> PathBuf {
     let dev = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
     if !frozen() && dev.join("Cargo.toml").is_file() {
@@ -288,11 +286,10 @@ mod tests {
         .expect("leer")
     }
 
-    /// Lo de tests/test_schema.py (`with library.connect() as conn`): lo que
-    /// se escribe dentro se confirma al acabar bien y se deshace si algo
-    /// falla. Como en Python, escribir abre la transacción (`index::begin`,
-    /// lo que hacen las funciones de la biblioteca antes de escribir). Que la
-    /// conexión quede cerrada al salir lo da Rust: se suelta con el bloque.
+    /// Un bloque de `db` (o de `db_write`): lo que se escribe dentro se
+    /// confirma al acabar bien y se deshace si algo falla. Escribir abre la
+    /// transacción (`index::begin`, lo que hacen las funciones de la
+    /// biblioteca antes de escribir). La conexión se suelta con el bloque.
     #[test]
     fn a_db_block_commits_or_rolls_back() {
         let app = crate::tests::app();

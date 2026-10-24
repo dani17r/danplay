@@ -1,5 +1,5 @@
 //! Descargas de YouTube: el estado de la que va, yt-dlp y su motor de
-//! JavaScript, y el historial. danplay/api/routes/downloads.py.
+//! JavaScript, y el historial.
 //!
 //! El estado vive en `services::youtube` porque lo comparten la página de
 //! Descargas y el asistente: una descarga a la vez y un solo sitio donde
@@ -62,7 +62,8 @@ fn youtube_update(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     Ok(started(snap, already).into())
 }
 
-/// `YoutubeIn`, con sus valores por defecto si no llega cuerpo.
+/// El cuerpo de una búsqueda en YouTube, con sus valores por defecto si no
+/// llega cuerpo.
 struct YoutubeIn {
     query: String,
     results: i64,

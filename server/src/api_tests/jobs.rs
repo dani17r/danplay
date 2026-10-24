@@ -1,6 +1,6 @@
-//! tests/test_jobs.py, lo de la API: los trabajos largos se arrancan, se
-//! consultan por su nombre (uno de cada a la vez) y su resultado va también
-//! en `/api/status`. (Lo de `jobs.rs` por dentro está en sus pruebas.)
+//! Los trabajos largos, desde la API: se arrancan, se consultan por su
+//! nombre (uno de cada a la vez) y su resultado va también en
+//! `/api/status`. (Lo de `jobs.rs` por dentro está en sus pruebas.)
 use crate::testkit::{call, configured_library, get, mp3, run_job, wait_job};
 use serde_json::json;
 
@@ -27,8 +27,8 @@ fn the_status_carries_a_copy_of_the_jobs() {
 
 #[test]
 fn asking_for_a_scan_while_one_runs_returns_the_same() {
-    // (en Python se frenaba sustituyendo library.scan; aquí, quedándose con
-    // el cerrojo del escaneo hasta haber pedido el segundo)
+    // (el primero se frena quedándose con el cerrojo del escaneo hasta
+    // haber pedido el segundo)
     let Some((app, _)) = configured_library() else {
         return;
     };
@@ -48,8 +48,7 @@ fn asking_for_a_scan_while_one_runs_returns_the_same() {
 
 #[test]
 fn a_real_convert_is_a_job_and_a_dry_run_is_not() {
-    // (en Python, con una conversión de mentira; aquí, de verdad: un wav que
-    // pasa a mp3)
+    // (una conversión de verdad: un wav que pasa a mp3)
     let Some((app, _)) = configured_library() else {
         return;
     };

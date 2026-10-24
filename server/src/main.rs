@@ -1,7 +1,7 @@
 //! `danplay-server`: la API del núcleo por un socket, con los mismos
-//! argumentos que el núcleo empaquetado de Python de hasta la 1.30. La app no
-//! lo usa (lleva el núcleo dentro): es para las pruebas de la interfaz (las
-//! e2e) y para desarrollarla con `vp dev`.
+//! argumentos que el núcleo empaquetado de hasta la 1.30. La app no lo usa
+//! (lleva el núcleo dentro): es para las pruebas de la interfaz (las e2e) y
+//! para desarrollarla con `vp dev`.
 //!
 //! ```text
 //! danplay-server --uds RUTA          socket Unix (Linux y macOS)
@@ -202,7 +202,7 @@ fn main() {
 mod tests {
     use super::*;
 
-    /// tests/test_serve.py: se vigila el proceso que dice la variable; uno
+    /// Se vigila el proceso que dice la variable; uno
     /// que ya terminó no está; y un número raro no vigila nada.
     #[test]
     fn the_parent_is_watched_only_with_a_valid_pid() {

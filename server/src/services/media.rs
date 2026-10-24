@@ -1,8 +1,6 @@
-//! Lo que se enseña de una canción y se guarda en DATA_DIR (lo de
-//! danplay/thumbnails.py, danplay/waveform.py y la caché de carátulas de
-//! danplay/tags.py): la carátula incrustada (recordada en memoria), sus
-//! miniaturas, la forma de onda; y el audio como archivo, con trozos
-//! (`Range`), como el `FileResponse` de Starlette.
+//! Lo que se enseña de una canción y se guarda en DATA_DIR: la carátula
+//! incrustada (recordada en memoria), sus miniaturas, la forma de onda; y
+//! el audio como archivo, con trozos (`Range`).
 use crate::app::App;
 use crate::http::{Body, Response};
 use crate::services::ai::log_warnings;
@@ -22,9 +20,8 @@ pub type Cover = (Vec<u8>, String);
 /// no tiene).
 type Entry = ((String, f64, u64), Option<Cover>);
 
-/// Las últimas carátulas leídas (`tags._COVER_CACHE`): con dos topes, en
-/// bytes y en número (las canciones sin carátula pesan cero y sin el
-/// segundo tope nunca se irían).
+/// Las últimas carátulas leídas: con dos topes, en bytes y en número (las
+/// canciones sin carátula pesan cero y sin el segundo tope nunca se irían).
 struct CoverCache {
     entries: VecDeque<Entry>,
     bytes: usize,
@@ -42,7 +39,7 @@ fn size_of(c: Option<&Cover>) -> usize {
     c.map_or(0, |c| c.0.len())
 }
 
-/// `tags.extract_cover(path)`: la carátula incrustada, o `None`.
+/// La carátula incrustada, o `None`.
 fn extract_cover(path: &Path) -> Option<Cover> {
     let read = std::panic::catch_unwind(|| library::tags::read_cover(path));
     read.unwrap_or_else(|_| {
@@ -54,8 +51,8 @@ fn extract_cover(path: &Path) -> Option<Cover> {
     })
 }
 
-/// `tags.cached_cover(path)`: como `extract_cover`, sin releer el archivo si
-/// no ha cambiado (la clave lleva su fecha y su tamaño).
+/// Como `extract_cover`, sin releer el archivo si no ha cambiado (la clave
+/// lleva su fecha y su tamaño).
 pub fn cached_cover(path: &Path) -> Option<Cover> {
     let meta = std::fs::metadata(path).ok()?;
     let key = (
@@ -96,8 +93,7 @@ pub fn cover_cache_bytes() -> (usize, usize) {
     (cache.bytes, COVER_CACHE_MAX_BYTES)
 }
 
-/// `tags.forget_cover(path)`: olvida lo recordado de un archivo (por si se
-/// tocó sin cambiar la fecha).
+/// Olvida lo recordado de un archivo (por si se tocó sin cambiar la fecha).
 pub fn forget_cover(path: &Path) {
     let name = path.to_string_lossy();
     let mut cache = COVERS.lock().unwrap_or_else(PoisonError::into_inner);
@@ -113,8 +109,7 @@ pub fn forget_cover(path: &Path) {
     cache.bytes -= freed;
 }
 
-/// `tags.write_cover(path, data, mime)`: la pone (quita las que hubiera).
-/// `false` si no se pudo.
+/// Pone la carátula (quita las que hubiera). `false` si no se pudo.
 pub fn write_cover(app: &App, path: &Path, data: &[u8], mime: &str) -> bool {
     let before = crate::services::tags::stamp(path);
     let result = std::panic::catch_unwind(|| library::tags::write_cover(path, data, mime))
@@ -136,18 +131,18 @@ pub fn write_cover(app: &App, path: &Path, data: &[u8], mime: &str) -> bool {
 
 // ---------------------------------------------------------------- miniaturas
 
-/// `thumbnails.SIZES`.
+/// Los tamaños de las miniaturas.
 pub const THUMBNAIL_SIZES: [i64; 3] = library::thumbnails::SIZES;
 
-/// `thumbnails.folder()`: DATA_DIR/covers, solo para su dueño.
+/// DATA_DIR/covers, solo para su dueño.
 pub fn thumbnails_folder(app: &App) -> PathBuf {
     let path = app.config().data_dir.join("covers");
     let _ = library::config::private_dir(&path);
     path
 }
 
-/// `thumbnails.get(path, size)`: la miniatura (o la carátula tal cual si no
-/// se pudo encoger); `None` si no tiene carátula.
+/// La miniatura (o la carátula tal cual si no se pudo encoger); `None` si no
+/// tiene carátula.
 pub fn thumbnail(app: &App, path: &Path, size: i64) -> Option<Cover> {
     let original = cached_cover(path)?;
     let folder = thumbnails_folder(app);
@@ -171,7 +166,7 @@ pub fn thumbnail(app: &App, path: &Path, size: i64) -> Option<Cover> {
     }
 }
 
-/// `thumbnails.forget(path)`.
+/// Borra las miniaturas de un archivo.
 pub fn forget_thumbnails(app: &App, path: &str) {
     let folder = thumbnails_folder(app);
     let mut warnings = Warnings::new();
@@ -189,7 +184,7 @@ pub fn waveform_folder(app: &App) -> PathBuf {
     app.config().data_dir.join("waveforms")
 }
 
-/// `waveform.forget(path)`.
+/// Borra la forma de onda guardada de un archivo.
 pub fn forget_waveform(app: &App, path: &str) {
     let folder = waveform_folder(app);
     let _ = std::fs::create_dir_all(&folder);
@@ -198,8 +193,8 @@ pub fn forget_waveform(app: &App, path: &str) {
     log_warnings("danplay.waveform", warnings);
 }
 
-/// `waveform.compute(path, buckets)`: (picos, rms), de la caché o
-/// calculada; `None` si no hay con qué decodificarla.
+/// (picos, rms), de la caché o calculada; `None` si no hay con qué
+/// decodificarla.
 pub fn waveform(app: &App, path: &Path, buckets: i64) -> std::io::Result<Option<Wave>> {
     let buckets = buckets.clamp(1, 4000);
     let ffmpeg = app.tool("ffmpeg");
@@ -215,8 +210,8 @@ pub fn waveform(app: &App, path: &Path, buckets: i64) -> std::io::Result<Option<
     made
 }
 
-/// `waveform.compute_range(path, start, end, buckets)`: un trozo con
-/// detalle, sin caché; `None` sin ffmpeg (o si el trozo no tiene sentido).
+/// Un trozo con detalle, sin caché; `None` sin ffmpeg (o si el trozo no
+/// tiene sentido).
 pub fn waveform_range(app: &App, path: &Path, start: f64, end: f64, buckets: i64) -> Option<Wave> {
     let ffmpeg = app.tool("ffmpeg")?;
     let mut warnings = Warnings::new();
@@ -227,8 +222,8 @@ pub fn waveform_range(app: &App, path: &Path, start: f64, end: f64, buckets: i64
 
 // ---------------------------------------------------------------- el audio
 
-/// Cada formato con su tipo (`api.common.AUDIO_TYPES`): el navegador rechaza
-/// un .flac anunciado como mp3.
+/// Cada formato con su tipo: el navegador rechaza un .flac anunciado como
+/// mp3.
 const AUDIO_TYPES: [(&str, &str); 8] = [
     (".mp3", "audio/mpeg"),
     (".flac", "audio/flac"),
@@ -240,7 +235,7 @@ const AUDIO_TYPES: [(&str, &str); 8] = [
     (".wma", "audio/x-ms-wma"),
 ];
 
-/// `audio_type(path)`.
+/// El tipo del audio por su extensión.
 pub fn audio_type(path: &str) -> &'static str {
     let ext = library::names::splitext(path).1.to_lowercase();
     AUDIO_TYPES
@@ -249,7 +244,7 @@ pub fn audio_type(path: &str) -> &'static str {
         .map_or_else(|| guess_type(&ext), |(_, t)| t)
 }
 
-/// Lo poco de `mimetypes.guess_type` que puede salir aquí.
+/// El tipo de lo que no es de `AUDIO_TYPES`: lo poco que puede salir aquí.
 fn guess_type(ext: &str) -> &'static str {
     match ext {
         ".aif" | ".aiff" | ".aifc" => "audio/x-aiff",
@@ -262,7 +257,7 @@ fn guess_type(ext: &str) -> &'static str {
     }
 }
 
-/// `urllib.parse.quote(s)` (con «/» como seguro).
+/// El texto con lo que no es seguro en %XX (la «/» no).
 fn quote(s: &str) -> String {
     let mut out = String::new();
     for b in s.bytes() {
@@ -275,7 +270,8 @@ fn quote(s: &str) -> String {
     out
 }
 
-/// `email.utils.formatdate(t, usegmt=True)`.
+/// La fecha como la piden las cabeceras HTTP, en GMT:
+/// «Thu, 01 Jan 1970 00:00:00 GMT».
 fn http_date(secs: f64) -> String {
     const DAYS: [&str; 7] = ["Thu", "Fri", "Sat", "Sun", "Mon", "Tue", "Wed"];
     const MONTHS: [&str; 12] = [
@@ -310,7 +306,7 @@ fn md5_hex(text: &str) -> String {
         })
 }
 
-/// Lo que no cuadra de una cabecera `Range`, como Starlette.
+/// Lo que no cuadra de una cabecera `Range`.
 enum RangeError {
     /// 400, con el motivo en texto.
     Malformed(&'static str),
@@ -318,8 +314,8 @@ enum RangeError {
     NotSatisfiable,
 }
 
-/// `FileResponse._parse_range_header`: los trozos (sin solapes), o vacío si
-/// se pide de más (se manda entero).
+/// Los trozos que pide `Range` (sin solapes), o vacío si se pide de más (se
+/// manda entero).
 fn parse_range(header: &str, size: u64) -> Result<Vec<(u64, u64)>, RangeError> {
     const MAX_RANGES: usize = 100;
     let Some((units, ranges)) = header.split_once('=') else {
@@ -340,7 +336,7 @@ fn parse_range(header: &str, size: u64) -> Result<Vec<(u64, u64)>, RangeError> {
         }
         let (a, b) = part.split_once('-').unwrap_or((part, ""));
         let (a, b) = (a.trim(), b.trim());
-        // lo que no es un número se ignora (como el `ValueError` de allí)
+        // lo que no es un número se ignora
         let num = |s: &str| s.parse::<i128>().ok();
         let start = if a.is_empty() {
             match num(b) {
@@ -394,10 +390,9 @@ fn parse_range(header: &str, size: u64) -> Result<Vec<(u64, u64)>, RangeError> {
     Ok(ranges)
 }
 
-/// `FileResponse(path, media_type=..., filename=...)`: el archivo entero o
-/// lo que pide `Range` (206: un trozo, o varios en un
+/// El archivo entero o lo que pide `Range` (206: un trozo, o varios en un
 /// `multipart/byteranges`), con `content-disposition`, `last-modified` y
-/// `etag` como Starlette.
+/// `etag` (el md5 de la fecha y el tamaño).
 pub fn file_response(
     path: &Path,
     media_type: &str,
@@ -452,7 +447,7 @@ pub fn file_response(
     }
 }
 
-/// `secrets.token_hex(13)`: la frontera de las partes, que no se repita.
+/// La frontera de las partes: 26 cifras hexadecimales, que no se repita.
 fn boundary() -> String {
     use std::hash::{BuildHasher, Hasher};
     static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -471,8 +466,8 @@ fn boundary() -> String {
     out
 }
 
-/// Varios trozos a la vez (`_handle_multiple_ranges`): un
-/// `multipart/byteranges`, cada uno con su tipo y su `Content-Range`.
+/// Varios trozos a la vez: un `multipart/byteranges`, cada uno con su tipo y
+/// su `Content-Range`.
 fn multipart(
     mut r: Response,
     path: &Path,
@@ -503,7 +498,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn dates_and_types_like_python() {
+    fn dates_types_and_quoted_names() {
         assert_eq!(http_date(0.0), "Thu, 01 Jan 1970 00:00:00 GMT");
         assert_eq!(http_date(1_792_627_200.5), "Thu, 22 Oct 2026 00:00:00 GMT");
         assert_eq!(audio_type("/m/a.FLAC"), "audio/flac");
@@ -512,7 +507,7 @@ mod tests {
     }
 
     #[test]
-    fn ranges_like_starlette() {
+    fn the_ranges_of_a_range_header() {
         assert!(matches!(parse_range("bytes=0-9", 100), Ok(r) if r == vec![(0, 10)]));
         assert!(matches!(parse_range("bytes=-10", 100), Ok(r) if r == vec![(90, 100)]));
         assert!(matches!(parse_range("bytes=95-", 100), Ok(r) if r == vec![(95, 100)]));
@@ -530,8 +525,7 @@ mod tests {
 
     /// Lo que se declara al sistema al asociar los tipos de audio con
     /// DanPlay (tauri.conf.json) es lo que sirve la API: si no, el sistema
-    /// abre con DanPlay un tipo que luego se sirve como otro (lo de
-    /// tests/test_core.py).
+    /// abre con DanPlay un tipo que luego se sirve como otro.
     #[test]
     fn every_association_declares_the_type_the_api_serves() {
         let conf = concat!(

@@ -1,5 +1,5 @@
 //! Las confirmaciones del asistente, el plan de descarga y lo que se hace
-//! al terminar (danplay/chat/plan.py).
+//! al terminar.
 //!
 //! Lo que no tiene vuelta atrás (descargar, borrar) no lo decide el modelo ni
 //! el cliente: la herramienta REGISTRA aquí lo que propone, la interfaz solo
@@ -56,7 +56,7 @@ fn cut_text(kind: &str) -> &'static str {
         .map_or("", |(_, v)| v)
 }
 
-/// El reloj de las caducidades (`time.monotonic`).
+/// El reloj de las caducidades: segundos que solo avanzan.
 fn now() -> f64 {
     static START: LazyLock<Instant> = LazyLock::new(Instant::now);
     #[cfg(test)]
@@ -85,7 +85,7 @@ pub mod testing {
     /// Sin una consulta de mentira, el plan no busca: en las pruebas no se
     /// sale a YouTube.
     pub const OFFLINE: &str = "en las pruebas no se sale a YouTube";
-    /// Lo que dice `_warm` (`None`: mirar yt-dlp de verdad).
+    /// Lo que dice `warm` (`None`: mirar yt-dlp de verdad).
     pub static WARM: Mutex<Option<String>> = Mutex::new(None);
     /// `youtube::already_in_library(título)` de mentira.
     pub type Mine = Arc<dyn Fn(&str) -> Vec<Dict> + Send + Sync>;
@@ -241,8 +241,8 @@ impl p::Index for Index<'_> {
 
 // ------------------------------------------------------------ el registro
 
-/// Por qué no se registra: el `ValueError` de Python (con su texto) u otra
-/// cosa.
+/// Por qué no se registra: algo que no vale en lo que se pide (`Value`,
+/// con su texto, que se le dice al modelo) u otra cosa (`Other`).
 #[derive(Debug)]
 pub enum RegisterError {
     Value(String),
@@ -267,7 +267,7 @@ fn data_error(e: &DataError) -> RegisterError {
 /// Las letras de base64 para URL.
 const ABC: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
 
-/// `secrets.token_urlsafe(9)`: doce letras de base64 para URL.
+/// Nueve bytes al azar: doce letras de base64 para URL.
 fn token() -> String {
     let mut bytes = [0u8; 9];
     let from_os = std::fs::File::open("/dev/urandom")
@@ -653,7 +653,7 @@ fn settle_row(app: &App, id: &str, i: usize, res: &Dict) {
     }
 }
 
-/// `_warm`: yt-dlp y su motor de JavaScript ANTES de abrir hilos (si no,
+/// Prepara yt-dlp y su motor de JavaScript ANTES de abrir hilos (si no,
 /// cada hilo lo buscaba a la vez). Sin yt-dlp no se puede buscar: el porqué.
 fn warm(app: &App) -> String {
     #[cfg(test)]

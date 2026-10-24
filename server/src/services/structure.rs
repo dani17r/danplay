@@ -1,7 +1,6 @@
-//! La guía automática (lo de danplay/structure.py alrededor de
-//! `analysis::structure`): escuchar la canción (y sus pistas separadas, si
-//! las tiene), sacar sus partes con su nombre y decir una guía justo antes
-//! de cada una.
+//! La guía automática (alrededor de `analysis::structure`): escuchar la
+//! canción (y sus pistas separadas, si las tiene), sacar sus partes con su
+//! nombre y decir una guía justo antes de cada una.
 use crate::app::App;
 use crate::jobs::{JobError, Progress};
 use crate::services::{cues, stems};
@@ -62,7 +61,8 @@ fn matrix(v: &[f32], columns: usize) -> Matrix {
     )
 }
 
-/// `np.median`.
+/// La mediana (la media de las dos del medio si son pares); NaN si no hay
+/// nada.
 fn median(mut v: Vec<f64>) -> f64 {
     if v.is_empty() {
         return f64::NAN;

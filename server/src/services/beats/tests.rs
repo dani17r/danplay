@@ -1,8 +1,8 @@
-//! La rejilla del clic en el núcleo (lo de tests/test_pulse.py que no es
-//! análisis puro: eso está en `analysis::pulse`): lo guardado, la cola, lo
-//! que va antes, los fallos recordados, reescribir la etiqueta sin perder la
-//! rejilla, re-analizar y la API. Sin la red: un detector de mentira en `sh`
-//! que deja lo que «oiría» la red, hecho aquí en Rust.
+//! La rejilla del clic en el núcleo (lo que no es análisis puro: eso está en
+//! `analysis::pulse`): lo guardado, la cola, lo que va antes, los fallos
+//! recordados, reescribir la etiqueta sin perder la rejilla, re-analizar y la
+//! API. Sin la red: un detector de mentira en `sh` que deja lo que «oiría» la
+//! red, hecho aquí mismo.
 //!
 //! La cola, el detector y el grafo son de todo el proceso: estas pruebas
 //! van una detrás de otra (`serial`), y también la de las rutas de una
@@ -29,7 +29,7 @@ pub(crate) fn set_graph(path: &Path) {
 }
 
 /// La cola vacía, sin fallos apuntados, sin detector ni grafo de prueba y
-/// con el hilo andando (`beatgrid._reset()`).
+/// con el hilo andando.
 fn reset() {
     {
         let mut q = QUEUE.lock().unwrap_or_else(PoisonError::into_inner);
@@ -61,7 +61,7 @@ impl Drop for Serial {
 }
 
 /// El hilo de la cola, parado mientras viva: lo que se pide se queda en la
-/// cola, tal cual (lo que en Python era `with beatgrid._WAKE`).
+/// cola, tal cual.
 struct Paused;
 
 impl Paused {
@@ -87,7 +87,7 @@ fn waiting() -> Vec<String> {
 // ---------------------------------------------------------------- el detector
 
 /// Lo que oiría la red en 30 s a 120 (un pico cada medio segundo y el «1»
-/// cada cuatro; `late` segundos después), como el detector de Python.
+/// cada cuatro; `late` segundos después).
 fn heard(path: &Path, late: f64) {
     let (fps, seconds) = (50.0, 30.0);
     let frames = (seconds * fps) as usize;
@@ -108,10 +108,10 @@ fn heard(path: &Path, late: f64) {
     analysis::pulse::raw::save(path, &beat, &down, &low, 100.0, seconds).expect("crudo");
 }
 
-/// El detector de mentira (el `detector` de tests/test_pulse.py): apunta
-/// cada canción con que se le llama, dice su avance antes de la respuesta,
-/// falla con las «sin-pulso.mp3» y, con las demás, deja lo que oiría la red
-/// (en la batería, 4 ms después). Con su grafo de mentira.
+/// El detector de mentira: apunta cada canción con que se le llama, dice su
+/// avance antes de la respuesta, falla con las «sin-pulso.mp3» y, con las
+/// demás, deja lo que oiría la red (en la batería, 4 ms después). Con su
+/// grafo de mentira.
 struct Detector {
     calls: PathBuf,
     dir: PathBuf,
@@ -581,8 +581,7 @@ fn steady_tempo_in_a_stretch_fits_between_its_neighbours() {
 
 #[test]
 fn the_whole_song_with_the_separated_drums() {
-    // (en Python, `_drums_of` era de mentira; aquí la canción está en la
-    // biblioteca con su batería separada de verdad)
+    // la canción está en la biblioteca con su batería separada de verdad
     let Some(app) = api_library() else {
         return;
     };

@@ -1,6 +1,6 @@
-//! tests/test_api.py: dar de alta carpetas (la misma, la de dentro, la de
-//! fuera, una copia), las exclusiones, indexar al momento, el historial de
-//! descargas, los filtros de búsqueda, resolver duplicados.
+//! Dar de alta carpetas (la misma, la de dentro, la de fuera, una copia),
+//! las exclusiones, indexar al momento, el historial de descargas, los
+//! filtros de búsqueda, resolver duplicados.
 use crate::testkit::{api_library, call, get, run_job};
 use library::index::Dict;
 use serde_json::{Value, json};

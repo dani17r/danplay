@@ -1,6 +1,5 @@
-//! Los duplicados (lo de danplay/duplicates.py y `duplicates_report`): los
-//! grupos los hace `library::duplicates`; resolverlos toca la papelera y las
-//! carpetas de la biblioteca.
+//! Los duplicados: los grupos los hace `library::duplicates`; resolverlos
+//! toca la papelera y las carpetas de la biblioteca.
 use crate::app::App;
 use crate::error::ApiError;
 use crate::services::{folders, library as lib, trash};
@@ -28,10 +27,10 @@ fn rejection(app: &App, path: &str) -> Result<String, ApiError> {
     Ok(String::new())
 }
 
-/// `duplicates.resolve(keep, remove, dry_run)`: se queda con una copia y
-/// manda las demás a la papelera (quitándole a la que se queda el sufijo
-/// « - r» si el nombre limpio queda libre). Todas tienen que ser audio y
-/// estar dentro de las carpetas gestionadas.
+/// Se queda con una copia (`keep`) y manda las demás (`remove`) a la
+/// papelera (quitándole a la que se queda el sufijo « - r» si el nombre
+/// limpio queda libre); con `dry_run`, solo dice lo que haría. Todas tienen
+/// que ser audio y estar dentro de las carpetas gestionadas.
 pub fn resolve(app: &App, keep: &str, remove: &[String], dry_run: bool) -> Result<Value, ApiError> {
     let keep = library::paths::absolute(keep);
     let remove: Vec<String> = remove
@@ -106,8 +105,8 @@ pub fn resolve(app: &App, keep: &str, remove: &[String], dry_run: bool) -> Resul
     }))
 }
 
-/// `duplicates_report()`: los grupos de idénticos y de parecidos, con los
-/// datos de cada canción para poder oírlas y la sugerida para conservar.
+/// Los grupos de idénticos y de parecidos, con los datos de cada canción para
+/// poder oírlas y la sugerida para conservar.
 pub fn report(app: &App) -> Result<Value, ApiError> {
     let index = lib::brief_by_path(app)?;
     let paths: Vec<PathBuf> = index.iter().map(|(p, _)| PathBuf::from(p)).collect();
@@ -209,9 +208,9 @@ pub fn resolve_route(
     Ok(r)
 }
 
-/// Resolver duplicados (lo de tests/test_core.py): `resolve` solo toca lo
-/// que está dentro de una carpeta gestionada de verdad, y lo que no se
-/// conserva va a la papelera (en las pruebas, una de mentira).
+/// Resolver duplicados: `resolve` solo toca lo que está dentro de una carpeta
+/// gestionada de verdad, y lo que no se conserva va a la papelera (en las
+/// pruebas, una de mentira).
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -287,7 +286,7 @@ mod tests {
     }
 
     /// Borrar es lo excepcional: sin pedirlo expresamente no se toca nada
-    /// (en Rust, lo que llega a la API sin `dry_run`).
+    /// (lo que llega a la API sin `dry_run`).
     #[test]
     fn resolve_is_dry_by_default() {
         let (app, folder) = managed();

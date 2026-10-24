@@ -1,5 +1,5 @@
-//! tests/test_chat_flow.py: el asistente con una lista pegada, biblioteca
-//! primero y sin vueltas de más.
+//! El asistente con una lista pegada, biblioteca primero y sin vueltas de
+//! más.
 //!
 //! De punta a punta con una biblioteca SINTÉTICA (artistas inventados,
 //! títulos de canciones públicas) y un modelo de mentira que contesta por

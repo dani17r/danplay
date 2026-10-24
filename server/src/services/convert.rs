@@ -1,6 +1,5 @@
-//! Convertir a mp3 (lo de danplay/convert.py alrededor de
-//! `library::convert`): dónde está ffmpeg, qué carpetas no se tocan y los
-//! candidatos de la biblioteca.
+//! Convertir a mp3 (lo que va alrededor de `library::convert`): dónde está
+//! ffmpeg, qué carpetas no se tocan y los candidatos de la biblioteca.
 use crate::app::App;
 use crate::error::ApiError;
 use crate::services::{ai::log_warnings, folders, tools};
@@ -9,13 +8,13 @@ use library::warnings::Warnings;
 use serde_json::{Map, Value, json};
 use std::path::Path;
 
-/// `convert.needs_convert(path)`: si se convertiría (no es mp3 y no está en
+/// Si se convertiría (no es mp3 y no está en
 /// una carpeta protegida).
 pub fn needs_convert(app: &App, path: &Path) -> bool {
     convert::needs_convert(path, &app.config().never_convert)
 }
 
-/// `convert.candidates()`: los archivos de la biblioteca que se convertirían.
+/// Los archivos de la biblioteca que se convertirían.
 pub fn candidates(app: &App) -> Result<Vec<String>, ApiError> {
     let root = app.config().library.to_string_lossy().into_owned();
     Ok(folders::audio_files(app, &root)?
@@ -24,9 +23,9 @@ pub fn candidates(app: &App) -> Result<Vec<String>, ApiError> {
         .collect())
 }
 
-/// `convert.convert(path, quality, keep_original)`: el diccionario de
-/// Python (`ok`, `source_path`, `target`, `before`, `after`,
-/// `saved_percent`; o `ok: false` con `reason` y, si se saltó, `skipped`).
+/// Convierte un archivo. Devuelve `ok`, `source_path`, `target`, `before`,
+/// `after` y `saved_percent`; o `ok: false` con `reason` y, si se saltó,
+/// `skipped`.
 pub fn convert_one(
     app: &App,
     path: &Path,
@@ -83,7 +82,7 @@ pub fn convert_one(
     Ok(Value::Object(out))
 }
 
-/// `convert.convert_batch(...)`: todos los candidatos (o una prueba, con
+/// Todos los candidatos (o una prueba, con
 /// `dry_run`). `progress(i, total)` cuenta el avance.
 pub fn convert_batch(
     app: &App,
@@ -146,8 +145,8 @@ mod tests {
         path.to_path_buf()
     }
 
-    /// Lo de tests/test_media.py: un mp3 no se convierte, lo de una carpeta
-    /// protegida (Secuencias) tampoco, y sin ffmpeg se dice que falta.
+    /// Un mp3 no se convierte, lo de una carpeta protegida (Secuencias)
+    /// tampoco, y sin ffmpeg se dice que falta.
     #[test]
     fn what_is_not_converted() {
         if crate::testkit::ffmpeg().is_none() {

@@ -1,8 +1,7 @@
-//! tests/test_chat_openai.py: el asistente contra dos servidores de IA de
-//! mentira en este equipo (el principal y el de respaldo), de punta a punta
-//! por la API: lo que de verdad llega del proveedor (un 400 de saldo, un
-//! 429), cuántas peticiones salen, la lista pegada en vivo y dos
-//! herramientas en un mensaje.
+//! El asistente contra dos servidores de IA de mentira en este equipo (el
+//! principal y el de respaldo), de punta a punta por la API: lo que de
+//! verdad llega del proveedor (un 400 de saldo, un 429), cuántas peticiones
+//! salen, la lista pegada en vivo y dos herramientas en un mensaje.
 //!
 //! Lo de trocear la respuesta (el texto y las llamadas a herramientas en
 //! varios trozos) se prueba en `library::ai::call::tests`.

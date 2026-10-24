@@ -1,10 +1,9 @@
-//! Las rutas, un módulo por router de danplay/api/routes/, con el mismo
-//! nombre. El orden importa (se mira la primera que encaja): es el de
-//! `app.include_router` en danplay/api/__init__.py, y dentro de cada módulo,
-//! el de las funciones del router de Python.
+//! Las rutas, un módulo por grupo (sistema, IA, biblioteca, canciones...).
+//! El orden importa (se mira la primera que encaja): es el de `all` y,
+//! dentro de cada módulo, el de su `ROUTES`.
 //!
-//! Para portar otro router: un módulo aquí con su `pub const ROUTES`, y
-//! ponerlo en su sitio en `all` (los que faltan están comentados).
+//! Para añadir otro grupo: un módulo aquí con su `pub const ROUTES`, y
+//! ponerlo en su sitio en `all`.
 use crate::router::Route;
 
 pub mod ai;
@@ -21,7 +20,7 @@ pub mod system;
 #[cfg(test)]
 mod tests;
 
-/// Todas las rutas, en el orden de FastAPI.
+/// Todas las rutas, en el orden en que se miran.
 pub fn all() -> Vec<Route> {
     [
         system::ROUTES,

@@ -1,10 +1,8 @@
-//! Las pruebas de la API que eran de Python (tests/test_*.py), ya contra el
-//! núcleo de Rust y en el mismo proceso: cada una sobre su biblioteca de
-//! verdad en carpetas temporales (`testkit`). Cada archivo, el suyo de
-//! Python, con las mismas comprobaciones.
+//! Las pruebas de la API, en el mismo proceso: cada una sobre su biblioteca
+//! de verdad en carpetas temporales (`testkit`). Un archivo por tema.
 #![allow(
     clippy::too_many_lines,
-    reason = "cada prueba recorre una ruta entera, como la suya de Python"
+    reason = "cada prueba recorre una ruta entera, de punta a punta"
 )]
 mod ai;
 mod assistant;

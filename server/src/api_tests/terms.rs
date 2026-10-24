@@ -1,5 +1,5 @@
-//! tests/test_terms.py: los términos. Se guarda que se aceptaron, cuáles y
-//! cuándo, en los datos de DanPlay. El texto lo tiene la interfaz.
+//! Los términos. Se guarda que se aceptaron, cuáles y cuándo, en los datos
+//! de DanPlay. El texto lo tiene la interfaz.
 use crate::testkit::{call, get};
 use serde_json::json;
 

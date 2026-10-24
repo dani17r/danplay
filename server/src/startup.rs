@@ -1,8 +1,7 @@
-//! El arranque y el apagado (el `lifespan` de danplay/api/__init__.py, y lo
-//! que config.py y la base hacían al importarse o abrirse por primera vez).
+//! El arranque y el apagado, y lo que se hace con la configuración y la
+//! base la primera vez que se abren.
 //!
-//! Cada paso es una función aparte; `start` y `stop` los llaman en el orden
-//! de Python.
+//! Cada paso es una función aparte; `start` y `stop` los llaman en orden.
 use crate::app::App;
 use crate::error::ApiError;
 use crate::services::{ai, journal, reuse, watcher};
@@ -25,7 +24,7 @@ pub const OLD_DATA_NAMES: [(&str, &str); 7] = [
     ("terminos.json", "terms.json"),
 ];
 
-/// `config.rename_old`: cada nombre de antes por el de ahora dentro de `folder`.
+/// Cada nombre de antes por el de ahora dentro de `folder`.
 ///
 /// Si ya están los dos (una versión de antes volvió a crear el suyo después
 /// de renombrarlo, como la 1.30 abierta junto a una de ahora), se juntan:
@@ -79,7 +78,7 @@ pub fn rename_old_data(data_dir: &Path) {
     rename_old(&data_dir.join("cues"), &[("prueba", "previews")]);
 }
 
-/// `_old_cue_paths`: hasta la 1.30 las guías habladas estaban en
+/// Hasta la 1.30 las guías habladas estaban en
 /// DATA_DIR/guias/ (ahora cues/), y el estudio de cada canción apunta a sus
 /// archivos con la ruta entera. Lo que quede apuntando allí pasa a la de
 /// ahora. Devuelve si cambió algo.
@@ -108,7 +107,7 @@ pub fn old_cue_paths(app: &App) -> Result<bool, ApiError> {
         for ascii in [true, false] {
             let (o, n) = (quoted(&old, ascii), quoted(&new, ascii));
             // ...y en las apartadas, con el estudio como texto dentro del
-            // suyo (`json.dumps(o)`, con `ensure_ascii`)
+            // suyo (escrito otra vez como JSON, sin nada fuera de ASCII)
             let (mo, mn) = (quoted(&o, true), quoted(&n, true));
             if !in_study.contains(&(o.clone(), n.clone())) {
                 in_study.push((o, n));
@@ -169,7 +168,8 @@ pub fn old_cue_paths(app: &App) -> Result<bool, ApiError> {
     Ok(true)
 }
 
-/// `json.dumps(s)` (con `ensure_ascii`): lo que no es ASCII, como `\uXXXX`.
+/// `s` como texto JSON, con lo que no es ASCII como `\uXXXX`: una de las
+/// formas en que puede estar escrita una ruta en la base.
 fn json_ascii(s: &str) -> String {
     let full = serde_json::Value::from(s).to_string();
     let mut out = String::with_capacity(full.len());
@@ -204,7 +204,8 @@ pub fn catalog_refreshing() -> bool {
     REFRESHING.load(Ordering::SeqCst)
 }
 
-/// `model_catalog.CACHE` y `SNAPSHOT`.
+/// La copia del catálogo en la carpeta de datos y la foto que viaja con la
+/// app.
 pub fn catalog_paths(app: &App) -> (std::path::PathBuf, std::path::PathBuf) {
     (
         app.config().data_dir.join("models-catalog.json"),
@@ -212,8 +213,8 @@ pub fn catalog_paths(app: &App) -> (std::path::PathBuf, std::path::PathBuf) {
     )
 }
 
-/// `model_catalog.refresh(force)`: consulta models.dev (con su ETag) y
-/// actualiza la copia. Devuelve `status()`.
+/// Consulta models.dev (con su ETag) y actualiza la copia; sin `force`, no
+/// si se miró hace poco. Devuelve `catalog_status`.
 pub fn refresh_catalog(app: &App, force: bool) -> serde_json::Value {
     let (cache, snapshot) = catalog_paths(app);
     let mut warnings = Warnings::new();
@@ -254,7 +255,8 @@ pub fn refresh_catalog(app: &App, force: bool) -> serde_json::Value {
     catalog_status(app)
 }
 
-/// `model_catalog.status()`.
+/// Cómo está el catálogo: de dónde sale, cuándo se miró, si se está
+/// poniendo al día.
 pub fn catalog_status(app: &App) -> serde_json::Value {
     let (cache, snapshot) = catalog_paths(app);
     let mut warnings = Warnings::new();
@@ -263,8 +265,8 @@ pub fn catalog_status(app: &App) -> serde_json::Value {
     serde_json::Value::Object(catalog::status(&data, catalog_refreshing()))
 }
 
-/// `model_catalog.refresh_in_background()`: si la copia tiene más de
-/// `max_age` segundos, se consulta en un hilo. Si se lanzó algo.
+/// Si la copia tiene más de `max_age` segundos, se consulta en un hilo.
+/// Devuelve si se lanzó algo.
 pub fn refresh_catalog_in_background(app: &App, max_age: f64) -> bool {
     let (cache, snapshot) = catalog_paths(app);
     let mut warnings = Warnings::new();
@@ -292,9 +294,8 @@ pub fn refresh_catalog_in_background(app: &App, max_age: f64) -> bool {
 /// que ya no están antes de contestar la primera petición.
 pub const PREPARE_TIMEOUT: Duration = watcher::PREPARE_TIMEOUT;
 
-/// `watcher.prepare()`: aparta ya las canciones de las carpetas que no
-/// están (que la interfaz nunca vea canciones de una carpeta que se movió),
-/// con tope.
+/// Aparta ya las canciones de las carpetas que no están (que la interfaz
+/// nunca vea canciones de una carpeta que se movió), con tope.
 pub fn hide_missing_roots(app: &App) {
     watcher::prepare(app, PREPARE_TIMEOUT);
 }
@@ -312,9 +313,6 @@ pub fn watch_enabled(app: &App) -> bool {
 /// al día en segundo plano si hace horas de la última vez; y, una vez por
 /// equipo, lo hecho para otro archivo de cada canción (pistas, clic, listas),
 /// por si se movió la carpeta de música antes de saberlo hacer.
-///
-/// Lo de Python que no hace falta: precargar el SDK de la IA (en Rust no hay
-/// nada que precargar).
 pub fn start(app: &App) {
     hide_missing_roots(app);
     if watcher::start(app).is_none() {

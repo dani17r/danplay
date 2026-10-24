@@ -1,6 +1,6 @@
-//! Lo de danplay/ai.py y danplay/providers.py que necesita el estado y los
-//! ajustes: el perfil de IA activo y si se puede usar. Lo hace Rust
-//! (`library::ai::providers`); aquí, dónde está ai.json y qué entorno vale.
+//! Lo de la IA que necesita el estado y los ajustes: el perfil de IA activo
+//! y si se puede usar. Lo hace `library::ai::providers`; aquí, dónde está
+//! ai.json y qué entorno vale.
 use crate::app::App;
 use library::ai::{call, providers};
 use library::index::Dict;
@@ -8,7 +8,7 @@ use library::warnings::{Level, Warnings};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-/// `providers.PROFILES_FILE`: los perfiles, con las claves (0600).
+/// ai.json: los perfiles, con las claves (0600).
 pub fn profiles_file(app: &App) -> PathBuf {
     app.config().config_dir.join("ai.json")
 }
@@ -33,12 +33,12 @@ pub fn store(app: &App) -> Arc<Dict> {
     data
 }
 
-/// `ai.profile()`: el perfil activo resuelto, o `None`.
+/// El perfil activo resuelto, o `None`.
 pub fn profile(app: &App) -> Option<Dict> {
     providers::active(&store(app))
 }
 
-/// `ai.available()`.
+/// Si se puede usar la IA: encendida en Ajustes y con un perfil que vale.
 pub fn available(app: &App) -> bool {
     if !app.config().ai_enabled {
         return false;
@@ -46,8 +46,8 @@ pub fn available(app: &App) -> bool {
     providers::usable(profile(app).as_ref()).0
 }
 
-/// `ai.unavailable_reason()`: por qué no se puede usar la IA ahora mismo, en
-/// castellano; "" si se puede.
+/// Por qué no se puede usar la IA ahora mismo, en castellano; "" si se
+/// puede.
 pub fn unavailable_reason(app: &App) -> String {
     if !app.config().ai_enabled {
         return "la IA esta apagada en Ajustes".into();
@@ -63,33 +63,34 @@ pub fn field(p: Option<&Dict>, key: &str) -> String {
         .unwrap_or_default()
 }
 
-/// `ai.fast_model()`.
+/// El modelo rápido del perfil activo («model»).
 pub fn fast_model(app: &App) -> String {
     field(profile(app).as_ref(), "model")
 }
 
-/// `ai.chat_model()`.
+/// El modelo del chat del perfil activo («chat_model»).
 pub fn chat_model(app: &App) -> String {
     field(profile(app).as_ref(), "chat_model")
 }
 
-/// `ai.provider_name()`.
+/// El nombre del perfil activo.
 pub fn provider_name(app: &App) -> String {
     field(profile(app).as_ref(), "name")
 }
 
-/// `ai.reset_client()`: olvida los clientes y lo que se sabía de quién
-/// fallaba y de quién contestaba (`library::ai::call`).
+/// Olvida los clientes y lo que se sabía de quién fallaba y de quién
+/// contestaba (`library::ai::call`).
 pub fn reset_client(_app: &App) {
     call::reset_client();
 }
 
-/// `providers.active_id()`.
+/// El id del perfil activo.
 pub fn active_id(app: &App) -> String {
     providers::active_id(&store(app))
 }
 
-/// `providers.save_profile(data, activate)`: el id guardado, o el motivo.
+/// Guarda un perfil (y lo deja activo si `activate`): el id guardado, o el
+/// motivo.
 pub fn save_profile(
     app: &App,
     data: &Dict,
@@ -146,9 +147,9 @@ pub fn with_context<T>(app: &App, f: impl FnOnce(&library::ai::call::Context<'_>
     f(&ctx)
 }
 
-/// Lo que cambia ai.json (`providers.delete_profile`, `activate`...): lo que
-/// devuelva, o el motivo (`Invalid` es el `ValueError` de Python; `Disk`, el
-/// `OSError`).
+/// Lo que cambia ai.json (`providers::delete_profile`, `activate`...): lo
+/// que devuelva, o el motivo (`Invalid`: lo pedido no vale; `Disk`: no se
+/// pudo escribir).
 pub fn edit_store<T>(
     app: &App,
     f: impl FnOnce(
@@ -166,8 +167,8 @@ pub fn edit_store<T>(
 }
 
 /// La medianoche de hoy y la del día 1 de este mes, en la hora de aquí
-/// (`datetime(y, m, d).timestamp()`): desde ahí se cuenta lo gastado hoy y
-/// este mes.
+/// (como segundos desde 1970): desde ahí se cuenta lo gastado hoy y este
+/// mes.
 pub fn day_and_month_start(now: f64) -> (f64, f64) {
     // una medianoche de aquí, como segundos desde 1970: con la diferencia
     // con UTC de ese momento (el cambio de hora cuenta)
@@ -202,20 +203,20 @@ pub fn offset_at(t: i64) -> i64 {
         .unwrap_or(0)
 }
 
-/// `library.ai_usage_summary()`: lo gastado hoy, este mes y en total.
+/// Lo gastado hoy, este mes y en total.
 pub fn usage_summary(app: &App) -> Result<Dict, crate::error::ApiError> {
     let (day, month) = day_and_month_start(library::index::now());
     app.db(|c| library::index::history::ai_usage_summary(c, day, month))
 }
 
-/// `providers.budget()`.
+/// El tope de gasto guardado (0 si no hay).
 pub fn budget(app: &App) -> f64 {
     providers::budget(&store(app))
 }
 
-/// `ai.resolve(file_name, known_artists, extra_hint)`: artista y título de
-/// un nombre sucio; `None` si la IA no está o no contesta con un objeto;
-/// `{"error": ...}` si falló.
+/// Artista y título de un nombre de archivo sucio (con los artistas que ya se
+/// conocen y una pista de más); `None` si la IA no está o no contesta con un
+/// objeto; `{"error": ...}` si falló.
 pub fn identify(app: &App, file_name: &str, known_artists: &[String], hint: &str) -> Option<Dict> {
     with_context(app, |ctx| {
         library::ai::call::identify(ctx, file_name, known_artists, hint)

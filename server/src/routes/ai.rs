@@ -1,5 +1,5 @@
 //! Proveedores de IA: el catálogo, los perfiles guardados, probarlos y lo
-//! que gastan (danplay/api/routes/ai.py, docs/INTERNAL-CONTRACT.md §5).
+//! que gastan (docs/INTERNAL-CONTRACT.md §5).
 use crate::error::ApiError;
 use crate::router::{Ctx, Reply, Route};
 use crate::services::ai;
@@ -93,7 +93,7 @@ fn ai_providers(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     Ok(Value::Object(overview(ctx.app)).into())
 }
 
-/// `dict[str, str]`: un objeto con textos dentro.
+/// Un objeto con textos dentro (de clave a texto).
 struct StrMap;
 
 impl Kind for StrMap {
@@ -128,8 +128,8 @@ impl Kind for StrMap {
     }
 }
 
-/// `AiProfileIn`, como `model_dump(exclude_none=True)`: los campos que
-/// llegaron, en el orden del modelo (con `activate`, que siempre está).
+/// El cuerpo de un perfil de IA: los campos que llegaron con valor, en el
+/// orden del modelo (con `activate`, que siempre está).
 fn profile_body(ctx: &mut Ctx<'_>) -> Result<Dict, ApiError> {
     let mut b = ctx.body()?;
     let id = b.str("id").max_len(80).opt();
@@ -272,7 +272,7 @@ fn ai_fallback(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
 }
 
 /// «Reintentar con el principal»: olvida que el proveedor activo falló.
-/// Devuelve el estado, igual que `ai.status()`: `{primary, answering}`.
+/// Devuelve el estado de la IA: `{primary, answering}`.
 fn ai_recheck(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     ctx.check()?;
     let out = ai::with_context(ctx.app, call::recheck);

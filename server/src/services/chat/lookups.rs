@@ -10,7 +10,7 @@ use library::net;
 use serde_json::{Value, json};
 use std::time::Duration;
 
-/// `web.search(query, limit)`: [{title, url, summary}], o vacía si no se
+/// Busca en la web: hasta `limit` [{title, url, summary}], o vacía si no se
 /// pudo consultar.
 pub fn web_search(query: &str, limit: i64) -> Value {
     let found = library::web::search(query, Some(limit), |url: &str| {

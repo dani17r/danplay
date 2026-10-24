@@ -1,6 +1,5 @@
 //! El asistente: la conversación (entera o en vivo), sus confirmaciones y
-//! las conversaciones guardadas (danplay/api/routes/assistant.py,
-//! docs/INTERNAL-CONTRACT.md §3).
+//! las conversaciones guardadas (docs/INTERNAL-CONTRACT.md §3).
 use crate::app::App;
 use crate::error::ApiError;
 use crate::router::{Ctx, Reply, Route};
@@ -38,8 +37,8 @@ pub const ROUTES: &[Route] = &[
 
 // ------------------------------------------------------------ los mensajes
 
-/// `list[ChatMessage]` (como `.plain()` cada uno): quién habla, el texto,
-/// las herramientas, si lo escribió la app; lo demás que guarda la interfaz
+/// La lista de mensajes de una conversación: quién habla, el texto, las
+/// herramientas, si lo escribió la app; lo demás que guarda la interfaz
 /// pasa tal cual.
 struct Messages;
 
@@ -76,7 +75,7 @@ impl Kind for Messages {
             };
             let mut m = Fields::new(at, item, false);
             let role = m.str("role").max_len(20).required();
-            // `str | None = Field(default="")`: si falta, ""; `null`, None
+            // el texto: si falta, ""; si es `null`, `None`
             let present = raw.contains_key("text");
             let text = m.str("text").max_len(200_000).opt();
             let text = if present { text } else { Some(String::new()) };
@@ -90,7 +89,7 @@ impl Kind for Messages {
                 ok = false;
                 continue;
             }
-            // `model_dump(exclude_none=True)`, y el texto siempre
+            // los campos con valor (sin los `null`), y el texto siempre
             let mut d = Dict::new();
             d.insert("role".into(), role.into());
             if let Some(t) = &text {
@@ -134,7 +133,7 @@ impl Kind for Messages {
     }
 }
 
-/// `ChatIn`: los mensajes y lo que la persona tiene delante.
+/// El cuerpo del chat: los mensajes y lo que la persona tiene delante.
 fn chat_in(ctx: &mut Ctx<'_>) -> Result<(Vec<Dict>, Value), ApiError> {
     let mut b = ctx.body()?;
     let messages = b.field("messages", Messages).or(Vec::new());
@@ -176,7 +175,7 @@ fn jobs() -> std::sync::MutexGuard<'static, HashMap<String, Job>> {
     CHAT_JOBS.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// `secrets.token_hex(8)`.
+/// 8 bytes al azar, en hexadecimal (16 caracteres).
 fn token_hex() -> String {
     let mut bytes = [0u8; 8];
     let ok = std::fs::File::open("/dev/urandom")
@@ -352,7 +351,7 @@ fn chats_append(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let messages = b.field("messages", Messages).or(Vec::new());
     ctx.done(b)?;
     let messages: Vec<Value> = messages.into_iter().map(Value::Object).collect();
-    // lo que falle deshace lo ya escrito (como el `with conn:` de Python)
+    // lo que falle deshace lo ya escrito (`db` confirma o deshace entero)
     let n = ctx.app.db(|c| {
         library::chats::append(c, id, &messages).map_err(|e| match e {
             library::chats::Error::Missing => ApiError::not_found("no existe esa conversacion"),
@@ -480,7 +479,7 @@ fn confirm_tool(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
         .opt();
     let tool = b.str("tool").min_len(1).max_len(64).opt();
     let args = b.dict("args").opt();
-    // el `model_validator`: solo si los campos valen
+    // la regla entre campos: solo si cada campo vale
     if !b.has_errors() {
         let why = if id.is_some() {
             (tool.is_some() || args.is_some())
@@ -554,7 +553,7 @@ fn confirm_tool(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     Ok(tools::confirm(app, &tool, &args).into())
 }
 
-/// `Annotated[int, Field(ge=0, strict=True)]`.
+/// Un entero de verdad (estricto), desde 0.
 fn int_ge0() -> Int {
     Int::between(Some(0.into()), None).strict()
 }

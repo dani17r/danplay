@@ -1,6 +1,6 @@
 //! La lista del reproductor: lo que se abre desde fuera de DanPlay (ver
 //! `services::external`). NO se importa a la biblioteca: solo se recuerda
-//! que sonó. danplay/api/routes/external.py.
+//! que sonó.
 use crate::error::ApiError;
 use crate::router::{Ctx, Reply, Route};
 use crate::services::external;

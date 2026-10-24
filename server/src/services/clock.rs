@@ -1,5 +1,5 @@
-//! La hora de aquí (lo que en Python daba `time.localtime()`): la hoja del
-//! atril lleva la fecha del día y el paquete del celular fecha lo de dentro.
+//! La hora de aquí: la hoja del atril lleva la fecha del día y el paquete
+//! del celular fecha lo de dentro.
 //!
 //! Sin bibliotecas de fechas: la diferencia con UTC sale del archivo de zona
 //! del sistema (TZif: `TZ`, o /etc/localtime), la de la última transición
@@ -85,7 +85,7 @@ fn zone_file() -> PathBuf {
     }
 }
 
-/// `time.localtime().tm_gmtoff`: la diferencia con UTC ahora mismo.
+/// La diferencia con UTC (segundos) ahora mismo.
 pub fn utc_offset() -> i64 {
     let now = library::index::now() as i64;
     std::fs::read(zone_file())
@@ -109,7 +109,7 @@ pub fn civil(secs: i64) -> (i64, i64, i64) {
     (d, m, if m <= 2 { y + 1 } else { y })
 }
 
-/// `time.strftime("%d/%m/%Y")`: la fecha de hoy, aquí.
+/// La fecha de hoy, aquí, como «dd/mm/aaaa».
 pub fn today_dmy() -> String {
     let local = library::index::now() as i64 + utc_offset();
     let (d, m, y) = civil(local);

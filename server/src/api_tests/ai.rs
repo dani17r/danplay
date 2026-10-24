@@ -1,5 +1,5 @@
-//! tests/test_api.py: los ajustes, los proveedores de IA, sus perfiles, el
-//! chat en vivo, las conversaciones guardadas y el uso.
+//! Los ajustes, los proveedores de IA, sus perfiles, el chat en vivo, las
+//! conversaciones guardadas y el uso.
 use crate::testkit::{FakeAi, Reply, api_library, call, get};
 use serde_json::json;
 use std::time::Duration;

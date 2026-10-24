@@ -1,8 +1,7 @@
-//! El vigilante (lo de tests/test_watch.py que es suyo): lo que cuenta y lo
-//! que no, la calma antes de escanear, la carpeta nueva que se indexa sola
-//! y, con los avisos de verdad del sistema, una canción que llega, se mueve
-//! y se borra, y la carpeta entera que se va y vuelve. Cada prueba, con su
-//! biblioteca en una carpeta temporal.
+//! El vigilante: lo que cuenta y lo que no, la calma antes de escanear, la
+//! carpeta nueva que se indexa sola y, con los avisos de verdad del sistema,
+//! una canción que llega, se mueve y se borra, y la carpeta entera que se va
+//! y vuelve. Cada prueba, con su biblioteca en una carpeta temporal.
 use super::*;
 use crate::tests::{app, scratch, wav};
 use library::value;

@@ -1,6 +1,6 @@
-//! Lo que comparten las pruebas de la API (las que eran tests/test_*.py en
-//! Python): una biblioteca de verdad en carpetas temporales, llamar a una
-//! ruta en el mismo proceso, y esperar un trabajo.
+//! Lo que comparten las pruebas de la API: una biblioteca de verdad en
+//! carpetas temporales, llamar a una ruta en el mismo proceso, y esperar un
+//! trabajo.
 use crate::app::App;
 use crate::http::{Request, Response};
 use serde_json::{Value, json};
@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard, OnceLock, PoisonError};
 use std::time::{Duration, Instant};
 
-/// Las canciones de la biblioteca de prueba (las de tests/test_api.py).
+/// Las canciones de la biblioteca de prueba (dos artistas, tres de cada uno).
 pub const ARTISTS: [(&str, [&str; 3]); 2] = [
     (
         "Barak",
@@ -18,7 +18,7 @@ pub const ARTISTS: [(&str, [&str; 3]); 2] = [
 ];
 
 /// Si hay ffmpeg para hacer audio de verdad (sin él, las pruebas que lo
-/// necesitan lo dicen y no prueban nada, como en Python).
+/// necesitan lo dicen y no prueban nada).
 pub fn ffmpeg() -> Option<PathBuf> {
     library::config::which("ffmpeg")
 }
@@ -79,7 +79,7 @@ fn template() -> Option<&'static Path> {
     .as_deref()
 }
 
-/// Una app con la biblioteca de tests/test_api.py: Musica/Artistas/<artista>
+/// Una app con la biblioteca de prueba: Musica/Artistas/<artista>
 /// con sus tres canciones, Entrada y Secuencias, dada de alta como «prueba»
 /// y escaneada. `None` si no hay ffmpeg.
 pub fn api_library() -> Option<App> {
@@ -110,9 +110,8 @@ pub fn api_library() -> Option<App> {
 
 // ---------------------------------------------------------------- la sintética
 
-/// La biblioteca sintética de tests/conftest.py (`synthetic_library`): la
-/// clave de cada canción, su ruta dentro de la biblioteca, artista, título
-/// y álbum.
+/// La biblioteca sintética: la clave de cada canción, su ruta dentro de la
+/// biblioteca, artista, título y álbum.
 pub const SYNTHETIC: [(&str, &str, &str, &str, &str); 3] = [
     (
         "gozo",
@@ -161,9 +160,9 @@ fn synthetic_template() -> Option<&'static Path> {
     .as_deref()
 }
 
-/// `configured_library` de tests/conftest.py: una app con la biblioteca
-/// sintética (sus tres canciones, y Entrada, Revisar y Secuencias), sin IA y
-/// aún sin dar de alta. `None` si no hay ffmpeg.
+/// Una app con la biblioteca sintética (sus tres canciones, y Entrada,
+/// Revisar y Secuencias), sin IA y aún sin dar de alta. `None` si no hay
+/// ffmpeg.
 pub fn configured_library() -> Option<(App, Songs)> {
     let template = synthetic_template()?;
     let app = crate::tests::app();
@@ -182,8 +181,8 @@ pub fn configured_library() -> Option<(App, Songs)> {
     Some((app, songs))
 }
 
-/// La de antes, ya dada de alta y escaneada (el `lib` de test_watch.py,
-/// test_index.py, test_journal.py...).
+/// La de antes, ya dada de alta y escaneada (la de las pruebas del
+/// vigilante, del índice, del diario...).
 pub fn scanned_library() -> Option<(App, Songs)> {
     let (app, songs) = configured_library()?;
     let root = app.config().library.to_string_lossy().into_owned();
@@ -192,13 +191,13 @@ pub fn scanned_library() -> Option<(App, Songs)> {
     Some((app, songs))
 }
 
-/// Las canciones que hay ahora en la biblioteca (`library.search("")`).
+/// Las canciones que hay ahora en la biblioteca, por id.
 pub fn rows(app: &App) -> Vec<library::index::Dict> {
     app.db(|c| library::index::fetch_all(c, "SELECT * FROM songs ORDER BY id", []))
         .expect("base")
 }
 
-/// {nombre del archivo: id} de lo que hay ahora (`_ids` de test_watch.py).
+/// {nombre del archivo: id} de lo que hay ahora.
 pub fn ids_by_file(app: &App) -> std::collections::BTreeMap<String, i64> {
     rows(app)
         .iter()
@@ -212,7 +211,7 @@ pub fn ids_by_file(app: &App) -> std::collections::BTreeMap<String, i64> {
         .collect()
 }
 
-/// La canción con ese nombre de archivo, si ahora está (`_row`).
+/// La canción con ese nombre de archivo, si ahora está.
 pub fn row(app: &App, name: &str) -> Option<library::index::Dict> {
     rows(app)
         .into_iter()
@@ -247,7 +246,7 @@ pub fn get(app: &App, path: &str) -> Value {
     v
 }
 
-/// `conftest.run_job`: lo que hace la interfaz con un trabajo largo (el POST
+/// Lo que hace la interfaz con un trabajo largo (el POST
 /// que lo arranca contesta 202) y su `result` cuando acaba; si acaba con
 /// error, la prueba falla con él.
 pub fn run_job(app: &App, path: &str, name: &str, body: Option<Value>) -> Value {
@@ -292,9 +291,9 @@ pub enum Reply {
 type Answer = dyn Fn(&Value) -> Reply + Send + Sync;
 
 /// Un proveedor de IA de mentira con la API de OpenAI (`/chat/completions`,
-/// entera o en trozos SSE, y `/models`) en un puerto local: lo que la prueba
-/// de Python le daba al núcleo como su cliente (el SDK), aquí por HTTP de
-/// verdad. `base_url` va en el perfil (`{"provider": ..., "base_url": ...}`).
+/// entera o en trozos SSE, y `/models`) en un puerto local: el núcleo le
+/// habla por HTTP de verdad, como a un proveedor real. `base_url` va en el
+/// perfil (`{"provider": ..., "base_url": ...}`).
 pub struct FakeAi {
     pub base_url: String,
     /// El estado de la IA (quién falla, quién contestó, los clientes) es uno

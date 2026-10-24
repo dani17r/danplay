@@ -1,7 +1,7 @@
-//! El emparejador con la biblioteca (danplay/chat/resolve.py): si una
-//! canción pedida «ya la tenemos». La cuenta la hace Rust
-//! (`library::assistant::matching`); aquí, el índice por revisión con su
-//! cerrojo y el lote con sus topes y su presupuesto.
+//! El emparejador con la biblioteca: si una canción pedida «ya la
+//! tenemos». La cuenta la hace `library::assistant::matching`; aquí, el
+//! índice por revisión con su cerrojo y el lote con sus topes y su
+//! presupuesto.
 use crate::app::App;
 use crate::error::ApiError;
 use library::assistant::matching::{self, Index};
@@ -28,7 +28,7 @@ pub struct Candidate {
 }
 
 /// Qué se hizo con un item: la canción elegida (si la hay) y las demás
-/// posibilidades (ver `Resolution` en chat/resolve.py).
+/// posibilidades.
 #[derive(Debug, Clone)]
 pub struct Resolution {
     pub query: Dict,
@@ -42,8 +42,8 @@ pub struct Resolution {
 }
 
 impl Resolution {
-    /// Como la ve `tools.Io::match_song`: {status, song, candidates: [{song,
-    /// score, why}], other_version, note}.
+    /// Como la ve `Io::match_song` en las herramientas: {status, song,
+    /// candidates: [{song, score, why}], other_version, note}.
     pub fn value(&self) -> Value {
         let cands: Vec<Value> = self
             .candidates
@@ -100,12 +100,13 @@ fn snapshot(app: &App) -> Result<Arc<Index>, ApiError> {
     Ok(snap)
 }
 
-/// `invalidate()`: que la próxima consulta vuelva a leer la biblioteca.
+/// Que la próxima consulta vuelva a leer la biblioteca.
 pub fn invalidate() {
     *INDEX.lock().unwrap_or_else(PoisonError::into_inner) = None;
 }
 
-/// `str(x or "")[:n]`.
+/// El texto de un valor, como mucho `n` caracteres (vacío si falta o es
+/// falso).
 fn text_head(v: Option<&Value>, n: usize) -> String {
     match v {
         Some(x) if value::truthy(x) => text::head(&value::str_of(x), n).to_owned(),
@@ -123,12 +124,15 @@ fn query_of(item: &Dict, n: Option<i64>) -> Dict {
     q
 }
 
-/// `str(value or "")`.
+/// El texto de un valor, entero (vacío si falta o es falso).
 fn s(v: Option<&Value>) -> String {
     text_head(v, usize::MAX)
 }
 
-#[allow(clippy::too_many_arguments, reason = "los de `_match`")]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "lo que se pide de la canción y cómo buscarla"
+)]
 fn matched(
     snap: &Index,
     item: &Dict,
@@ -170,7 +174,8 @@ fn matched(
     })
 }
 
-/// `match_song(title, artist, url=..., limit=...)`: ¿tenemos esta canción?
+/// ¿Tenemos esta canción? (por su título o su enlace, con hasta `limit`
+/// posibilidades).
 pub fn match_song(app: &App, title: &str, url: &str, limit: usize) -> Result<Resolution, ApiError> {
     let snap = snapshot(app)?;
     let mut item = Dict::new();
@@ -192,7 +197,8 @@ fn failed(item: &Dict, n: Option<i64>, note: &str) -> Resolution {
     }
 }
 
-/// `int(x)` de Python, o None (lo que no se entiende).
+/// Un entero (un número, un sí o no, o un texto que lo sea), o None (lo
+/// que no se entiende).
 fn int_or_none(v: &Value) -> Option<i64> {
     match v {
         Value::Null | Value::Array(_) | Value::Object(_) => None,
@@ -200,11 +206,10 @@ fn int_or_none(v: &Value) -> Option<i64> {
     }
 }
 
-/// `resolve_items(items, prefer_ids=..., overrides=..., strict=...)`: empareja
-/// una lista de items con la biblioteca, uno a uno. Cada item es un dict
-/// {title, artist?, url?, note?, n?, id?}. Un item raro no tumba el lote
-/// (queda `missing` con `failed`); con el presupuesto agotado, los que faltan
-/// también.
+/// Empareja una lista de items con la biblioteca, uno a uno. Cada item es
+/// un objeto {title, artist?, url?, note?, n?, id?}. Un item raro no tumba
+/// el lote (queda `missing` con `failed`); con el presupuesto agotado, los
+/// que faltan también.
 pub fn resolve_items(
     app: &App,
     items: &[Dict],
@@ -224,7 +229,7 @@ pub fn resolve_items(
 }
 
 /// `resolve_items` con su presupuesto (segundos) y su tope de items (las
-/// pruebas los cambian, como el `budget` y el `MAX_ITEMS` de Python).
+/// pruebas los cambian).
 fn resolve_items_within(
     app: &App,
     items: &[Dict],
@@ -312,7 +317,7 @@ fn resolve_items_within(
     out
 }
 
-/// `title_key(title, artist)`.
+/// La clave de un título con su artista (la de `matching::title_key`).
 pub fn title_key(title: &str, artist: &str) -> String {
     matching::title_key(title, artist)
 }

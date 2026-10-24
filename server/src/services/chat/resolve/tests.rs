@@ -1,6 +1,5 @@
-//! El lote y el índice por revisión del emparejador (lo de
-//! tests/test_resolve.py que es de aquí; lo que decide cada canción está en
-//! library/src/assistant/matching/tests/library_cases.rs).
+//! El lote y el índice por revisión del emparejador (lo que decide cada
+//! canción está en library/src/assistant/matching/tests/library_cases.rs).
 //!
 //! El índice (`INDEX`) y la revisión son de todo el proceso, y las demás
 //! pruebas corren a la vez: las de aquí van de una en una (`turn`), y lo que
@@ -19,7 +18,7 @@ fn turn() -> MutexGuard<'static, ()> {
 const INSERT_SONG: &str = "INSERT INTO songs (id, path, root, folder, file, artist, title, album, \
      feat, match_key, duration, stars, favorite) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)";
 
-/// Una fila a mano en `songs` (sin audio), como `Lib.add` en Python.
+/// Una fila a mano en `songs` (sin audio).
 fn add(app: &App, sid: i64, artist: &str, title: &str) {
     let file = format!("{artist} - {title}.mp3");
     let folder = format!("Artistas/{artist}");
@@ -35,8 +34,8 @@ fn add(app: &App, sid: i64, artist: &str, title: &str) {
     .expect("insertar");
 }
 
-/// Lo de la biblioteca de las pruebas de Python que miran estas: las tres
-/// versiones de «Digno De Adorar» y unas cuantas sueltas. Devuelve los ids.
+/// La biblioteca que miran estas pruebas: las tres versiones de «Digno De
+/// Adorar» y unas cuantas sueltas. Devuelve los ids.
 struct Ids {
     dda_vivo: i64,
     dda: i64,
@@ -212,8 +211,8 @@ fn overrides_and_explicit_id() {
     assert_eq!(pick(&bad[0]), b.rey);
 }
 
-/// La elección recordada también vale en el lote (lo demás de esta prueba de
-/// Python está en `library_cases::the_remembered_choice_wins_ties`).
+/// La elección recordada también vale en el lote (lo demás está en
+/// `library_cases::the_remembered_choice_wins_ties`).
 #[test]
 fn the_remembered_choice_wins_ties_in_the_batch() {
     let (app, b, _turn) = base();
@@ -227,10 +226,10 @@ fn the_remembered_choice_wins_ties_in_the_batch() {
     assert_eq!(pick(&out[0]), b.dda_vivo);
 }
 
-/// Un item que revienta no tumba el lote. En Python se hacía reventar el
-/// emparejado de ese item; aquí, lo único que puede fallar en uno solo: el
-/// id que pide no está en memoria y la tabla de canciones ya no se puede
-/// leer (con el índice de esta revisión ya hecho).
+/// Un item que revienta no tumba el lote. Se hace fallar lo único que
+/// puede fallar en uno solo: el id que pide no está en memoria y la tabla
+/// de canciones ya no se puede leer (con el índice de esta revisión ya
+/// hecho).
 #[test]
 fn an_item_that_crashes_does_not_sink_the_batch() {
     for attempt in 0..5 {
@@ -336,7 +335,7 @@ fn a_setlist_of_60() {
     assert_eq!(list.len(), 60);
     let t0 = Instant::now();
     let out = resolve_items(&app, &list, &[], &[], false);
-    // (sin optimizar, más holgado: el de Python era de 5 s)
+    // (sin optimizar, más holgado: 50 s en vez de 5)
     let limit = if cfg!(debug_assertions) { 50.0 } else { 5.0 };
     assert!(
         t0.elapsed().as_secs_f64() < limit,

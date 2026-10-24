@@ -1,7 +1,7 @@
-//! tests/test_api.py: el asistente que actúa. Lo que no tiene vuelta atrás
-//! se confirma antes; los ids inventados no entran; las listas se nombran por
-//! su nombre; y narrar no es hacer: si dice que hizo algo sin llamar a
-//! ninguna herramienta, se le para y se le obliga a actuar.
+//! El asistente que actúa. Lo que no tiene vuelta atrás se confirma antes;
+//! los ids inventados no entran; las listas se nombran por su nombre; y
+//! narrar no es hacer: si dice que hizo algo sin llamar a ninguna
+//! herramienta, se le para y se le obliga a actuar.
 use crate::services::chat::setlist::Turn;
 use crate::services::chat::tools::{confirm, describe, download_plan, run_tool, summarize};
 use crate::testkit::{FakeAi, Reply, api_library, call, first_ids, get};
@@ -106,7 +106,7 @@ pub(super) fn script(app: &crate::App, steps: Vec<Step>, judge: &'static str) ->
     }
 }
 
-/// `chat.reply(messages)`, por la API.
+/// La respuesta del asistente a esos mensajes, por la API (`POST /api/chat`).
 pub(super) fn reply(app: &crate::App, messages: Value) -> Value {
     let (s, r) = call(
         app,

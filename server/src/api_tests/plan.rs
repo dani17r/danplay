@@ -1,5 +1,5 @@
-//! tests/test_plan.py: las confirmaciones registradas, el plan de descarga
-//! que busca en YouTube y lo que se hace al terminar (`after`).
+//! Las confirmaciones registradas, el plan de descarga que busca en YouTube
+//! y lo que se hace al terminar (`after`).
 //!
 //! - El registro: el id, el resumen y el efecto los pone el servidor; caduca
 //!   (con el reloj a mano), se sustituye, tiene tope, y `claim` la gasta UNA

@@ -1,12 +1,11 @@
-//! Las carpetas gestionadas (lo de danplay/library/folders.py alrededor de
-//! `library::index::folders`): el cerrojo del escaneo y el aviso a la
-//! interfaz.
+//! Las carpetas gestionadas (alrededor de `library::index::folders`): el
+//! cerrojo del escaneo y el aviso a la interfaz.
 use crate::app::App;
 use crate::error::ApiError;
 use library::index::{Dict, folders, touch};
 use std::path::Path;
 
-/// Los formatos que se reconocen, como `sorted(config.EXTENSIONS)`.
+/// Los formatos que se reconocen (`library::config::EXTENSIONS`), en orden.
 pub fn extensions() -> Vec<String> {
     let mut e: Vec<String> = library::config::EXTENSIONS
         .iter()
@@ -74,8 +73,7 @@ pub fn relocation_for(app: &App, path: &str) -> Result<Option<String>, ApiError>
     app.db(|c| folders::relocation_for(c, path))
 }
 
-/// La carpeta `old` se movió a `new`. `Err(Ok(motivo))` si no se puede
-/// (el `ValueError` de Python).
+/// La carpeta `old` se movió a `new`. `Ok(Err(motivo))` si no se puede.
 pub fn relocate_folder(app: &App, old: &str, new: &str) -> Result<Result<Dict, String>, ApiError> {
     let out = {
         let _scan = app.scan_lock.lock();
@@ -113,8 +111,8 @@ pub fn ensure_folder(app: &App, path: &Path) -> Result<(), String> {
     std::fs::create_dir_all(path).map_err(|e| e.to_string())
 }
 
-/// `audio_files(root)`: los archivos de audio de la carpeta, sin las
-/// excluidas ni las de pistas separadas.
+/// Los archivos de audio de la carpeta, sin las excluidas ni las de pistas
+/// separadas.
 pub fn audio_files(app: &App, root: &str) -> Result<Vec<String>, ApiError> {
     let exclusions = list_exclusions(app)?;
     let found = folders::audio_files(root, &exclusions, &extensions(), None);

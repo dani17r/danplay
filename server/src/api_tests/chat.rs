@@ -1,5 +1,5 @@
-//! tests/test_api.py: las herramientas del asistente (lo que declara, lo que
-//! hace cada una al llamarla) y lo que le dice su prompt.
+//! Las herramientas del asistente (lo que declara, lo que hace cada una al
+//! llamarla) y lo que le dice su prompt.
 use crate::services::chat::setlist::Turn;
 use crate::services::chat::tools::{run_tool, summarize, tool_names};
 use crate::testkit::{api_library, call, first_ids, get};
@@ -158,8 +158,9 @@ fn the_system_prompt_only_talks_music_and_never_downloads_alone() {
     );
 }
 
-/// Reproducir no lo hace el núcleo (el audio es de Rust y la cola vive en la
-/// interfaz): esas herramientas devuelven una `action` que ejecuta la app.
+/// Reproducir no lo hace el núcleo (el audio lo lleva el motor y la cola
+/// vive en la interfaz): esas herramientas devuelven una `action` que
+/// ejecuta la app.
 #[test]
 fn playing_returns_a_command_for_the_app() {
     let Some(app) = api_library() else { return };

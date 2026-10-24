@@ -1,6 +1,6 @@
 //! Las rutas de una canción contra una biblioteca de verdad (archivos wav
-//! hechos aquí, en carpetas temporales), con lo que contesta el núcleo de
-//! Python en cada caso (comparado con el arnés diferencial).
+//! hechos aquí, en carpetas temporales), con lo que contesta la API en cada
+//! caso.
 use crate::app::App;
 use crate::http::{Request, Response};
 use crate::tests::app;
@@ -132,7 +132,7 @@ fn editing_writes_the_index_and_the_file() {
     let tags = library::tags::read(&path);
     assert_eq!(tags.title, "Uno Nuevo");
     assert_eq!(tags.key, "Am");
-    // los topes de un real salen como reales en `ctx` (como pydantic)
+    // los topes de un real salen como reales en `ctx`
     let (st, v) = call(&app, "PATCH", &url, Some(json!({"bpm": 500, "year": 1999})));
     assert_eq!(st, 422);
     assert_eq!(v["detail"][0]["loc"], json!(["body", "year"]));
@@ -211,7 +211,7 @@ fn stars_favorite_and_blur() {
 }
 
 #[test]
-fn study_validates_like_pydantic_and_saves_it_clean() {
+fn study_is_validated_and_saved_clean() {
     let app = app();
     let ids = songs(&app, &["Artistas/Ana/Ana - Uno.wav"]);
     let url = format!("/api/song/{}/study", ids[0]);

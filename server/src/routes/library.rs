@@ -1,6 +1,5 @@
 //! Las carpetas gestionadas, el escaneo, la búsqueda y lo que se hace con la
 //! biblioteca entera: importar, convertir, duplicados.
-//! danplay/api/routes/library.py.
 use crate::error::ApiError;
 use crate::http::Response;
 use crate::jobs::{JobError, started};

@@ -1,14 +1,13 @@
-//! Bajar de YouTube (lo de danplay/youtube.py alrededor de
-//! `library::youtube`): el turno de descarga con su estado (`STATE`), la
-//! consulta (`info`), bajar un vídeo (`download_one`) y archivarlo con la
-//! ingesta de siempre (`download`), varias seguidas bajo un solo turno
-//! (`run_many`) con lo que se hace al terminar (`on_done`), dónde se guarda
-//! (`folder`, `choose_folder`) y el historial. yt-dlp es su ejecutable
-//! oficial (`services::ytdlp`).
+//! Bajar de YouTube (lo que va alrededor de `library::youtube`): el turno de
+//! descarga con su estado (`state`), la consulta (`info`), bajar un vídeo
+//! (`download_one`) y archivarlo con la ingesta de siempre (`download`),
+//! varias seguidas bajo un solo turno (`run_many`) con lo que se hace al
+//! terminar (`on_done`), dónde se guarda (`folder`, `choose_folder`) y el
+//! historial. yt-dlp es su ejecutable oficial (`services::ytdlp`).
 //!
-//! # Para el asistente (la API de Rust)
+//! # Para el asistente
 //!
-//! Lo que pedía el asistente de Python a `danplay.youtube`, aquí:
+//! Lo que usa el asistente de aquí:
 //!
 //! - **Buscar** (sin bajar nada): `info(&app, "texto o enlace", 1,
 //!   Some(timeout))` devuelve `{ok, playlist, name, items: [{id, title,
@@ -16,8 +15,8 @@
 //!   false, reason, items: []}`; `failure_kind(reason)` dice si es «bot»,
 //!   «rate» o «network» (para dejar de insistir). `already_in_library(&app,
 //!   título)`: lo que ya tienes y parece esa canción. Antes de lanzar
-//!   consultas por docenas: `ytdlp::executable(&app)` (que haya yt-dlp, el
-//!   `_warm` de chat/plan.py) y `ytdlp::js_runtime(&app, false)`.
+//!   consultas por docenas: `ytdlp::executable(&app)` (que haya yt-dlp, y
+//!   así ya elegido) y `ytdlp::js_runtime(&app, false)`.
 //! - **Bajar estas**: comprobar `available(&app)` (si no, 503 con
 //!   `unavailable_reason`) y `folder(&app)?["ready"]` (si no, 409 con
 //!   `NO_FOLDER`); quedarse el turno con `claim(&app)` (0: 409 con `BUSY`) y
@@ -26,7 +25,7 @@
 //!   terminar, antes de soltar el turno (completar una lista); lo que
 //!   devuelva queda en `state(&app)["after"]` con `job`. Si después de
 //!   `claim` algo falla antes de arrancar, `release(&app, Some(token))`.
-//! - **Cómo va**: `state(&app)` es el `STATE` de Python (`active`, `phase`,
+//! - **Cómo va**: `state(&app)` es una copia del estado (`active`, `phase`,
 //!   `name`, `percent`, `index`, `total`, `results`, `error`, `after`, `job`);
 //!   `cancel(&app)` y `canceled(&app)`.
 use crate::app::{App, path_str};
@@ -53,16 +52,16 @@ pub use library::youtube::failure_kind;
 
 // ------------------------------------------------------------ el turno
 
-/// Lo de las descargas que en Python eran variables de módulo (uno por
+/// Lo de las descargas que se recuerda mientras corre la app (uno por
 /// app): el estado de la de ahora, la petición de cancelar y yt-dlp.
 #[derive(Debug)]
 pub struct State {
-    /// `STATE`: lo comparten la página de Descargas y el asistente. `active`
+    /// El estado: lo comparten la página de Descargas y el asistente. `active`
     /// en falso quiere decir «TODO hecho» (también lo de `on_done`, cuyo
     /// resultado queda en `after`). `job` es el turno de ahora: sube con
     /// cada `claim` y solo escribe quien lo tiene.
     turn: Mutex<Map<String, Value>>,
-    /// `_CANCEL`
+    /// que pare lo que se esté bajando
     cancel: AtomicBool,
     /// el ejecutable, su versión y su motor de JavaScript
     pub ytdlp: ytdlp::State,
@@ -128,12 +127,12 @@ fn job_of(s: &Map<String, Value>) -> u64 {
     s.get("job").and_then(Value::as_u64).unwrap_or(0)
 }
 
-/// `dict(STATE)`: una copia del estado de la descarga.
+/// Una copia del estado de la descarga.
 pub fn state(app: &App) -> Map<String, Value> {
     turn(app).clone()
 }
 
-/// `claim()`: se queda el turno de descarga. Devuelve su token (>= 1, el
+/// Se queda el turno de descarga. Devuelve su token (>= 1, el
 /// `job` del estado), o 0 si ya hay una en marcha. Quien lo consigue tiene
 /// que llamar a `run_many`/`start_many` con él (o a `release`): el turno no
 /// se suelta solo. Un turno nuevo empieza con `after` en `null`.
@@ -161,7 +160,7 @@ pub fn claim(app: &App) -> u64 {
     job
 }
 
-/// `release(job)`: suelta el turno. Sin `job`, el que sea (la descarga no
+/// Suelta el turno. Sin `job`, el que sea (la descarga no
 /// llegó a arrancar); con él, solo si sigue siendo ese (una descarga vieja
 /// que acaba tarde no suelta el turno de la nueva).
 pub fn release(app: &App, job: Option<u64>) {
@@ -181,7 +180,7 @@ pub fn release(app: &App, job: Option<u64>) {
     s.insert("phase".into(), json!(phase));
 }
 
-/// `cancel()`: que pare lo que se esté bajando.
+/// Que pare lo que se esté bajando.
 pub fn cancel(app: &App) {
     app.downloads.cancel.store(true, Ordering::SeqCst);
 }
@@ -190,7 +189,7 @@ pub fn canceled(app: &App) -> bool {
     app.downloads.cancel.load(Ordering::SeqCst)
 }
 
-/// `_put`: escribe en el estado solo si `job` sigue siendo el turno vigente.
+/// Escribe en el estado solo si `job` sigue siendo el turno vigente.
 fn put(app: &App, job: u64, fields: Vec<(&str, Value)>) -> bool {
     let mut s = turn(app);
     if job_of(&s) != job {
@@ -205,7 +204,7 @@ fn put(app: &App, job: u64, fields: Vec<(&str, Value)>) -> bool {
 /// Lo único que publica el avance (lo demás del estado tiene dueño).
 const PROGRESS: [&str; 5] = ["phase", "name", "percent", "index", "total"];
 
-/// `_publish`: el avance de la descarga del turno `job`.
+/// Publica el avance de la descarga del turno `job`.
 fn publish(app: &App, p: &Map<String, Value>, job: u64) {
     let fields = p
         .iter()
@@ -217,12 +216,12 @@ fn publish(app: &App, p: &Map<String, Value>, job: u64) {
 
 // ---------------------------------------------------- si se puede bajar
 
-/// `available()`: si hay yt-dlp y ffmpeg.
+/// Si hay yt-dlp y ffmpeg.
 pub fn available(app: &App) -> bool {
     tools::youtube_available(app)
 }
 
-/// `unavailable_reason()`.
+/// Por qué no se puede bajar (vacío si se puede).
 pub fn unavailable_reason(app: &App) -> String {
     tools::youtube_unavailable_reason(app)
 }
@@ -244,8 +243,8 @@ fn api_text(e: &ApiError) -> String {
 
 // ------------------------------------------------------------ consultar
 
-/// `normalize(inbox, results)`: la dirección de YouTube tal cual, o la
-/// búsqueda de los `max(1, results)` primeros; `Err` si es de otro sitio.
+/// La dirección de YouTube tal cual, o la búsqueda de los `max(1, results)`
+/// primeros; `Err` si es de otro sitio.
 pub fn normalize(text: &str, results: i64) -> Result<String, String> {
     match yt::normalize(text)? {
         Target::Url(url) => Ok(url),
@@ -263,9 +262,8 @@ pub fn pick(v: &Value) -> Result<Map<String, Value>, String> {
     }))
 }
 
-/// `youtube_query_result`: lo que contestó yt-dlp a una consulta, como lo
-/// devuelve `info`: los vídeos (de una lista, los que vinieron) o por qué
-/// no hay nada.
+/// Lo que contestó yt-dlp a una consulta, como lo devuelve `info`: los
+/// vídeos (de una lista, los que vinieron) o por qué no hay nada.
 pub fn query_result(data: &Value, seen: &Seen) -> Result<Map<String, Value>, String> {
     if !value::truthy(data) {
         return Ok(yt::query_empty(seen));
@@ -297,12 +295,11 @@ pub fn query_result(data: &Value, seen: &Seen) -> Result<Map<String, Value>, Str
     Ok(yt::query_found(playlist, name, items))
 }
 
-/// `info(inbox, results, timeout=...)`: consulta sin descargar, para
-/// enseñar qué se va a bajar. Con `timeout` (segundos) es LIGERA (eso por
-/// respuesta y sin reintentos), de las que se lanzan por docenas. Si falla,
-/// `reason` dice por qué (ver `failure_kind`). Un enlace que no es de
-/// YouTube se rechaza sin consultar nada. `Err` es lo que en Python era una
-/// excepción (un campo que no se deja leer).
+/// Consulta sin descargar, para enseñar qué se va a bajar. Con `timeout`
+/// (segundos) es LIGERA (eso por respuesta y sin reintentos), de las que se
+/// lanzan por docenas. Si falla, `reason` dice por qué (ver `failure_kind`).
+/// Un enlace que no es de YouTube se rechaza sin consultar nada. `Err` es un
+/// fallo que no se esperaba (un campo que no se deja leer).
 pub fn info(
     app: &App,
     query: &str,
@@ -352,8 +349,8 @@ fn info_unlocked(
 
 // ------------------------------------------------------------ bajar uno
 
-/// Una carpeta temporal propia (`tempfile.mkdtemp`, con
-/// `stems::make_temp_dir`), solo para su dueño, que se borra al soltarla.
+/// Una carpeta temporal propia (con `stems::make_temp_dir`), solo para su
+/// dueño, que se borra al soltarla.
 struct TempDir(PathBuf);
 
 impl TempDir {
@@ -399,7 +396,7 @@ fn text_of(v: Option<&Value>) -> String {
     }
 }
 
-/// `_tag_if_trustworthy`: escribe artista, título y álbum solo si YouTube
+/// Escribe artista, título y álbum solo si YouTube
 /// dio datos de música de verdad (los de YouTube Music).
 fn tag_if_trustworthy(app: &App, path: &Path, d: &Map<String, Value>) -> bool {
     let (artist, track, album) = (
@@ -421,7 +418,7 @@ fn tag_if_trustworthy(app: &App, path: &Path, d: &Map<String, Value>) -> bool {
     true
 }
 
-/// `download_one`: baja un vídeo y deja el mp3 ya listo en `folder` (por
+/// Baja un vídeo y deja el mp3 ya listo en `folder` (por
 /// defecto Entrada/). `progress` recibe {phase, percent, name}; si
 /// `cancel()` dice que sí, se para.
 pub fn download_one(
@@ -525,7 +522,7 @@ impl Default for Wanted {
     }
 }
 
-/// `already_in_library(title)`: lo que ya tienes y parece esta misma canción.
+/// Lo que ya tienes y parece esta misma canción.
 pub fn already_in_library(app: &App, title: &str) -> Result<Vec<Dict>, ApiError> {
     let key = yt::title_key(title);
     if key.is_empty() {
@@ -534,7 +531,7 @@ pub fn already_in_library(app: &App, title: &str) -> Result<Vec<Dict>, ApiError>
     app.db(|c| search::find_by_match_key(c, &key))
 }
 
-/// `_log`: deja constancia en el historial. Que falle no tumba la descarga.
+/// Deja constancia en el historial. Que falle no tumba la descarga.
 fn log_download(app: &App, entry: &Map<String, Value>, query: &str, source: &str, quality: &str) {
     let get = |k: &str| entry.get(k).cloned().unwrap_or(Value::Null);
     let get_or = |k: &str| entry.get(k).cloned().unwrap_or_else(|| json!(""));
@@ -584,15 +581,15 @@ fn get_value<'a>(m: &'a Map<String, Value>, k: &str) -> &'a Value {
     m.get(k).unwrap_or(&NULL)
 }
 
-/// `a or b` de dos campos.
+/// El primero de dos campos que tenga algo; si no, el segundo.
 fn either<'a>(a: &'a Value, b: &'a Value) -> &'a Value {
     if value::truthy(a) { a } else { b }
 }
 
-/// `download`: baja (uno, una lista o una búsqueda) y, con `file_it`, lo
+/// Baja (uno, una lista o una búsqueda) y, con `file_it`, lo
 /// pasa por la ingesta (identificar, renombrar según las reglas de la casa
 /// y mover a Artistas/<Artista>/). yt-dlp no se cambia por otra versión
-/// mientras tanto. `Err` es lo que en Python era una excepción.
+/// mientras tanto. `Err` es un fallo que no se esperaba.
 pub fn download(
     app: &App,
     inbox: &str,
@@ -739,7 +736,7 @@ fn already_there(
     ])))
 }
 
-/// Un dict de Python con sus claves en ese orden.
+/// Un objeto JSON con sus claves en ese orden.
 fn object(fields: Vec<(&str, Value)>) -> Map<String, Value> {
     fields.into_iter().map(|(k, v)| (k.to_owned(), v)).collect()
 }
@@ -821,7 +818,7 @@ fn file_it(
 /// que se cuenta, sin tumbar la descarga.
 pub type OnDone = Box<dyn FnOnce(Vec<Map<String, Value>>) -> Result<Option<Value>, String> + Send>;
 
-/// `_after`: corre `on_done` y deja su resultado en la forma de `after`.
+/// Corre `on_done` y deja su resultado en la forma de `after`.
 fn after_of(on_done: OnDone, done: Vec<Map<String, Value>>, job: u64) -> Value {
     let error = |why: String| json!({"state": "error", "error": why, "job": job});
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| on_done(done)));
@@ -846,7 +843,7 @@ fn after_of(on_done: OnDone, done: Vec<Map<String, Value>>, job: u64) -> Value {
     }
 }
 
-/// `run_many`: varias descargas seguidas bajo un solo turno; el avance en
+/// Varias descargas seguidas bajo un solo turno; el avance en
 /// el estado. Es lo que pide el asistente: «bájame estas tres». Los
 /// resultados se van acumulando en `results` según terminan; el índice y el
 /// total son del conjunto (el total se estima con uno por elemento
@@ -868,7 +865,7 @@ pub fn run_many(
 }
 
 /// Lo que baja cada consulta de `run_many`: `download` (las pruebas ponen
-/// uno de mentira, como hacía el `monkeypatch` de Python).
+/// uno de mentira).
 type Fetch<'a> = &'a dyn Fn(
     &App,
     &str,
@@ -991,7 +988,7 @@ fn results_value(done: &[Map<String, Value>]) -> Value {
     Value::Array(done.iter().cloned().map(Value::Object).collect())
 }
 
-/// `run_job`: una descarga (lo que pide el botón de Descargas).
+/// Una descarga (lo que pide el botón de Descargas).
 pub fn run_job(
     app: &App,
     query: &str,
@@ -1027,7 +1024,7 @@ pub fn subfolders() -> Vec<&'static str> {
     out
 }
 
-/// `folder()`: dónde se guarda lo que se baja, y si ya se puede bajar ahí.
+/// Dónde se guarda lo que se baja, y si ya se puede bajar ahí.
 /// `ready` es falso hasta que la persona la elige, si ya no está o si no es
 /// de sus carpetas de música; `suggested` es la que se le propone.
 pub fn folder(app: &App) -> Result<Map<String, Value>, ApiError> {
@@ -1039,10 +1036,9 @@ pub fn folder(app: &App) -> Result<Map<String, Value>, ApiError> {
     })
 }
 
-/// `choose_folder(path)`: la carpeta donde irá todo lo descargado, elegida
-/// por la persona. Tiene que existir y ser una de sus carpetas de música (o
-/// estar dentro de una); dentro se crean las subcarpetas que falten.
-/// `Ok(Err(motivo))` si no vale (el `ValueError` de Python).
+/// La carpeta donde irá todo lo descargado, elegida por la persona. Tiene
+/// que existir y ser una de sus carpetas de música (o estar dentro de una);
+/// dentro se crean las subcarpetas que falten. `Ok(Err(motivo))` si no vale.
 pub fn choose_folder(
     app: &App,
     path: &str,

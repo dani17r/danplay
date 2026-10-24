@@ -80,8 +80,7 @@ pub enum Body {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Response {
     pub status: u16,
-    /// `None`: sin cabecera `content-type` (como un `Response` de Starlette
-    /// sin `media_type`).
+    /// `None`: sin cabecera `content-type`.
     pub content_type: Option<String>,
     /// Las demás cabeceras (`allow`, `content-range`...).
     pub headers: Vec<(String, String)>,
@@ -89,8 +88,8 @@ pub struct Response {
 }
 
 impl Response {
-    /// Un JSON como lo escribe FastAPI (`JSONResponse`): sin espacios, sin
-    /// escapar lo que no es ASCII y con los reales como `repr` de Python.
+    /// Un JSON compacto: sin espacios, sin escapar lo que no es ASCII y con
+    /// los reales en su forma más corta que se lee igual (`0.1`, `1.0`).
     pub fn json(status: u16, value: &Value) -> Self {
         Self {
             status,
@@ -131,7 +130,7 @@ impl Response {
         }
     }
 
-    /// Un archivo entero del disco (un `FileResponse`).
+    /// Un archivo entero del disco.
     pub fn file(path: impl Into<PathBuf>, content_type: &str) -> std::io::Result<Self> {
         let path = path.into();
         let len = std::fs::metadata(&path)?.len();

@@ -1,5 +1,5 @@
 //! Una canción: su ficha, su audio y su carátula, estrellas y favorito, la
-//! IA sobre ella y el modo estudio (danplay/api/routes/songs.py).
+//! IA sobre ella y el modo estudio.
 use crate::app::App;
 use crate::error::ApiError;
 use crate::http::Response;
@@ -38,7 +38,7 @@ pub const ROUTES: &[Route] = &[
     Route::post("/api/transpose", transpose),
 ];
 
-/// La ficha como respuesta (o `null`, como `library.by_id` sin canción).
+/// La ficha como respuesta (o `null` si no hay canción).
 fn card(d: Option<Dict>) -> Value {
     d.map_or(Value::Null, Value::Object)
 }
@@ -51,8 +51,8 @@ fn path_of(c: &Dict) -> PathBuf {
     PathBuf::from(songs::text(c, "path"))
 }
 
-/// `external.resolve(cid)` con su archivo en el disco, o el 404 con ese
-/// motivo.
+/// La canción (o la de la lista del reproductor) con su archivo en el
+/// disco, o el 404 con ese motivo.
 fn resolved_file(app: &App, cid: i64, why: &str) -> Result<Dict, ApiError> {
     match songs::resolve(app, cid)? {
         Some(c) if songs::exists(&c) => Ok(c),
@@ -87,7 +87,7 @@ fn song(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     Ok(Value::Object(c).into())
 }
 
-/// Solo los campos que se pueden corregir a mano (`SongEdit`).
+/// Solo los campos que se pueden corregir a mano.
 fn edit(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let cid = ctx.path().int("cid").required();
     let mut b = ctx.body()?;
@@ -266,7 +266,7 @@ fn song_waveform(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
         return Err(ApiError::http(422, "no se pudo decodificar el archivo"));
     };
     let n = peaks.len();
-    // `json.dumps(...)`, con sus espacios: es un `Response` hecho a mano
+    // es un `Response` hecho a mano, para poder llevar la cabecera de caché
     let body = json!({"peaks": peaks, "rms": rms, "buckets": n}).to_string();
     Ok(Response::bytes(200, "application/json", body.into_bytes())
         .with_header("cache-control", "private, max-age=3600")
@@ -561,10 +561,10 @@ fn transpose(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     .into())
 }
 
-// ---------------------------------------------------------------- StudyIn
+// ---------------------------------------------------------------- el estudio
 
-/// Un `list[...]` con `max_length`: si pasa del tope, solo ese fallo (como
-/// pydantic, que ni mira los elementos).
+/// Una lista con tope: si pasa del tope, solo ese fallo (ni se miran los
+/// elementos).
 struct Capped<K> {
     item: K,
     max: usize,
@@ -583,7 +583,7 @@ impl<K: Kind + Copy> Kind for Capped<K> {
     }
 }
 
-/// `list[float]` como `Kind` copiable.
+/// Una lista de números, como `Kind` copiable.
 #[derive(Clone, Copy, Default)]
 struct Floats;
 
@@ -619,17 +619,16 @@ fn loc_with(loc: &[Value], key: impl Into<Value>) -> Vec<Value> {
     out
 }
 
-/// Un modelo de dentro (`StudyMetronome | None`): `None` si falta o es
-/// `null`. Lo que no es un objeto, «model_attributes_type» (FastAPI valida
-/// con `from_attributes`), y lo de dentro se junta después con `absorb`.
+/// Un modelo de dentro (el metrónomo): `None` si falta o es `null`. Lo que
+/// no es un objeto da «model_attributes_type», y lo de dentro se junta
+/// después con `absorb`.
 fn model(parent: &mut Fields, loc: &[Value], key: &str) -> Option<Fields> {
     let v = parent.any(key).opt()?;
     Some(Fields::new(loc_with(loc, key), &v, false))
 }
 
-/// Una lista de modelos (`list[StudyMarker] | None`, con `max_length`):
-/// `None` si falta o es `null`; si pasa del tope, solo ese fallo (pydantic
-/// ni mira los elementos).
+/// Una lista de modelos con tope (las marcas): `None` si falta o es `null`;
+/// si pasa del tope, solo ese fallo (ni se miran los elementos).
 fn models(parent: &mut Fields, loc: &[Value], key: &str, max: usize) -> Option<Vec<Fields>> {
     let v = parent.any(key).opt()?;
     let here = loc_with(loc, key);
@@ -817,7 +816,7 @@ fn cue_lane(f: &mut Fields) -> Value {
 }
 
 /// Cada elemento de una lista de modelos, leído y con sus fallos en su
-/// sitio (en el orden de la lista, como pydantic).
+/// sitio (en el orden de la lista).
 fn each(parent: &mut Fields, items: Vec<Fields>, read: fn(&mut Fields) -> Value) -> Vec<Value> {
     let mut out = Vec::new();
     for mut f in items {
@@ -828,9 +827,9 @@ fn each(parent: &mut Fields, items: Vec<Fields>, read: fn(&mut Fields) -> Value)
     out
 }
 
-/// `StudyIn` y su `model_dump(exclude_none=True)`: lo que se pasa a
-/// `library.set_study` (que lo limpia). `cueLanes` llega con su alias y se
-/// vuelca con su nombre (`cue_lanes`), como pydantic.
+/// El cuerpo del estudio, con solo los campos que llegaron con valor: lo
+/// que se pasa a `songs::set_study` (que lo limpia). `cueLanes` llega con
+/// ese nombre y se guarda como `cue_lanes`.
 fn study_in(b: &mut Fields) -> Value {
     let loc = vec![Value::from("body")];
     let mut out = Map::new();

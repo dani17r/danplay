@@ -1,10 +1,9 @@
-//! El proceso que separa (`danplay/separation.py`, su `main`): el propio
-//! ejecutable con `--separate TRABAJO.json`. Lo de dentro (Demucs v4 y el
-//! Mega53 en ONNX Runtime, leer la canción, guardar cada pista con ffmpeg y
-//! sacar lo que queda) lo hace `analysis::separate`; aquí, lo de alrededor:
-//! la prioridad baja, morirse si el núcleo que lo lanzó ya no está, y contar
-//! cómo va por la salida estándar, una línea JSON por aviso (las mismas que
-//! decía Python).
+//! El proceso que separa: el propio ejecutable con `--separate
+//! TRABAJO.json`. Lo de dentro (Demucs v4 y el Mega53 en ONNX Runtime, leer
+//! la canción, guardar cada pista con ffmpeg y sacar lo que queda) lo hace
+//! `analysis::separate`; aquí, lo de alrededor: la prioridad baja, morirse
+//! si el núcleo que lo lanzó ya no está, y contar cómo va por la salida
+//! estándar, una línea JSON por aviso (las que lee `services::stems`).
 //!
 //! Va aparte para que la red (todos los núcleos y un par de GB durante unos
 //! minutos) no tumbe al núcleo si algo revienta, y para que la memoria se

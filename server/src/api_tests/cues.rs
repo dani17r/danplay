@@ -1,6 +1,6 @@
-//! tests/test_cues.py: las guías habladas, sin bajar voces. El texto como se
-//! dice, los fonemas, el archivo, la seguridad de las rutas y la API (con
-//! la voz de mentira de `services::cues::fake_voice`).
+//! Las guías habladas, sin bajar voces. El texto como se dice, los fonemas,
+//! el archivo, la seguridad de las rutas y la API (con la voz de mentira de
+//! `services::cues::fake_voice`).
 use crate::app::App;
 use crate::services::cues::{self, CueError, Edit};
 use crate::testkit::{call, get, scanned_library, text};
@@ -51,7 +51,7 @@ fn the_phonemes_are_the_ones_the_spanish_voices_learnt() {
     assert_eq!(piper_ids("ˈa", &map), Ok(vec![1, 0, 120, 0, 14, 0, 2]));
 }
 
-/// `_recording`: un cuarto de segundo de silencio, `seconds` de un tono de
+/// Una grabación: un cuarto de segundo de silencio, `seconds` de un tono de
 /// 300 Hz y otro cuarto de silencio.
 fn recording(path: &Path, rate: u32, seconds: f64) {
     let quarter = (rate / 4) as usize;
@@ -141,8 +141,7 @@ fn an_imported_audio_lasts_at_most_the_song() {
         long.exists(),
         "un audio del equipo no se borra al importarlo"
     );
-    // (en Python, con `MAX_IMPORT_SECONDS` a 50; aquí, uno que pasa del
-    // de verdad)
+    // (uno que pasa del tope de verdad, `MAX_IMPORT_SECONDS`)
     let longer = dir.join("aviso-larguisimo.wav");
     recording(&longer, 8000, cues::MAX_IMPORT_SECONDS + 1.0);
     failure(
@@ -266,8 +265,8 @@ fn a_guide_is_cut_faded_and_cleaned_into_a_new_one() {
         .is_err()
     );
 
-    // quitar el ruido y los graves pasa por ffmpeg con esos filtros (en
-    // Python se miraba la cadena; aquí, que con ffmpeg de verdad sale otra)
+    // quitar el ruido y los graves pasa por ffmpeg con esos filtros: con
+    // ffmpeg de verdad sale otro archivo
     if app.tool("ffmpeg").is_some() {
         let clean = edit(
             &app,
@@ -335,8 +334,7 @@ fn query(pairs: &[(&str, &str)]) -> String {
 
 #[test]
 fn the_api_for_guides() {
-    // (en Python, «la voz de mentira sustituye cues.install, cues.installed y
-    // cues.say»; aquí, `fake_voice`)
+    // (con la voz de mentira, `fake_voice`)
     let Some((app, _)) = scanned_library() else {
         return;
     };
@@ -345,8 +343,7 @@ fn the_api_for_guides() {
     let id = c["id"].as_i64().expect("id");
     let r = get(&app, "/api/cues/voices");
     assert_eq!(r["voices"].as_array().map(Vec::len), Some(17));
-    // (en Python, "" porque su entorno tenía onnxruntime; aquí depende de si
-    // este equipo tiene ONNX Runtime a mano)
+    // (depende de si este equipo tiene ONNX Runtime a mano)
     assert_eq!(r["available"], json!(crate::services::onnx::missing(&app)));
     // una voz sin bajar: empieza a bajarse y se dice que espere
     cues::fake_voice(&app, false);

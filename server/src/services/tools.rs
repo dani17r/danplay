@@ -1,19 +1,18 @@
-//! Si están los programas de fuera y lo que depende de ellos: ffmpeg
-//! (`convert.available`), fpcalc y la clave de AcoustID
-//! (`fingerprint.unavailable_reason`), yt-dlp (`youtube.available`).
+//! Si están los programas de fuera y lo que depende de ellos: ffmpeg, fpcalc
+//! y la clave de AcoustID, yt-dlp.
 use crate::app::App;
 
-/// `convert.available()`: si está ffmpeg.
+/// Si está ffmpeg.
 pub fn ffmpeg_available(app: &App) -> bool {
     app.tool("ffmpeg").is_some()
 }
 
-/// `fingerprint.available()`: si está fpcalc.
+/// Si está fpcalc.
 pub fn fpcalc_available(app: &App) -> bool {
     app.tool("fpcalc").is_some()
 }
 
-/// `fingerprint.unavailable_reason()`.
+/// Por qué no se puede identificar por la huella (vacío si se puede).
 pub fn fingerprint_unavailable_reason(app: &App) -> String {
     if !fpcalc_available(app) {
         return "falta el binario fpcalc  ->  sudo apt install libchromaprint-tools".into();
@@ -25,19 +24,18 @@ pub fn fingerprint_unavailable_reason(app: &App) -> String {
     String::new()
 }
 
-/// Si yt-dlp está. En Python era su módulo (el de la app o el descargado);
-/// sin Python, su ejecutable oficial: el bajado al actualizar o el de la app
-/// (`tools/` o el PATH). Ver `services::ytdlp`.
+/// Si yt-dlp está: su ejecutable oficial, el bajado al actualizar o el de
+/// la app (`tools/` o el PATH). Ver `services::ytdlp`.
 pub fn ytdlp_installed(app: &App) -> bool {
     crate::services::ytdlp::installed(app)
 }
 
-/// `youtube.available()`.
+/// Si se puede bajar de YouTube: yt-dlp y ffmpeg.
 pub fn youtube_available(app: &App) -> bool {
     ytdlp_installed(app) && ffmpeg_available(app)
 }
 
-/// `youtube.unavailable_reason()`.
+/// Por qué no se puede bajar de YouTube (vacío si se puede).
 pub fn youtube_unavailable_reason(app: &App) -> String {
     if !ytdlp_installed(app) {
         return "falta yt-dlp: actualizalo desde la pagina de Descargas (o pip install yt-dlp)"
@@ -49,9 +47,9 @@ pub fn youtube_unavailable_reason(app: &App) -> String {
     String::new()
 }
 
-/// `fingerprint.identify(path)`: {artist, title, album, year, score,
-/// source} de AcoustID, o `None` (sin fpcalc, sin clave, sin red, o nada
-/// que pase del mínimo). Un fallo del servicio no para la importación.
+/// Lo que dice AcoustID de la canción: {artist, title, album, year, score,
+/// source}, o `None` (sin fpcalc, sin clave, sin red, o nada que pase del
+/// mínimo). Un fallo del servicio no para la importación.
 pub fn fingerprint_identify(
     app: &App,
     path: &std::path::Path,
@@ -135,9 +133,7 @@ mod tests {
         }
     }
 
-    /// Lo de tests/test_media.py: sin fpcalc o sin clave se dice qué falta, y
-    /// no se identifica nada. (Lo de `fingerprint.AVAILABLE`, una variable
-    /// del módulo de Python, no tiene equivalente.)
+    /// Sin fpcalc o sin clave se dice qué falta, y no se identifica nada.
     #[cfg(unix)]
     #[test]
     fn fingerprint_says_what_it_is_missing() {

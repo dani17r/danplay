@@ -1,5 +1,4 @@
-//! La biblioteca se vigila sola: lo que cambia en el disco llega al índice
-//! (danplay/watcher.py).
+//! La biblioteca se vigila sola: lo que cambia en el disco llega al índice.
 //!
 //! Antes el índice solo se ponía al día al pulsar «Analizar e indexar
 //! todo». Mover la carpeta de música, o una canción desde el gestor de
@@ -67,34 +66,34 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
     m.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// `time.monotonic()`: segundos desde que arrancó el proceso.
+/// Segundos desde que arrancó el proceso (un reloj que no va hacia atrás).
 pub fn monotonic() -> f64 {
     static START: LazyLock<Instant> = LazyLock::new(Instant::now);
     START.elapsed().as_secs_f64()
 }
 
-/// `watcher.enabled()`: si el vigilante está encendido (`DANPLAY_WATCH`).
+/// Si el vigilante está encendido (`DANPLAY_WATCH`).
 pub fn enabled(app: &App) -> bool {
     !matches!(app.env("DANPLAY_WATCH", "1").as_str(), "0" | "false" | "no")
 }
 
-/// `_rescan_every()`: cada cuánto el repaso entero, en segundos (0 = nunca).
+/// Cada cuánto el repaso entero, en segundos (0 = nunca).
 pub fn rescan_every(app: &App) -> f64 {
     let raw = app.env("DANPLAY_RESCAN_MINUTES", "10");
-    // `float(x or 0)`: vacío es 0; lo que no es un número, los 10 de siempre
+    // vacío es 0; lo que no es un número, los 10 de siempre
     let minutes = if raw.is_empty() {
         Some(0.0)
     } else {
         value::parse_float(&raw)
     };
     match minutes {
-        // `max(0.0, x)`: un NaN se queda en 0
+        // lo negativo y un NaN se quedan en 0
         Some(m) => (if m > 0.0 { m } else { 0.0 }) * 60.0,
         None => 600.0,
     }
 }
 
-/// Un `threading.Event`: una señal que se da, se espera y se quita.
+/// Una señal que se da, se espera y se quita.
 #[derive(Debug, Default)]
 struct Signal {
     set: Mutex<bool>,
@@ -156,7 +155,7 @@ impl std::fmt::Debug for Observer {
     }
 }
 
-/// El vigilante (`watcher.Watcher`).
+/// El vigilante.
 #[derive(Debug)]
 pub struct Watcher {
     pub quiet: f64,
@@ -335,7 +334,7 @@ impl Watcher {
 
     // ------------------------------------------------------------ avisos
 
-    /// Lo que llega de notify (`_Events.dispatch`).
+    /// Lo que llega de notify.
     pub fn dispatch(&self, event: &notify::Event) {
         let kind_dir = match event.kind {
             // abrir y leer un archivo (el propio reproductor lo hace con cada
@@ -521,7 +520,7 @@ fn is_audio(path: &str) -> bool {
     library::config::EXTENSIONS.contains(&suffix.as_str())
 }
 
-/// `_root_of`: la carpeta gestionada de esa ruta (la más larga primero).
+/// La carpeta gestionada de esa ruta (la más larga primero).
 fn root_of<'a>(roots: &'a [String], path: &str) -> Option<&'a str> {
     let sep = std::path::MAIN_SEPARATOR;
     roots
@@ -535,8 +534,7 @@ fn root_of<'a>(roots: &'a [String], path: &str) -> Option<&'a str> {
         .map(String::as_str)
 }
 
-/// `_excluded`: si la ruta cae en una carpeta excluida (ella misma, si es
-/// una carpeta).
+/// Si la ruta cae en una carpeta excluida (ella misma, si es una carpeta).
 fn excluded(path: &str, root: &str, is_dir: bool, exclusions: &[Dict]) -> bool {
     let Some(rel) = paths::relative(path, root) else {
         return false;
@@ -566,13 +564,12 @@ fn excluded(path: &str, root: &str, is_dir: bool, exclusions: &[Dict]) -> bool {
 
 // ------------------------------------------------------------ el del núcleo
 
-/// El vigilante del núcleo (`watcher._WATCHER`).
+/// El vigilante del núcleo (uno por app, o ninguno).
 #[derive(Debug, Default)]
 pub struct Slot(Mutex<Option<Arc<Watcher>>>);
 
-/// `watcher.prepare()`: aparta ya las canciones de las carpetas que no
-/// están (que la interfaz nunca vea canciones de una carpeta que se movió),
-/// con tope.
+/// Aparta ya las canciones de las carpetas que no están (que la interfaz
+/// nunca vea canciones de una carpeta que se movió), con tope.
 pub fn prepare(app: &App, timeout: Duration) {
     let (tx, rx) = std::sync::mpsc::channel();
     let worker = app.clone();
@@ -591,15 +588,14 @@ pub fn prepare(app: &App, timeout: Duration) {
     }
 }
 
-/// `watcher.folders_changed()`: avisa al vigilante (si está en marcha) de
-/// que las carpetas cambiaron.
+/// Avisa al vigilante (si está en marcha) de que las carpetas cambiaron.
 pub fn folders_changed(app: &App) {
     if let Some(w) = lock(&app.watcher.0).as_ref() {
         w.folders_changed();
     }
 }
 
-/// `watcher.start()`: arranca la vigilancia (una sola vez por núcleo).
+/// Arranca la vigilancia (una sola vez por núcleo).
 /// `None` si está apagada (`DANPLAY_WATCH=0`).
 pub fn start(app: &App) -> Option<Arc<Watcher>> {
     if !enabled(app) {
@@ -614,8 +610,7 @@ pub fn start(app: &App) -> Option<Arc<Watcher>> {
     slot.clone()
 }
 
-/// `watcher.stop()`: para la vigilancia (al apagar el núcleo). Se puede
-/// volver a arrancar.
+/// Para la vigilancia (al apagar el núcleo). Se puede volver a arrancar.
 pub fn stop(app: &App) {
     if let Some(w) = lock(&app.watcher.0).take() {
         w.stop();

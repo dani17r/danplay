@@ -1,7 +1,6 @@
-//! tests/test_api.py: lo que vive en los archivos (reescanear sin releer,
-//! rehacer la base perdida, las carátulas y su caché, difuminar), las
-//! migraciones de la base, lo que se puede editar y el contrato con la
-//! interfaz.
+//! Lo que vive en los archivos (reescanear sin releer, rehacer la base
+//! perdida, las carátulas y su caché, difuminar), las migraciones de la
+//! base, lo que se puede editar y el contrato con la interfaz.
 use crate::testkit::{api_library, call, first_ids, get, run_job};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};

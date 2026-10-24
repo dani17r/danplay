@@ -1,7 +1,7 @@
-//! El diario (lo de danplay/journal.py alrededor de `library::journal`): el
-//! hilo que lo escribe unos segundos después de cada cambio, lo que se
-//! recuperó (para avisar en la interfaz), el cerrojo de las listas al
-//! recuperar y reescribir las listas exportadas.
+//! El diario (alrededor de `library::journal`): el hilo que lo escribe unos
+//! segundos después de cada cambio, lo que se recuperó (para avisar en la
+//! interfaz), el cerrojo de las listas al recuperar y reescribir las listas
+//! exportadas.
 use crate::app::{App, VERSION};
 use crate::error::ApiError;
 use crate::services::{folders, playlists};
@@ -26,7 +26,7 @@ struct Inner {
     running: bool,
 }
 
-/// `_STATE`.
+/// El estado del diario: lo último escrito y lo recuperado.
 #[derive(Debug, Default)]
 pub struct State {
     inner: Mutex<Inner>,
@@ -153,7 +153,7 @@ pub fn refresh_exports(app: &App) -> usize {
             continue;
         };
         if playlists::export_m3u(app, id, Some(&target)).is_err() {
-            // como el `contextlib.suppress(Exception)` de Python: se para aquí
+            // si una falla, se para aquí (sin error: se cuentan las de antes)
             break;
         }
         if std::fs::read_to_string(&target).unwrap_or_default() != before {

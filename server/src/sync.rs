@@ -1,6 +1,6 @@
-//! Un cerrojo que el mismo hilo puede volver a tomar (el `RLock` de Python):
-//! el del escaneo y el de las listas lo eran, porque unas operaciones se
-//! apoyan en otras (`set_songs` en `add`, el escaneo en `index_file`...).
+//! Un cerrojo que el mismo hilo puede volver a tomar: el del escaneo y el
+//! de las listas lo son, porque unas operaciones se apoyan en otras
+//! (`set_songs` en `add`, el escaneo en `index_file`...).
 use std::sync::{Condvar, Mutex, PoisonError};
 use std::thread::ThreadId;
 

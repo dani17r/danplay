@@ -1,5 +1,4 @@
-//! tests/test_tidy.py: «Transformar», cada canción en su sitio y con su
-//! nombre, una a una.
+//! «Transformar», cada canción en su sitio y con su nombre, una a una.
 //!
 //! Los casos salen de una biblioteca de verdad: un disco metido en su
 //! subcarpeta con los números de pista, una suelta en la raíz con
@@ -97,7 +96,7 @@ fn it_proposes_only_what_is_out_of_place_and_never_your_own_folders() {
     let Some((app, _, ids)) = music_library() else {
         return;
     };
-    // las rutas, con «/» (en Windows llegan con «\\», como las daba Python)
+    // las rutas, con «/» (en Windows llegan con «\\»)
     let found: Vec<Value> = items(&app)
         .into_iter()
         .map(|mut p| {
