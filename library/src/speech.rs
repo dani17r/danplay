@@ -828,7 +828,7 @@ mod tests {
         assert_eq!(
             number(-1, "es").as_deref(),
             Some("veintinueve"),
-            "como ONES[-1] en Python"
+            "el último de ONES"
         );
         assert_eq!(number(-31, "es"), None);
     }

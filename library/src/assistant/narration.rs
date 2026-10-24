@@ -22,7 +22,7 @@ mod branches;
 /// La expresión de una rama lista para `names::rx`: `\S` lo que no es espacio
 /// ni separador 0x1c-0x1f, `\W` lo que no es letra, cifra ni «_», y (sin
 /// MULTILINE) `$` al final o justo antes de un salto de línea final.
-fn python_pattern(pattern: &str, multiline: bool) -> String {
+fn own_pattern(pattern: &str, multiline: bool) -> String {
     let mut out = String::with_capacity(pattern.len() + 32);
     let mut in_class = false;
     let mut chars = pattern.chars().peekable();
@@ -61,7 +61,7 @@ fn python_pattern(pattern: &str, multiline: bool) -> String {
 }
 
 fn re(pattern: &str, flags: &str, multiline: bool) -> Re {
-    names::rx(&format!("{flags}{}", python_pattern(pattern, multiline)))
+    names::rx(&format!("{flags}{}", own_pattern(pattern, multiline)))
 }
 
 /// La expresión sin lo que no consume nada (`\b`, `(?=…)`, `(?!…)`, `(?<=…)`,
@@ -160,14 +160,14 @@ static CLAIMS: LazyLock<Phrases> = LazyLock::new(|| {
         .map(|b| format!(r"\b(?:{b})"))
         .chain(branches::LOOSE.iter().map(|b| (*b).to_owned()))
         .collect();
-    let python: Vec<String> = branches.iter().map(|b| python_pattern(b, false)).collect();
-    let set = regex::RegexSetBuilder::new(python.iter().map(|b| relaxed(&names::own_words(b))))
+    let patterns: Vec<String> = branches.iter().map(|b| own_pattern(b, false)).collect();
+    let set = regex::RegexSetBuilder::new(patterns.iter().map(|b| relaxed(&names::own_words(b))))
         .case_insensitive(true)
         .size_limit(64 << 20)
         .dfa_size_limit(64 << 20)
         .build()
         .expect("las frases, sin mirar alrededor");
-    let exact = python
+    let exact = patterns
         .iter()
         .map(|b| names::rx(&format!("(?i){b}")))
         .collect();

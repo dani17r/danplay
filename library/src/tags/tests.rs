@@ -540,7 +540,7 @@ mod mutagen_cases {
     }
 
     /// Lo leído, con los campos y los nombres de expected.json.
-    fn as_python(d: &Tags) -> Value {
+    fn as_expected(d: &Tags) -> Value {
         json!({
             "artist": d.artist,
             "title": d.title,
@@ -596,7 +596,7 @@ mod mutagen_cases {
         for ext in EXTS {
             let name = format!("fields.{ext}");
             let path = fixture(&name);
-            assert_same(&as_python(&read(&path)), &read_by_mutagen(&name), ext);
+            assert_same(&as_expected(&read(&path)), &read_by_mutagen(&name), ext);
             assert_eq!(
                 read_cover(&path),
                 Some((jpeg(), "image/jpeg".to_owned())),
@@ -627,7 +627,7 @@ mod mutagen_cases {
             write_cover(&path, &jpeg(), "image/jpeg").unwrap_or_else(|e| panic!("{ext}: {e}"));
             let mine = read(&path);
             assert_same(
-                &as_python(&mine),
+                &as_expected(&mine),
                 &read_by_mutagen(&format!("fields.{ext}")),
                 ext,
             );
@@ -697,7 +697,7 @@ mod mutagen_cases {
             // lo demás, como lo leía mutagen antes del retoque
             let mut before = read_by_mutagen(&name);
             before["stars"] = json!(5);
-            assert_same(&as_python(&after), &before, ext);
+            assert_same(&as_expected(&after), &before, ext);
             if ext == "mp3" || ext == "wav" {
                 let (version, frames) = id3_frames(&path, ext);
                 assert_eq!(version, Id3v2Version::V3, "{ext}: se guarda en ID3v2.3");

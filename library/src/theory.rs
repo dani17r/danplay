@@ -297,11 +297,7 @@ mod tests {
             "B",
             "doce semitonos reescriben la nota"
         );
-        assert_eq!(
-            transpose("Gloria", 2, None),
-            "Aloria",
-            "como en Python: la G de Gloria"
-        );
+        assert_eq!(transpose("Gloria", 2, None), "Aloria", "la G de Gloria");
         assert_eq!(transpose("texto", 0, None), "texto");
     }
 

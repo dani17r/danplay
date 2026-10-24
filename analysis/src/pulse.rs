@@ -541,13 +541,5 @@ pub fn key(absolute_path: &str, size: u64, mtime: i64) -> String {
     })
 }
 
-/// La fecha del archivo en segundos enteros, contada como hasta la 1.30
-/// para que la caché de entonces siga valiendo: los segundos y los
-/// nanosegundos se suman en un `f64` antes de truncar (y unos nanosegundos
-/// muy cerca del segundo siguiente ya cuentan como él).
-pub fn mtime_python(segundos: i64, nanos: u32) -> i64 {
-    (segundos as f64 + f64::from(nanos) * 1e-9).trunc() as i64
-}
-
 #[cfg(test)]
 mod tests;

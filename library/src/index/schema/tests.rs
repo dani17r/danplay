@@ -447,8 +447,9 @@ fn dump(path: &Path) -> Value {
 
 /// Lo que dejaban las versiones de antes, con las filas en el mismo orden que
 /// `dump`.
-fn as_python_left_it(case: &str) -> Value {
-    let all: Value = serde_json::from_str(include_str!("python_cases.json")).expect("lo de Python");
+fn as_old_version_left_it(case: &str) -> Value {
+    let all: Value =
+        serde_json::from_str(include_str!("old_version_cases.json")).expect("los casos");
     let mut d = all[case].clone();
     let sort = |v: &mut Value| {
         if let Value::Array(items) = v {
@@ -461,7 +462,7 @@ fn as_python_left_it(case: &str) -> Value {
     }
     assert_eq!(
         all["schema_version"], SCHEMA_VERSION,
-        "la versión de Python"
+        "la versión del esquema de los casos"
     );
     d
 }
@@ -471,7 +472,7 @@ fn as_python_left_it(case: &str) -> Value {
 /// mismas tablas, índices, triggers, versión y datos.
 #[test]
 fn prepared_dbs_match_what_the_old_version_left() {
-    let dir = Scratch::new("esquema-como-python");
+    let dir = Scratch::new("esquema-como-antes");
     let builds: [(&str, Build<'_>); 4] = [
         ("empty", &|p: &Path| drop(raw(p))),
         ("before_versions", &|p: &Path| {
@@ -484,7 +485,7 @@ fn prepared_dbs_match_what_the_old_version_left() {
         let path = dir.join(format!("{name}.db"));
         build(&path);
         drop(prepared(&path));
-        let (got, want) = (dump(&path), as_python_left_it(name));
+        let (got, want) = (dump(&path), as_old_version_left_it(name));
         assert_eq!(got["version"], SCHEMA_VERSION, "{name}");
         for part in ["version", "schema", "fts"] {
             assert_eq!(got[part], want[part], "{name}: {part}");

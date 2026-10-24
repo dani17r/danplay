@@ -302,12 +302,12 @@ fn saved_values_are_quoted_when_needed_and_read_back() {
         let plain = value
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || "_./:@+,-".contains(c));
-        let python = if plain {
+        let expected = if plain {
             value.clone()
         } else {
             format!("'{}'", value.replace('\\', "\\\\").replace('\'', "\\'"))
         };
-        assert_eq!(written, python, "{value:?}");
+        assert_eq!(written, expected, "{value:?}");
         if value.contains("${") {
             continue;
         }

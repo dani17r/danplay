@@ -261,7 +261,7 @@ fn far(xs: &[f64], ys: &[f64], tol: f64) -> Vec<f64> {
             .filter(|x| (x - ys[0]).abs() > tol)
             .collect();
     }
-    let at = np::searchsorted_numpy(ys, xs);
+    let at = np::searchsorted_all(ys, xs);
     xs.iter()
         .zip(at)
         .filter(|(x, i)| {

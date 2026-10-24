@@ -784,7 +784,7 @@ Convenciones de estas pruebas:
 - Lo que en Python se comparaba con una biblioteca de Python
   (python-dotenv, mutagen, `posixpath`/`ntpath`/`json`, el db.py de antes…)
   se compara con lo que daba: casos generados una vez y guardados junto a la
-  prueba (`dotenv_cases.json`, `compat_cases.json`, `python_cases.json`,
+  prueba (`dotenv_cases.json`, `compat_cases.json`, `old_version_cases.json`,
   `tags/mutagen/`), o la misma cuenta escrita en la prueba.
 - Lo que Hypothesis sacaba al azar sale de un generador fijo
   (`testkit::Gen`), con lo que más rompe mezclado.
@@ -887,8 +887,8 @@ y con python-dotenv. Sin Python, se compara con lo que daban ellas.
 | Python | Rust |
 | --- | --- |
 | `test_rust_config_matches_the_python_config` | `library/src/config/tests.rs` `config_reads_the_environment_and_the_settings_file` (en otro proceso con ese entorno, como en Python; los valores, los que daba config.py) |
-| `test_settings_file_is_read_like_python_dotenv` | `library/src/config/tests.rs` `settings_file_is_read_like_python_dotenv` (400 textos hechos con las mismas líneas, y lo que leía python-dotenv 1.2.4, generados una vez en `library/src/config/dotenv_cases.json`) |
-| `test_saved_values_are_written_like_python_and_read_back` | `library/src/config/tests.rs` `saved_values_are_written_like_python_and_read_back` (los ejemplos fijos con lo que escribía config.py, y 2000 textos de un generador fijo en vez de Hypothesis: se escriben como en config.py y se releen iguales) |
+| `test_settings_file_is_read_like_python_dotenv` | `library/src/config/tests.rs` `settings_file_is_read_as_in_the_saved_cases` (400 textos hechos con las mismas líneas, y lo que leía python-dotenv 1.2.4, generados una vez en `library/src/config/dotenv_cases.json`) |
+| `test_saved_values_are_written_like_python_and_read_back` | `library/src/config/tests.rs` `saved_values_are_quoted_when_needed_and_read_back` (los ejemplos fijos con lo que escribía config.py, y 2000 textos de un generador fijo en vez de Hypothesis: se escriben como en config.py y se releen iguales) |
 
 ### tests/test_resolve.py (61)
 
@@ -1348,12 +1348,12 @@ Comparaba en vivo el esquema y las migraciones de Rust con los de Python
 (danplay/library/db.py). Cómo dejaba Python cada base de partida (las
 tablas, índices y triggers, la versión, las filas de cada tabla y lo que
 encuentra la búsqueda) se guardó una vez en
-`library/src/index/schema/python_cases.json`, y se compara con lo que deja
+`library/src/index/schema/old_version_cases.json`, y se compara con lo que deja
 Rust.
 
 | Python | Rust |
 | --- | --- |
-| `test_rust_leaves_the_db_like_python` | `S` `rust_leaves_the_db_like_python` (las cuatro bases de partida) |
+| `test_rust_leaves_the_db_like_python` | `S` `prepared_dbs_match_what_the_old_version_left` (las cuatro bases de partida) |
 | `test_an_up_to_date_db_does_not_change` | `S` `an_up_to_date_db_does_not_change` |
 | `test_a_db_from_a_newer_danplay_is_left_alone` | `S` `a_db_from_a_newer_danplay_is_left_alone` (la misma que la de test_schema.py, que mira también que no se aplique nada) |
 

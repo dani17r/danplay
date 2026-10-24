@@ -387,16 +387,12 @@ mod tests {
         assert_eq!(
             string("12\n", ","),
             "\"12\\n\"",
-            "un número con salto final, como en Python"
+            "un número con salto final"
         );
         assert_eq!(string(" a", ","), "\" a\"");
         assert_eq!(string("a|b", "|"), "\"a|b\"");
         assert_eq!(string("-x", ","), "\"-x\"");
-        assert_eq!(
-            key("abc\n"),
-            "abc\n",
-            "la clave con salto final vale, como en Python"
-        );
+        assert_eq!(key("abc\n"), "abc\n", "la clave con salto final vale");
         assert_eq!(encode(&Val::Null, ";"), Err(Error::Delimiter));
     }
 

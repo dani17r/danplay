@@ -61,22 +61,6 @@ impl Type {
             Self::I8 | Self::U8 | Self::Bool => 1,
         }
     }
-
-    /// El nombre corriente del tipo de los números («float32», «bfloat16»...).
-    pub fn numpy(self) -> &'static str {
-        match self {
-            Self::F32 => "float32",
-            Self::F16 => "float16",
-            Self::F64 => "float64",
-            Self::I64 => "int64",
-            Self::I32 => "int32",
-            Self::I16 => "int16",
-            Self::I8 => "int8",
-            Self::U8 => "uint8",
-            Self::Bool => "bool",
-            Self::BF16 => "bfloat16",
-        }
-    }
 }
 
 /// Un almacén: un miembro `data/<clave>` del zip, sin comprimir.

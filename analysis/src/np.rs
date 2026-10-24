@@ -135,7 +135,7 @@ fn nan_last_less(a: f64, b: f64) -> bool {
 /// el final) y con los NaN al final. Con `a` ordenado da lo mismo que
 /// `searchsorted`; con `a` desordenado (una rejilla guardada a mano) da
 /// otra cosa, y es la que daban las versiones de antes.
-pub fn searchsorted_numpy(a: &[f64], keys: &[f64]) -> Vec<usize> {
+pub fn searchsorted_all(a: &[f64], keys: &[f64]) -> Vec<usize> {
     keys.iter()
         .map(|&key| {
             if a.is_empty() {
@@ -259,17 +259,17 @@ mod tests {
         assert_eq!(interp(1.0, &[0.0, 1.0], &[2.0, 4.0]), 4.0);
         assert_eq!(searchsorted(&[1.0, 2.0, 2.0, 3.0], 2.0), 1);
         assert_eq!(
-            searchsorted_numpy(
+            searchsorted_all(
                 &[1.0, 2.0, 2.0, 3.0, f64::NAN],
                 &[2.0, 0.0, 9.0, f64::NAN, 2.5]
             ),
             [1, 0, 4, 4, 3]
         );
-        assert_eq!(searchsorted_numpy(&[], &[1.0]), [0]);
+        assert_eq!(searchsorted_all(&[], &[1.0]), [0]);
         // desordenado: lo que da la búsqueda sin saltos (la de mitades de
         // siempre daría 8)
         let a = [0.0, 2.0, 1.0, 2.0, 2.0, 0.0, 8.0, 2.0, 8.0, 6.0, 1.0];
-        assert_eq!(searchsorted_numpy(&a, &[6.0]), [6]);
+        assert_eq!(searchsorted_all(&a, &[6.0]), [6]);
         assert_eq!(median(&[3.0, 1.0, 2.0, 10.0]), 2.5);
     }
 }
