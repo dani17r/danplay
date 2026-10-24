@@ -100,20 +100,14 @@ pub struct Tensor {
     pub steps: Vec<u64>,
 }
 
-/// Lo que puede salir mal, con la excepción que daba la versión de Python.
+/// Lo que puede salir mal.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Error {
-    /// `CheckpointError`: no es un checkpoint que se sepa leer sin riesgo.
+    /// No es un checkpoint (o un safetensors) que se sepa leer sin riesgo.
     Checkpoint(String),
-    /// `pickle.UnpicklingError`: el pickle está roto.
+    /// El pickle está roto: lo que trae no tiene sentido.
     Pickle(String),
-    /// `KeyError`
-    Key(String),
-    /// `TypeError`
-    Type(String),
-    /// `ValueError`
-    Val(String),
-    /// `OSError` (`FileNotFoundError` si no existe)
+    /// Al leer el archivo (`NotFound`, si no existe).
     Io(std::io::ErrorKind, String),
 }
 
@@ -259,9 +253,10 @@ impl V {
 
     fn hashable(&self) -> Result<(), Error> {
         match self {
-            Self::List(_) | Self::Dict(_) | Self::Set(_) => {
-                Err(Error::Type(format!("unhashable type: '{}'", self.kind())))
-            }
+            Self::List(_) | Self::Dict(_) | Self::Set(_) => Err(Error::Pickle(format!(
+                "un {} no sirve de clave",
+                self.kind()
+            ))),
             Self::Tuple(t) => t.iter().try_for_each(Self::hashable),
             _ => Ok(()),
         }
@@ -300,13 +295,13 @@ impl V {
             Self::Integer(i) => Ok(*i),
             Self::Boolean(b) => Ok(i64::from(*b)),
             Self::Real(f) if f.is_finite() => Ok(f.trunc() as i64),
-            Self::Text(s) => {
-                s.trim().replace('_', "").parse().map_err(|_| {
-                    Error::Val(format!("invalid literal for int() with base 10: '{s}'"))
-                })
-            }
-            other => Err(Error::Type(format!(
-                "int() argument must be a string, a bytes-like object or a real number, not '{}'",
+            Self::Text(s) => s
+                .trim()
+                .replace('_', "")
+                .parse()
+                .map_err(|_| Error::Pickle(format!("«{s}» no es un entero"))),
+            other => Err(Error::Pickle(format!(
+                "se esperaba un entero y llegó un {}",
                 other.kind()
             ))),
         }
@@ -318,10 +313,7 @@ impl V {
             Self::Tuple(t) => t.to_vec(),
             Self::List(l) => l.borrow().clone(),
             other => {
-                return Err(Error::Type(format!(
-                    "'{}' object is not iterable",
-                    other.kind()
-                )));
+                return Err(Error::Pickle(format!("un {} no se recorre", other.kind())));
             }
         };
         items.iter().map(Self::integer).collect()
@@ -336,10 +328,7 @@ impl V {
                 .chars()
                 .map(|c| Self::Text(c.to_string().into()))
                 .collect()),
-            other => Err(Error::Type(format!(
-                "'{}' object is not iterable",
-                other.kind()
-            ))),
+            other => Err(Error::Pickle(format!("un {} no se recorre", other.kind()))),
         }
     }
 }
@@ -388,9 +377,10 @@ impl Zip {
         let kind = Type::from_storage_name(&name)
             .ok_or_else(|| checkpoint(format!("tipo de almacen desconocido: {name}")))?;
         let member = format!("{}data/{key}", self.prefix);
-        let i = self.file.index_for_name(&member).ok_or_else(|| {
-            Error::Key(format!("There is no item named '{member}' in the archive"))
-        })?;
+        let i = self
+            .file
+            .index_for_name(&member)
+            .ok_or_else(|| Error::Pickle(format!("el archivo no trae «{member}»")))?;
         let (start, bytes) = {
             // sin descomprimir: solo hace falta dónde empiezan sus datos (tras
             // su cabecera local, que puede traer extras distintos de los del
@@ -409,8 +399,8 @@ impl Zip {
         };
         let item = kind.bytes();
         if bytes % item != 0 {
-            return Err(Error::Val(
-                "When changing to a smaller dtype, its size must be a divisor of the size of original dtype".into(),
+            return Err(Error::Pickle(
+                "el tipo más pequeño no cabe un número entero de veces en el de antes".into(),
             ));
         }
         let capacity = bytes / item;
@@ -435,14 +425,14 @@ impl Zip {
 /// almacén (un checkpoint mal hecho leía memoria de fuera).
 fn tensor(args: &[V]) -> Result<V, Error> {
     if args.len() < 4 {
-        return Err(Error::Type(format!(
-            "_rebuild_tensor() missing {} required positional arguments",
+        return Err(Error::Pickle(format!(
+            "a la reconstrucción de un tensor le faltan {} argumentos",
             4 - args.len()
         )));
     }
     let V::Storage(storage) = &args[0] else {
-        return Err(Error::Type(format!(
-            "'{}' object has no attribute 'data'",
+        return Err(Error::Pickle(format!(
+            "se esperaba un almacén y llegó un {}",
             args[0].kind()
         )));
     };
@@ -456,7 +446,9 @@ fn tensor(args: &[V]) -> Result<V, Error> {
     let shape: Vec<u64> = shape.into_iter().map(|n| n as u64).collect();
     let steps: Vec<u64> = steps.into_iter().map(|p| p as u64).collect();
     if !shape.is_empty() && steps.len() != shape.len() {
-        return Err(Error::Val("mismatch in length of strides and shape".into()));
+        return Err(Error::Pickle(
+            "los pasos y la forma del tensor no casan".into(),
+        ));
     }
     // el último número que toca la vista
     let empty = shape.contains(&0);
@@ -495,27 +487,26 @@ fn call(f: &V, args: &[V]) -> Result<V, Error> {
                     for par in pares.items()? {
                         let kv = par.items()?;
                         if kv.len() != 2 {
-                            return Err(Error::Val("need more than 1 value to unpack".into()));
+                            return Err(Error::Pickle("faltan valores".into()));
                         }
                         put(&d, kv[0].clone(), kv[1].clone())?;
                     }
                 }
-                _ => return Err(Error::Type("expected at most 1 arguments".into())),
+                _ => return Err(Error::Pickle("sobran argumentos".into())),
             }
             Ok(V::Dict(d))
         }
         V::Class(Class::RebuildTensor) => tensor(args),
-        V::Class(Class::RebuildParameter) => args
-            .first()
-            .cloned()
-            .ok_or_else(|| Error::Type("_rebuild_parameter() missing argument".into())),
+        V::Class(Class::RebuildParameter) => args.first().cloned().ok_or_else(|| {
+            Error::Pickle("a la reconstrucción de un parámetro le falta su tensor".into())
+        }),
         V::Class(Class::Size) => match args {
             [] => Ok(V::Tuple(Rc::from(Vec::new()))),
             [x] => Ok(V::Tuple(Rc::from(x.items()?))),
-            _ => Err(Error::Type("tuple expected at most 1 argument".into())),
+            _ => Err(Error::Pickle("sobran argumentos para una tupla".into())),
         },
-        other => Err(Error::Type(format!(
-            "'{}' object is not callable",
+        other => Err(Error::Pickle(format!(
+            "un {} no se puede llamar",
             other.kind()
         ))),
     }
@@ -577,7 +568,7 @@ fn long_integer(b: &[u8]) -> Result<V, Error> {
         return Ok(V::Integer(0));
     }
     if b.len() > 8 {
-        return Err(Error::Val(
+        return Err(Error::Pickle(
             "un entero demasiado grande para un checkpoint".into(),
         ));
     }
@@ -729,21 +720,23 @@ fn unpack(data: &[u8], zip: &mut Zip) -> Result<V, Error> {
                     "01" => V::Boolean(true),
                     _ => V::Integer(
                         s.parse()
-                            .map_err(|_| Error::Val(format!("invalid literal for int(): '{s}'")))?,
+                            .map_err(|_| Error::Pickle(format!("«{s}» no es un entero")))?,
                     ),
                 });
             }
             b'L' => {
                 let s = l.line()?.trim().trim_end_matches('L').to_owned();
-                stack.push(V::Integer(s.parse().map_err(|_| {
-                    Error::Val(format!("invalid literal for int(): '{s}'"))
-                })?));
+                stack
+                    .push(V::Integer(s.parse().map_err(|_| {
+                        Error::Pickle(format!("«{s}» no es un entero"))
+                    })?));
             }
             b'F' => {
                 let s = l.line()?.trim().to_owned();
-                stack.push(V::Real(s.parse().map_err(|_| {
-                    Error::Val(format!("could not convert string to float: '{s}'"))
-                })?));
+                stack
+                    .push(V::Real(s.parse().map_err(|_| {
+                        Error::Pickle(format!("«{s}» no es un número"))
+                    })?));
             }
             b'G' => stack.push(V::Real(f64::from_be_bytes(l.le()?))),
             b'X' => {
@@ -843,8 +836,8 @@ fn unpack(data: &[u8], zip: &mut Zip) -> Result<V, Error> {
                 match top!() {
                     V::Set(c) => c.borrow_mut().extend(items),
                     other => {
-                        return Err(Error::Type(format!(
-                            "'{}' object has no attribute 'add'",
+                        return Err(Error::Pickle(format!(
+                            "se añade a un {}, que no es un conjunto",
                             other.kind()
                         )));
                     }
@@ -855,8 +848,8 @@ fn unpack(data: &[u8], zip: &mut Zip) -> Result<V, Error> {
                 match top!() {
                     V::List(list) => list.borrow_mut().push(v),
                     other => {
-                        return Err(Error::Type(format!(
-                            "'{}' object has no attribute 'append'",
+                        return Err(Error::Pickle(format!(
+                            "se añade a un {}, que no es una lista",
                             other.kind()
                         )));
                     }
@@ -867,8 +860,8 @@ fn unpack(data: &[u8], zip: &mut Zip) -> Result<V, Error> {
                 match top!() {
                     V::List(list) => list.borrow_mut().extend(items),
                     other => {
-                        return Err(Error::Type(format!(
-                            "'{}' object has no attribute 'extend'",
+                        return Err(Error::Pickle(format!(
+                            "se añade a un {}, que no es una lista",
                             other.kind()
                         )));
                     }
@@ -880,8 +873,8 @@ fn unpack(data: &[u8], zip: &mut Zip) -> Result<V, Error> {
                 match top!() {
                     V::Dict(d) => put(d, k, v)?,
                     other => {
-                        return Err(Error::Type(format!(
-                            "'{}' object does not support item assignment",
+                        return Err(Error::Pickle(format!(
+                            "se guarda una clave en un {}, que no es un diccionario",
                             other.kind()
                         )));
                     }
@@ -898,8 +891,8 @@ fn unpack(data: &[u8], zip: &mut Zip) -> Result<V, Error> {
                         }
                     }
                     other => {
-                        return Err(Error::Type(format!(
-                            "'{}' object does not support item assignment",
+                        return Err(Error::Pickle(format!(
+                            "se guarda una clave en un {}, que no es un diccionario",
                             other.kind()
                         )));
                     }
@@ -955,8 +948,8 @@ fn unpack(data: &[u8], zip: &mut Zip) -> Result<V, Error> {
                     V::Class(Class::OrderedDict) => V::Dict(Rc::new(RefCell::new(Vec::new()))),
                     V::Class(Class::Size) => call(&cls, &args)?,
                     other => {
-                        return Err(Error::Type(format!(
-                            "'{}' object is not a class",
+                        return Err(Error::Pickle(format!(
+                            "un {} no es una clase",
                             other.kind()
                         )));
                     }
@@ -968,8 +961,8 @@ fn unpack(data: &[u8], zip: &mut Zip) -> Result<V, Error> {
                     // el `_metadata` de un state_dict: un atributo, no un peso
                     V::Dict(_) => {}
                     other => {
-                        return Err(Error::Type(format!(
-                            "'{}' object has no attribute '__dict__' ({})",
+                        return Err(Error::Pickle(format!(
+                            "se le da estado a un {} ({})",
                             other.kind(),
                             state.kind()
                         )));
@@ -984,7 +977,7 @@ fn unpack(data: &[u8], zip: &mut Zip) -> Result<V, Error> {
                 l.line()?;
                 return Err(checkpoint("almacen desconocido en el checkpoint"));
             }
-            0x82..=0x84 => return Err(Error::Val("unregistered extension code".into())),
+            0x82..=0x84 => return Err(Error::Pickle("un código de extensión desconocido".into())),
             b'g' => {
                 let n: u64 = l.line()?.trim().parse().map_err(|_| corrupt("bad GET"))?;
                 stack.push(
@@ -1079,8 +1072,8 @@ pub fn read(path: &Path, key: Option<&str>) -> Result<Vec<(String, Rc<Tensor>)>,
     let mut obj = unpack(&data, &mut zip)?;
     if let Some(key) = key {
         let V::Dict(d) = &obj else {
-            return Err(Error::Type(format!(
-                "'{}' object is not subscriptable",
+            return Err(Error::Pickle(format!(
+                "lo guardado es un {}, no un diccionario de pesos",
                 obj.kind()
             )));
         };
@@ -1090,7 +1083,7 @@ pub fn read(path: &Path, key: Option<&str>) -> Result<Vec<(String, Rc<Tensor>)>,
             .iter()
             .find(|(c, _)| c.equals(&k))
             .map(|(_, v)| v.clone());
-        obj = v.ok_or_else(|| Error::Key(format!("'{key}'")))?;
+        obj = v.ok_or_else(|| Error::Checkpoint(format!("no trae «{key}»")))?;
     } else if let V::Dict(d) = &obj {
         let no_tensors = !d.borrow().iter().any(|(_, v)| matches!(v, V::Tensor(_)));
         if no_tensors {
@@ -1142,7 +1135,7 @@ pub fn safetensors(path: &Path) -> Result<Vec<TensorSt>, Error> {
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
-    let not_safetensors = || Error::Val(format!("{name} no es un safetensors"));
+    let not_safetensors = || Error::Checkpoint(format!("{name} no es un safetensors"));
     let mut f = File::open(path).map_err(|e| Error::Io(e.kind(), e.to_string()))?;
     let mut length = [0u8; 8];
     let already_read = f
@@ -1155,9 +1148,9 @@ pub fn safetensors(path: &Path) -> Result<Vec<TensorSt>, Error> {
     let mut header = vec![0u8; size as usize];
     f.read_exact(&mut header).map_err(|_| not_safetensors())?;
     let json: serde_json::Value =
-        serde_json::from_slice(&header).map_err(|e| Error::Val(e.to_string()))?;
+        serde_json::from_slice(&header).map_err(|e| Error::Checkpoint(e.to_string()))?;
     let serde_json::Value::Object(header) = json else {
-        return Err(Error::Val(format!("{name} no es un safetensors")));
+        return Err(Error::Checkpoint(format!("{name} no es un safetensors")));
     };
     let data = 8 + size;
     let mut out = Vec::new();
@@ -1174,7 +1167,11 @@ pub fn safetensors(path: &Path) -> Result<Vec<TensorSt>, Error> {
             "F16" => Type::F16,
             "I64" => Type::I64,
             "I32" => Type::I32,
-            other => return Err(Error::Val(format!("tipo {other} desconocido en {name}"))),
+            other => {
+                return Err(Error::Checkpoint(format!(
+                    "tipo {other} desconocido en {name}"
+                )));
+            }
         };
         let pos: Vec<u64> = meta
             .get("data_offsets")
@@ -1191,8 +1188,8 @@ pub fn safetensors(path: &Path) -> Result<Vec<TensorSt>, Error> {
         };
         let count: u64 = shape.iter().product();
         if z < a || (z - a) != count * kind.bytes() {
-            return Err(Error::Val(format!(
-                "cannot reshape array of size {} into shape {shape:?}",
+            return Err(Error::Pickle(format!(
+                "{} números no caben en la forma {shape:?}",
                 (z.saturating_sub(a)) / kind.bytes()
             )));
         }
