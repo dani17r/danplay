@@ -1,6 +1,5 @@
 //! Las guías habladas del modo estudio: las voces (y bajarlas), decir una
-//! frase, traer una grabación, escucharlas y la guía automática
-//! (danplay/api/routes/cues.py).
+//! frase, traer una grabación, escucharlas y la guía automática.
 use crate::error::ApiError;
 use crate::http::Response;
 use crate::jobs;

@@ -1,5 +1,5 @@
 //! Los repertorios: crearlos, llenarlos, ordenarlos y exportarlos (m3u y la
-//! hoja para el atril). danplay/api/routes/playlists.py.
+//! hoja para el atril).
 use crate::error::ApiError;
 use crate::router::{Ctx, Reply, Route};
 use crate::services::playlists;

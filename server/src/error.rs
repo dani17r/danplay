@@ -1,32 +1,31 @@
-//! Los errores de una ruta, como los contesta FastAPI.
+//! Los errores de una ruta, con el formato de la API de DanPlay.
 //!
-//! - `HTTPException(404, "esa lista no existe")` es `ApiError::http(404,
-//!   "esa lista no existe")` → `404 {"detail": "esa lista no existe"}`.
+//! - `ApiError::http(404, "esa lista no existe")` contesta
+//!   `404 {"detail": "esa lista no existe"}`.
 //! - Lo que no cuadra con lo que se espera (un cuerpo con una clave de más,
-//!   un número fuera de rango) es un 422 con la lista de fallos de pydantic
+//!   un número fuera de rango) es un 422 con la lista de fallos
 //!   (`ApiError::Validation`, ver `validate`).
 //! - Un fallo que no se esperaba (la base, el disco) es un 500 «Internal
-//!   Server Error», como una excepción sin capturar en Python; el motivo va
-//!   al registro.
+//!   Server Error», sin más detalle; el motivo va al registro.
 use crate::http::Response;
 use serde_json::{Value, json};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ApiError {
-    /// `HTTPException(status, detail)`: `{"detail": detail}`.
+    /// Un error con su código y su `{"detail": detail}`.
     Http {
         status: u16,
         detail: Value,
         headers: Vec<(String, String)>,
     },
-    /// Los fallos de validación, ya con la forma de pydantic.
+    /// Los fallos de validación, ya con la forma de la API (ver `validate`).
     Validation(Vec<Value>),
     /// Un fallo inesperado: 500, con el motivo solo en el registro.
     Internal(String),
 }
 
 impl ApiError {
-    /// `HTTPException(status, detail)`.
+    /// `status` con `{"detail": detail}`.
     pub fn http(status: u16, detail: impl Into<Value>) -> Self {
         Self::Http {
             status,
@@ -35,17 +34,17 @@ impl ApiError {
         }
     }
 
-    /// `HTTPException(400, detail)`.
+    /// Un 400 con `{"detail": detail}`.
     pub fn bad_request(detail: impl Into<Value>) -> Self {
         Self::http(400, detail)
     }
 
-    /// `HTTPException(404, detail)`.
+    /// Un 404 con `{"detail": detail}`.
     pub fn not_found(detail: impl Into<Value>) -> Self {
         Self::http(404, detail)
     }
 
-    /// `HTTPException(409, detail)`.
+    /// Un 409 con `{"detail": detail}`.
     pub fn conflict(detail: impl Into<Value>) -> Self {
         Self::http(409, detail)
     }

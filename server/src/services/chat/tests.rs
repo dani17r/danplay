@@ -1,5 +1,5 @@
-//! Las pruebas del asistente en Rust: los argumentos como los validaba
-//! pydantic, el registro de las confirmaciones, la lista pegada del turno y
+//! Las pruebas del asistente: los argumentos de las herramientas y sus
+//! fallos, el registro de las confirmaciones, la lista pegada del turno y
 //! un turno entero contra una IA de mentira (un servidor HTTP local).
 use super::*;
 use crate::http::Request;
@@ -16,7 +16,7 @@ fn run(app: &App, name: &str, args: Value) -> Value {
 }
 
 #[test]
-fn arguments_like_pydantic() {
+fn tool_arguments_are_checked_and_converted() {
     let app = crate::tests::app();
     assert_eq!(
         run(&app, "edit_song", json!({"id": "abc"})),
@@ -138,7 +138,8 @@ fn the_registry_of_confirmations() {
     };
     assert_eq!(why, "no existe esa canción");
     // una descarga sin plan (con plan buscaría en YouTube de verdad: eso lo
-    // mira el diferencial, sin red); lo rechazado no se puede marcar
+    // miran las pruebas del plan, con un YouTube de mentira); lo rechazado
+    // no se puede marcar
     let d = plan::register(
         &app,
         "download_music",

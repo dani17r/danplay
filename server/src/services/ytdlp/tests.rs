@@ -112,7 +112,7 @@ fn the_options_as_arguments() {
 }
 
 #[test]
-fn the_progress_like_the_python_hook() {
+fn the_progress_line_becomes_a_step() {
     let line = "DANPLAY-PROGRESS {\"status\":\"downloading\",\"downloaded_bytes\":50,\"total_bytes\":200,\
                 \"total_bytes_estimate\":null,\"filename\":\"/tmp/x/abc.webm\"}";
     let step = parse_progress(line)
@@ -145,7 +145,7 @@ fn the_progress_like_the_python_hook() {
 }
 
 #[test]
-fn json_with_nan_and_stderr_like_the_logger() {
+fn json_with_nan_and_the_messages_on_stderr() {
     assert_eq!(
         parse_json("{\"a\": NaN, \"b\": \"NaN y Infinity\", \"c\": [-Infinity, 1]}"),
         Some(json!({"a": null, "b": "NaN y Infinity", "c": [null, 1]}))
@@ -484,9 +484,9 @@ fn update_refuses_what_does_not_match() {
     );
 }
 
-/// tests/test_ytdlp.py: de los motores de JavaScript que hay, el primero que
-/// funciona en el orden de yt-dlp (deno antes que node), y es el que se le
-/// pasa. Los que son viejos, QuickJS y la pista de qué instalar se prueban
+/// De los motores de JavaScript que hay, el primero que funciona en el
+/// orden de yt-dlp (deno antes que node), y es el que se le pasa. Los que
+/// son viejos, QuickJS y la pista de qué instalar se prueban
 /// sin programas en `library::ytdlp::tests`.
 #[cfg(unix)]
 #[test]

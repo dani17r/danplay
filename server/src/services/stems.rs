@@ -1,7 +1,7 @@
-//! Separar una canción en pistas (lo de danplay/stems.py alrededor de
-//! `library::stems`): la cola, el proceso que separa, bajar los pesos del
-//! separador (con su sha256), las tres pasadas (la rápida, la buena y la
-//! máxima calidad), quitar unas pistas y guardar una mezcla con ffmpeg.
+//! Separar una canción en pistas (lo que va alrededor de `library::stems`):
+//! la cola, el proceso que separa, bajar los pesos del separador (con su
+//! sha256), las tres pasadas (la rápida, la buena y la máxima calidad),
+//! quitar unas pistas y guardar una mezcla con ffmpeg.
 //!
 //! Se separa en un proceso aparte, el propio ejecutable con `--separate
 //! TRABAJO.json` (ver `separation`), con prioridad baja: si la red revienta,
@@ -36,8 +36,8 @@ const EVENTS: usize = 50;
 const MAX_MEMORY: u64 = 5 * 1024 * 1024 * 1024;
 const FORMATS: [&str; 2] = ["flac", "opus"];
 
-/// Un fallo de separar: previsto (ya explicado en castellano, el
-/// `SeparateError` de Python) u otro cualquiera.
+/// Un fallo de separar: previsto (ya explicado en castellano) u otro
+/// cualquiera.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StemsError {
     Expected(String),
@@ -99,12 +99,11 @@ struct Graph {
     specialists: Value,
 }
 
-/// La cola y lo que se está separando (lo que en Python eran variables del
-/// módulo, aquí de cada `App`).
+/// La cola y lo que se está separando (uno por `App`).
 #[derive(Debug, Default)]
 #[allow(
     clippy::struct_field_names,
-    reason = "la cola, como `_queue` en Python"
+    reason = "`queue` es lo que espera en la cola: el nombre que mejor lo dice"
 )]
 struct Queue {
     /// lo que espera: [{id, title, stage, then_max}]
@@ -112,7 +111,7 @@ struct Queue {
     /// lo que se está separando ahora
     current: Option<Dict>,
     child: Option<Arc<Mutex<Child>>>,
-    /// la cola está andando (`_drain`)
+    /// la cola está andando
     draining: bool,
     /// lo último que acabó, bien o mal: [{seq, id, title, stage, ok, error}]
     events: Vec<Value>,
@@ -234,7 +233,7 @@ fn part_of(key: &str, graph: &str, w: &Value) -> Result<Part> {
     })
 }
 
-/// `stems.parts()`: cada archivo de pesos, en su orden.
+/// Cada archivo de pesos, en su orden.
 pub fn parts(app: &App) -> Result<Vec<Part>> {
     let mut out = vec![part_of(FAST, FAST, &graph(app, FAST)?.weights)?];
     let best = graph(app, ls::BEST)?;
@@ -268,8 +267,8 @@ pub(crate) fn installed(app: &App, p: &Part) -> bool {
 }
 
 /// Un separador de mentira desde fuera del proceso: `DANPLAY_SEPARATE_COMMAND`
-/// (una lista JSON, a la que se añade TRABAJO.json), como hacen las pruebas
-/// de la API de Python contra este núcleo. Con él, todo está «instalado».
+/// (una lista JSON, a la que se añade TRABAJO.json), para las pruebas que
+/// le hablan al núcleo desde fuera. Con él, todo está «instalado».
 fn env_command() -> Option<Vec<OsString>> {
     let raw = std::env::var("DANPLAY_SEPARATE_COMMAND").ok()?;
     let command: Vec<String> = serde_json::from_str(&raw).ok()?;
@@ -352,8 +351,8 @@ pub fn stems_format(app: &App) -> String {
     chosen
 }
 
-/// `stems.status()`: si se puede separar, lo que pesa el separador, en qué
-/// se guardan las pistas, la cola y lo último que acabó.
+/// Si se puede separar, lo que pesa el separador, en qué se guardan las
+/// pistas, la cola y lo último que acabó.
 pub fn status(app: &App) -> Value {
     let reason = missing(app);
     let (mut total, mut pending, mut max_pending) = (0u64, 0u64, 0u64);
@@ -507,12 +506,12 @@ fn library_text(app: &App) -> String {
     app.config().library.to_string_lossy().into_owned()
 }
 
-/// `stems.info(song)`: las pistas tal como están en el disco, o `None`.
+/// Las pistas tal como están en el disco, o `None`.
 pub fn info(app: &App, song: &Dict) -> Option<Dict> {
     ls::info(song, &library_text(app))
 }
 
-/// `stems.folder_of(song)`.
+/// La carpeta de las pistas de la canción, o `None`.
 pub fn folder_of(app: &App, song: &Dict) -> Option<PathBuf> {
     ls::folder_of(song, &library_text(app)).map(PathBuf::from)
 }
@@ -529,7 +528,7 @@ fn title_of(song: &Dict) -> String {
     file_stem(&songs::text_or_empty(song, "file"))
 }
 
-/// `Path(file or "").stem`: vacío si no hay archivo.
+/// El nombre del archivo sin la extensión: vacío si no hay archivo.
 pub fn file_stem(file: &str) -> String {
     if file.is_empty() {
         String::new()
@@ -538,7 +537,7 @@ pub fn file_stem(file: &str) -> String {
     }
 }
 
-/// Un nombre al azar de 12 cifras hexadecimales (`uuid4().hex[:12]`).
+/// Un nombre al azar de 12 cifras hexadecimales.
 pub fn random_hex() -> String {
     use std::hash::{BuildHasher as _, Hasher as _};
     static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -553,7 +552,8 @@ pub fn random_hex() -> String {
     format!("{:016x}", h.finish())[..12].to_owned()
 }
 
-/// `tempfile.mkdtemp(prefix=..., dir=...)`.
+/// Una carpeta nueva dentro de `parent`: `prefix` y ocho cifras al azar
+/// (si ya existe, otras).
 pub fn make_temp_dir(parent: &Path, prefix: &str) -> std::io::Result<PathBuf> {
     loop {
         let dir = parent.join(format!("{prefix}{}", &random_hex()[..8]));
@@ -587,7 +587,8 @@ fn step_message(step: &str, title: &str, verb: &str) -> Option<String> {
     })
 }
 
-/// `x or 0` de Python con un número que llega en JSON.
+/// Un número que llega en JSON, o 0 si falta o está vacío (`null`, `false`,
+/// 0...).
 fn or_zero(v: Option<Value>) -> Value {
     match v {
         Some(v) if value::truthy(&v) => v,
@@ -622,8 +623,8 @@ impl Report<'_> {
 }
 
 /// Las líneas de lo que dice un proceso hasta que cierra (lo que no es
-/// UTF-8, con «�», como `errors="replace"`): sin dejar de leer, que un
-/// proceso al que nadie lee se queda parado.
+/// UTF-8, con «�»): sin dejar de leer, que un proceso al que nadie lee se
+/// queda parado.
 fn lossy_lines(r: impl std::io::Read) -> impl Iterator<Item = String> {
     use std::io::BufRead as _;
     let mut r = BufReader::new(r);
@@ -640,7 +641,7 @@ fn lossy_lines(r: impl std::io::Read) -> impl Iterator<Item = String> {
     })
 }
 
-/// `shutil.copy2`: el contenido y la fecha.
+/// Copia el contenido y la fecha.
 pub(crate) fn copy_with_time(from: &Path, to: &Path) -> std::io::Result<()> {
     std::fs::copy(from, to)?;
     if let Ok(t) = std::fs::metadata(from).and_then(|m| m.modified()) {
@@ -1199,8 +1200,8 @@ fn item(cid: i64, title: String, stage: &str) -> Dict {
     d
 }
 
-/// `stems.request`: a la cola, y la cola a andar si no lo está. Devuelve
-/// el estado. Pedir otra vez una que ya espera o se separa no la repite.
+/// A la cola, y la cola a andar si no lo está. Devuelve el estado. Pedir
+/// otra vez una que ya espera o se separa no la repite.
 pub fn request(app: &App, cid: i64, maximum: bool) -> Result<Value> {
     let mut song = songs::by_id(app, cid)?
         .ok_or_else(|| expected("esa canción ya no está en la biblioteca"))?;
@@ -1250,9 +1251,8 @@ fn stage_of(d: &Dict) -> &str {
 }
 
 /// A la cola, y la cola a andar si no lo estaba. Si se pone a andar, espera
-/// (un momento) a que tome la primera: el hilo de Python la tomaba antes de
-/// que se contestara (`Thread.start` cede el intérprete al hilo nuevo), y
-/// así el estado que se contesta ya la tiene en `current`.
+/// (un momento) a que tome la primera: así el estado que se contesta ya la
+/// tiene en `current`.
 fn enqueue(app: &App, it: Dict) {
     let wake = {
         let mut q = lock(&app.separator.queue);
@@ -1472,7 +1472,7 @@ pub fn cancel(app: &App) -> Value {
     status(app)
 }
 
-/// `Popen.terminate()`: SIGTERM (en Windows, matarlo).
+/// Que pare: SIGTERM (en Windows, matarlo).
 fn terminate(c: &mut Child) {
     #[cfg(unix)]
     {
@@ -1557,20 +1557,20 @@ fn track_matrix(t: &MixTrack) -> [f64; 4] {
     ls::matrix(t.gain, t.pan, &t.side, t.mono)
 }
 
-/// `path.with_name(...)`.
+/// La misma ruta con otro nombre de archivo.
 fn with_name(path: &Path, name: &str) -> PathBuf {
     path.parent()
         .map_or_else(|| PathBuf::from(name), |p| p.join(name))
 }
 
-/// `Path.suffix` (con el punto), como pathlib.
+/// La extensión, con el punto.
 fn suffix(path: &Path) -> String {
     paths::suffix(std::path::Path::new(&path_text(path)))
 }
 
-/// Guarda en `target` la mezcla de las pistas de la canción (ver
-/// `stems.export_mix`). Solo dentro de la biblioteca y sin pisar ninguna
-/// canción; si cae fuera de una carpeta de pistas, entra en la biblioteca.
+/// Guarda en `target` la mezcla de las pistas de la canción. Solo dentro de
+/// la biblioteca y sin pisar ninguna canción; si cae fuera de una carpeta de
+/// pistas, entra en la biblioteca.
 #[allow(clippy::too_many_lines)]
 pub fn export_mix(app: &App, cid: i64, mix: &Mix, progress: &dyn Fn(f64, f64)) -> Result<Value> {
     let song = songs::by_id(app, cid)?

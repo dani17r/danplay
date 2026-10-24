@@ -1,14 +1,14 @@
-//! Lo que hacía pydantic: comprobar lo que llega (el cuerpo, la consulta y
-//! las partes de la ruta) y, si no cuadra, el 422 de FastAPI con la misma
-//! lista de fallos: `{"detail": [{"type", "loc", "msg", "input", "ctx"?}]}`.
+//! Comprobar lo que llega (el cuerpo, la consulta y las partes de la ruta)
+//! y, si no cuadra, contestar un 422 con la lista de fallos, en el formato
+//! de la API de DanPlay:
+//! `{"detail": [{"type", "loc", "msg", "input", "ctx"?}]}`.
 //!
-//! Un modelo de danplay/api/models.py se lee campo a campo, EN SU ORDEN (es
-//! el orden de los fallos), con lo que pide cada uno:
+//! Un modelo se lee campo a campo, EN SU ORDEN (es el orden de los fallos),
+//! con lo que pide cada uno:
 //!
 //! ```ignore
-//! // class PlaylistIn(Body_):
-//! //     name: str = Field(default="Nueva lista", min_length=1, max_length=200)
-//! //     note: str = Field(default="", max_length=500)
+//! // el cuerpo de una lista: `name`, de 1 a 200 caracteres («Nueva lista»
+//! // si falta), y `note`, hasta 500 (vacía si falta)
 //! let mut b = ctx.body()?;
 //! let name = b.str("name").min_len(1).max_len(200).or("Nueva lista");
 //! let note = b.str("note").max_len(500).or("");
@@ -16,19 +16,19 @@
 //! ```
 //!
 //! Cada campo termina en `.required()` (sin valor por defecto: si falta,
-//! «Field required»), `.or(valor)` (si falta, ese) u `.opt()` (`X | None =
-//! None`: si falta o es `null`, `None`). Lo que no cuadra se apunta y se
+//! «Field required»), `.or(valor)` (si falta, ese) u `.opt()` (opcional: si
+//! falta o es `null`, `None`). Lo que no cuadra se apunta y se
 //! devuelve el valor por defecto: hasta `ctx.done` no se sabe si vale, así
 //! que no se usa nada antes.
 //!
-//! Es el modo «lax» de pydantic: un número en texto vale como número (`"5"`),
+//! Es un modo tolerante («lax»): un número en texto vale como número (`"5"`),
 //! `1` y `"true"` valen como verdadero, `5.0` vale como entero; un número no
 //! vale como texto.
 use library::value;
 use serde_json::{Map, Value, json};
 
-/// Un número de una restricción (`ge=0`, `le=0.25`), escrito como en
-/// Python: un entero sin decimales.
+/// El número de un tope (`.ge(0)`, `.le(0.25)`): un entero se escribe sin
+/// decimales.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Num {
     Int(i64),
@@ -77,13 +77,14 @@ impl Num {
     fn text(self) -> String {
         match self {
             Self::Int(i) => i.to_string(),
-            // como lo escribe pydantic-core (en Rust): `20` y no `20.0`
+            // en el mensaje, `20` y no `20.0`
             Self::Float(f) => format!("{f}"),
         }
     }
 }
 
-/// Un fallo con la forma de pydantic.
+/// Un fallo de la lista del 422: `type`, `loc`, `msg`, `input` y, si
+/// hace falta, `ctx`.
 pub fn error(kind: &str, loc: &[Value], msg: &str, input: &Value, ctx: Option<Value>) -> Value {
     let mut e = Map::new();
     e.insert("type".into(), kind.into());
@@ -153,7 +154,7 @@ impl Fields {
     pub fn params(loc: &str, pairs: &[(String, String)]) -> Self {
         let mut obj = Map::new();
         for (k, v) in pairs {
-            // como Starlette: si se repite, vale el último
+            // si se repite, vale el último
             obj.insert(k.clone(), Value::String(v.clone()));
         }
         Self {
@@ -181,8 +182,8 @@ impl Fields {
         f
     }
 
-    /// Que las claves de más no sean un fallo (un modelo sin
-    /// `extra="forbid"`, como `TermsIn`).
+    /// Que las claves de más no sean un fallo (se ignoran, como en el
+    /// cuerpo de aceptar los términos).
     #[must_use]
     pub fn allow_extra(mut self) -> Self {
         self.forbid_extra = false;
@@ -199,7 +200,7 @@ impl Fields {
         !self.errors.is_empty()
     }
 
-    /// Apunta un fallo propio (un `model_validator` de pydantic, por ejemplo).
+    /// Apunta un fallo propio (una regla que no es de un tipo, por ejemplo).
     pub fn push_error(
         &mut self,
         kind: &str,
@@ -241,7 +242,7 @@ impl Fields {
     }
 
     /// Los fallos, con los de las claves que sobran al final (en el orden
-    /// en que llegaron), como pydantic.
+    /// en que llegaron).
     pub fn into_errors(mut self) -> Vec<Value> {
         if self.forbid_extra && !self.invalid {
             let extra: Vec<(String, Value)> = self
@@ -306,27 +307,27 @@ impl Fields {
         self.field(key, Lit { options })
     }
 
-    /// Una lista de enteros (`list[int]`).
+    /// Una lista de enteros.
     pub fn int_list(&mut self, key: &str) -> Field<'_, List<Int>> {
         self.field(key, List::of(Int::default()))
     }
 
-    /// Una lista de textos (`list[str]`).
+    /// Una lista de textos.
     pub fn str_list(&mut self, key: &str) -> Field<'_, List<Str>> {
         self.field(key, List::of(Str::default()))
     }
 
-    /// Una lista de números (`list[float]`).
+    /// Una lista de números.
     pub fn float_list(&mut self, key: &str) -> Field<'_, List<Float>> {
         self.field(key, List::of(Float::default()))
     }
 
-    /// Cualquier valor JSON (`Any`).
+    /// Cualquier valor JSON.
     pub fn any(&mut self, key: &str) -> Field<'_, Any> {
         self.field(key, Any)
     }
 
-    /// Un diccionario (`dict`).
+    /// Un diccionario (un objeto JSON).
     pub fn dict(&mut self, key: &str) -> Field<'_, Dict> {
         self.field(key, Dict)
     }
@@ -342,8 +343,8 @@ impl Fields {
         }
     }
 
-    /// Un modelo dentro de este (`metronome: StudyMetronome | None`): `None`
-    /// si falta o es `null`. Lo que se lea de él se junta después con
+    /// Un modelo dentro de este (el `metronome` de un estudio): `None` si
+    /// falta o es `null`. Lo que se lea de él se junta después con
     /// `absorb`.
     pub fn object(&mut self, key: &str, forbid_extra: bool) -> Option<Self> {
         let value = self.take(key)?;
@@ -353,8 +354,8 @@ impl Fields {
         Some(Self::new(self.loc_of(key), &value, forbid_extra))
     }
 
-    /// Una lista de modelos (`tracks: list[StemMixTrack]`): `None` si falta
-    /// o es `null`; si no es una lista, el fallo de lista. Cada uno se lee
+    /// Una lista de modelos (las `tracks` de una mezcla): `None` si falta o
+    /// es `null`; si no es una lista, el fallo de lista. Cada uno se lee
     /// y se junta con `absorb`.
     pub fn objects(&mut self, key: &str, forbid_extra: bool) -> Option<Vec<Self>> {
         let value = self.take(key)?;
@@ -429,7 +430,7 @@ impl<K: Kind> Field<'_, K> {
         }
     }
 
-    /// Optativo (`x: int | None = None`): si falta o es `null`, `None`.
+    /// Optativo (con `None` por defecto): si falta o es `null`, `None`.
     pub fn opt(mut self) -> Option<K::Out> {
         match self.value.take() {
             None | Some(Value::Null) => None,
@@ -437,7 +438,7 @@ impl<K: Kind> Field<'_, K> {
         }
     }
 
-    /// Optativo y obligatorio a la vez (`x: int | None`, sin valor por
+    /// Optativo y obligatorio a la vez (puede ser `null`, pero sin valor por
     /// defecto): si falta, «Field required»; `null` es `None`.
     pub fn nullable(mut self) -> Option<K::Out> {
         match self.value.take() {
@@ -459,14 +460,14 @@ impl<K: Kind> Field<'_, K> {
 
 // ---------------------------------------------------------------- tipos
 
-/// Un tipo de pydantic: cómo se convierte lo que llega, o qué fallo es.
+/// Un tipo de campo: cómo se convierte lo que llega, o qué fallo es.
 pub trait Kind {
     type Out;
     /// El valor convertido, o `None` con el fallo ya apuntado en `errors`.
     fn convert(&self, v: &Value, loc: &[Value], errors: &mut Vec<Value>) -> Option<Self::Out>;
 }
 
-/// `str`, con `min_length` y `max_length` (en caracteres, como Python).
+/// Un texto, con un largo mínimo y uno máximo (en caracteres, no en bytes).
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Str {
     min: Option<usize>,
@@ -600,8 +601,8 @@ struct Bounds {
 /// dice y si se cumple.
 type Check<'a> = (Option<Num>, &'a str, &'a str, &'a str, fn(f64, f64) -> bool);
 
-/// Los topes de un número. En un `float`, pydantic pone el tope en `ctx`
-/// como float (`le=2` es `{"le": 2.0}`), aunque el mensaje diga «2».
+/// Los topes de un número. En un `float`, el tope va en `ctx` con decimales
+/// (`.le(2)` es `{"le": 2.0}`), aunque el mensaje diga «2».
 fn bounds(x: f64, b: Bounds, loc: &[Value], v: &Value, errors: &mut Vec<Value>) -> bool {
     bounds_with(x, b, loc, v, errors, false)
 }
@@ -678,7 +679,7 @@ impl Int {
         }
     }
 
-    /// Solo un entero de verdad (`Field(strict=True)`): ni `"5"` ni `5.0`.
+    /// Solo un entero de verdad (estricto): ni `"5"` ni `5.0`.
     #[must_use]
     pub fn strict(mut self) -> Self {
         self.strict = true;
@@ -686,8 +687,8 @@ impl Int {
     }
 }
 
-/// Un entero escrito en texto, como lo lee pydantic: con espacios
-/// alrededor, signo y, como mucho, «.0» detrás.
+/// Un entero escrito en texto: con espacios alrededor, signo y, como
+/// mucho, «.0» detrás.
 fn parse_int_text(s: &str) -> Option<i64> {
     let t = s.trim();
     let t = match t.split_once('.') {
@@ -924,7 +925,7 @@ impl Kind for Lit {
     }
 }
 
-/// `list[...]`, con `min_length` y `max_length`.
+/// Una lista, con un largo mínimo y uno máximo.
 #[derive(Debug, Clone, Copy)]
 pub struct List<K> {
     item: K,
@@ -1015,7 +1016,7 @@ impl<K: Kind> Field<'_, List<K>> {
         self
     }
 
-    /// Lo que pide cada elemento (`list[Annotated[int, Field(ge=0)]]`).
+    /// Lo que pide cada elemento (un entero desde 0, por ejemplo).
     #[must_use]
     pub fn items(mut self, item: K) -> Self {
         self.kind.item = item;
@@ -1034,7 +1035,7 @@ impl Kind for Any {
     }
 }
 
-/// `dict`: un objeto JSON.
+/// Un diccionario: un objeto JSON.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Dict;
 
@@ -1057,8 +1058,9 @@ impl Kind for Dict {
 
 // ---------------------------------------------------------------- el JSON
 
-/// El fallo de un cuerpo que no es JSON, como FastAPI: la posición y el
-/// mensaje de `json.loads` (los más comunes; la posición, en caracteres).
+/// El fallo de un cuerpo que no es JSON: la posición y el mensaje de la API
+/// («Expecting value», «Extra data»...; los más comunes; la posición, en
+/// caracteres).
 pub fn json_invalid(body: &[u8], e: &serde_json::Error) -> Value {
     let text = String::from_utf8_lossy(body);
     // de línea y columna (en bytes) a la posición en caracteres
@@ -1076,7 +1078,7 @@ pub fn json_invalid(body: &[u8], e: &serde_json::Error) -> Value {
     }
     let what = e.to_string();
     if what.contains("expected ident") {
-        // una palabra que no es `null`, `true` ni `false`: `json.loads` dice
+        // una palabra que no es `null`, `true` ni `false`: la posición es
         // dónde EMPIEZA el valor, no dónde dejó de cuadrar
         let chars: Vec<char> = text.chars().collect();
         pos = pos.min(chars.len());
@@ -1085,8 +1087,8 @@ pub fn json_invalid(body: &[u8], e: &serde_json::Error) -> Value {
         }
     }
     if what.contains("EOF while parsing") {
-        // se acabó a medias: `json.loads` dice qué esperaba y dónde (el final,
-        // o dónde empieza el texto sin cerrar)
+        // se acabó a medias: se dice qué esperaba y dónde (el final, o
+        // dónde empieza el texto sin cerrar)
         let (msg, at) = eof_expectation(&text);
         return error(
             "json_invalid",
@@ -1122,8 +1124,8 @@ pub fn json_invalid(body: &[u8], e: &serde_json::Error) -> Value {
     )
 }
 
-/// Qué esperaba `json.loads` de un JSON que se acaba a medias, y dónde: el
-/// final, o dónde empieza el texto que no se cerró.
+/// Qué faltaba en un JSON que se acaba a medias, y dónde: el final, o
+/// dónde empieza el texto que no se cerró.
 fn eof_expectation(text: &str) -> (&'static str, usize) {
     #[derive(Clone, Copy, PartialEq)]
     enum Want {
@@ -1212,7 +1214,7 @@ fn eof_expectation(text: &str) -> (&'static str, usize) {
     (msg, chars.len())
 }
 
-/// El cuerpo como JSON, como lo lee FastAPI: sin `content-type`, o con uno
+/// El cuerpo como JSON: sin `content-type`, o con uno
 /// de JSON (`application/json`, `application/algo+json`), se lee como JSON;
 /// con otro, llegan los bytes (y ningún modelo los acepta).
 pub fn parse_body(content_type: Option<&str>, body: &[u8]) -> Result<Value, crate::ApiError> {
@@ -1311,7 +1313,7 @@ mod tests {
             e[0]["ctx"]["error"],
             "Expecting property name enclosed in double quotes"
         );
-        // cortado: donde se acaba, como `json.loads` («char 10»)
+        // cortado: la posición es donde se acaba (la 10)
         let Err(crate::ApiError::Validation(e)) = parse_body(None, b"{\"query\": ") else {
             panic!("tenia que fallar");
         };
@@ -1321,7 +1323,7 @@ mod tests {
             panic!("tenia que fallar");
         };
         assert_eq!(e[0]["loc"], json!(["body", 1]));
-        // cortado: donde esperaba algo más, como `json.loads`
+        // cortado: la posición es donde esperaba algo más
         let Err(crate::ApiError::Validation(e)) = parse_body(None, br#"{"tracks": ["#) else {
             panic!("tenia que fallar");
         };
@@ -1341,8 +1343,8 @@ mod tests {
     }
 
     #[test]
-    fn json_that_ends_too_soon_reads_like_python() {
-        // lo que dice `json.loads` de Python (msg, pos)
+    fn json_that_ends_too_soon_says_what_was_expected_and_where() {
+        // el mensaje y la posición de cada caso
         let cases = [
             ("{\"messages\": [", "Expecting value", 14),
             ("{\"a\"", "Expecting ':' delimiter", 4),
@@ -1377,7 +1379,7 @@ mod tests {
     }
 
     #[test]
-    fn the_list_of_options_reads_like_pydantic() {
+    fn the_list_of_options_reads_as_text() {
         assert_eq!(
             expected(&["high", "medium", "variable"]),
             "'high', 'medium' or 'variable'"

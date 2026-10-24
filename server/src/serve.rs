@@ -1,5 +1,4 @@
-//! Servir la API por un socket Unix (0600) o por loopback, con hyper: lo que
-//! hacía `serve` en danplay/api/__init__.py con uvicorn.
+//! Servir la API por un socket Unix (0600) o por loopback, con hyper.
 //!
 //! Cada petición se contesta en un hilo de los de bloquear (`spawn_blocking`):
 //! las rutas son síncronas (SQLite, el disco). El audio y las carátulas van
@@ -122,7 +121,7 @@ async fn answer(
     app: App,
     req: hyper::Request<hyper::body::Incoming>,
 ) -> Result<hyper::Response<Out>, Infallible> {
-    // HTTP/1.1 sin Host: uvicorn (h11) ni llega a la app
+    // HTTP/1.1 sin Host: 400 sin llegar a la app
     if req.version() == hyper::Version::HTTP_11 && !req.headers().contains_key(hyper::header::HOST)
     {
         let mut r = hyper::Response::new(full(b"Invalid HTTP request received.".to_vec()));

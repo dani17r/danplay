@@ -1,5 +1,5 @@
-//! tests/test_api.py: el modo estudio (en el índice y en la etiqueta), la
-//! forma de onda y su caché, y la hoja de una lista.
+//! El modo estudio (en el índice y en la etiqueta), la forma de onda y su
+//! caché, y la hoja de una lista.
 use crate::testkit::{api_library, call, ffmpeg, get, mp3, run_job};
 use library::index::Dict;
 use serde_json::{Value, json};

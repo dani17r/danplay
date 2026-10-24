@@ -1,7 +1,7 @@
-//! tests/test_downloads.py: la tubería de descargas de principio a fin, con
-//! un yt-dlp de mentira que «baja» un mp3 sintético: nada sale a YouTube,
-//! pero todo lo demás es de verdad (el nombre que pone YouTube, archivar en
-//! Artistas/, el índice, el historial, lo que ya tienes, cancelar).
+//! La tubería de descargas de principio a fin, con un yt-dlp de mentira que
+//! «baja» un mp3 sintético: nada sale a YouTube, pero todo lo demás es de
+//! verdad (el nombre que pone YouTube, archivar en Artistas/, el índice, el
+//! historial, lo que ya tienes, cancelar).
 #![cfg(unix)]
 use crate::services::youtube::{self, Wanted};
 use crate::testkit::{api_library, call, get, mp3, run_job};
@@ -557,10 +557,11 @@ fn choosing_a_folder_uses_and_creates_its_subfolders() {
     assert!(app.config().library == lib && !external.join("Artistas").exists());
 }
 
-// ---------------------------------------------- tests/test_youtube_after.py
-// `info(timeout=...)`: consulta ligera, con el motivo real si falla; nunca
-// consulta un host que no sea de YouTube y `list=` no convierte un vídeo en
-// una lista. Y las descargas que rematan una lista, de verdad.
+// ------------------------------- la consulta ligera y las listas rematadas
+// `info` con su tope de tiempo: consulta ligera, con el motivo real si
+// falla; nunca consulta un host que no sea de YouTube y `list=` no
+// convierte un vídeo en una lista. Y las descargas que rematan una lista,
+// de verdad.
 
 /// Lo que contesta el yt-dlp de mentira en vez de lo de siempre: un trozo
 /// de sh que acaba con `exit` (`$last` es lo que se le pidió).

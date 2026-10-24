@@ -1,5 +1,5 @@
-//! Aprovechar lo ya hecho de una canción que vuelve en otro archivo (lo de
-//! danplay/reuse.py alrededor de `library::reuse` y `analysis::align`).
+//! Aprovechar lo ya hecho de una canción que vuelve en otro archivo
+//! (alrededor de `library::reuse` y `analysis::align`).
 //!
 //! Pasaba así: se cambia la carpeta de música de sitio, o se vuelve a bajar
 //! una canción que ya estaba, y DanPlay la trataba como nueva: separar las
@@ -63,8 +63,7 @@ const ENCODE_TIMEOUT: Duration = Duration::from_secs(600);
 /// su canción: {clave: [(duración, carpeta)]}.
 pub type ManifestIndex = HashMap<String, Vec<(f64, PathBuf)>>;
 
-/// La cola de fondo (`_QUEUE`, `_WORKER`) y el índice de los manifiestos
-/// (`_MANIFESTS`), que en Python eran del módulo.
+/// La cola de fondo y el índice de los manifiestos (uno por app).
 #[derive(Debug, Default)]
 pub struct State {
     queue: Mutex<Queue>,
@@ -108,7 +107,7 @@ impl Default for Done {
 }
 
 impl Done {
-    /// Como el diccionario de Python: {twin, lag, score, stems, grid, study}.
+    /// Como objeto JSON: {twin, lag, score, stems, grid, study}.
     pub fn to_value(&self) -> Value {
         json!({
             "twin": self.twin,
@@ -123,13 +122,14 @@ impl Done {
 
 // ------------------------------------------------------------ las gemelas
 
-/// `reuse.twins(song)`: las otras filas que son esta misma canción, de la
-/// duración más parecida a la menos (las apartadas, con `missing`).
+/// Las otras filas que son esta misma canción, de la duración más parecida a
+/// la menos (las apartadas, con `missing`).
 pub fn twins(app: &App, song: &Dict) -> Result<Vec<Dict>, ApiError> {
     app.db(|c| library::reuse::twins(c, song))
 }
 
-/// `reuse._manifest_index()`, rehecho cada minuto.
+/// Las carpetas de pistas por la clave de su canción (`ManifestIndex`),
+/// rehecho cada minuto.
 pub fn manifest_index(app: &App) -> Result<ManifestIndex, ApiError> {
     if let Some((at, index)) = lock(&app.reuse.manifests).as_ref()
         && at.elapsed() < MANIFESTS_FOR
@@ -161,9 +161,9 @@ pub fn manifest_index(app: &App) -> Result<ManifestIndex, ApiError> {
     Ok(index)
 }
 
-/// `reuse.with_twins(ids)`: de esas canciones (recién llegadas), las que
-/// tienen gemela en la biblioteca o pistas separadas de otro archivo: solo
-/// esas merecen el trabajo de `settle`. Una consulta para todas.
+/// De esas canciones (recién llegadas), las que tienen gemela en la
+/// biblioteca o pistas separadas de otro archivo: solo esas merecen el
+/// trabajo de `settle`. Una consulta para todas.
 pub fn with_twins(app: &App, ids: &[i64]) -> Result<Vec<i64>, ApiError> {
     if ids.is_empty() {
         return Ok(Vec::new());
@@ -175,9 +175,8 @@ pub fn with_twins(app: &App, ids: &[i64]) -> Result<Vec<i64>, ApiError> {
     app.db(|c| library::reuse::with_twins(c, ids, &manifests))
 }
 
-/// `_manifest_twin(song)`: una carpeta de pistas, en cualquier carpeta
-/// gestionada, cuyo manifiesto diga que es de esta canción (aunque ninguna
-/// fila apunte a ella).
+/// Una carpeta de pistas, en cualquier carpeta gestionada, cuyo manifiesto
+/// diga que es de esta canción (aunque ninguna fila apunte a ella).
 fn manifest_twin(app: &App, song: &Dict) -> Result<Option<PathBuf>, ApiError> {
     let index = manifest_index(app)?;
     let duration = song.get("duration");
@@ -192,16 +191,15 @@ fn manifest_twin(app: &App, song: &Dict) -> Result<Option<PathBuf>, ApiError> {
     }))
 }
 
-/// `_stems_folder(row)`: la carpeta de pistas de esa fila, si sigue en el
-/// disco (con su manifiesto).
+/// La carpeta de pistas de esa fila, si sigue en el disco (con su
+/// manifiesto).
 fn stems_folder(app: &App, row: &Dict) -> Option<PathBuf> {
     let folder = PathBuf::from(ls::folder_of(row, &app.config().library.to_string_lossy())?);
     ls::manifest_path(&folder).is_file().then_some(folder)
 }
 
-/// `_old_key(row)`: la clave con que se guardó la rejilla del archivo de esa
-/// fila (aunque el archivo ya no esté: su ruta, tamaño y fecha están en la
-/// fila).
+/// La clave con que se guardó la rejilla del archivo de esa fila (aunque el
+/// archivo ya no esté: su ruta, tamaño y fecha están en la fila).
 fn old_key(row: &Dict) -> Option<String> {
     let size = u64::try_from(row.get("size").and_then(value::int_of)?).ok()?;
     let mtime = row.get("mtime").and_then(value::float_of)?;
@@ -218,8 +216,8 @@ fn beats_folder(app: &App) -> PathBuf {
     app.config().data_dir.join("beats")
 }
 
-/// `_worth(row)`: lo que hay que aprovechar de una fila: sus pistas valen
-/// más que su clic, y su clic más que su estudio.
+/// Lo que hay que aprovechar de una fila: sus pistas valen más que su clic, y
+/// su clic más que su estudio.
 fn worth(app: &App, row: &Dict) -> i64 {
     let mut worth = if stems_folder(app, row).is_some() {
         4
@@ -241,8 +239,8 @@ fn worth(app: &App, row: &Dict) -> i64 {
 
 // ------------------------------------------------------------ el desfase
 
-/// `_decode(path, seconds, rate)`: lo de delante de un archivo, en mono a
-/// `rate` (`None` sin ffmpeg, si no lo lee o si dura menos de un segundo).
+/// Los primeros `seconds` de un archivo, en mono a `rate` (`None` sin ffmpeg,
+/// si no lo lee o si dura menos de un segundo).
 fn decode(app: &App, path: &Path, seconds: f64, rate: usize) -> Result<Option<Vec<f32>>, String> {
     let Some(ffmpeg) = app.tool("ffmpeg") else {
         return Ok(None);
@@ -274,7 +272,7 @@ fn decode(app: &App, path: &Path, seconds: f64, rate: usize) -> Result<Option<Ve
     ))
 }
 
-/// `_mix(paths)`: las pistas separadas sumadas, que suenan como la canción.
+/// Las pistas separadas sumadas, que suenan como la canción.
 fn mix(app: &App, paths: &[PathBuf]) -> Result<Option<Vec<f32>>, String> {
     let mut total: Option<Vec<f32>> = None;
     for p in paths {
@@ -289,8 +287,8 @@ fn mix(app: &App, paths: &[PathBuf]) -> Result<Option<Vec<f32>>, String> {
     Ok(total)
 }
 
-/// `reuse.lag_between(new, refs)`: el desfase entre un archivo y otro (o
-/// sus pistas separadas sumadas) y lo que se parecen.
+/// El desfase entre un archivo y otro (o sus pistas separadas sumadas) y lo
+/// que se parecen.
 pub fn lag_between(
     app: &App,
     new_path: &Path,
@@ -308,9 +306,8 @@ pub fn lag_between(
     })
 }
 
-/// `reuse.lag_from_lowband(new, raw)`: el desfase con lo que dijo la red
-/// del archivo de antes (su bombo y bajo, cada 10 ms), cuando el archivo ya
-/// no está ni hay pistas.
+/// El desfase con lo que dijo la red del archivo de antes (su bombo y bajo,
+/// cada 10 ms), cuando el archivo ya no está ni hay pistas.
 pub fn lag_from_lowband(
     app: &App,
     new_path: &Path,
@@ -322,10 +319,10 @@ pub fn lag_from_lowband(
     let (low, fps) = analysis::pulse::low_band(&x, 150.0)?;
     let keep = low.len() + (align::MAX_LAG * fps) as usize;
     let old = &raw.low[..raw.low.len().min(keep)];
-    // las tramas por segundo, las mismas exactas (`fps != raw["low_fps"]`)
+    // las tramas por segundo, las mismas exactas
     #[allow(
         clippy::float_cmp,
-        reason = "es la misma cuenta, y Python compara igual"
+        reason = "las dos tasas salen de la misma cuenta: o son iguales o no lo son"
     )]
     let other_rate = fps != raw.low_fps;
     if other_rate || (old.len() as f64) < fps * 5.0 {
@@ -336,9 +333,8 @@ pub fn lag_from_lowband(
 
 // ------------------------------------------------------------ adoptar
 
-/// `reuse.shift_study(study, lag)`: lo del estudio corrido `lag` segundos.
-/// `None` si no se puede correr (lo que no es un diccionario: el
-/// `TypeError` que Python se callaba).
+/// Lo del estudio corrido `lag` segundos. `None` si no se puede correr (lo
+/// que no es un objeto JSON).
 fn shift_study(study: &Value, lag: f64) -> Option<Value> {
     if !value::truthy(study) || lag.abs() < SMALL_LAG {
         return Some(study.clone());
@@ -349,7 +345,7 @@ fn shift_study(study: &Value, lag: f64) -> Option<Value> {
     )))
 }
 
-/// `shutil.copytree`: la carpeta entera, con las fechas de cada archivo.
+/// Copia la carpeta entera, con las fechas de cada archivo.
 fn copy_tree(src: &Path, dest: &Path) -> std::io::Result<()> {
     std::fs::create_dir(dest)?;
     for entry in std::fs::read_dir(src)? {
@@ -364,8 +360,8 @@ fn copy_tree(src: &Path, dest: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-/// `shutil.move` de una carpeta: renombrarla, o copiarla y borrarla si va a
-/// otro disco.
+/// Mueve una carpeta: renombrarla, o copiarla y borrarla si va a otro
+/// disco.
 fn move_tree(src: &Path, dest: &Path) -> std::io::Result<()> {
     match std::fs::rename(src, dest) {
         Ok(()) => Ok(()),
@@ -377,8 +373,8 @@ fn move_tree(src: &Path, dest: &Path) -> std::io::Result<()> {
     }
 }
 
-/// `_encode_shifted`: una pista corrida `lag` segundos (con silencio
-/// delante, o sin lo de delante), en FLAC.
+/// Una pista corrida `lag` segundos (con silencio delante, o sin lo de
+/// delante), en FLAC.
 fn encode_shifted(ffmpeg: &Path, src: &Path, dest: &Path, lag: f64) -> std::io::Result<()> {
     let filter = if lag > 0.0 {
         format!("adelay=delays={:.3}:all=1", lag * 1000.0)
@@ -402,7 +398,7 @@ fn encode_shifted(ffmpeg: &Path, src: &Path, dest: &Path, lag: f64) -> std::io::
     Ok(())
 }
 
-/// Un texto de la fila, o `default` si no lo tiene (`song.get(k) or ...`).
+/// Un texto de la fila, o `default` si no lo tiene (o está vacío).
 fn or_value(song: &Dict, key: &str, default: Value) -> Value {
     song.get(key)
         .filter(|v| value::truthy(v))
@@ -410,13 +406,12 @@ fn or_value(song: &Dict, key: &str, default: Value) -> Value {
         .unwrap_or(default)
 }
 
-/// `reuse.adopt_stems(song, source, lag, move)`: las pistas de `source`
-/// para esta canción, en su carpeta de pistas (movidas si ya no son de
-/// nadie, copiadas si siguen siendo de otra) y corridas `lag` segundos si
-/// hace falta. La carpeta, o `None` si no se pudo.
+/// Las pistas de `source` para esta canción, en su carpeta de pistas (movidas
+/// si ya no son de nadie, copiadas si siguen siendo de otra) y corridas `lag`
+/// segundos si hace falta. La carpeta, o `None` si no se pudo.
 #[allow(
     clippy::too_many_lines,
-    reason = "los pasos de reuse.adopt_stems, en su orden"
+    reason = "los pasos de adoptar las pistas, en su orden"
 )]
 pub fn adopt_stems(
     app: &App,
@@ -685,14 +680,13 @@ fn id_of(row: &Dict) -> Option<i64> {
     row.get("id").and_then(Value::as_i64)
 }
 
-/// `reuse.settle(song_id, twin_of_missing, candidates)`: lo que se
-/// aprovecha para esa canción recién llegada. `twin_of_missing`: la fila
-/// apartada con la que el escaneo ya la juntó (mismo id: sus listas y su
+/// Lo que se aprovecha para esa canción recién llegada. `twin_of_missing`: la
+/// fila apartada con la que el escaneo ya la juntó (mismo id: sus listas y su
 /// estudio ya son suyos); si no, se busca una gemela entre `candidates` (o
 /// entre todas).
 #[allow(
     clippy::too_many_lines,
-    reason = "los pasos de reuse.settle, en su orden"
+    reason = "los pasos de aprovechar lo de otra copia, en su orden"
 )]
 pub fn settle(
     app: &App,
@@ -870,10 +864,10 @@ pub fn settle(
     Ok(done)
 }
 
-/// `reuse.merge_missing(song_id, twin)`: la apartada que era esta canción
-/// (se cambió la carpeta de música y la canción se volvió a bajar antes de
-/// saber juntarlas): sus listas y sus recientes pasan a la fila nueva, y la
-/// apartada se olvida. En cuántas listas vuelve a estar.
+/// La apartada que era esta canción (se cambió la carpeta de música y la
+/// canción se volvió a bajar antes de saber juntarlas): sus listas y sus
+/// recientes pasan a la fila nueva, y la apartada se olvida. En cuántas
+/// listas vuelve a estar.
 pub fn merge_missing(app: &App, song_id: i64, twin: &Dict) -> Result<usize, ApiError> {
     let Some(old) = twin
         .get("id")
@@ -923,11 +917,11 @@ pub fn merge_missing(app: &App, song_id: i64, twin: &Dict) -> Result<usize, ApiE
     Ok(n)
 }
 
-/// `reuse.sweep(progress)`: una pasada por toda la biblioteca: a cada
-/// canción sin pistas, sin clic o sin estudio se le busca una gemela de la
-/// que aprovecharlos, y las que se perdieron de las listas al mover la
-/// carpeta de música vuelven a ellas. Para lo que pasó antes de que DanPlay
-/// supiera hacerlo solo. {songs, stems, grid, study, lists}.
+/// Una pasada por toda la biblioteca: a cada canción sin pistas, sin clic o
+/// sin estudio se le busca una gemela de la que aprovecharlos, y las que se
+/// perdieron de las listas al mover la carpeta de música vuelven a ellas.
+/// Para lo que pasó antes de que DanPlay supiera hacerlo solo. {songs, stems,
+/// grid, study, lists}.
 pub fn sweep(app: &App, progress: &mut dyn FnMut(usize, usize)) -> Result<Value, ApiError> {
     let ids: Vec<i64> = app
         .db(|c| fetch_all(c, "SELECT id, path, duration FROM songs ORDER BY id", []))?
@@ -989,12 +983,11 @@ fn wait_unless_stopping(app: &App, delay: Duration) -> bool {
     !app.stopping.load(Ordering::SeqCst)
 }
 
-/// `reuse.sweep_once_in_background(delay)`: `sweep` una sola vez por equipo
-/// (lo apunta DATA_DIR/reuse.json), en segundo plano y pasado `delay` (lo
-/// de este arranque primero). Si se lanzó.
+/// `sweep` una sola vez por equipo (lo apunta DATA_DIR/reuse.json), en
+/// segundo plano y pasado `delay` (lo de este arranque primero). Si se lanzó.
 pub fn sweep_once_in_background(app: &App, delay: Duration) -> bool {
     let marker = app.config().data_dir.join("reuse.json");
-    // `.get("version") == SWEEP_VERSION` de Python: 1, 1.0 y True valen
+    // la marca vale si su «version» es SWEEP_VERSION: 1, 1.0 y `true` valen
     let done = |v: &Value| match v {
         Value::Bool(b) => i64::from(*b) == SWEEP_VERSION,
         Value::Number(n) => n.as_f64() == Some(SWEEP_VERSION as f64),
@@ -1040,9 +1033,8 @@ pub fn sweep_once_in_background(app: &App, delay: Duration) -> bool {
 
 // ------------------------------------------------------------ en segundo plano
 
-/// `reuse.later(song_id, twin_of_missing)`: `settle` en segundo plano
-/// (decodificar y medir tarda unos segundos): el escaneo y las descargas no
-/// esperan.
+/// `settle` en segundo plano (decodificar y medir tarda unos segundos): el
+/// escaneo y las descargas no esperan.
 pub fn later(app: &App, song_id: i64, twin_of_missing: Option<Dict>) {
     let mut q = lock(&app.reuse.queue);
     q.waiting.push_back((song_id, twin_of_missing));
@@ -1090,8 +1082,8 @@ fn work(app: &App) {
     }
 }
 
-/// `reuse.idle(timeout)`: espera a que no quede nada por aprovechar (para
-/// las pruebas y el arnés).
+/// Espera a que no quede nada por aprovechar, como mucho `timeout` (para
+/// las pruebas).
 pub fn idle(app: &App, timeout: Duration) -> bool {
     let q = lock(&app.reuse.queue);
     let (_q, r) = app
@@ -1102,8 +1094,8 @@ pub fn idle(app: &App, timeout: Duration) -> bool {
     !r.timed_out()
 }
 
-/// `stems._reuse(cid)`: si se aprovecharon las pistas de otra copia de la
-/// canción (lo que se mira antes de separarla).
+/// Si se aprovecharon las pistas de otra copia de la canción (lo que se mira
+/// antes de separarla).
 pub fn took_stems(app: &App, cid: i64) -> bool {
     match settle(app, cid, None, None) {
         Ok(done) => done.stems,

@@ -1,17 +1,15 @@
-//! Las listas con cerrojo (lo de tests/test_playlists_place.py): `place` y
-//! las demás escrituras de una lista, contra una base temporal REAL (el
-//! esquema de verdad, canciones metidas en `songs` sin audio), porque lo que
-//! se prueba es la transacción: que nadie vea la lista a medias y que dos
-//! escritores a la vez no se pisen. Los hilos arrancan juntos con un
-//! `Barrier` y un vigilante mira la lista mientras tanto: en cada foto las
-//! posiciones tienen que ser exactamente 0..n-1.
+//! Las listas con cerrojo: `place` y las demás escrituras de una lista,
+//! contra una base temporal REAL (el esquema de verdad, canciones metidas en
+//! `songs` sin audio), porque lo que se prueba es la transacción: que nadie
+//! vea la lista a medias y que dos escritores a la vez no se pisen. Los hilos
+//! arrancan juntos con un `Barrier` y un vigilante mira la lista mientras
+//! tanto: en cada foto las posiciones tienen que ser exactamente 0..n-1.
 //!
-//! Lo que en Python se apuntaba con un `monkeypatch` de
-//! `_stamp_playlists_into_files` (qué canciones se sellan) aquí se ve en los
-//! archivos de verdad: los que se sellan cambian de fecha.
+//! Qué canciones se sellan (TXXX:LISTAS) se ve en los archivos de verdad:
+//! los que se sellan cambian de fecha.
 #![allow(
     clippy::many_single_char_names,
-    reason = "a, b, c… las canciones de cada prueba, como en Python"
+    reason = "a, b, c… las canciones de cada prueba"
 )]
 
 use super::*;
@@ -23,7 +21,7 @@ use std::time::{Duration, SystemTime};
 
 static COUNTER: AtomicUsize = AtomicUsize::new(1);
 
-/// Un generador fijo (en Python, `random.Random(semilla)`).
+/// Un generador fijo: con la misma semilla, los mismos números.
 struct Rng(u64);
 
 impl Rng {
@@ -42,7 +40,7 @@ impl Rng {
         lo + self.below(hi - lo + 1)
     }
 
-    /// `random.sample`: `k` distintos.
+    /// `k` distintos, al azar.
     fn sample<T: Clone>(&mut self, items: &[T], k: usize) -> Vec<T> {
         let mut pool: Vec<T> = items.to_vec();
         let mut out = Vec::new();
@@ -161,7 +159,7 @@ fn assert_tidy(app: &App, lid: i64) {
     assert_eq!(pos, want, "posiciones rotas");
 }
 
-/// `playlists.place(lid, ids)`, como lo ve quien llama.
+/// `lists::place`, como lo ve quien llama.
 fn place(app: &App, lid: i64, ids: &[i64]) -> Value {
     Value::Object(
         lists::place(app, lid, ids)
@@ -353,7 +351,6 @@ fn place_on_a_missing_playlist_writes_nothing() {
     let a = make_songs(&app, 1)[0];
     let lid = new_list(&app, "domingo");
     remove(&app, lid).expect("borrar");
-    // (en Python también «no» y None, que aquí no llegan a ser un id)
     for gone in [lid, 424_242] {
         assert!(
             lists::place(&app, gone, &[a]).expect("sin fallo").is_none(),
@@ -805,8 +802,7 @@ fn set_songs_matches_the_model_on_random_playlists() {
     let mut rnd = Rng::new(20_260_117);
     let mut universe = make_songs(&app, 12);
     universe.extend(make_outside(&app, 3));
-    // lo que no es una canción: ids que no existen (y en Python, «x» y None,
-    // que no llegan a ser un id)
+    // lo que no es una canción: ids que no existen
     let junk = [999_999_i64, -999_999];
     for n in 0..40 {
         let lid = new_list(&app, &format!("lista {n}"));
@@ -1140,8 +1136,7 @@ fn whoever_holds_the_lock_can_call_the_other_functions() {
     assert_eq!(r["order"], json!([c, a, b]));
 }
 
-/// Cada escritura espera al cerrojo de las listas. (En Python también
-/// `rename_folder`, que en Rust no usa nadie.)
+/// Cada escritura espera al cerrojo de las listas.
 #[test]
 fn each_write_waits_for_the_lock() {
     type Op = fn(&App, i64, &[i64]);

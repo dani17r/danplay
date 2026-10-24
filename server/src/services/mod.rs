@@ -1,7 +1,6 @@
-//! Lo que hacían los módulos de Python alrededor de `library` (sus cerrojos,
-//! el aviso a la interfaz, lo que toca el disco o la red), ya en Rust. Un
-//! módulo por cada uno de Python, con el mismo nombre en inglés: las rutas
-//! los usan, y los que porten las demás rutas añaden aquí los suyos.
+//! Lo que se hace alrededor de `library` (sus cerrojos, el aviso a la
+//! interfaz, lo que toca el disco o la red). Un módulo por tema: las rutas
+//! los usan, y las rutas nuevas añaden aquí los suyos.
 pub mod ai;
 pub mod beats;
 pub mod bundle;

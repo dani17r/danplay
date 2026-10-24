@@ -1,7 +1,7 @@
-//! Las listas (lo de danplay/playlists.py alrededor de `library::playlists`):
-//! el cerrojo de las listas, el aviso a la interfaz (`touch`), escribir las
-//! listas dentro de los archivos (TXXX:LISTAS) y lo que se exporta a Listas/
-//! (el .m3u8 y la hoja para el atril).
+//! Las listas (alrededor de `library::playlists`): el cerrojo de las listas,
+//! el aviso a la interfaz (`touch`), escribir las listas dentro de los
+//! archivos (TXXX:LISTAS) y lo que se exporta a Listas/ (el .m3u8 y la hoja
+//! para el atril).
 use crate::app::App;
 use crate::error::ApiError;
 use crate::services::{clock, folders, tags};
@@ -16,8 +16,7 @@ fn pid(id: i64) -> Sql {
     Sql::Integer(id)
 }
 
-/// `create(name, note, color)`: la lista, o la que ya había con ese nombre
-/// (`created` lo dice).
+/// La lista nueva, o la que ya había con ese nombre (`created` lo dice).
 pub fn create(
     app: &App,
     name: &str,
@@ -32,8 +31,8 @@ pub fn create(
     Ok(out)
 }
 
-/// `remove(lid)`: la borra, y sus canciones dejan de nombrarla dentro del
-/// archivo (si no, un reescaneo la resucitaría).
+/// Borra la lista, y sus canciones dejan de nombrarla dentro del archivo (si
+/// no, un reescaneo la resucitaría).
 pub fn remove(app: &App, lid: i64) -> Result<(), ApiError> {
     let _lock = app.playlists_lock.lock();
     let members = app.db_write(|c| playlists::remove(c, &pid(lid)))?;
@@ -41,17 +40,17 @@ pub fn remove(app: &App, lid: i64) -> Result<(), ApiError> {
     stamp_into_files(app, &members)
 }
 
-/// `by_id(lid)`: la lista con cuántos temas tiene, o `None`.
+/// La lista con cuántos temas tiene, o `None`.
 pub fn by_id(app: &App, lid: i64) -> Result<Option<Dict>, ApiError> {
     app.db(|c| playlists::by_id(c, lid))
 }
 
-/// `by_name(name)`: sin distinguir mayúsculas ni tildes.
+/// La lista con ese nombre, sin distinguir mayúsculas ni tildes.
 pub fn by_name(app: &App, name: &str) -> Result<Option<Dict>, ApiError> {
     app.db(|c| playlists::by_name(c, name))
 }
 
-/// `edit(lid, name, note)`: la lista ya cambiada, o `None` si no existe.
+/// La lista ya cambiada (el nombre, la nota), o `None` si no existe.
 pub fn edit(
     app: &App,
     lid: i64,
@@ -77,7 +76,7 @@ pub fn edit(
     by_id(app, id)
 }
 
-/// `set_songs(lid, ids)`: la lista EXACTAMENTE con esas, en ese orden.
+/// La lista EXACTAMENTE con esas canciones, en ese orden.
 pub fn set_songs(app: &App, lid: i64, ids: &[i64]) -> Result<Dict, ApiError> {
     let _lock = app.playlists_lock.lock();
     let r = app.db_write(|c| playlists::set_songs(c, &pid(lid), ids))?;
@@ -95,12 +94,12 @@ pub fn set_songs(app: &App, lid: i64, ids: &[i64]) -> Result<Dict, ApiError> {
     Ok(out)
 }
 
-/// `list_all()`.
+/// Todas las listas.
 pub fn list_all(app: &App) -> Result<Vec<Dict>, ApiError> {
     app.db(playlists::list_all)
 }
 
-/// `add(lid, ids)`: cuántas entraron.
+/// Añade esas canciones a la lista: cuántas entraron.
 pub fn add(app: &App, lid: i64, ids: &[i64]) -> Result<usize, ApiError> {
     if ids.is_empty() {
         return Ok(0);
@@ -116,7 +115,7 @@ pub fn add(app: &App, lid: i64, ids: &[i64]) -> Result<usize, ApiError> {
     Ok(n)
 }
 
-/// `remove_song(lid, ids)`.
+/// Saca esas canciones de la lista.
 pub fn remove_song(app: &App, lid: i64, ids: &[i64]) -> Result<(), ApiError> {
     let _lock = app.playlists_lock.lock();
     let sql: Vec<Sql> = ids.iter().map(|&i| Sql::Integer(i)).collect();
@@ -125,7 +124,7 @@ pub fn remove_song(app: &App, lid: i64, ids: &[i64]) -> Result<(), ApiError> {
     stamp_into_files(app, ids)
 }
 
-/// `reorder(lid, ids)`.
+/// Las canciones de la lista en ese orden.
 pub fn reorder(app: &App, lid: i64, ids: &[i64]) -> Result<(), ApiError> {
     let _lock = app.playlists_lock.lock();
     app.db_write(|c| playlists::reorder(c, &pid(lid), ids))?;
@@ -133,18 +132,18 @@ pub fn reorder(app: &App, lid: i64, ids: &[i64]) -> Result<(), ApiError> {
     Ok(())
 }
 
-/// `songs(lid, light, ghosts)`: en su orden, con las «No está».
+/// Las canciones de la lista, en su orden (con las «No está» si `ghosts`).
 pub fn songs(app: &App, lid: i64, light: bool, ghosts: bool) -> Result<Vec<Dict>, ApiError> {
     app.db(|c| playlists::songs(c, &pid(lid), light, ghosts))
 }
 
-/// `favorites_count()`.
+/// Cuántas favoritas hay.
 pub fn favorites_count(app: &App) -> Result<i64, ApiError> {
     app.db(playlists::favorites_count)
 }
 
-/// `relink_ghosts(ids)`: las que vuelven en otro archivo recuperan su sitio
-/// en las listas que las tenían como «No está». Cuántas filas.
+/// Las que vuelven en otro archivo recuperan su sitio en las listas que las
+/// tenían como «No está». Cuántas filas.
 pub fn relink_ghosts(app: &App, new_ids: &[i64]) -> Result<usize, ApiError> {
     let ids: Vec<i64> = new_ids.iter().copied().filter(|&i| i > 0).collect();
     if ids.is_empty() {
@@ -159,9 +158,8 @@ pub fn relink_ghosts(app: &App, new_ids: &[i64]) -> Result<usize, ApiError> {
     Ok(n)
 }
 
-/// `_stamp_playlists_into_files`: TXXX:LISTAS dentro de cada archivo de la
-/// biblioteca (nunca en uno de fuera: lo abierto desde el explorador es tuyo
-/// y se queda como está).
+/// TXXX:LISTAS dentro de cada archivo de la biblioteca (nunca en uno de
+/// fuera: lo abierto desde el explorador es tuyo y se queda como está).
 pub fn stamp_into_files(app: &App, song_ids: &[i64]) -> Result<(), ApiError> {
     let ids: Vec<i64> = song_ids.iter().copied().filter(|&i| i > 0).collect();
     if ids.is_empty() {
@@ -191,7 +189,7 @@ pub fn stamp_into_files(app: &App, song_ids: &[i64]) -> Result<(), ApiError> {
 
 // ---------------------------------------------------------------- m3u
 
-/// `export_folder()`: LIBRARY/Listas.
+/// Donde se exportan las listas: LIBRARY/Listas.
 pub fn export_folder(app: &App) -> PathBuf {
     app.config().library.join("Listas")
 }
@@ -209,14 +207,14 @@ fn safe_name(name: &Value) -> Result<String, ApiError> {
     Ok(safe)
 }
 
-/// `_ensure_export_folder`: Listas/, sin hacer reaparecer una carpeta de
-/// música que se movió.
+/// Crea Listas/ si hace falta, sin hacer reaparecer una carpeta de música que
+/// se movió.
 fn ensure_export_folder(app: &App, folder: &Path) -> Result<(), ApiError> {
     folders::ensure_folder(app, folder).map_err(ApiError::bad_request)
 }
 
-/// `export_m3u(lid, target)`: la lista como .m3u8 en Listas/. Los fallos son
-/// un 400 con su motivo (el `ValueError` de Python).
+/// La lista como .m3u8 en Listas/ (o en `target`). Los fallos son un 400
+/// con su motivo.
 pub fn export_m3u(app: &App, lid: i64, target: Option<&Path>) -> Result<String, ApiError> {
     let Some(name) = app.db(|c| playlists::name_of(c, &pid(lid)))? else {
         return Err(ApiError::bad_request("no existe esa lista"));
@@ -261,7 +259,8 @@ pub fn export_m3u(app: &App, lid: i64, target: Option<&Path>) -> Result<String, 
     Ok(crate::app::path_str(&target))
 }
 
-/// `html.escape`.
+/// El texto a salvo dentro de un HTML: `&`, `<`, `>` y las comillas, como
+/// entidades.
 pub fn escape(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for c in s.chars() {
@@ -315,13 +314,10 @@ fn lrc_to_plain(text: &str) -> String {
     library::tags::lrc::lrc_to_plain(text)
 }
 
-/// `export_sheet(lid, with_lyrics)`: la hoja para el atril, un HTML en
-/// Listas/ con las canciones en orden, su tono, bpm, cejilla sugerida, los
-/// acordes por secciones y, si se pide, la letra.
-#[allow(
-    clippy::too_many_lines,
-    reason = "la hoja entera, como export_sheet de Python"
-)]
+/// La hoja para el atril, un HTML en Listas/ con las canciones en orden, su
+/// tono, bpm, cejilla sugerida, los acordes por secciones y, si se pide, la
+/// letra.
+#[allow(clippy::too_many_lines, reason = "la hoja entera, de arriba abajo")]
 pub fn export_sheet(app: &App, lid: i64, with_lyrics: bool) -> Result<String, ApiError> {
     let Some(name) = app.db(|c| playlists::name_of(c, &pid(lid)))? else {
         return Err(ApiError::bad_request("no existe esa lista"));

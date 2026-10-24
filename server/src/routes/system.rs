@@ -1,5 +1,4 @@
-//! Estado del núcleo, ajustes y cómo van los trabajos largos
-//! (danplay/api/routes/system.py).
+//! Estado del núcleo, ajustes y cómo van los trabajos largos.
 use crate::app::{App, VERSION, path_str};
 use crate::error::ApiError;
 use crate::router::{Ctx, Reply, Route};
@@ -17,7 +16,7 @@ pub const ROUTES: &[Route] = &[
     Route::get("/api/jobs/{name}", job_status),
 ];
 
-/// `library.stats_of()`: las cifras de la biblioteca, recordadas unos
+/// Las cifras de la biblioteca, recordadas unos
 /// segundos (y olvidadas en cuanto algo escribe en `songs`).
 pub fn stats_of(app: &App) -> Result<Dict, ApiError> {
     let key = app.config().database.to_string_lossy().into_owned();
@@ -78,7 +77,7 @@ fn terms_status(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
 }
 
 fn terms_accept(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
-    // TermsIn es un BaseModel sin `extra="forbid"`: lo de más se ignora
+    // aquí no se rechazan las claves de más: se ignoran
     let mut b = ctx.body()?.allow_extra();
     let version = b.str("version").min_len(1).max_len(32).required();
     ctx.done(b)?;
@@ -146,7 +145,7 @@ fn save_settings(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
         save.retain(|(k, _)| *k != key);
         save.push((key, value));
     };
-    // en el orden de los campos, como `model_dump(exclude_none=True)`
+    // en el orden de los campos, solo los que llegaron con valor
     let flags = [
         (convert_mp3, "DANPLAY_CONVERT"),
         (keep_original, "DANPLAY_KEEP_ORIGINAL"),

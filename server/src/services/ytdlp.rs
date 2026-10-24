@@ -1,22 +1,20 @@
-//! yt-dlp sin Python: su ejecutable oficial (fase 4 de docs/MIGRATION.md).
-//! Lo de danplay/ytdlp.py (qué versión se usa, con qué motor de JavaScript y
-//! cómo se pone al día) y lo que hacía su API de Python en
-//! danplay/youtube.py, ya como un programa aparte:
+//! yt-dlp como un programa aparte, su ejecutable oficial: qué versión se
+//! usa, con qué motor de JavaScript, cómo se le habla y cómo se pone al día:
 //!
 //! - **Qué ejecutable.** El que se bajó al actualizar
 //!   (`DATA_DIR/tools/yt-dlp/<versión>/yt-dlp`, con la marca `current`, si
 //!   está entero, contesta su versión y es más nuevo que el de la app) o el
-//!   que viaja con la app (`tools/` o el PATH, `App::tool`). Como en Python,
-//!   uno descargado que no contesta se aparta y no se vuelve a probar.
-//! - **Las opciones.** Las de `library::youtube` (las de la API de Python)
-//!   como argumentos de la línea de órdenes, una a una (ver `base_args`,
-//!   `query_args`, `download_args`); `--ignore-config` para que no cuente
-//!   la configuración de yt-dlp de nadie (la API de Python no la leía).
-//! - **Lo que contesta.** `-J` escribe al final, en una línea, lo mismo que
-//!   devolvía `extract_info`; sus avisos y errores (lo que recogía el
-//!   `logger`, `_Seen`) salen por stderr con «WARNING:» y «ERROR:»; el avance
-//!   (los `progress_hooks`), con `--progress-template` en una línea JSON por
-//!   paso. Cancelar es matar el proceso (con todo lo que lanzó: ffmpeg).
+//!   que viaja con la app (`tools/` o el PATH, `App::tool`). Uno descargado
+//!   que no contesta se aparta y no se vuelve a probar.
+//! - **Las opciones.** Las de `library::youtube`, como argumentos de la
+//!   línea de órdenes, una a una (ver `base_args`, `query_args`,
+//!   `download_args`); `--ignore-config` para que no cuente la
+//!   configuración de yt-dlp de nadie.
+//! - **Lo que contesta.** `-J` escribe al final, en una línea, el JSON de
+//!   lo que encontró; sus avisos y errores salen por stderr con «WARNING:»
+//!   y «ERROR:» (ver `Stderr`); el avance, con `--progress-template` en una
+//!   línea JSON por paso. Cancelar es matar el proceso (con todo lo que
+//!   lanzó: ffmpeg).
 //! - **Actualizar** (`update`, el trabajo «yt-dlp»): el ejecutable oficial
 //!   de la última versión de GitHub para este sistema, comprobado contra su
 //!   SHA2-256SUMS, probado (`--version`) antes de usarlo.
@@ -43,7 +41,7 @@ pub const SUMS: &str = "SHA2-256SUMS";
 /// Topes de lo que se baja: el ejecutable de Linux ronda los 35 MB.
 pub const MAX_BINARY_BYTES: u64 = 200 * 1024 * 1024;
 pub const MAX_LISTING_BYTES: u64 = 20 * 1024 * 1024;
-/// Para conectar y para que conteste (como el `TIMEOUT` de Python).
+/// Para conectar y para que conteste.
 pub const TIMEOUT: Duration = Duration::from_secs(60);
 /// Sin motor de JS se vuelve a mirar cada tanto: instalar deno con la app
 /// abierta tiene que notarse sin reiniciarla.
@@ -51,8 +49,8 @@ pub const RUNTIME_RECHECK: Duration = Duration::from_secs(60);
 /// Lo que tarda como mucho en decir su versión (el primero que arranca un
 /// ejecutable de PyInstaller lo descomprime: unos segundos).
 pub const VERSION_CAP: Duration = Duration::from_secs(60);
-/// Lo que se espera a que termine una consulta (la API de Python no tenía
-/// tope; un yt-dlp colgado no debe dejar la petición esperando siempre).
+/// Lo que se espera a que termine una consulta (un yt-dlp colgado no debe
+/// dejar la petición esperando siempre).
 pub const QUERY_CAP: Duration = Duration::from_secs(300);
 /// Lo que precede a cada línea del avance (`--progress-template`).
 pub const PROGRESS: &str = "DANPLAY-PROGRESS ";
@@ -65,8 +63,9 @@ pub const EXE: &str = if cfg!(windows) {
 };
 
 /// Los ejecutables oficiales que valen en este sistema, en el orden en que
-/// se prefieren (los de Linux, macOS y Windows no necesitan Python; «yt-dlp»
-/// a secas es el zipapp, que sí: el último recurso).
+/// se prefieren (los de Linux, macOS y Windows llevan dentro el Python de
+/// yt-dlp; «yt-dlp» a secas es el zipapp, que necesita uno instalado en el
+/// sistema: el último recurso).
 pub fn assets() -> &'static [&'static str] {
     if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
         &["yt-dlp_linux", "yt-dlp"]
@@ -105,19 +104,19 @@ struct RuntimeCache {
     found: Vec<Runtime>,
 }
 
-/// Lo de yt-dlp que en Python eran variables de módulo (uno por app).
+/// Lo de yt-dlp que se recuerda mientras corre la app (uno por app).
 #[derive(Debug, Default)]
 pub struct State {
     /// Usarlo (una consulta, una descarga) frente a cambiarlo por otra
-    /// versión (`_rw`): se lee a la vez desde varios hilos; el cambio
+    /// versión: se lee a la vez desde varios hilos; el cambio
     /// espera a que nadie lo use.
     rw: RwLock<()>,
-    /// El ejecutable en uso, una vez elegido (`_module`).
+    /// El ejecutable en uso, una vez elegido.
     current: Mutex<Option<Exe>>,
     /// La versión que dijo cada ejecutable (por su ruta, tamaño y fecha):
     /// preguntársela es lanzarlo.
     versions: Mutex<HashMap<PathBuf, (Stamp, String)>>,
-    /// El motor de JS (`_runtime_cache`).
+    /// El motor de JS.
     runtime: Mutex<RuntimeCache>,
 }
 
@@ -129,12 +128,12 @@ fn state(app: &App) -> &State {
     &app.downloads.ytdlp
 }
 
-/// `ytdlp.using()`: mientras vive, nadie cambia yt-dlp por otra versión.
+/// Mientras vive lo que devuelve, nadie cambia yt-dlp por otra versión.
 pub fn using(app: &App) -> RwLockReadGuard<'_, ()> {
     state(app).rw.read().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// `root()`: dónde se guardan las versiones bajadas al actualizar.
+/// Dónde se guardan las versiones bajadas al actualizar.
 pub fn root(app: &App) -> PathBuf {
     app.config().data_dir.join("tools").join("yt-dlp")
 }
@@ -195,7 +194,7 @@ pub fn bundled(app: &App) -> Option<PathBuf> {
     app.tool("yt-dlp")
 }
 
-/// `bundled_version()`: la versión del que viaja con la app, o "".
+/// La versión del que viaja con la app, o "".
 pub fn bundled_version(app: &App) -> String {
     bundled(app)
         .and_then(|exe| version_of(app, &exe))
@@ -211,14 +210,13 @@ pub fn marked(app: &App) -> Option<(String, PathBuf)> {
     (!version.is_empty() && folder.join(EXE).is_file()).then_some((version, folder))
 }
 
-/// `downloaded()`: la descargada que toca usar: la que dice `current`, si
-/// está entera y es más nueva que la de la app.
+/// La descargada que toca usar: la que dice `current`, si está entera y es
+/// más nueva que la de la app.
 pub fn downloaded(app: &App) -> Option<(String, PathBuf)> {
     marked(app).filter(|(version, _)| y::usable(version, &bundled_version(app)))
 }
 
-/// `_discard`: una versión descargada que no sirve, fuera (y la marca, si
-/// la nombra).
+/// Una versión descargada que no sirve, fuera (y la marca, si la nombra).
 fn discard(app: &App, folder: &Path) {
     let root = root(app);
     if let Err(e) = y::discard(&root.to_string_lossy(), &folder.to_string_lossy()) {
@@ -226,7 +224,7 @@ fn discard(app: &App, folder: &Path) {
     }
 }
 
-/// `_load`: el yt-dlp que toca, la descargada si la hay y contesta; si no,
+/// El yt-dlp que toca: la versión descargada si la hay y contesta; si no,
 /// el de la app.
 fn load(app: &App) -> Option<Exe> {
     if let Some((version, folder)) = downloaded(app) {
@@ -258,7 +256,7 @@ fn load(app: &App) -> Option<Exe> {
     })
 }
 
-/// `module()`: el yt-dlp en uso, o `None` si no hay ninguno que conteste.
+/// El yt-dlp en uso, o `None` si no hay ninguno que conteste.
 /// Se recuerda mientras su archivo siga ahí.
 pub fn executable(app: &App) -> Option<Exe> {
     let mut current = lock(&state(app).current);
@@ -273,7 +271,7 @@ pub fn executable(app: &App) -> Option<Exe> {
 }
 
 /// Si hay yt-dlp, SIN lanzarlo (lo pregunta `/api/status` continuamente):
-/// el descargado o el de la app, como `find_spec` en Python.
+/// el descargado o el de la app.
 pub fn installed(app: &App) -> bool {
     lock(&state(app).current)
         .as_ref()
@@ -282,12 +280,12 @@ pub fn installed(app: &App) -> bool {
         || bundled(app).is_some()
 }
 
-/// `version()`: la versión que se está usando, o "".
+/// La versión que se está usando, o "".
 pub fn version(app: &App) -> String {
     executable(app).map(|e| e.version).unwrap_or_default()
 }
 
-/// `origin()`: de dónde sale el yt-dlp en uso ("" si es el de la app).
+/// De dónde sale el yt-dlp en uso ("" si es el de la app).
 pub fn origin(app: &App) -> String {
     executable(app).map(|e| e.origin).unwrap_or_default()
 }
@@ -314,9 +312,9 @@ fn probe(app: &App) -> Vec<Runtime> {
     out
 }
 
-/// `js_runtime()`: el motor de JS que usará yt-dlp, o `None`. El primero
-/// que esté y sea lo bastante nuevo, en el orden de yt-dlp. Se recuerda; si
-/// no hay ninguno, se vuelve a mirar al rato.
+/// El motor de JS que usará yt-dlp, o `None`. El primero que esté y sea lo
+/// bastante nuevo, en el orden de yt-dlp. Se recuerda; si no hay ninguno,
+/// se vuelve a mirar al rato.
 pub fn js_runtime(app: &App, refresh: bool) -> Option<Runtime> {
     {
         let cache = lock(&state(app).runtime);
@@ -334,7 +332,7 @@ pub fn js_runtime(app: &App, refresh: bool) -> Option<Runtime> {
     chosen
 }
 
-/// `js_runtime_hint()`: qué hacer si no hay motor de JS. Vacío si lo hay.
+/// Qué hacer si no hay motor de JS. Vacío si lo hay.
 pub fn js_runtime_hint(app: &App) -> String {
     if js_runtime(app, false).is_some() {
         return String::new();
@@ -351,11 +349,10 @@ pub fn match_filter() -> String {
     format!("duration<=?{}", library::youtube::MAX_SECONDS)
 }
 
-/// `_base_options(quiet=True)` y lo de `ytdlp.options()`, como argumentos:
-/// sin la configuración de yt-dlp de nadie, callado, sin parar por un
-/// error, tres reintentos, 30 s por respuesta y el motor de JavaScript.
-/// `warnings` deja salir los avisos por stderr: en las consultas los
-/// recogía el `logger` (sin él, `no_warnings` los callaba).
+/// Los argumentos de siempre: sin la configuración de yt-dlp de nadie,
+/// callado, sin parar por un error, tres reintentos, 30 s por respuesta y
+/// el motor de JavaScript. `warnings` deja salir los avisos por stderr
+/// (las consultas los recogen); sin él, `--no-warnings` los calla.
 pub fn base_args(runtime: Option<&Runtime>, warnings: bool) -> Vec<String> {
     let mut a: Vec<String> = ["--ignore-config", "--quiet"]
         .into_iter()
@@ -365,8 +362,8 @@ pub fn base_args(runtime: Option<&Runtime>, warnings: bool) -> Vec<String> {
         a.push("--no-warnings".into());
     }
     // `ignoreerrors`, `retries`, `socket_timeout` (de library::youtube); y
-    // sin el `FFmpegConcat` que la línea de órdenes pone por su cuenta (la
-    // API no lo tenía)
+    // sin el `FFmpegConcat` que la línea de órdenes pone por su cuenta (las
+    // opciones de library::youtube no lo piden)
     a.extend(
         [
             "--ignore-errors",
@@ -381,7 +378,7 @@ pub fn base_args(runtime: Option<&Runtime>, warnings: bool) -> Vec<String> {
         .map(String::from),
     );
     if let Some(rt) = runtime {
-        // `js_runtimes={name: {path}}` sustituye al de siempre (deno):
+        // el motor elegido sustituye al de siempre (deno):
         // `--no-js-runtimes` antes, como dice la ayuda de yt-dlp
         a.push("--no-js-runtimes".into());
         a.push("--js-runtimes".into());
@@ -426,8 +423,8 @@ pub fn query_args(url: &str, timeout: Option<f64>) -> Vec<String> {
     a
 }
 
-/// La plantilla del avance: una línea JSON por paso, con lo que leía el
-/// gancho de Python (`null` si yt-dlp no lo sabe).
+/// La plantilla del avance: una línea JSON por paso, con lo que se mira de
+/// él (`null` si yt-dlp no lo sabe).
 pub fn progress_template() -> String {
     let field = |k: &str| format!("\"{k}\":%(progress.{k}|null)j");
     let fields = [
@@ -453,8 +450,9 @@ pub fn download_args(outtmpl: &str, kbps: &str, ffmpeg: Option<&Path>, url: &str
         "--output".into(),
         outtmpl.into(),
         "--no-playlist".into(),
-        // `writethumbnail` + `EmbedThumbnail(already_have_thumbnail=False)`
-        // (sin --write-thumbnail: con él, la miniatura no se borraría)
+        // `writethumbnail` y `EmbedThumbnail` de `download_options`: la
+        // miniatura va dentro del mp3 y se borra (sin --write-thumbnail:
+        // con él, no se borraría)
         "--embed-thumbnail".into(),
         "--convert-thumbnails".into(),
         "jpg".into(),
@@ -473,7 +471,7 @@ pub fn download_args(outtmpl: &str, kbps: &str, ffmpeg: Option<&Path>, url: &str
         a.push(f.to_string_lossy().into_owned());
     }
     a.extend([
-        // los `progress_hooks`: el avance, aunque vaya callado
+        // el avance, aunque vaya callado
         "--progress".into(),
         "--newline".into(),
         "--progress-template".into(),
@@ -488,8 +486,7 @@ pub fn download_args(outtmpl: &str, kbps: &str, ffmpeg: Option<&Path>, url: &str
 
 // ------------------------------------------------ lo que contesta
 
-/// Una línea del avance (`--progress-template`) como el dict que le llegaba
-/// al gancho de Python.
+/// Una línea del avance (`--progress-template`) como un objeto JSON.
 pub fn parse_progress(line: &str) -> Option<Map<String, Value>> {
     match parse_json(line.strip_prefix(PROGRESS)?)? {
         Value::Object(m) => Some(m),
@@ -512,8 +509,8 @@ fn bytes_of(v: Option<&Value>) -> Option<library::youtube::Bytes> {
     }
 }
 
-/// `youtube_progress`: lo que se le cuenta a quien mira el avance según
-/// el paso de yt-dlp, o `None` si no es de bajar ni de convertir.
+/// Lo que se le cuenta a quien mira el avance según el paso de yt-dlp, o
+/// `None` si no es de bajar ni de convertir.
 pub fn progress_step(status: &Map<String, Value>) -> Option<Map<String, Value>> {
     match status.get("status").and_then(Value::as_str) {
         Some("downloading") => {
@@ -535,7 +532,7 @@ pub fn progress_step(status: &Map<String, Value>) -> Option<Map<String, Value>> 
     }
 }
 
-/// Un JSON de yt-dlp. Python escribe `NaN` e `Infinity` (que JSON no
+/// Un JSON de yt-dlp. yt-dlp escribe `NaN` e `Infinity` (que JSON no
 /// tiene): se leen como `null`.
 pub fn parse_json(text: &str) -> Option<Value> {
     if let Ok(v) = serde_json::from_str(text) {
@@ -580,9 +577,9 @@ fn without_nan(text: &str) -> String {
     out
 }
 
-/// Lo que va escribiendo yt-dlp por stderr, como lo recogía el `logger`
-/// (`_Seen`): cada «ERROR:» y cada «WARNING:» es un mensaje, con las
-/// líneas que le siguen hasta el siguiente.
+/// Lo que va escribiendo yt-dlp por stderr: cada «ERROR:» y cada
+/// «WARNING:» es un mensaje, con las líneas que le siguen hasta el
+/// siguiente.
 #[derive(Debug, Default)]
 pub struct Stderr {
     pub seen: Seen,
@@ -630,7 +627,7 @@ impl Stderr {
 #[derive(Debug, Default)]
 pub struct Ran {
     /// El JSON del final (`-J`), si llegó a escribirlo (`Some(Null)` si no
-    /// sacó nada, el `None` de `extract_info` con `ignoreerrors`).
+    /// sacó nada: con `--ignore-errors`, un fallo no lo para).
     pub json: Option<Value>,
     /// Sus avisos y errores.
     pub seen: Seen,
@@ -816,7 +813,7 @@ pub fn run(
 
 // ------------------------------------------------------------ actualizar
 
-/// Un fallo de la actualización, ya dicho en castellano (`UpdateError`).
+/// Un fallo de la actualización, ya dicho en castellano.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UpdateError(pub String);
 
@@ -830,7 +827,7 @@ fn fail<T>(why: impl Into<String>) -> Result<T, UpdateError> {
     Err(UpdateError(why.into()))
 }
 
-/// `_why`: un fallo de red en una frase que se entienda (la de ytdlp.py).
+/// Un fallo de red en una frase que se entienda.
 fn why(e: &DownloadError) -> String {
     match e {
         DownloadError::State(code) => y::why(Some(&code.to_string()), ""),
@@ -841,7 +838,7 @@ fn why(e: &DownloadError) -> String {
     }
 }
 
-/// `_get`: lo que hay en `url` (con su sha256), como mucho `limit` bytes;
+/// Lo que hay en `url` (con su sha256), como mucho `limit` bytes;
 /// si pesa más, se corta y se dice.
 fn get(url: &str, limit: u64) -> Result<Result<(Vec<u8>, String), DownloadError>, UpdateError> {
     let mut data = Vec::new();
@@ -903,7 +900,7 @@ fn asset<'a>(release: &'a Map<String, Value>, name: &str) -> Option<(&'a str, &'
     })
 }
 
-/// `_fetch`: un archivo de la versión, entero, con su sha256.
+/// Un archivo de la versión, entero, con su sha256.
 fn fetch(name: &str, url: &str, limit: u64) -> Result<(Vec<u8>, String), UpdateError> {
     match get(url, limit)? {
         Ok(got) => Ok(got),
@@ -922,7 +919,7 @@ fn make_executable(_path: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-/// `_switch_to`: deja en uso la versión de `folder`, esperando a que nadie
+/// Deja en uso la versión de `folder`, esperando a que nadie
 /// use la de ahora. Si no contesta, se borra y se sigue con la de antes.
 fn switch_to(app: &App, new_version: &str, folder: &Path) -> Result<(), UpdateError> {
     let _writing = state(app)
@@ -962,8 +959,8 @@ fn switch_to(app: &App, new_version: &str, folder: &Path) -> Result<(), UpdateEr
     Ok(())
 }
 
-/// `update(progress)`: pone yt-dlp al día desde GitHub. Devuelve
-/// {previous, version, updated}. Es el trabajo «yt-dlp» del contrato A:
+/// Pone yt-dlp al día desde GitHub. Devuelve {previous, version,
+/// updated}. Es el trabajo «yt-dlp» del contrato A:
 /// `progress(n, mensaje)`, de 5 pasos.
 pub fn update(app: &App, progress: &dyn Fn(i64, &str)) -> Result<Value, UpdateError> {
     let previous = version(app);

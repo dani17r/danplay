@@ -1,5 +1,4 @@
-//! La guardia de cada petición (`_guard` de danplay/api/__init__.py) y el
-//! CORS de desarrollo.
+//! La guardia de cada petición y el CORS de desarrollo.
 //!
 //! Por el socket Unix o en el mismo proceso no hay navegador: no hace falta
 //! nada más que el tope del cuerpo. Con un puerto abierto:
@@ -86,15 +85,15 @@ pub fn check(guard: &Guard, req: &Request) -> Option<Response> {
     None
 }
 
-/// El CORS de Starlette para los orígenes de desarrollo: el preflight se
-/// contesta aquí; a lo demás se le añade el origen permitido al final.
+/// El CORS de los orígenes de desarrollo: el preflight se contesta aquí; a
+/// lo demás se le añade el origen permitido al final.
 pub fn preflight(req: &Request) -> Option<Response> {
     if req.method != "OPTIONS" {
         return None;
     }
     let origin = req.header_value("origin")?;
     req.header_value("access-control-request-method")?;
-    // como el CORSMiddleware de Starlette con allow_methods y allow_headers «*»
+    // todos los métodos, y las cabeceras que se pidan
     let allowed = DEV_ORIGINS.contains(&origin);
     let mut r = if allowed {
         Response::text(200, "OK")

@@ -1,8 +1,7 @@
-//! Una canción (lo de danplay/library/songs.py y library/tidy.py alrededor
-//! de `library::index::songs`): leerla, cambiarla en el índice y en su
-//! archivo, mandarla a la papelera, llevarla a otra carpeta con todo lo
-//! calculado de su sonido, y las estrellas y el favorito
-//! (`playlists.rate`, `playlists.favorite`).
+//! Una canción (alrededor de `library::index::songs` y de `tidy`): leerla,
+//! cambiarla en el índice y en su archivo, mandarla a la papelera, llevarla
+//! a otra carpeta con todo lo calculado de su sonido, y las estrellas y el
+//! favorito.
 use crate::app::App;
 use crate::error::ApiError;
 use crate::services::{folders, media, tags, trash};
@@ -13,13 +12,13 @@ use library::value;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 
-/// `library.by_id(cid)`: la fila entera, o `None`.
+/// La fila entera, o `None`.
 pub fn by_id(app: &App, cid: i64) -> Result<Option<Dict>, ApiError> {
     app.db(|c| songs::by_id(c, cid))
 }
 
-/// `external.resolve(cid)`: la de la biblioteca (positivo) o la de fuera
-/// (negativo), para lo que solo LEE o reproduce.
+/// La de la biblioteca (id positivo) o la de fuera (negativo), para lo que
+/// solo LEE o reproduce.
 pub fn resolve(app: &App, cid: i64) -> Result<Option<Dict>, ApiError> {
     if cid > 0 {
         return by_id(app, cid);
@@ -32,7 +31,7 @@ pub fn text(song: &Dict, key: &str) -> String {
     song.get(key).map(value::str_of).unwrap_or_default()
 }
 
-/// `song.get(key) or ""` (lo que es falso, vacío).
+/// Un texto de la fila, o vacío si falta o es falso (`null`, 0, "").
 pub fn text_or_empty(song: &Dict, key: &str) -> String {
     song.get(key)
         .filter(|v| value::truthy(v))
@@ -40,23 +39,23 @@ pub fn text_or_empty(song: &Dict, key: &str) -> String {
         .unwrap_or_default()
 }
 
-/// `library.by_path(path)`: la canción de esa ruta exacta, o `None`.
+/// La canción de esa ruta exacta, o `None`.
 pub fn by_path(app: &App, path: &str) -> Result<Option<Dict>, ApiError> {
     app.db(|c| index::search::by_path(c, path))
 }
 
-/// `os.path.exists(c["path"])`.
+/// Si su archivo (`path`) existe.
 pub fn exists(song: &Dict) -> bool {
     let path = text(song, "path");
     !path.is_empty() && Path::new(&path).exists()
 }
 
-/// `playlists.playlists_of(cid)`: los nombres de sus listas.
+/// Los nombres de sus listas.
 pub fn playlists_of(app: &App, cid: i64) -> Result<Vec<Value>, ApiError> {
     app.db(|c| library::playlists::playlists_of(c, cid))
 }
 
-/// `library.update(cid, **fields)`: solo el índice. Las filas tocadas.
+/// Cambia esos campos solo en el índice. Las filas tocadas.
 pub fn update(app: &App, cid: i64, fields: &Dict) -> Result<usize, ApiError> {
     let n = app.db(|c| songs::update(c, cid, fields))?;
     let Some(n) = n else { return Ok(0) };
@@ -64,15 +63,15 @@ pub fn update(app: &App, cid: i64, fields: &Dict) -> Result<usize, ApiError> {
     Ok(n)
 }
 
-/// Una sola columna (`library.update(cid, blur=1)`).
+/// Una sola columna (`update_one(app, cid, "blur", 1)`).
 pub fn update_one(app: &App, cid: i64, key: &str, value: Value) -> Result<usize, ApiError> {
     let mut fields = Dict::new();
     fields.insert(key.into(), value);
     update(app, cid, &fields)
 }
 
-/// `str(fields.get(key, c[key]))`, o `None` si queda vacío (tags.write solo
-/// escribe lo que tiene valor).
+/// El campo nuevo o, si no llega, el de la fila, como texto; `None` si queda
+/// vacío (en las etiquetas solo se escribe lo que tiene valor).
 fn field_or(fields: &Dict, song: &Dict, key: &str, as_str: bool) -> Option<String> {
     let v = fields
         .get(key)
@@ -89,8 +88,8 @@ fn field_or(fields: &Dict, song: &Dict, key: &str, as_str: bool) -> Option<Strin
 
 const METADATA_FIELDS: [&str; 5] = ["artist", "title", "album", "year", "genre"];
 
-/// `library.edit(cid, **fields)`: en el índice y en las etiquetas. La ficha
-/// lleva `tags_written` (si el archivo se actualizó de verdad).
+/// Cambia esos campos en el índice y en las etiquetas. La ficha lleva
+/// `tags_written` (si el archivo se actualizó de verdad).
 pub fn edit(app: &App, cid: i64, fields: &Dict) -> Result<Option<Dict>, ApiError> {
     let Some(c) = by_id(app, cid)? else {
         return Ok(None);
@@ -105,7 +104,7 @@ pub fn edit(app: &App, cid: i64, fields: &Dict) -> Result<Option<Dict>, ApiError
                 artist: field_or(fields, &c, "artist", false),
                 title: field_or(fields, &c, "title", false),
                 album: field_or(fields, &c, "album", false),
-                // `year=str(...)`: un año que falta en la base es «None»
+                // el año, como texto aunque sea falso (un 0 es «0»)
                 year: field_or(fields, &c, "year", true),
                 genre: field_or(fields, &c, "genre", false),
                 ..Changes::default()
@@ -142,8 +141,8 @@ pub fn edit(app: &App, cid: i64, fields: &Dict) -> Result<Option<Dict>, ApiError
     Ok(out)
 }
 
-/// `tags.write_analysis(path, key, bpm)`: lo que tenga valor; sin nada,
-/// `true` sin tocar el archivo.
+/// El tono y el bpm en las etiquetas, lo que tenga valor; sin nada, `true`
+/// sin tocar el archivo.
 pub fn write_analysis(app: &App, path: &Path, key: &Value, bpm: &Value) -> bool {
     let mut changes = Changes::default();
     if value::truthy(key) {
@@ -158,7 +157,7 @@ pub fn write_analysis(app: &App, path: &Path, key: &Value, bpm: &Value) -> bool 
     tags::write_fields(app, path, &changes)
 }
 
-/// `tags.write_lyrics(path, lyrics)` (en castellano, «spa»).
+/// La letra en las etiquetas (en castellano, «spa»).
 pub fn write_lyrics(app: &App, path: &Path, lyrics: &str) -> bool {
     let changes = Changes {
         lyrics: Some(lyrics.to_owned()),
@@ -168,8 +167,8 @@ pub fn write_lyrics(app: &App, path: &Path, lyrics: &str) -> bool {
     tags::write_fields(app, path, &changes)
 }
 
-/// `library.set_blur(cid, value)`: la marca va dentro del archivo; la
-/// imagen no se toca.
+/// La marca de difuminar la carátula: va dentro del archivo; la imagen no se
+/// toca.
 pub fn set_blur(app: &App, cid: i64, value: bool) -> Result<Option<Dict>, ApiError> {
     let Some(c) = by_id(app, cid)? else {
         return Ok(None);
@@ -189,13 +188,13 @@ pub fn set_blur(app: &App, cid: i64, value: bool) -> Result<Option<Dict>, ApiErr
     }))
 }
 
-/// `cues.folder()`: DATA_DIR/cues, de donde valen las guías habladas.
+/// DATA_DIR/cues, de donde valen las guías habladas.
 pub fn cues_folder(app: &App) -> PathBuf {
     app.config().data_dir.join("cues")
 }
 
-/// `library.set_study(cid, study)`: limpio (`songs::clean_study`), en el
-/// índice y en la etiqueta del archivo.
+/// El estudio, limpio (`songs::clean_study`), en el índice y en la etiqueta
+/// del archivo.
 pub fn set_study(app: &App, cid: i64, study: &Value) -> Result<Option<Dict>, ApiError> {
     let Some(c) = by_id(app, cid)? else {
         return Ok(None);
@@ -219,7 +218,7 @@ pub fn set_study(app: &App, cid: i64, study: &Value) -> Result<Option<Dict>, Api
 
 // ---------------------------------------------------------------- estrellas
 
-/// `playlists.rate(cid, stars)`: en el archivo (POPM) y en el índice.
+/// Las estrellas, en el archivo (POPM) y en el índice.
 pub fn rate(app: &App, cid: i64, stars: i64) -> Result<bool, ApiError> {
     let Some(c) = by_id(app, cid)? else {
         return Ok(false);
@@ -230,7 +229,7 @@ pub fn rate(app: &App, cid: i64, stars: i64) -> Result<bool, ApiError> {
     Ok(ok)
 }
 
-/// `playlists.favorite(cid, value)`.
+/// El favorito, en el archivo y en el índice.
 pub fn favorite(app: &App, cid: i64, value: bool) -> Result<bool, ApiError> {
     let Some(c) = by_id(app, cid)? else {
         return Ok(false);
@@ -243,8 +242,8 @@ pub fn favorite(app: &App, cid: i64, value: bool) -> Result<bool, ApiError> {
 
 // ---------------------------------------------------------------- papelera
 
-/// `library.forget(cid)`: fuera del índice (apartada, con su id, por si
-/// vuelve), sin tocar el archivo; su onda y sus miniaturas, fuera.
+/// Fuera del índice (apartada, con su id, por si vuelve), sin tocar el
+/// archivo; su onda y sus miniaturas, fuera.
 pub fn forget(app: &App, cid: i64) -> Result<(), ApiError> {
     let path: Option<String> = app.db(|c| {
         let row = index::fetch_one(c, "SELECT path FROM songs WHERE id=?", [cid])?;
@@ -262,9 +261,8 @@ pub fn forget(app: &App, cid: i64) -> Result<(), ApiError> {
     Ok(())
 }
 
-/// `library.trash(cid, from_lists)`: el archivo a la papelera del sistema
-/// (nunca se borra sin vuelta atrás) y fuera del índice; con `from_lists`,
-/// también de sus listas.
+/// El archivo a la papelera del sistema (nunca se borra sin vuelta atrás) y
+/// fuera del índice; con `from_lists`, también de sus listas.
 pub fn trash(app: &App, cid: i64, from_lists: bool) -> Result<Value, ApiError> {
     let Some(c) = by_id(app, cid)? else {
         return Ok(json!({"ok": false, "error": "no existe esa cancion"}));
@@ -277,7 +275,7 @@ pub fn trash(app: &App, cid: i64, from_lists: bool) -> Result<Value, ApiError> {
     // sus pistas separadas se van con ella, también a la papelera
     let mut stems_gone = false;
     if c.get("stems").is_some_and(value::truthy) {
-        // y sale de la cola de separar, si esperaba (`stems.forget`)
+        // y sale de la cola de separar, si esperaba (`stems::forget`)
         stems_gone = crate::services::stems::forget(app, &c)?.get("ok") == Some(&Value::Bool(true));
     }
     forget(app, cid)?;
@@ -303,8 +301,8 @@ pub fn trash(app: &App, cid: i64, from_lists: bool) -> Result<Value, ApiError> {
 
 // ---------------------------------------------------------------- moverla
 
-/// Por qué no se movió: lo que no vale (el `ValueError` de Python, un 409
-/// con su texto) o lo que el disco no dejó (el `OSError`).
+/// Por qué no se movió: lo que no vale (`Invalid`, un 409 con su texto), lo
+/// que el disco no dejó (`Disk`) u otro error de la API.
 #[derive(Debug)]
 pub enum MoveError {
     Invalid(String),
@@ -333,7 +331,7 @@ impl MoveError {
     }
 }
 
-/// `e.strerror or e`: el motivo del sistema, sin el «(os error N)».
+/// El motivo del sistema, sin el «(os error N)».
 pub fn strerror(e: &std::io::Error) -> String {
     let full = e.to_string();
     match e.raw_os_error() {
@@ -345,7 +343,7 @@ pub fn strerror(e: &std::io::Error) -> String {
     }
 }
 
-/// `shutil.move`: renombrar, o copiar y borrar si es otro disco.
+/// Mueve un archivo: renombrarlo, o copiarlo y borrarlo si es otro disco.
 pub fn move_file(src: &Path, dest: &Path) -> std::io::Result<()> {
     match std::fs::rename(src, dest) {
         Ok(()) => Ok(()),
@@ -357,14 +355,14 @@ pub fn move_file(src: &Path, dest: &Path) -> std::io::Result<()> {
     }
 }
 
-/// `library.move_to(cid, folder)`.
+/// A otra carpeta, con el mismo nombre (ver `relocate`).
 pub fn move_to(app: &App, cid: i64, folder: &Path) -> Result<Dict, MoveError> {
     relocate(app, cid, folder, None)
 }
 
-/// `library.relocate(cid, folder, name)`: a otra carpeta de su misma carpeta
-/// de música (y con otro nombre, si se da), la misma canción (mismo id) y
-/// con lo calculado de su sonido. Si allí ya hay uno con ese nombre, « - r».
+/// A otra carpeta de su misma carpeta de música (y con otro nombre, si se
+/// da), la misma canción (mismo id) y con lo calculado de su sonido. Si allí
+/// ya hay uno con ese nombre, « - r».
 pub fn relocate(app: &App, cid: i64, folder: &Path, name: Option<&str>) -> Result<Dict, MoveError> {
     let (c, src, dest, before) = {
         let _scan = app.scan_lock.lock();
@@ -453,14 +451,16 @@ fn vocab(app: &App) -> Vec<(String, String)> {
     library::names::vocabulary(&app.config().artists_dir)
 }
 
-/// `tidy.proposals()`: lo que no está en su sitio o con su nombre.
+/// Lo que no está en su sitio o con su nombre.
 pub fn tidy_proposals(app: &App) -> Result<Dict, ApiError> {
     let vocab = vocab(app);
     let library = app.config().library.to_string_lossy().into_owned();
     app.db(|c| tidy::proposals(c, &vocab, &library))
 }
 
-/// `tidy.apply(cid, artist=, title=, to=, write_tags=)`: {song, from, to}.
+/// Pone una canción en su sitio y con su nombre (el artista, el título o la
+/// ruta `to` que se den; con `write_tags`, también en las etiquetas): {song,
+/// from, to}.
 pub fn tidy_apply(
     app: &App,
     cid: i64,

@@ -1,8 +1,8 @@
-//! Las guías habladas del modo estudio (lo de danplay/cues.py alrededor de
-//! `library::cues`, `analysis::cues` y `analysis::voices`): las carpetas,
-//! bajar las voces (cada archivo con su sha256, en su hilo), la voz cargada
-//! (que se suelta sola tras un rato sin decir nada) y cada guía de principio
-//! a fin: decirla, traer una grabación, su onda, editarla y escucharla.
+//! Las guías habladas del modo estudio (alrededor de `library::cues`,
+//! `analysis::cues` y `analysis::voices`): las carpetas, bajar las voces
+//! (cada archivo con su sha256, en su hilo), la voz cargada (que se suelta
+//! sola tras un rato sin decir nada) y cada guía de principio a fin: decirla,
+//! traer una grabación, su onda, editarla y escucharla.
 use crate::app::App;
 use crate::services::onnx;
 use analysis::cues::{self as g, ReadOutcome, Unexpected};
@@ -40,8 +40,8 @@ const FFMPEG: Duration = Duration::from_secs(120);
 /// Una guía de más de esto no se lee.
 const MAX_BYTES: u64 = 200 * 1024 * 1024;
 
-/// Por qué no salió una guía: lo que se le dice a quien la pidió (el
-/// `CueError` de Python), u otro fallo (un 500).
+/// Por qué no salió una guía: lo que se le dice a quien la pidió (`Cue`),
+/// u otro fallo (`Other`, un 500).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CueError {
     Cue(String),
@@ -84,7 +84,7 @@ struct Loaded {
 /// La voz cargada, que se suelta sola tras `IDLE` sin usarla.
 #[derive(Default)]
 struct VoiceCache {
-    /// un decir a la vez (`cues._SPEAK`), con la voz cargada dentro
+    /// un decir a la vez, con la voz cargada dentro
     loaded: Mutex<Loaded>,
     wake: Condvar,
     watching: Mutex<bool>,
@@ -102,9 +102,9 @@ pub struct Cues {
     fake: Mutex<Option<FakeVoice>>,
 }
 
-/// Una voz de mentira para las pruebas (lo que en Python eran `cues.say`,
-/// `cues.installed` y `cues.install` sustituidos): dice medio segundo de un
-/// tono, sin bajar nada ni cargar ONNX Runtime.
+/// Una voz de mentira para las pruebas (en lugar de decir, de mirar si está
+/// bajada y de bajarla): dice medio segundo de un tono, sin bajar nada ni
+/// cargar ONNX Runtime.
 #[cfg(test)]
 #[derive(Debug, Default)]
 struct FakeVoice {
@@ -591,7 +591,8 @@ pub fn make(app: &App, text: &str, voice_id: &str, preview: bool) -> Result<Valu
     finished(&target)
 }
 
-/// `os.path.realpath` y `normcase`, para comparar carpetas.
+/// La ruta real (sin enlaces) y comparable (en Windows, sin mayúsculas),
+/// para comparar carpetas.
 fn real(p: &Path) -> String {
     paths::comparable(&paths::real(&p.to_string_lossy()))
 }
@@ -787,7 +788,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn base64_like_python() {
+    fn base64_is_standard_with_padding() {
         assert_eq!(base64(b""), "");
         assert_eq!(base64(b"f"), "Zg==");
         assert_eq!(base64(b"fo"), "Zm8=");
@@ -805,7 +806,7 @@ mod tests {
         assert_eq!(own_file(&app, "/etc/passwd", true), None);
     }
 
-    /// tests/test_cues.py: las voces y lo que pesan.
+    /// Las voces y lo que pesan.
     #[test]
     fn the_voices_and_what_they_weigh() {
         let app = crate::tests::app();
@@ -924,8 +925,8 @@ mod tests {
         }
     }
 
-    /// tests/test_cues.py: bajar una voz comprueba lo que llega. (En Python,
-    /// un `urlopen` de mentira; aquí, un servidor de archivos en local.)
+    /// Bajar una voz comprueba lo que llega (de un servidor de archivos en
+    /// local).
     #[test]
     fn installing_a_voice_checks_what_arrives() {
         let voice = "piper-es_ES-carlfm-x_low";

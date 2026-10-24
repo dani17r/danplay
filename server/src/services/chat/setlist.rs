@@ -1,9 +1,8 @@
 //! Una lista de canciones contra un repertorio: comprobarla o meterla, por
-//! código (danplay/chat/setlist.py). Es lo que hay detrás de `find_songs` y
-//! `fill_playlist`. Lo que se decide y se escribe lo hace
-//! `library::assistant::setlist`; aquí, lo que toca la base y la red: buscar
-//! en la biblioteca, cambiar la lista bajo su cerrojo, crear una lista y
-//! apuntar la tarjeta.
+//! código. Es lo que hay detrás de `find_songs` y `fill_playlist`. Lo que se
+//! decide y se escribe lo hace `library::assistant::setlist`; aquí, lo que
+//! toca la base y la red: buscar en la biblioteca, cambiar la lista bajo su
+//! cerrojo, crear una lista y apuntar la tarjeta.
 use super::{lists, plan, resolve};
 use crate::app::App;
 use crate::error::ApiError;
@@ -16,7 +15,7 @@ use library::text;
 use library::value;
 use serde_json::{Value, json};
 
-/// Lo que el bucle sabe del turno y las herramientas necesitan (`setlist.Turn`).
+/// Lo que el bucle sabe del turno y las herramientas necesitan.
 #[derive(Debug, Clone)]
 pub struct Turn {
     /// la última lista pegada de la conversación
@@ -48,9 +47,9 @@ fn err(e: library::assistant::value::Error) -> ApiError {
     ApiError::internal(e)
 }
 
-/// `requested(items, turn)`: lo que se pide, numerado, y de dónde salió.
+/// Lo que se pide, numerado, y de dónde salió.
 fn requested(items: &Value, turn: &Turn) -> (Vec<Dict>, Dict) {
-    // lo que Python le pasa a Rust de la lista pegada (sin sus personas)
+    // de la lista pegada solo cuentan las canciones (sin sus personas)
     let pasted = turn.setlist.clone().map(|mut s| {
         s.people.clear();
         s
@@ -58,8 +57,7 @@ fn requested(items: &Value, turn: &Turn) -> (Vec<Dict>, Dict) {
     sl::requested(items, pasted.as_ref(), turn.fresh)
 }
 
-/// `find_playlist(name)`: la lista a la que se refiere, o (None, las que se
-/// parecen).
+/// La lista a la que se refiere, o (None, las que se parecen).
 pub fn find_playlist(app: &App, name: &str) -> Result<(Option<Value>, Vec<Value>), ApiError> {
     if sl::core(name).is_empty() {
         return Ok((None, Vec::new()));
@@ -75,8 +73,8 @@ pub fn find_playlist(app: &App, name: &str) -> Result<(Option<Value>, Vec<Value>
     ))
 }
 
-/// `_in_lists(exclude)`: las canciones que ya están en alguna lista (la que
-/// ya se usó en un repertorio gana el empate entre versiones).
+/// Las canciones que ya están en alguna lista menos `exclude` (la que ya se
+/// usó en un repertorio gana el empate entre versiones).
 fn in_lists(app: &App, exclude: Option<i64>) -> Vec<i64> {
     let mut out: Vec<i64> = Vec::new();
     let r = (|| -> Result<(), ApiError> {
@@ -101,7 +99,8 @@ fn in_lists(app: &App, exclude: Option<i64>) -> Vec<i64> {
     out
 }
 
-/// `_resolve(items, prefer, overrides, strict)`.
+/// Empareja las filas pedidas con la biblioteca (con las preferidas, las
+/// elegidas a mano y el modo estricto).
 fn resolve_rows(
     app: &App,
     items: &[Dict],
@@ -167,7 +166,7 @@ pub fn find(app: &App, items: &Value, turn: &Turn) -> Result<Value, ApiError> {
     Ok(Value::Object(out))
 }
 
-/// `_target(name, turn, create)`: (lista, si se creó ahora, error).
+/// La lista de destino: (lista, si se creó ahora, error).
 fn target(
     app: &App,
     name: &str,
@@ -356,9 +355,9 @@ pub fn fill(app: &App, args: &Dict, turn: &mut Turn) -> Result<Value, ApiError> 
     Ok(Value::Object(res))
 }
 
-/// `_propose`: la tarjeta de permiso para bajar lo que falta, o (None, por
-/// qué no: una clave de `ASK`, o «» si no falta nada). Qué va en ella lo
-/// decide Rust; aquí se apunta (`plan::register`).
+/// La tarjeta de permiso para bajar lo que falta, o (None, por qué no: una
+/// clave de `ASK`, o «» si no falta nada). Qué va en ella lo decide
+/// `library::assistant::setlist`; aquí se apunta (`plan::register`).
 fn propose(
     app: &App,
     rows: &[Dict],

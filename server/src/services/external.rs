@@ -1,5 +1,5 @@
-//! La lista del reproductor: lo abierto desde fuera de la biblioteca (lo de
-//! danplay/external.py alrededor de `library::external`). Abrir un archivo
+//! La lista del reproductor: lo abierto desde fuera de la biblioteca (lo que
+//! va alrededor de `library::external`). Abrir un archivo
 //! NO es importarlo: no se toca, ni se mueve, ni se le escriben etiquetas;
 //! solo se recuerda que sonó, con un id negativo.
 use crate::app::App;
@@ -17,9 +17,9 @@ pub fn is_audio(path: &str) -> bool {
     library::config::EXTENSIONS.contains(&ext.as_str())
 }
 
-/// `resolve(cid)`: la canción con ese id, venga de donde venga (para
-/// reproducirla o enseñarla; para cambiar algo, `songs::by_id`, y así lo
-/// de fuera queda fuera de alcance).
+/// La canción con ese id, venga de donde venga (para reproducirla o
+/// enseñarla; para cambiar algo, `songs::by_id`, y así lo de fuera queda
+/// fuera de alcance).
 pub fn resolve(app: &App, cid: i64) -> Result<Option<Dict>, ApiError> {
     if cid > 0 {
         return app.db(|c| songs::by_id(c, cid));
@@ -33,9 +33,9 @@ pub fn resolve(app: &App, cid: i64) -> Result<Option<Dict>, ApiError> {
 /// Por qué no se puede abrir: no es audio.
 pub const NOT_AUDIO: &str = "eso no es un archivo de audio";
 
-/// `played(path)`: esa ruta acaba de sonar; sube al principio de la lista
-/// y se devuelve la canción. `Ok(None)` si el archivo no está; un 400 si no
-/// es audio (`NotAudio`).
+/// Esa ruta acaba de sonar; sube al principio de la lista y se devuelve la
+/// canción. `Ok(None)` si el archivo no está; un 400 si no es audio
+/// (`NotAudio`).
 pub fn played(app: &App, path: &str) -> Result<Option<Dict>, ApiError> {
     let path = library::paths::absolute(path);
     if !is_audio(&path) {
@@ -48,8 +48,8 @@ pub fn played(app: &App, path: &str) -> Result<Option<Dict>, ApiError> {
     resolve(app, cid)
 }
 
-/// `describe(paths)`: las canciones de esas rutas sin apuntarlas como
-/// escuchadas; `None` para lo que no es audio o ya no está.
+/// Las canciones de esas rutas sin apuntarlas como escuchadas; `None` para
+/// lo que no es audio o ya no está.
 pub fn describe(app: &App, paths: &[String], limit: usize) -> Result<Vec<Option<Dict>>, ApiError> {
     let mut out = Vec::new();
     for raw in paths.iter().take(limit) {
@@ -64,7 +64,7 @@ pub fn describe(app: &App, paths: &[String], limit: usize) -> Result<Vec<Option<
     Ok(out)
 }
 
-/// `listing(limit, light)`: de lo último que sonó a lo más antiguo.
+/// De lo último que sonó a lo más antiguo.
 pub fn listing(app: &App, limit: i64, light: bool) -> Result<Vec<Dict>, ApiError> {
     app.db(|c| external::listing(c, limit, light))
 }
@@ -77,8 +77,8 @@ pub fn clear(app: &App) -> Result<usize, ApiError> {
     app.db(external::clear)
 }
 
-/// `save_as_playlist(name)`: la lista de ahora como una lista de DanPlay,
-/// en el orden en que se ve. `Err` 400 si está vacía.
+/// La lista de ahora como una lista de DanPlay, en el orden en que se ve.
+/// `Err` 400 si está vacía.
 pub fn save_as_playlist(app: &App, name: &str) -> Result<Dict, ApiError> {
     let songs = listing(app, 500, false)?;
     if songs.is_empty() {

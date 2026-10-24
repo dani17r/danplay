@@ -1,6 +1,5 @@
-//! La API del núcleo de DanPlay, en Rust: las mismas rutas, los mismos
-//! cuerpos y los mismos errores que la de FastAPI (danplay/api/). Es la
-//! fase 4 de docs/MIGRATION.md: sin Python.
+//! La API del núcleo de DanPlay: las rutas, los cuerpos y los errores que
+//! conoce la interfaz. Cómo se llegó aquí, en docs/MIGRATION.md (fase 4).
 //!
 //! Se usa de dos maneras:
 //!
@@ -9,47 +8,45 @@
 //!   tipo, cuerpo; el audio y las carátulas, como un archivo del disco que
 //!   quien llama manda a trozos o lee entero).
 //! - **Por un socket** (`serve`, y el binario `danplay-server` con los
-//!   mismos argumentos que el núcleo empaquetado de Python de hasta la 1.30:
-//!   `--uds RUTA` o `--host H --port N`): para las pruebas de la interfaz y
-//!   para compararla con la de Python (`python -m danplay.cli serve`).
+//!   mismos argumentos que el núcleo empaquetado de hasta la 1.30:
+//!   `--uds RUTA` o `--host H --port N`): para las pruebas de la interfaz.
 //!
 //! # Por dentro
 //!
 //! - `app`: el estado (`App`): la configuración (`library::config`), el
-//!   índice (una conexión por llamada, como `library.connect()`; `db` y
-//!   `db_write` confirman solas), los trabajos (`jobs`), los cerrojos que en
-//!   Python eran de módulo (el del escaneo, el de las listas) y dónde están
-//!   ffmpeg y compañía (`App::tool`).
-//! - `router`: qué función contesta cada ruta, en el orden de FastAPI (404,
-//!   405 y las partes `{nombre}` como Starlette).
-//! - `validate`: lo que hacía pydantic (los cuerpos, la consulta, la ruta) y
-//!   el 422 con la lista de fallos.
-//! - `error`: `ApiError`, el `HTTPException` (`{"detail": ...}`), el 422 y
-//!   el 500.
+//!   índice (una conexión por llamada; `db` y `db_write` confirman solas),
+//!   los trabajos (`jobs`), los cerrojos que comparte toda la app (el del
+//!   escaneo, el de las listas) y dónde están ffmpeg y compañía
+//!   (`App::tool`).
+//! - `router`: qué función contesta cada ruta, en su orden (el 404, el 405
+//!   y las partes `{nombre}`).
+//! - `validate`: comprobar lo que llega (los cuerpos, la consulta, la ruta)
+//!   y el 422 con la lista de fallos.
+//! - `error`: `ApiError`, el error con su `{"detail": ...}`, el 422 y el
+//!   500.
 //! - `guard`: la guardia de cada petición (token, `Host`, `X-DanPlay`, el
 //!   tope del cuerpo) y el CORS de desarrollo.
-//! - `jobs`: las tareas largas (`api/jobs.py`).
-//! - `startup`: el arranque y el apagado (el `lifespan`).
-//! - `services`: lo que hacían los módulos de Python alrededor de `library`
-//!   (las listas con su cerrojo y sus etiquetas, el diario, el perfil de IA...).
-//! - `routes`: un módulo por router de danplay/api/routes/.
+//! - `jobs`: las tareas largas.
+//! - `startup`: el arranque y el apagado.
+//! - `services`: lo que se hace alrededor de `library` (las listas con su
+//!   cerrojo y sus etiquetas, el diario, el perfil de IA...).
+//! - `routes`: las rutas, un módulo por grupo.
 //!
 //! # Cómo se escribe una ruta
 //!
 //! Una función `fn(&mut Ctx) -> Result<Reply, ApiError>` en el módulo de su
-//! router, y una línea en su `ROUTES` (en el orden del router de Python):
+//! grupo, y una línea en su `ROUTES` (el orden importa: contesta la primera
+//! que encaja):
 //!
 //! ```ignore
-//! // @router.patch("/api/playlists/{lid}")
-//! // def edit_playlist(lid: int, body: Annotated[PlaylistEdit, Body()]):
 //! pub const ROUTES: &[Route] = &[
 //!     Route::patch("/api/playlists/{lid}", edit_playlist),
-//!     Route::post("/api/scan", scan).status(202), // status_code=202
+//!     Route::post("/api/scan", scan).status(202), // contesta 202 y no 200
 //! ];
 //!
 //! fn edit_playlist(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
 //!     // primero la ruta y la consulta, luego el cuerpo, campo a campo y en
-//!     // el orden del modelo de pydantic (es el orden de los fallos)
+//!     // el orden del modelo (es el orden de los fallos)
 //!     let lid = ctx.path().int("lid").required();
 //!     let mut b = ctx.body()?; // el 422 de JSON roto sale ya
 //!     let name = b.str("name").min_len(1).max_len(200).opt();
@@ -64,10 +61,10 @@
 //! }
 //! ```
 //!
-//! - Los mensajes de error, los mismos de Python (copiados tal cual, en
-//!   castellano).
+//! - Los mensajes de error, en castellano y sin cambiar los que ya hay (la
+//!   interfaz los muestra).
 //! - Sin cuerpo: `ctx.check()?` después de leer la ruta y la consulta.
-//!   Un cuerpo optativo (`body: X | None = None`): `ctx.opt_body()?` y
+//!   Un cuerpo optativo (que puede no llegar): `ctx.opt_body()?` y
 //!   `ctx.done_with(b)?`.
 //! - La consulta: `ctx.query().int("limit").ge(1).le(20000).or(200)`,
 //!   `ctx.query().bool("desc").or(false)`, `ctx.query().str("path").required()`.
@@ -78,8 +75,8 @@
 //!   "el escaneo fallo", move |p| { ...; Ok(json!(...)) });` y se contesta
 //!   `jobs::started(snap, already)`. El trabajo recibe un `App` clonado
 //!   (`let app = ctx.app.clone();` antes del `move`).
-//! - Lo que hacía Python alrededor de `library` (cerrojos, `touch`,
-//!   escribir etiquetas) va en `services`, para que lo usen todas las rutas.
+//! - Lo que se hace alrededor de `library` (cerrojos, `touch`, escribir
+//!   etiquetas) va en `services`, para que lo usen todas las rutas.
 //! - Las pruebas: `server::handle(&app, Request::new(...).json(&body))` con
 //!   una `App` sobre carpetas temporales (ver `tests::app`).
 pub mod app;
@@ -155,7 +152,7 @@ pub fn child_process() -> Option<i32> {
 }
 
 /// `--models-snapshot SALIDA`: la foto del catálogo de modelos de IA, la
-/// de hoy (lo que hacía scripts/update-models.py). La escriben los scripts
+/// de hoy. La escriben los scripts
 /// de empaquetar en `data/` antes de meterla en el paquete; si no hay red,
 /// no se toca lo que hubiera y sale con 1 (viaja la del repositorio).
 fn models_snapshot(args: &[std::ffi::OsString]) -> i32 {
@@ -293,7 +290,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn status_answers_like_the_python_core() {
+    fn status_answers_for_a_library_not_set_up() {
         let app = app();
         let r = handle(&app, &Request::new("GET", "/api/status"));
         assert_eq!(r.status, 200);

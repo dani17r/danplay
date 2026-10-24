@@ -1,7 +1,6 @@
-//! tests/test_stems.py: separar en pistas con un motor de mentira (el
-//! FAKE_ENGINE de Python, aquí en Rust y en el mismo proceso: tonos de un
-//! segundo con ffmpeg de verdad), la cola, lo que se guarda y lo que se
-//! encuentra después.
+//! Separar en pistas con un motor de mentira (`TestEngine`, en el mismo
+//! proceso: tonos de un segundo con ffmpeg de verdad), la cola, lo que se
+//! guarda y lo que se encuentra después.
 use crate::services::stems::{self, TestEngine};
 use crate::testkit::{api_library, call, ffmpeg, get, wait_job};
 use library::index::Dict;
@@ -1246,8 +1245,8 @@ fn grid_value() -> Value {
     json!({"bpm": 120.0, "meter": 4, "beats": [0.1, 0.6], "first_downbeat": 0, "phase3": 0, "phase4": 0, "confidence": 0.9})
 }
 
-/// La rejilla del clic ya guardada para esa canción (lo que en Python era
-/// sustituir `beatgrid.grid_of`).
+/// La rejilla del clic ya guardada para esa canción: no hay que sacarla
+/// del audio.
 fn with_grid(app: &crate::App, file: &str) {
     crate::services::beats::save_exact(app, Path::new(&path_of(app, file)), &grid_value())
         .expect("rejilla");

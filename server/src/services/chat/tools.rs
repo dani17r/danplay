@@ -1,9 +1,9 @@
-//! Las herramientas del asistente (danplay/chat/tools.py): lo que se le
-//! declara al modelo y lo que hace cada una.
+//! Las herramientas del asistente: lo que se le declara al modelo y lo que
+//! hace cada una.
 //!
 //! Lo que hace cada herramienta lo decide `library::assistant::tools`; aquí,
-//! los modelos de sus argumentos (lo que hacía pydantic: convertir lo que
-//! manda el modelo o decir qué no vale), el reparto a cada una con su red de
+//! los modelos de sus argumentos (convertir lo que manda el modelo o decir
+//! qué no vale), el reparto a cada una con su red de
 //! seguridad, y lo de fuera (`Io`: la biblioteca, las listas, YouTube, la
 //! web, las letras y los cifrados).
 use super::setlist::{self, Turn};
@@ -25,8 +25,8 @@ pub fn declared() -> &'static [Value] {
     t::declared()
 }
 
-/// `tools_for(recent, everything, setlist)`: las que se declaran en este
-/// turno (con una lista pegada, las de listas van aunque no se nombren).
+/// Las que se declaran en este turno (todas con `everything`; con una lista
+/// pegada, las de listas van aunque no se nombren).
 pub fn tools_for(recent: &[Dict], everything: bool, with_setlist: bool) -> Value {
     let all = declared();
     if everything {
@@ -61,7 +61,7 @@ pub fn tool_names() -> &'static [String] {
 // ------------------------------------------------------------ los argumentos
 
 /// `LooseText`: el año o el tono pueden llegar como número (2018, 7): valen
-/// como texto. `None` es `None`.
+/// como texto. `null` sigue siendo `null`.
 struct LooseText;
 
 impl Kind for LooseText {
@@ -84,7 +84,7 @@ impl Kind for LooseText {
     }
 }
 
-/// `LooseInt`: un entero si se entiende como tal; si no, `None`.
+/// `LooseInt`: un entero si se entiende como tal; si no, `null`.
 struct LooseInt;
 
 impl Kind for LooseInt {
@@ -100,21 +100,21 @@ impl Kind for LooseInt {
 /// Un campo de un modelo de argumentos, con su tipo y su valor por defecto.
 #[derive(Clone, Copy)]
 enum F {
-    /// `LooseText = default` (o `= None`)
+    /// texto (o número, como texto), con su valor por defecto (o `null`)
     Text(Option<&'static str>),
-    /// `LooseInt = None`
+    /// un entero si se entiende; si no, `null`
     LooseInt,
-    /// `int` sin valor por defecto
+    /// un entero, obligatorio
     Int,
-    /// `bool = default`
+    /// sí o no, con su valor por defecto
     Bool(bool),
-    /// `bool | None = None`
+    /// sí o no, o `null` si falta
     OptBool,
-    /// `float | None = None`
+    /// un número, o `null` si falta
     OptFloat,
-    /// `str` sin valor por defecto
+    /// un texto, obligatorio
     Str,
-    /// `Any = None`
+    /// cualquier valor, o `null` si falta
     Any,
 }
 
@@ -129,7 +129,7 @@ const PLAYLIST_REF: [(&str, F); 4] = [
 enum Model {
     /// sus campos, en su orden
     Fields(Vec<(&'static str, F)>),
-    /// los argumentos tal cual (`DownloadArgs`, con `extra="allow"`)
+    /// los argumentos tal cual, con las claves de más (los de descargar)
     AsIs,
 }
 
@@ -212,8 +212,8 @@ fn model_of(name: &str) -> Option<Model> {
     Some(Model::Fields(fields))
 }
 
-/// `model.model_validate(args).model_dump()`: los argumentos ya con su tipo
-/// (lo que sobra se ignora), o los fallos como (dónde, tipo).
+/// Los argumentos ya con su tipo (lo que sobra se ignora), o los fallos
+/// como (dónde, tipo).
 fn validate_args(
     fields: &[(&'static str, F)],
     args: &Dict,
@@ -376,7 +376,7 @@ pub fn confirm(app: &App, tool: &str, args: &Value) -> Value {
     json!({"ok": true, "result": result, "text": text})
 }
 
-/// `_summarize(name, res)`: lo que se hizo, en una línea.
+/// Lo que se hizo, en una línea.
 pub fn summarize(name: &str, res: &Value) -> String {
     t::summarize(name, res).unwrap_or_else(|e| {
         log::warn!("no pude resumir {name}: {e}");
@@ -384,8 +384,8 @@ pub fn summarize(name: &str, res: &Value) -> String {
     })
 }
 
-/// `_describe(name, args)`: qué se va a hacer, en una frase (si algo falla
-/// con unos argumentos raros, se dice en genérico).
+/// Qué se va a hacer, en una frase (si algo falla con unos argumentos
+/// raros, se dice en genérico).
 pub fn describe(app: &App, name: &str, args: &Value) -> String {
     let args = match args {
         Value::Object(o) => o.clone(),
@@ -397,7 +397,7 @@ pub fn describe(app: &App, name: &str, args: &Value) -> String {
     })
 }
 
-/// `download_plan(args)`: lo que se va a bajar, saneado.
+/// Lo que se va a bajar, saneado.
 pub fn download_plan(app: &App, args: &Value) -> Dict {
     let args = match args {
         Value::Object(o) => o.clone(),
@@ -406,15 +406,14 @@ pub fn download_plan(app: &App, args: &Value) -> Dict {
     t::download_plan(&args, &Value::from(app.config().mp3_quality.clone()))
 }
 
-/// `check_downloads(args)`: biblioteca primero, lo que de verdad hay que
-/// pedir permiso para bajar.
+/// Biblioteca primero: lo que de verdad hay que pedir permiso para bajar.
 pub fn check_downloads(app: &App, args: &Dict) -> Result<Dict, String> {
     t::check_downloads(args, &mut ServerIo { app }).map_err(|e| fault_text(&e))
 }
 
-/// Lo que se pide a `youtube.run_many` desde el asistente:
-/// `quality=args.get("quality")`, `file_it=args.get("file_it", True)`,
-/// `results=1`, `force=args.get("force", False)`, `source="assistant"`.
+/// Lo que se pide a `youtube::run_many` desde el asistente: la `quality`
+/// que traiga, archivar salvo que `file_it` diga que no, un resultado,
+/// `force` solo si se pide, y «assistant» como origen.
 pub fn wanted_of(args: &Dict) -> youtube::Wanted {
     youtube::Wanted {
         quality: args
@@ -428,7 +427,7 @@ pub fn wanted_of(args: &Dict) -> youtube::Wanted {
     }
 }
 
-/// `_song_brief(c)`.
+/// Una canción tal y como se le cuenta al modelo (`Null` si no se puede).
 pub fn song_brief(c: &Value) -> Value {
     t::song_brief(c).unwrap_or(Value::Null)
 }
@@ -436,7 +435,7 @@ pub fn song_brief(c: &Value) -> Value {
 // ---------------------------------------------------------------- lo de fuera
 
 /// Lo que las herramientas leen y escriben fuera, con las funciones del
-/// núcleo de Rust.
+/// núcleo.
 pub struct ServerIo<'a> {
     pub app: &'a App,
 }
@@ -755,9 +754,9 @@ impl Io for ServerIo<'_> {
 mod tests {
     use super::*;
 
-    /// Los nombres viejos de las herramientas (lo de tests/test_ai.py):
-    /// `set_stars` es `edit_song` con sus estrellas, y `lyrics_by_name` es
-    /// `get_lyrics` sin el id (por artista y título).
+    /// Los nombres viejos de las herramientas: `set_stars` es `edit_song`
+    /// con sus estrellas, y `lyrics_by_name` es `get_lyrics` sin el id (por
+    /// artista y título).
     #[test]
     fn old_names_become_the_new_ones() {
         let args = |v: Value| v.as_object().cloned().unwrap_or_default();

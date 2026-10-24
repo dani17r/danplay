@@ -1,7 +1,6 @@
-//! tests/test_index.py: el índice por dentro. Lo que se deduce del nombre,
-//! las listas ligeras, las cifras que no se quedan viejas, la lista del
-//! reproductor y las cachés en disco (miniaturas) que se podan con el
-//! escaneo.
+//! El índice por dentro. Lo que se deduce del nombre, las listas ligeras,
+//! las cifras que no se quedan viejas, la lista del reproductor y las cachés
+//! en disco (miniaturas) que se podan con el escaneo.
 use crate::app::App;
 use crate::services::{external, library as lib, media, playlists, songs};
 use crate::testkit::{call, ffmpeg, get, mp3, row, rows, scanned_library, send, text};
@@ -254,8 +253,7 @@ fn the_stats_do_not_keep_a_total_from_before_a_change() {
         return;
     };
     let key = text(&app.config().database);
-    // lo que hacía la conexión de mentira de Python: otro hilo acaba de
-    // cambiar algo entre leer la revisión y contar
+    // otro hilo acaba de cambiar algo entre leer la revisión y contar
     let rev = revision();
     let conn = app.connect().expect("base");
     touch();
@@ -359,8 +357,8 @@ fn the_player_list_mixes_both_sources_in_order() {
 
 #[test]
 fn finding_one_repertoire_does_not_recompute_all() {
-    // (sin la lista entera de por medio: en Rust, por nombre es una consulta
-    // propia; lo de que no se pide la lista entera ya no hace falta mirarlo)
+    // (por nombre es una consulta propia, sin la lista entera de por medio:
+    // no hace falta mirar que no se pida)
     let Some((app, _)) = scanned_library() else {
         return;
     };

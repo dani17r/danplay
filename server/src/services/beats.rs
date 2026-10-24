@@ -27,7 +27,7 @@ use std::sync::{Arc, Condvar, LazyLock, Mutex, PoisonError};
 use std::time::Duration;
 
 /// Lo guardado cambia si cambia la red o la forma de sacar la rejilla: con
-/// otro número, se calcula otra vez (`beatgrid.VERSION`).
+/// otro número, se calcula otra vez.
 pub const VERSION: i64 = 3;
 /// Lo que puede tardar el detector con una canción.
 pub const TIMEOUT: Duration = Duration::from_secs(600);
@@ -83,7 +83,7 @@ pub fn graph(app: &App) -> PathBuf {
     app.resources.join("pulse").join("beat_this.onnx")
 }
 
-/// `beatgrid.available()`: por qué no se puede calcular aquí, o vacío.
+/// Por qué no se puede calcular aquí, o vacío.
 pub fn available(app: &App) -> String {
     // con otro detector (`set_detector`), ONNX Runtime es cosa suya
     let custom = custom_detector().is_some();
@@ -99,7 +99,7 @@ pub fn available(app: &App) -> String {
     String::new()
 }
 
-/// `pulse.key_of(path)`: ruta, tamaño y fecha.
+/// La clave de un archivo: ruta, tamaño y fecha.
 pub fn key_of(path: &Path) -> std::io::Result<String> {
     let stamp = crate::services::tags::stamp(path)
         .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "no está"))?;
@@ -114,12 +114,12 @@ fn cache(app: &App, path: &Path) -> std::io::Result<PathBuf> {
     Ok(folder(app).join(format!("{}.json", key_of(path)?)))
 }
 
-/// `beatgrid._raw_file(path)`: dónde va lo que dijo la red de un archivo.
+/// Dónde va lo que dijo la red de un archivo.
 pub(crate) fn raw_file(app: &App, path: &Path) -> std::io::Result<PathBuf> {
     Ok(folder(app).join(format!("{}.npz", key_of(path)?)))
 }
 
-/// `beatgrid.cached(path)`: si hay rejilla guardada que valga.
+/// Si hay rejilla guardada que valga.
 pub fn cached(app: &App, path: &Path) -> bool {
     cache(app, path).is_ok_and(|c| lb::is_valid(&c, VERSION))
 }
@@ -444,8 +444,7 @@ pub fn reanalyze(
 /// que lleve el enrutador dentro tiene que contestar a ese argumento con
 /// `child_main` (como `danplay-server`); quien quiera otro (las pruebas),
 /// `set_detector`, o desde fuera del proceso `DANPLAY_PULSE_DETECTOR` (una
-/// lista JSON: `["python3", "detector.py"]`), como hacen las pruebas de la
-/// API de Python contra este núcleo.
+/// lista JSON con el programa y sus argumentos).
 static DETECTOR: Mutex<Option<Vec<OsString>>> = Mutex::new(None);
 
 /// Cambia el programa del detector (`[programa, argumentos...]`, a los que
@@ -479,7 +478,8 @@ fn detector() -> Vec<OsString> {
     vec![exe, OsString::from("--pulse")]
 }
 
-/// El código con que terminó (negativo si fue una señal, como Python).
+/// El código con que terminó (negativo si fue una señal: menos el número
+/// de la señal).
 fn exit_code(status: std::process::ExitStatus) -> i32 {
     #[cfg(unix)]
     {
@@ -491,9 +491,8 @@ fn exit_code(status: std::process::ExitStatus) -> i32 {
     status.code().unwrap_or(-1)
 }
 
-/// `beatgrid._run`: el detector en su proceso. (su respuesta, su código, lo
-/// que dijo por la salida de errores). El avance queda en la cola según
-/// llega.
+/// El detector en su proceso (su respuesta, su código, lo que dijo por la
+/// salida de errores). El avance queda en la cola según llega.
 fn run(
     app: &App,
     path: &Path,
@@ -585,8 +584,7 @@ fn run(
     Ok((answer, code, errors))
 }
 
-/// `beatgrid._network(path)`: pasa la red por el archivo (en su proceso) y
-/// devuelve lo que dijo.
+/// Pasa la red por el archivo (en su proceso) y devuelve lo que dijo.
 fn network(app: &App, path: &Path) -> Result<Raw, BeatsError> {
     let reason = available(app);
     if !reason.is_empty() {
@@ -684,8 +682,9 @@ pub fn child_main(args: &[OsString]) -> i32 {
 
 // ---------------------------------------------------------------- la cola
 
-/// La cola de fondo (`_QUEUE`, `_BUSY`, `_FAILED`, `_PROGRESS`): un solo
-/// hilo, que la red ya usa varios núcleos y dos a la vez se estorbarían.
+/// La cola de fondo (lo que espera, lo que se calcula, lo que falló y por
+/// dónde va): un solo hilo, que la red ya usa varios núcleos y dos a la vez
+/// se estorbarían.
 #[derive(Default)]
 struct Queue {
     waiting: VecDeque<(String, App)>,
@@ -693,8 +692,8 @@ struct Queue {
     failed: HashMap<String, String>,
     progress: HashMap<String, f64>,
     worker: bool,
-    /// el hilo, parado por una prueba (lo que en Python era tener `_WAKE`):
-    /// lo que se pide se queda en la cola tal cual, para mirarla
+    /// el hilo, parado por una prueba: lo que se pide se queda en la cola
+    /// tal cual, para mirarla
     #[cfg(test)]
     paused: bool,
 }
@@ -713,13 +712,13 @@ const fn held(_: &Queue) -> bool {
 static QUEUE: LazyLock<Mutex<Queue>> = LazyLock::new(|| Mutex::new(Queue::default()));
 static WAKE: Condvar = Condvar::new();
 
-/// `_key(path)`: la clave del archivo, o la ruta si no está.
+/// La clave del archivo, o la ruta si no está.
 fn failure_key(path: &Path) -> String {
     key_of(path).unwrap_or_else(|_| path.to_string_lossy().into_owned())
 }
 
-/// `beatgrid.progress(path)`: por dónde va (0..1); 0 si espera en la cola;
-/// `None` si no está ni en la cola ni calculándose.
+/// Por dónde va (0..1); 0 si espera en la cola; `None` si no está ni en la
+/// cola ni calculándose.
 pub fn progress(path: &Path) -> Option<f64> {
     let key = path.to_string_lossy();
     let q = QUEUE.lock().unwrap_or_else(PoisonError::into_inner);
@@ -729,9 +728,9 @@ pub fn progress(path: &Path) -> Option<f64> {
     q.waiting.iter().any(|(p, _)| *p == key).then_some(0.0)
 }
 
-/// `beatgrid.request(path, first)`: la rejilla si ya está guardada; si no,
-/// `None` y queda en la cola (delante con `first`). `BeatsError` si aquí no
-/// se puede o si ya falló con este mismo archivo.
+/// La rejilla si ya está guardada; si no, `None` y queda en la cola (delante
+/// con `first`). `BeatsError` si aquí no se puede o si ya falló con este
+/// mismo archivo.
 pub fn request(app: &App, path: &Path, first: bool) -> Result<Option<Value>, BeatsError> {
     if !path.is_file() {
         return Err(beats_err("no encuentro el archivo"));
@@ -775,8 +774,8 @@ pub fn request(app: &App, path: &Path, first: bool) -> Result<Option<Value>, Bea
     Ok(None)
 }
 
-/// `beatgrid.prepare(path)`: detrás en la cola, la de una canción que
-/// sonará después. `true` si ya estaba o queda en cola.
+/// Detrás en la cola, la de una canción que sonará después. `true` si ya
+/// estaba o queda en cola.
 pub fn prepare(app: &App, path: &Path) -> bool {
     request(app, path, false).is_ok()
 }
@@ -823,7 +822,7 @@ fn work() {
     }
 }
 
-/// `beatgrid.idle(timeout)`: espera a que no quede nada en la cola (para las
+/// Espera a que no quede nada en la cola, como mucho `timeout` (para las
 /// pruebas).
 pub fn idle(timeout: Duration) -> bool {
     let q = QUEUE.lock().unwrap_or_else(PoisonError::into_inner);

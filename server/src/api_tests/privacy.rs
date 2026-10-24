@@ -1,5 +1,5 @@
-//! tests/test_privacy.py: lo que no debe salir de su sitio. Los datos del
-//! usuario, las claves de IA y los permisos de los archivos que las guardan.
+//! Lo que no debe salir de su sitio. Los datos del usuario, las claves de IA
+//! y los permisos de los archivos que las guardan.
 use crate::app::App;
 use crate::services::ai;
 use crate::testkit::text;
@@ -140,8 +140,8 @@ fn secrets_are_written_atomically_and_privately() {
 #[test]
 fn a_failure_midway_leaves_the_previous_file() {
     // si algo se corta al escribir, queda lo de antes entero y el temporal
-    // no se queda. (En Python, un `os.replace` que fallaba; aquí falla de
-    // verdad el cambio de nombre: en el sitio hay una carpeta con lo suyo.)
+    // no se queda. (Falla de verdad el cambio de nombre: en el sitio hay
+    // una carpeta con lo suyo.)
     let dir = crate::tests::scratch("corte");
     let target = dir.join("ai.json");
     std::fs::create_dir_all(&target).expect("carpeta");
@@ -164,7 +164,7 @@ fn with_env_file(text: &str) -> Config {
     cfg
 }
 
-/// Lo que relee python-dotenv del archivo (`dotenv_values`, sin
+/// Lo que se relee del archivo con el lector de .env de la app (sin
 /// interpolar).
 fn read_back(path: &Path) -> Vec<(String, Option<String>)> {
     library::config::dotenv::parse(&std::fs::read_to_string(path).expect("danplay.env"))
@@ -182,7 +182,7 @@ fn value_of(pairs: &[(String, Option<String>)], key: &str) -> Option<String> {
 fn settings_read_back_as_they_were_saved() {
     // `DANPLAY_LIBRARY=/home/ana/Musica #2` se releía como
     // `/home/ana/Musica`: sin comillas, lo de detrás de « #» es un
-    // comentario para python-dotenv
+    // comentario en un .env
     for value in [
         "/home/ana/Musica #2",
         "  espacios  al final",
@@ -246,9 +246,8 @@ fn config_child() {
 }
 
 /// La configuración que lee un proceso aparte con ese entorno (sin las
-/// variables XDG_* ni DANPLAY_* de este): lo que en Python era importar
-/// `danplay.config` en otro proceso. Es este mismo programa de pruebas,
-/// con solo `config_child`.
+/// variables XDG_* ni DANPLAY_* de este). Es este mismo programa de
+/// pruebas, con solo `config_child`.
 fn load_in_a_child(env: &[(&str, &Path)]) -> Value {
     let exe = std::env::current_exe().expect("el programa de pruebas");
     let project = crate::tests::scratch("proyecto");

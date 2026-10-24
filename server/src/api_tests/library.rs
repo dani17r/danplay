@@ -1,5 +1,5 @@
-//! tests/test_api.py: buscar, la ficha de una canción, estrellas, el audio,
-//! las listas, las carpetas, transponer, la Entrada y los duplicados.
+//! Buscar, la ficha de una canción, estrellas, el audio, las listas, las
+//! carpetas, transponer, la Entrada y los duplicados.
 use crate::testkit::{api_library, call, first_ids, get, run_job, send};
 use serde_json::{Value, json};
 

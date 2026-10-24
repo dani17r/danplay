@@ -1,6 +1,5 @@
-//! Las rutas portadas, en el mismo proceso y sobre carpetas temporales (las
-//! que necesitan audio de verdad las cubre el arnés que las compara con las
-//! de Python).
+//! Las rutas, en el mismo proceso y sobre carpetas temporales (las que
+//! necesitan audio de verdad se prueban en `api_tests`).
 use crate::tests::app;
 use crate::{Request, handle};
 use serde_json::{Value, json};

@@ -1,8 +1,7 @@
-//! tests/test_journal.py: las listas no se rompen. Una canción que se va
-//! sigue en su lista como «No está», vuelve sola si aparece en otro
-//! archivo, y lo tuyo (listas en su orden, estrellas, estudio) se guarda en
-//! un diario junto a tu música que rehace todo si la base se pierde o la
-//! música se mueve.
+//! Las listas no se rompen. Una canción que se va sigue en su lista como «No
+//! está», vuelve sola si aparece en otro archivo, y lo tuyo (listas en su
+//! orden, estrellas, estudio) se guarda en un diario junto a tu música que
+//! rehace todo si la base se pierde o la música se mueve.
 use crate::app::App;
 use crate::services::{folders, journal, library as lib, playlists, songs};
 use crate::testkit::{call, rows, scanned_library, text};
@@ -401,7 +400,7 @@ fn a_lost_database_is_rebuilt_from_the_diary() {
     assert_eq!(journal::reconcile(&app).expect("recuperar")["lists"], 0);
 }
 
-/// `shutil.copytree`.
+/// Copia una carpeta entera, con lo que tenga dentro.
 fn copy_tree(from: &Path, to: &Path) {
     std::fs::create_dir_all(to).expect("carpeta");
     for e in std::fs::read_dir(from).expect("carpeta").flatten() {

@@ -1,6 +1,6 @@
-//! tests/test_structure.py, de punta a punta: la guía automática de una
-//! canción hecha aquí (acordes, batería y volumen distintos por parte) con
-//! la voz de mentira de `services::cues::fake_voice`. (Las cuentas, con
+//! De punta a punta: la guía automática de una canción hecha aquí (acordes,
+//! batería y volumen distintos por parte) con la voz de mentira de
+//! `services::cues::fake_voice`. (Las cuentas, con
 //! rasgos sintéticos, están en `analysis::structure`.)
 use crate::app::App;
 use crate::services::{cues, songs};
@@ -56,8 +56,8 @@ fn chord(notes: &[i32], harmonics: i32, amp: f64) -> Vec<f64> {
         .collect()
 }
 
-/// Un golpe de charles: 30 ms de ruido que se apaga (siempre el mismo; de
-/// un generador propio en vez del normal de numpy).
+/// Un golpe de charles: 30 ms de ruido que se apaga (siempre el mismo: sale
+/// de un generador propio con su semilla fija).
 fn hat() -> Vec<f64> {
     let n = (0.03 * f64::from(RATE)) as usize;
     let mut seed = 0u64;
@@ -103,7 +103,7 @@ fn add(a: &[f64], b: &[f64]) -> Vec<f64> {
     a.iter().zip(b).map(|(x, y)| x + y).collect()
 }
 
-/// Un compás (`_bar`): la intro, un acorde suave de la menor; la estrofa,
+/// Un compás: la intro, un acorde suave de la menor; la estrofa,
 /// do y sol con poco brillo y bombo; el coro, fa y la menor brillantes,
 /// con bombo y charles, y fuerte. (La banda, la voz.)
 fn one_bar(kind: &str, b: usize) -> (Vec<f64>, Vec<f64>) {
@@ -314,8 +314,6 @@ fn with_its_stems_the_intro_and_the_end_are_where_nobody_sings() {
 
 #[test]
 fn named_parts_are_used_as_they_are() {
-    // (en Python, además, se miraba que no se escuchara la canción: con
-    // `structure.analyse` de mentira, que fallaba si se llamaba)
     let Some((app, cid, _)) = song() else {
         return;
     };

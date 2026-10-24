@@ -1,8 +1,8 @@
-//! Aprovechar lo hecho de una canción que vuelve en otro archivo (lo de
-//! tests/test_reuse.py): mover la carpeta de música y volver a bajar la
-//! canción no obliga a separar otra vez, ni a sacar el clic, ni pierde sus
-//! marcadores. Con archivos de verdad (ffmpeg), en carpetas temporales; sin
-//! ffmpeg, estas pruebas no tienen nada que probar.
+//! Aprovechar lo hecho de una canción que vuelve en otro archivo: mover la
+//! carpeta de música y volver a bajar la canción no obliga a separar otra
+//! vez, ni a sacar el clic, ni pierde sus marcadores. Con archivos de verdad
+//! (ffmpeg), en carpetas temporales; sin ffmpeg, estas pruebas no tienen nada
+//! que probar.
 use super::*;
 use crate::services::library as lib;
 use crate::tests::{app, scratch, wav};
@@ -150,8 +150,8 @@ fn add_and_scan(app: &App, folder: &Path) {
     lib::scan(app, &mut |_, _| {}).expect("escaneo");
 }
 
-/// El escaneo de siempre, sin aprovechar nada (como con `reuse.later`
-/// apagado en las pruebas de Python); `twins`, si junta las gemelas.
+/// El escaneo de siempre, sin aprovechar nada en segundo plano (sin
+/// `later`); `twins`, si junta las gemelas.
 fn scan_only(app: &App, twins: bool) {
     let artists = app.config().artists_dir.clone();
     let ext = folders::extensions();
@@ -588,14 +588,14 @@ fn the_pass_runs_once_per_computer() {
     );
 }
 
-/// Para el arnés que compara el desfase con el de Python con audio de
-/// verdad: `DANPLAY_REUSE_PAIRS` es un archivo con una pareja por línea
-/// (`lag` o `low`, el archivo nuevo y el de antes o sus pistas, separados
-/// por tabuladores), y por cada una sale «DESFASE desfase parecido» (o «-»).
-/// Con `low`, lo que oyó la red del de antes se saca aquí mismo.
+/// Para comparar el desfase con audio de verdad, a mano:
+/// `DANPLAY_REUSE_PAIRS` es un archivo con una pareja por línea (`lag` o
+/// `low`, el archivo nuevo y el de antes o sus pistas, separados por
+/// tabuladores), y por cada una sale «DESFASE desfase parecido» (o «-»). Con
+/// `low`, lo que oyó la red del de antes se saca aquí mismo.
 #[test]
-#[ignore = "lo lanza el arnés diferencial, con sus archivos"]
-fn offsets_for_the_harness() {
+#[ignore = "se lanza a mano, con sus archivos en DANPLAY_REUSE_PAIRS"]
+fn offsets_of_the_pairs_in_a_file() {
     let Ok(list) = std::env::var("DANPLAY_REUSE_PAIRS") else {
         return;
     };

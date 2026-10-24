@@ -1,4 +1,4 @@
-//! Tareas largas en segundo plano (contrato A, lo de danplay/api/jobs.py):
+//! Tareas largas en segundo plano (contrato A):
 //! escanear, importar, convertir, buscar duplicados, poner yt-dlp al día...
 //!
 //! La petición arranca el trabajo en un hilo y contesta al momento; la
@@ -32,7 +32,7 @@ pub const TTL: f64 = 600.0;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum JobError {
     /// Un fallo previsto, con su explicación ya en castellano: se enseña tal
-    /// cual (el `JobError` de Python).
+    /// cual.
     Expected(String),
     /// Cualquier otro: se enseña «<failure>: <motivo>» (o solo `failure` si
     /// no hay motivo) y el detalle va al registro.
@@ -93,8 +93,8 @@ type Slot = Arc<Mutex<Job>>;
 /// El registro de los trabajos (uno por app).
 #[derive(Debug, Default)]
 pub struct Jobs {
-    /// en el orden en que se crearon (el de un `dict` de Python: volver a
-    /// arrancar uno lo deja en su sitio)
+    /// en el orden en que se crearon (volver a arrancar uno lo deja en su
+    /// sitio)
     jobs: Mutex<Vec<(String, Slot)>>,
 }
 
@@ -310,8 +310,8 @@ mod tests {
         assert!(end["ended"].is_f64());
     }
 
-    /// tests/test_jobs.py: cómo va a mitad, y el mismo trabajo si se pide
-    /// otra vez mientras corre.
+    /// Cómo va a mitad, y el mismo trabajo si se pide otra vez mientras
+    /// corre.
     #[test]
     fn a_job_reports_its_progress_and_leaves_its_result() {
         let jobs = Jobs::new();
@@ -365,7 +365,6 @@ mod tests {
 
     #[test]
     fn finished_jobs_are_forgotten_after_a_while() {
-        // (en Python, con `TTL` a cero; aquí, mirando pasado el `TTL`)
         let jobs = Jobs::new();
         jobs.start("viejo", "x", |_| Ok(json!(1)));
         jobs.wait("viejo", Duration::from_secs(5));
@@ -375,7 +374,7 @@ mod tests {
     }
 
     #[test]
-    fn errors_read_like_python() {
+    fn failed_jobs_say_why() {
         let jobs = Jobs::new();
         jobs.start("a", "la importacion fallo", |_| {
             Err(JobError::Failed("sin disco".into()))

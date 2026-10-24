@@ -1,7 +1,7 @@
-//! tests/test_api.py: la seguridad del transporte. Por socket Unix no hace
-//! falta nada; en Windows la app hablaba por loopback y el token era lo único
-//! que separaba a DanPlay de cualquier otro programa del equipo; y en el
-//! navegador (desarrollo), `Host` y `X-DanPlay`.
+//! La seguridad del transporte. Por socket Unix no hace falta nada; en
+//! Windows la app hablaba por loopback y el token era lo único que separaba
+//! a DanPlay de cualquier otro programa del equipo; y en el navegador
+//! (desarrollo), `Host` y `X-DanPlay`.
 use crate::app::Guard;
 use crate::testkit::{api_library, first_ids, guarded, send_with, wait_job};
 

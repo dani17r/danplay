@@ -1,7 +1,7 @@
-//! tests/test_api.py: arrancar una descarga (del botón o confirmada desde el
-//! asistente) y que el turno se suelte, con un yt-dlp de mentira: un guion
-//! de sh que apunta cada llamada, contesta a la consulta con un vídeo y, al
-//! bajar, deja un mp3 de verdad donde se le pide.
+//! Arrancar una descarga (del botón o confirmada desde el asistente) y que
+//! el turno se suelte, con un yt-dlp de mentira: un guion de sh que apunta
+//! cada llamada, contesta a la consulta con un vídeo y, al bajar, deja un
+//! mp3 de verdad donde se le pide.
 //!
 //! El fallo que cubre: la API marcaba el estado «en marcha» a mano antes de
 //! lanzar la descarga, y esta, al verlo puesto, contestaba «ya hay una

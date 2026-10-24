@@ -1,5 +1,5 @@
-//! La última lista pegada de una conversación (lo de tests/test_intake.py
-//! que es del servidor: `last_setlist`). Lo demás del lector de listas, en
+//! La última lista pegada de una conversación (`last_setlist`, lo que es
+//! del servidor). Lo demás del lector de listas, en
 //! library/src/assistant/intake/tests.rs.
 use super::*;
 
@@ -39,8 +39,8 @@ fn last_setlist_takes_the_users_last_visible_setlist() {
     assert_eq!(got.map(|p| p.name_hint).as_deref(), Some("Domingo"));
 }
 
-/// (En Python también lo que no es un diccionario, o una tupla en vez de
-/// una lista: aquí los mensajes ya llegan como diccionarios.)
+/// «user» vale como «me»; lo que no es un objeto ya se queda fuera al leer
+/// los mensajes, y uno sin texto no estorba.
 #[test]
 fn last_setlist_accepts_role_user_and_tolerates_junk() {
     let m = messages(json!([

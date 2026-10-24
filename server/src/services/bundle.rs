@@ -1,7 +1,7 @@
-//! Llevar canciones separadas al celular (lo de danplay/bundle.py alrededor
-//! de `library::bundle`): la rejilla del clic, la carátula y la onda de cada
-//! una, y su `.danpista` en `Celular/`. Varias, una detrás de otra: las que
-//! no se pueden no paran a las demás.
+//! Llevar canciones separadas al celular (alrededor de `library::bundle`): la
+//! rejilla del clic, la carátula y la onda de cada una, y su `.danpista` en
+//! `Celular/`. Varias, una detrás de otra: las que no se pueden no paran a
+//! las demás.
 use crate::app::{App, VERSION};
 use crate::jobs::{JobError, Progress};
 use crate::services::{beats, clock, cues, folders, songs, stems};
@@ -12,8 +12,8 @@ use std::path::{Path, PathBuf};
 
 pub const JOB: &str = "bundle";
 
-/// Por qué no se pudo llevar una canción (el `BundleError` de Python), u
-/// otro fallo.
+/// Por qué no se pudo llevar una canción: un motivo que se esperaba
+/// (`Bundle`) u otro fallo (`Other`, que además va al registro).
 #[derive(Debug)]
 pub(crate) enum Failure {
     Bundle(String),

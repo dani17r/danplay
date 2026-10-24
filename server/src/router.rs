@@ -1,7 +1,7 @@
-//! El enrutador: qué función contesta cada ruta, como Starlette.
+//! El enrutador: qué función contesta cada ruta.
 //!
-//! Las rutas se miran EN ORDEN (el de los routers de danplay/api/__init__.py
-//! y, dentro de cada uno, el de sus funciones). La primera que encaja con la
+//! Las rutas se miran EN ORDEN (el de `routes::all` y, dentro de cada
+//! módulo, el de su `ROUTES`). La primera que encaja con la
 //! ruta y el método contesta. Si alguna encaja con la ruta pero no con el
 //! método, 405 `{"detail": "Method Not Allowed"}`; si ninguna, 404
 //! `{"detail": "Not Found"}`. Una parte `{nombre}` encaja con lo que haya
@@ -14,8 +14,8 @@ use crate::validate::{Fields, parse_body};
 use serde_json::Value;
 
 /// Lo que contesta una ruta: un JSON (con el código de la ruta: 200, o el
-/// `status_code` que tuviera en FastAPI) o una respuesta hecha (un
-/// `JSONResponse(..., status_code=202)`, un archivo).
+/// que le da `Route::status`) o una respuesta hecha (un JSON con otro
+/// código, un archivo).
 #[derive(Debug)]
 pub enum Reply {
     Json(Value),
@@ -38,7 +38,7 @@ impl From<Response> for Reply {
 pub type Handler = fn(&mut Ctx<'_>) -> Result<Reply, ApiError>;
 
 /// Una ruta: método, patrón (`/api/playlists/{lid}/songs`), su función y
-/// el código con el que contesta (el `status_code` de FastAPI).
+/// el código con el que contesta (200, o el que le da `status`).
 #[derive(Clone, Copy)]
 pub struct Route {
     pub method: &'static str,
@@ -83,7 +83,7 @@ impl Route {
         Self::new("DELETE", path, handler)
     }
 
-    /// Con otro código (`@router.post(..., status_code=202)`).
+    /// Con otro código (`Route::post(...).status(202)`).
     #[must_use]
     pub const fn status(mut self, status: u16) -> Self {
         self.status = status;
@@ -148,8 +148,8 @@ impl<'a> Ctx<'a> {
         &mut self.query
     }
 
-    /// Todos los valores de un parámetro de la consulta (`list[str] =
-    /// Query()`), en su orden.
+    /// Todos los valores de un parámetro de la consulta (si se repite), en
+    /// su orden.
     pub fn query_all(&self, name: &str) -> Vec<String> {
         self.query_pairs
             .iter()
@@ -165,9 +165,8 @@ impl<'a> Ctx<'a> {
         parse_body(self.req.header_value("content-type"), &self.req.body).map(Some)
     }
 
-    /// El cuerpo de un modelo obligatorio (`body: Annotated[X, Body()]`). Si
-    /// no es JSON, el 422 sale ya; si falta o no es un objeto, se apunta y
-    /// sale en `done`.
+    /// El cuerpo de un modelo obligatorio. Si no es JSON, el 422 sale ya; si
+    /// falta o no es un objeto, se apunta y sale en `done`.
     pub fn body(&mut self) -> Result<Fields, ApiError> {
         Ok(match self.parsed_body()? {
             None | Some(Value::Null) => Fields::missing_body(),
@@ -175,8 +174,8 @@ impl<'a> Ctx<'a> {
         })
     }
 
-    /// El cuerpo de un modelo optativo (`body: X | None = None`): `None` si
-    /// no llega (o llega `null`).
+    /// El cuerpo de un modelo optativo: `None` si no llega (o llega
+    /// `null`).
     pub fn opt_body(&mut self) -> Result<Option<Fields>, ApiError> {
         Ok(match self.parsed_body()? {
             None | Some(Value::Null) => None,
@@ -212,7 +211,7 @@ impl<'a> Ctx<'a> {
     }
 }
 
-/// `%XX` fuera, como la ruta que ve Starlette.
+/// La ruta sin los `%XX` (lo que no sea UTF-8 queda como «�»).
 fn decoded(path: &str) -> String {
     percent_encoding::percent_decode_str(path)
         .decode_utf8_lossy()

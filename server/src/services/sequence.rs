@@ -1,8 +1,8 @@
-//! Abrir una secuencia descargada (lo de danplay/sequence.py alrededor de
-//! `library::sequence`): las pistas a FLAC (en paralelo, con su silencio
-//! delante si entran tarde), la canción mezclada sin el clic ni la guía en
-//! `Secuencias/`, la onda de cada pista, todo a su sitio de golpe, y al
-//! índice con sus pistas, sus partes y su clic exacto.
+//! Abrir una secuencia descargada (alrededor de `library::sequence`): las
+//! pistas a FLAC (en paralelo, con su silencio delante si entran tarde), la
+//! canción mezclada sin el clic ni la guía en `Secuencias/`, la onda de cada
+//! pista, todo a su sitio de golpe, y al índice con sus pistas, sus partes y
+//! su clic exacto.
 use crate::app::App;
 use crate::jobs::{JobError, Progress};
 use crate::services::{beats, songs, stems, tags};
@@ -16,13 +16,13 @@ use std::time::Duration;
 
 pub const JOB: &str = "sequence";
 
-/// Un `SequenceError` de Python: no es un `JobError`, así que el trabajo
-/// lo cuenta detrás de «no se pudo abrir la secuencia: ».
+/// Un fallo de la secuencia: no es un `JobError::Expected`, así que el
+/// trabajo lo cuenta detrás de «no se pudo abrir la secuencia: ».
 fn expected(t: impl Into<String>) -> JobError {
     JobError::Failed(t.into())
 }
 
-/// `sequence.find`: la secuencia de esa carpeta (o de la de ese archivo).
+/// La secuencia de esa carpeta (o de la de ese archivo).
 pub fn find(folder: &str) -> Result<Sequence, String> {
     lseq::find(folder).map_err(|e| e.0)
 }

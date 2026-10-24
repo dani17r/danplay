@@ -1,18 +1,18 @@
-//! El asistente (danplay/chat/): la conversación con la biblioteca.
+//! El asistente: la conversación con la biblioteca.
 //!
 //! El turno lo lleva `library::assistant::conversation` (el historial, cada
 //! vuelta con el modelo, qué se hace con lo que contesta, cada herramienta
-//! con su ficha y el informe que redacta la app). Aquí está lo de fuera, en
-//! Rust: `Chat` sobre la IA de Rust (`library::ai::call`) y las
-//! herramientas (`tools`), y lo que era Python alrededor del turno: leer la
-//! lista pegada (`turn_for`), lo que se apunta para el visto bueno (`ask`,
-//! con el registro de `plan`), el estado real de la app (`context_note`) y
-//! el uso y el tope del mes (`finish`).
+//! con su ficha y el informe que redacta la app). Aquí está lo de fuera:
+//! `Chat` sobre la IA (`library::ai::call`) y las herramientas (`tools`), y
+//! lo que rodea al turno: leer la lista pegada (`turn_for`), lo que se
+//! apunta para el visto bueno (`ask`, con el registro de `plan`), el estado
+//! real de la app (`context_note`) y el uso y el tope del mes (`finish`).
 //!
-//! Por partes, como en Python: `tools` (tools.py), `plan` (plan.py),
-//! `setlist` (setlist.py), `resolve` (resolve.py), `lookups` (web.py,
-//! chord_sheets.py y lo de enrich.py que usan las herramientas) y `lists`
-//! (lo de playlists.py y library que aún no está en `services`).
+//! Por partes: `tools` (las herramientas), `plan` (las confirmaciones y el
+//! plan de descarga), `setlist` (una lista contra el repertorio), `resolve`
+//! (el emparejador con la biblioteca), `lookups` (la web, los cifrados y lo
+//! de enriquecer que usan las herramientas) y `lists` (lo de las listas que
+//! aún no está en `services`).
 pub mod lists;
 pub mod lookups;
 pub mod plan;
@@ -67,8 +67,7 @@ fn yes(m: &Dict, k: &str) -> bool {
     m.get(k).is_some_and(value::truthy)
 }
 
-/// `_window(messages)`: los últimos mensajes que caben, empezando por uno del
-/// usuario.
+/// Los últimos mensajes que caben, empezando por uno del usuario.
 pub fn window(messages: &[Dict]) -> Vec<Dict> {
     let len = |i: usize| -> Result<usize, ()> { Ok(text_of(&messages[i], "text").chars().count()) };
     let is_ai =
@@ -90,7 +89,7 @@ fn visible_user(messages: &[Dict]) -> Vec<&Dict> {
         .collect()
 }
 
-/// `intake.last_setlist(messages)`: la última lista pegada de la conversación.
+/// La última lista pegada de la conversación.
 fn last_setlist(messages: &[Dict]) -> Option<intake::SetlistParse> {
     let mut seen = 0;
     for m in messages.iter().rev() {
@@ -118,9 +117,9 @@ fn last_setlist(messages: &[Dict]) -> Option<intake::SetlistParse> {
     None
 }
 
-/// `_turn_for(recent, chat_id)`: lo que la app lee del turno por su cuenta,
-/// sin el modelo: la lista pegada (la de este mensaje o la última de la
-/// conversación) y lo que la persona pidió con sus palabras.
+/// Lo que la app lee del turno por su cuenta, sin el modelo: la lista
+/// pegada (la de este mensaje o la última de la conversación) y lo que la
+/// persona pidió con sus palabras.
 pub fn turn_for(recent: &[Dict], chat_id: Option<i64>) -> Turn {
     let mut turn = Turn {
         chat_id,
@@ -155,7 +154,7 @@ pub fn turn_for(recent: &[Dict], chat_id: Option<i64>) -> Turn {
     turn
 }
 
-/// `_setlist_note(turn)`: la lista pegada, ya leída, para el modelo.
+/// La lista pegada, ya leída, para el modelo.
 fn setlist_note(turn: &Turn) -> Option<String> {
     let s = turn.setlist.as_ref().filter(|s| !s.items.is_empty())?;
     let i = turn.intent;
@@ -180,8 +179,8 @@ fn setlist_note(turn: &Turn) -> Option<String> {
     Some(conv::setlist_note(&pasted))
 }
 
-/// `_still_there(h)`: la canción de una descarga del historial, si sigue
-/// siendo ESA (los ids de canción se reutilizan).
+/// La canción de una descarga del historial, si sigue siendo ESA (los ids
+/// de canción se reutilizan).
 pub(crate) fn still_there(app: &App, h: &Dict) -> bool {
     let Some(sid) = h
         .get("song_id")
@@ -198,8 +197,8 @@ pub(crate) fn still_there(app: &App, h: &Dict) -> bool {
     target.is_empty() || path == target || paths::file_name(&path) == paths::file_name(&target)
 }
 
-/// `_context_note(messages, context)`: el estado real de la app para el
-/// turno que empieza (lo que no se pueda leer, no se dice).
+/// El estado real de la app para el turno que empieza (lo que no se pueda
+/// leer, no se dice).
 pub fn context_note(app: &App, messages: &[Dict], screen: &Value) -> Result<String, ApiError> {
     let mut state = context::State {
         today: crate::services::clock::today_dmy(),
@@ -231,7 +230,7 @@ pub fn context_note(app: &App, messages: &[Dict], screen: &Value) -> Result<Stri
 
 // ------------------------------------------------------------------ el turno
 
-/// El turno con lo de fuera en Rust.
+/// El turno con lo de fuera: la IA, las herramientas y la app.
 struct ServerChat<'a, 'l> {
     app: &'a App,
     history: Vec<Value>,
@@ -505,8 +504,8 @@ impl Chat for ServerChat<'_, '_> {
     }
 }
 
-/// `_finish`: el resultado del turno, con lo que se llevaba hecho, lo que
-/// gastó y, si lo hay, el tope del mes.
+/// El resultado del turno, con lo que se llevaba hecho, lo que gastó y, si
+/// lo hay, el tope del mes.
 fn finish(app: &App, out: Value, state: &State<Value>) -> Value {
     let mut out = match out {
         Value::Object(o) => o,
@@ -548,7 +547,7 @@ fn finish(app: &App, out: Value, state: &State<Value>) -> Value {
             .cloned()
             .unwrap_or(json!(0));
         let month = value::float_of(&cost).unwrap_or(0.0);
-        // `round(month, 4)`: un entero (sin nada con precio) sigue siendo entero
+        // a 4 decimales; un entero (sin nada con precio) sigue siendo entero
         let shown = if cost.is_f64() {
             json!(num::round_to(month, 4))
         } else {
@@ -562,7 +561,7 @@ fn finish(app: &App, out: Value, state: &State<Value>) -> Value {
     Value::Object(out)
 }
 
-/// `_ask`: lo que no tiene vuelta atrás se registra para que la persona lo
+/// Lo que no tiene vuelta atrás se registra para que la persona lo
 /// apruebe. Devuelve (lo que lee el modelo, la confirmación puesta o None).
 /// Antes de pedir permiso para bajar, se mira la biblioteca: lo que ya está
 /// no se ofrece.
@@ -684,9 +683,9 @@ pub fn ask(
     (res, Some(Value::Object(asked)))
 }
 
-/// `chat.reply(messages, context=...)`: conversa usando herramientas. Las que
-/// no tienen vuelta atrás no se ejecutan: se registran y se devuelven en
-/// `confirm` para que las apruebe la persona.
+/// Conversa usando herramientas. Las que no tienen vuelta atrás no se
+/// ejecutan: se registran y se devuelven en `confirm` para que las apruebe
+/// la persona.
 pub fn reply(
     app: &App,
     messages: &[Dict],

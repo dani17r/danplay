@@ -1,6 +1,6 @@
 //! Separar canciones en pistas (batería, voces, bajo...) y lo que se hace
 //! con ellas: oírlas en el estudio, guardarlas mezcladas, llevarlas al
-//! celular, quitarlas; y abrir secuencias (danplay/api/routes/stems.py).
+//! celular, quitarlas; y abrir secuencias.
 use crate::error::ApiError;
 use crate::http::Response;
 use crate::jobs::{self, JobError};
@@ -118,8 +118,8 @@ fn delete_stems(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
 const SIDES: &[&str] = &["both", "L", "R"];
 const SOUNDS: &[&str] = &["clasico", "madera", "baqueta", "cencerro"];
 
-/// Una lista de modelos obligatoria (`tracks: list[X] = Field(min_length,
-/// max_length)`): los de dentro, o `None` si no se pudo leer.
+/// Una lista de modelos obligatoria (las `tracks` de una mezcla, con su
+/// tope por abajo y por arriba): los de dentro, o `None` si no se pudo leer.
 fn model_list(
     b: &mut Fields,
     key: &str,
@@ -148,7 +148,7 @@ fn model_list(
     None
 }
 
-/// El fallo de una lista de más o de menos (como pydantic).
+/// El fallo de una lista de más o de menos.
 fn list_length(b: &mut Fields, key: &str, n: usize, min: Option<usize>, max: usize) {
     let input = b.raw().get(key).cloned().unwrap_or(Value::Null);
     let items = |k: usize| format!("{k} item{}", if k == 1 { "" } else { "s" });
@@ -171,7 +171,7 @@ fn list_length(b: &mut Fields, key: &str, n: usize, min: Option<usize>, max: usi
     }
 }
 
-/// `StemMixIn`, campo a campo y en su orden.
+/// El cuerpo de una mezcla, campo a campo y en su orden.
 fn read_mix(b: &mut Fields) -> Mix {
     let mut tracks = Vec::new();
     if let Some(items) = model_list(b, "tracks", true, true) {
