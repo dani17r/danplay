@@ -31,7 +31,8 @@ const WINDOW: usize = 2048;
 const HOP: usize = 512;
 /// Tramas por segundo.
 const FPS: f64 = RATE as f64 / HOP as f64;
-/// Cuanto se castiga apartarse del periodo al enlazar pulsos.
+/// Cuanto se castiga apartarse del periodo al enlazar pulsos (el valor
+/// habitual de la programación dinámica de Ellis 2007).
 const TIGHTNESS: f64 = 100.0;
 /// A partir de cuantos pulsos sin nada es un hueco sin clic (y no un pulso
 /// que se alarga un poco): los que la rejilla deja asi no se rellenan.

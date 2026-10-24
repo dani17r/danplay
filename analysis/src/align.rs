@@ -296,8 +296,8 @@ mod tests {
         ];
         for (i, (new, lag, score)) in cases.iter().enumerate() {
             let (got, s) = offset(new, &x, 8000).expect("desfase");
-            assert!((got - lag).abs() < 1e-9, "caso {i}: {got} y en numpy {lag}");
-            assert!((s - score).abs() < 1e-6, "caso {i}: {s} y en numpy {score}");
+            assert!((got - lag).abs() < 1e-9, "caso {i}: {got} y antes {lag}");
+            assert!((s - score).abs() < 1e-6, "caso {i}: {s} y antes {score}");
         }
     }
 
