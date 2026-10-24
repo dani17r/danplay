@@ -15,6 +15,12 @@ hecho así, en [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
   («invalid literal for int()…»); ahora dice qué pasó.
 - **El asistente** ya no ve «None» donde falta un dato (el artista de lo que
   suena, una búsqueda vacía).
+- **Arreglado**: al editar la ficha de una canción sin año, se escribía
+  «None» como año en la etiqueta del archivo.
+- **Arreglado**: si las pistas mejoradas (o la canción con sus pistas)
+  tardaban en estar listas al relevarse sonando, la canción volvía atrás un
+  poco y el clic dejaba de cuadrar con los golpes. Ahora siguen desde donde
+  iba.
 - **Arreglado**: lanzar yt-dlp justo después de ponerlo al día podía fallar
   con «text file busy»; ahora se reintenta.
 

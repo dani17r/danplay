@@ -38,8 +38,7 @@ pub fn youtube_available(app: &App) -> bool {
 /// Por qué no se puede bajar de YouTube (vacío si se puede).
 pub fn youtube_unavailable_reason(app: &App) -> String {
     if !ytdlp_installed(app) {
-        return "falta yt-dlp: actualizalo desde la pagina de Descargas (o pip install yt-dlp)"
-            .into();
+        return "falta yt-dlp: actualizalo desde la pagina de Descargas".into();
     }
     if !ffmpeg_available(app) {
         return "falta ffmpeg".into();

@@ -90,7 +90,7 @@ ahora en Rust también (`beats::work`).
 | --- | --- |
 | `test_a_job_reports_its_progress_and_leaves_its_result` | `jobs.rs`: `tests::a_job_reports_its_progress_and_leaves_its_result` (las claves de la instantánea ya estaban en `tests::a_job_runs_reports_and_ends`) |
 | `test_the_snapshot_is_a_copy` | `jobs.rs`: `tests::the_snapshot_is_a_copy` |
-| `test_errors_come_out_in_spanish` | ya estaba en `jobs.rs`: `tests::errors_read_like_python` (el previsto tal cual, el otro con «failure: motivo», sin resultado) |
+| `test_errors_come_out_in_spanish` | ya estaba en `jobs.rs`: `tests::failed_jobs_say_why` (el previsto tal cual, el otro con «failure: motivo», sin resultado) |
 | `test_finished_jobs_are_forgotten_after_a_while` | `jobs.rs`: `tests::finished_jobs_are_forgotten_after_a_while` (mirando pasado el `TTL`, en vez de ponerlo a cero) |
 | `test_the_status_carries_a_copy_of_the_jobs` | `api_tests/jobs.rs`: `the_status_carries_a_copy_of_the_jobs` |
 | `test_asking_for_a_scan_while_one_runs_returns_the_same` | `api_tests/jobs.rs`: `asking_for_a_scan_while_one_runs_returns_the_same` (el escaneo, frenado con su cerrojo en vez de con un `library.scan` de mentira) |
@@ -323,7 +323,7 @@ Y pasan a `pub(crate)`, para llamarlas desde las pruebas: `chat::still_there`,
 | `test_chat_start_poll_and_cancel` | `api_tests/ai.rs`: `the_live_chat_starts_answers_and_cancels` (con `FakeAi::scripted`; el perfil apunta a ella con `base_url`) |
 | `test_chats_are_kept_and_searchable` | `api_tests/ai.rs`: `chats_are_kept_and_searchable` |
 | `test_ai_usage_and_fallback_settings` | `api_tests/ai.rs`: `ai_usage_and_the_fallback_setting` |
-| `test_study_mode_is_saved_in_the_index_and_in_the_file` | `api_tests/songs.rs`: `the_study_mode_is_saved_in_the_index_and_in_the_file` (`routes/songs/tests.rs`: `study_validates_like_pydantic_and_saves_it_clean` ya miraba la validación y el vacío) |
+| `test_study_mode_is_saved_in_the_index_and_in_the_file` | `api_tests/songs.rs`: `the_study_mode_is_saved_in_the_index_and_in_the_file` (`routes/songs/tests.rs`: `study_is_validated_and_saved_clean` ya miraba la validación y el vacío) |
 | `test_waveform_columns_follow_the_sound` | ya estaba en `library/src/waveform/tests.rs`: `columns_follow_the_sound` |
 | `test_waveform_endpoint_draws_the_song_and_caches_it` | `api_tests/songs.rs`: `the_waveform_draws_the_song_and_keeps_it` (el mp3, callado y luego con tono, de una vez con `aevalsrc` de ffmpeg. No mira que el respaldo por ffmpeg, `waveform::with_ffmpeg`, dé lo mismo) |
 | `test_waveform_cache_goes_away_with_the_song` | `api_tests/songs.rs`: `the_waveform_cache_goes_away_with_the_song` (`services::songs::forget` hace de `library.forget`) |
@@ -612,7 +612,7 @@ El modelo de mentira es el `FakeAi` con su guion (`api_tests/assistant.rs`:
 | `test_a_search_brings_several_and_cancel_stops_it` | `api_tests/youtube.rs`: `a_search_brings_several_and_cancel_stops_it` |
 | `test_failures_are_counted_and_the_turn_is_released` | `api_tests/youtube.rs`: `failures_are_counted_and_the_turn_is_released` |
 | `test_a_non_youtube_link_is_not_passed_to_yt_dlp` | `api_tests/youtube.rs`: `a_non_youtube_link_is_not_passed_to_yt_dlp` (y además mira que esa dirección no llega a yt-dlp) |
-| `test_a_long_live_stream_is_rejected` | `api_tests/youtube.rs`: `a_long_live_stream_is_rejected` (`library/src/youtube/tests.rs`: `long_videos_are_filtered_like_python` ya lo miraba) |
+| `test_a_long_live_stream_is_rejected` | desde la fase 6, ninguna: el tope de duración lo pone yt-dlp (`--match-filter duration<=?1800`, que mira `services/ytdlp/tests.rs`: `the_options_as_arguments`) |
 | `test_no_chosen_folder_blocks_downloads_and_suggests_one` | `api_tests/youtube.rs`: `no_chosen_folder_blocks_downloads_and_suggests_one` (y además mira que yt-dlp no llega a bajar nada) |
 | `test_a_missing_or_outside_folder_is_asked_for_again` | `api_tests/youtube.rs`: `a_missing_or_outside_folder_is_asked_for_again` |
 | `test_choosing_a_folder_uses_and_creates_its_subfolders` | `api_tests/youtube.rs`: `choosing_a_folder_uses_and_creates_its_subfolders` (en Python solo corría contra su núcleo; `services/youtube/tests.rs`: `the_folder_must_be_one_of_yours` ya miraba las subcarpetas, el .env y las que no valen, sin la API ni la descarga) |
@@ -683,7 +683,7 @@ que en Python era `monkeypatch(youtube, "download")`) y lo que había en
 | `test_an_old_runtime_is_rejected_with_a_hint` | ya estaba en `library/src/ytdlp/tests.rs`: `each_runtime_says_its_version_its_way` y `the_hint_says_what_to_do` (la versión que dice y la pista, sin programas) |
 | `test_with_none_it_says_what_to_install` | ya estaba en `library/src/ytdlp/tests.rs`: `the_hint_says_what_to_do` |
 | `test_quickjs_is_called_qjs_and_probed_with_help` (3 versiones) | ya estaba en `library/src/ytdlp/tests.rs`: `each_runtime_says_its_version_its_way` (lo que dice cada una; que se llame `qjs` y se le pregunte con `--help` es su `RuntimeSpec`) |
-| `test_the_options_reach_yt_dlp` | ya estaba en `services/ytdlp/tests.rs`: `the_python_options_as_arguments` (`--js-runtimes node:/usr/bin/node`) |
+| `test_the_options_reach_yt_dlp` | ya estaba en `services/ytdlp/tests.rs`: `the_options_as_arguments` (`--js-runtimes node:/usr/bin/node`) |
 | `test_version_as_numbers` | ya estaba en `library/src/ytdlp/tests.rs`: `versions_compare_as_numbers` |
 | `test_it_updates_from_pypi_and_uses_the_new_one` | no se pasa: la rueda de PyPI y cargar el módulo de la carpeta descargada. En Rust yt-dlp es un ejecutable que se pone al día desde GitHub: ya estaba en `services/ytdlp/tests.rs`: `update_from_github_checks_the_sum_and_switches` |
 | `test_on_startup_the_downloaded_one_is_loaded` | no se pasa: cargar el módulo descargado. Que al arrancar se usa el descargado ya estaba en `services/ytdlp/tests.rs`: `the_downloaded_one_wins_if_newer_and_answers` |
@@ -1034,7 +1034,7 @@ piden (`serve_fn`, y `nobody_home` para uno apagado). Abreviaturas:
 | `test_assistant_edit_only_touches_declared_fields` | `T` `assistant_edit_only_touches_declared_fields` |
 | `test_timed_lyrics_do_not_reach_the_uslt` | `E` `timed_lyrics_do_not_reach_the_uslt` (parte ya estaba en `enrich_saves_lyrics_cover_and_details`) |
 | `test_every_declared_tool_has_a_handler` | `A` `every_declared_tool_has_a_handler` |
-| `test_invalid_arguments_are_reported_in_spanish` | `A` `invalid_arguments_are_reported_in_spanish` (parte ya estaba en `server/src/services/chat/tests.rs` `arguments_like_pydantic`) |
+| `test_invalid_arguments_are_reported_in_spanish` | `A` `invalid_arguments_are_reported_in_spanish` (parte ya estaba en `server/src/services/chat/tests.rs` `tool_arguments_are_checked_and_converted`) |
 | `test_numbers_as_text_and_year_as_number_are_accepted` | `A` `numbers_as_text_and_year_as_number_are_accepted` |
 | `test_old_names_still_work` | `A` `old_names_still_work` (con un mp3 de verdad: sin archivo, poner estrellas falla), `server/src/services/chat/tools.rs` `old_names_become_the_new_ones` y `T` `lyrics_without_id_go_by_artist_and_title` (la letra por nombre de verdad va a LRCLIB, que no se prueba sin red) |
 
