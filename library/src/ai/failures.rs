@@ -1,5 +1,5 @@
 //! Por qué falla un proveedor, cómo se le cuenta a la persona, y su texto sin
-//! secretos (lo que era la mitad de danplay/ai.py).
+//! secretos.
 //!
 //! Cuatro tipos de fallo del SERVICIO. Lo que dice el TEXTO sin lugar a dudas
 //! manda sobre el código HTTP, porque el código engaña: OpenAI manda
@@ -50,9 +50,9 @@ static BILLING_TEXT: LazyLock<Re> = LazyLock::new(|| {
     ))
 });
 
-/// «limit: 0» (Gemini: tu plan no tiene cuota para ese modelo), y no
-/// «limit: 0.5» ni «limit: 05»: lo que en Python era `limit:\s*0(?!\d|\.\d)`,
-/// mirado a mano para que la expresión de arriba vaya por el motor rápido.
+/// «limit: 0» (Gemini: tu plan no tiene cuota para ese modelo), y no «limit:
+/// 0.5» ni «limit: 05» (`limit:\s*0(?!\d|\.\d)`), mirado a mano para que la
+/// expresión de arriba vaya por el motor rápido.
 fn limit_zero(low: &str) -> bool {
     let digit = |c: Option<char>| c.is_some_and(|c| crate::patterns::decimal(c).is_some());
     let mut rest = low;
@@ -189,7 +189,7 @@ fn is_invisible(c: char) -> bool {
 }
 
 /// El servidor (y puerto) de una URL, como `urlsplit`: `None` si no se
-/// entiende (Python daba `ValueError`) o no lo tiene.
+/// entiende o no lo tiene.
 fn host_port(raw: &str) -> Result<Option<(String, Option<u32>)>, ()> {
     let Some((_, rest)) = raw.split_once("://") else {
         return Ok(None);
@@ -314,8 +314,8 @@ pub fn sanitize(text: &str, secrets: &[String]) -> String {
     });
     s = sub(&BEARER_RX, &s, "Bearer ***");
     s = sub(&KEY_RX, &s, "***");
-    // (lo de delante, en el grupo 1, es lo que en Python era «que no haya
-    // una letra antes»: así va por el motor rápido)
+    // (lo de delante, en el grupo 1, hace de «que no haya una letra antes»:
+    // así va por el motor rápido)
     let g = crate::names::group;
     s = sub_with(&AUTH_HEADER_RX, &s, |t, m| {
         format!("{}{}***", g(t, m, 1), g(t, m, 2))

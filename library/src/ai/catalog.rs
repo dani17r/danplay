@@ -1,5 +1,4 @@
-//! El catálogo de modelos de todo el mundo, siempre al día (lo que era
-//! danplay/model_catalog.py).
+//! El catálogo de modelos de todo el mundo, siempre al día.
 //!
 //! Los nombres de modelo caducan en meses (OpenAI cambió toda su
 //! nomenclatura, Mistral retiró los alias «-latest», DeepSeek jubila
@@ -17,8 +16,8 @@
 //!   - y la app lleva dentro una foto (`data/models-snapshot.json`) para el
 //!     primer arranque sin red.
 //!
-//! La descarga la hace quien llama (`fetch` aquí, con ureq, o Python mientras
-//! las pruebas corten la red allí); esto la recorta, la guarda y la consulta.
+//! La descarga la hace quien llama (con `fetch`, que usa ureq); esto la
+//! recorta, la guarda y la consulta.
 use crate::index::Dict;
 use crate::names::{Re, is_match, rx};
 use crate::text;
@@ -61,7 +60,7 @@ fn dict(v: Option<&Value>) -> Dict {
     }
 }
 
-/// `str(v or default)`.
+/// El texto de `v`, o `default` si no hay nada.
 fn str_or(v: Option<&Value>, default: &str) -> String {
     match v {
         Some(x) if value::truthy(x) => value::str_of(x),
@@ -69,7 +68,7 @@ fn str_or(v: Option<&Value>, default: &str) -> String {
     }
 }
 
-/// `"text" in x` de Python, con una lista o un texto.
+/// Si lleva «text»: en una lista, dentro de un texto o como clave.
 fn has_text(v: &Value) -> bool {
     match v {
         Value::Array(a) => a.iter().any(|x| x == "text"),
@@ -204,9 +203,9 @@ pub fn trim(raw: &Dict, only: Option<&[String]>) -> Dict {
 
 /// Lo mismo que `trim`, leyendo el JSON tal como llega (unos 4 MB) y
 /// recortando cada proveedor según se lee: en memoria solo está entero uno a
-/// la vez. Pasarlo antes a un diccionario (el de Python y luego el de Rust)
-/// costaba más de 100 MB que el proceso ya no devolvía. Err si no es un
-/// objeto JSON (quien llama decide qué decir).
+/// la vez. Pasarlo antes entero a diccionarios costaba más de 100 MB que el
+/// proceso ya no devolvía. Err si no es un objeto JSON (quien llama decide qué
+/// decir).
 pub fn trim_json(bytes: &[u8], only: Option<&[String]>) -> Result<Dict, String> {
     use serde::de::{Deserializer, MapAccess, Visitor};
     use std::fmt;
@@ -223,8 +222,8 @@ pub fn trim_json(bytes: &[u8], only: Option<&[String]>) -> Result<Dict, String> 
         fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Dict, A::Error> {
             let mut out = Dict::new();
             while let Some((pid, p)) = map.next_entry::<String, Value>()? {
-                // como el diccionario de Python: con una clave repetida
-                // cuenta la última, en el sitio de la primera
+                // con una clave repetida cuenta la última, en el sitio de la
+                // primera
                 let kept = match &p {
                     Value::Object(p) if wanted(&pid, self.0) => trim_provider(&pid, p),
                     _ => None,
@@ -449,8 +448,8 @@ pub enum FetchOutcome {
     Error(String),
 }
 
-/// Un fallo de la red con el texto que daba `urllib` de Python («<urlopen
-/// error [Errno -3] Temporary failure in name resolution>»): es lo que se
+/// Un fallo de la red con el texto de siempre («<urlopen error [Errno -3]
+/// Temporary failure in name resolution>», el de hasta la 1.30): es lo que se
 /// guarda como error del catálogo y lo que enseña la interfaz.
 pub fn urllib_text(e: &ureq::Error) -> String {
     let timed_out = "<urlopen error timed out>".to_owned();
@@ -462,7 +461,7 @@ pub fn urllib_text(e: &ureq::Error) -> String {
             }
             let text = io.to_string();
             if let Some(rest) = text.strip_prefix("failed to lookup address information: ") {
-                // los códigos de getaddrinfo (EAI_*) que da Python
+                // los códigos de getaddrinfo (EAI_*) de ese texto
                 let code = match rest {
                     "Temporary failure in name resolution" => -3,
                     "No address associated with hostname" => -5,
@@ -481,8 +480,7 @@ pub fn urllib_text(e: &ureq::Error) -> String {
     }
 }
 
-/// Pregunta a models.dev con ureq, con el ETag de la copia (para la fase 4;
-/// hoy lo pide Python).
+/// Pregunta a models.dev con ureq, con el ETag de la copia.
 pub fn fetch(etag: Option<&str>, timeout: std::time::Duration) -> FetchOutcome {
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .timeout_global(Some(timeout))
@@ -528,11 +526,11 @@ pub fn fetch(etag: Option<&str>, timeout: std::time::Duration) -> FetchOutcome {
     }
 }
 
-/// La foto que viaja con la app (`model_catalog.build_snapshot` de Python,
-/// que sacaba scripts/update-models.py): models.dev recortada a los
-/// proveedores del catálogo de DanPlay (la base entera son unos 4 MB y aquí
-/// sobra la mitad), con la hora `now`. Devuelve el JSON tal como se guarda
-/// y cuántos modelos lleva; `Err` con lo que dijo la red.
+/// La foto que viaja con la app (la saca `--models-snapshot` del servidor al
+/// empaquetar): models.dev recortada a los proveedores del catálogo de DanPlay
+/// (la base entera son unos 4 MB y aquí sobra la mitad), con la hora `now`.
+/// Devuelve el JSON tal como se guarda y cuántos modelos lleva; `Err` con lo
+/// que dijo la red.
 pub fn snapshot(now: f64, timeout: std::time::Duration) -> Result<(String, usize), String> {
     let mut wanted: Vec<String> = crate::ai::providers::catalog()
         .iter()
@@ -561,7 +559,8 @@ pub fn snapshot(now: f64, timeout: std::time::Duration) -> Result<(String, usize
         "checked_at": 0,
         "providers": providers,
     });
-    // como `json.dumps(..., ensure_ascii=False, separators=(",", ":"))`
+    // JSON sin espacios y con lo que no es ASCII tal cual, como lo escribían
+    // las versiones de antes
     Ok((format!("{data}\n"), models))
 }
 
@@ -750,7 +749,7 @@ mod tests {
         assert!(trim_json(b"\xff", None).is_err());
     }
 
-    // --------------------------------------------- lo de tests/test_ai.py
+    // ------------------------------------------------ el catálogo recortado
 
     fn obj(v: Value) -> Dict {
         v.as_object().cloned().expect("objeto")

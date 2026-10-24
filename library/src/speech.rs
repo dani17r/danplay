@@ -1,7 +1,6 @@
-//! El texto de una guía hablada, listo para decirse (lo que hacía
-//! danplay/speech.py): los números en palabras («x2» es «dos veces», «1/2» es
-//! «medio») y, para las voces de Piper, los fonemas al estilo de espeak-ng,
-//! que es con lo que se entrenaron.
+//! El texto de una guía hablada, listo para decirse: los números en palabras
+//! («x2» es «dos veces», «1/2» es «medio») y, para las voces de Piper, los
+//! fonemas al estilo de espeak-ng, que es con lo que se entrenaron.
 //!
 //! espeak-ng es GPL y no viaja con la app: sus reglas para el castellano están
 //! copiadas aquí a mano (de su salida, no de su código). Coincide palabra por
@@ -97,9 +96,9 @@ const EN_TENS: [&str; 10] = [
     "", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety",
 ];
 
-/// Un número entero en palabras (hasta 999 999; más, cifra a cifra). Como en
-/// Python, uno negativo cuenta desde el final de la tabla («-1» es la última
-/// palabra), y `None` si se sale de ella.
+/// Un número entero en palabras (hasta 999 999; más, cifra a cifra). Uno
+/// negativo cuenta desde el final de la tabla («-1» es la última palabra), y
+/// `None` si se sale de ella.
 pub fn number(n: i64, lang: &str) -> Option<String> {
     if n < 0 {
         let table: &[&str] = if lang == "en" { &EN_ONES } else { &ONES };
@@ -329,8 +328,8 @@ const ONSETS: [(&str, &str); 12] = [
 ];
 const PAUSES: &str = ",.?!:;";
 
-/// Si un trozo es una pausa: como `t in PAUSES` de Python, que mira si es un
-/// pedazo de la cadena (así que un trozo vacío también lo es).
+/// Si un trozo es una pausa: si es un pedazo de `PAUSES` (así que un trozo
+/// vacío también lo es).
 fn is_pause(t: &str) -> bool {
     PAUSES.contains(t)
 }

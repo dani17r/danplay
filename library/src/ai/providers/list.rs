@@ -1,5 +1,4 @@
-//! El catálogo de proveedores (lo que era `providers.CATALOG`), con sus
-//! comentarios. Salió de providers.py; ahora se cambia aquí.
+//! El catálogo de proveedores, con sus comentarios. Se cambia aquí.
 use super::p;
 use serde_json::{Value, json};
 

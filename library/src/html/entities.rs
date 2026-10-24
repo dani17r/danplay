@@ -1,6 +1,6 @@
-//! Las referencias con nombre de HTML5 (`html.entities.html5` de Python),
-//! ordenadas para buscarlas por bisección. Generado desde Python 3.13; no
-//! se edita a mano.
+//! Las referencias con nombre de HTML5 (la lista del estándar del WHATWG),
+//! ordenadas para buscarlas por bisección. Generado una vez; no se edita a
+//! mano.
 #![allow(clippy::unreadable_literal)]
 
 pub(super) static ENTITIES: [(&str, &str); 2231] = [

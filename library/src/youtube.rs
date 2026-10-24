@@ -180,7 +180,7 @@ pub fn download_options(outtmpl: &str, kbps: &str) -> (Options, Options) {
     )
 }
 
-/// `str(Path(tmp) / "%(id)s.%(ext)s")`: dónde deja yt-dlp lo que baja.
+/// Dónde deja yt-dlp lo que baja: «%(id)s.%(ext)s» dentro de `tmp`.
 pub fn outtmpl(tmp: &str) -> String {
     paths::clean(&paths::join(tmp, "%(id)s.%(ext)s"))
 }
@@ -406,8 +406,8 @@ impl Bytes {
     }
 }
 
-/// El porcentaje de una descarga: `round(100 * done / total, 1) if total
-/// else 0` (un 0 entero si no se sabe el total).
+/// El porcentaje de una descarga, con un decimal (un 0 entero si no se sabe
+/// el total).
 pub fn percent(done: Bytes, total: Bytes) -> Value {
     if !total.truthy() {
         return json!(0);
@@ -421,7 +421,7 @@ pub fn percent(done: Bytes, total: Bytes) -> Value {
 }
 
 /// Lo que se le cuenta a quien mira el avance mientras se baja: el
-/// porcentaje y el nombre del archivo (`Path(filename).name`).
+/// porcentaje y el nombre del archivo (sin la carpeta).
 pub fn downloading(percent: Value, filename: &str) -> Map<String, Value> {
     let mut out = Map::new();
     out.insert("phase".into(), json!("downloading"));
@@ -562,7 +562,7 @@ pub fn folder<E>(
     let suggested = if inside_one {
         json!(path)
     } else {
-        // `max(ours, key=n)`: el primero de los que más tienen
+        // el primero de los que más tienen
         let mut best: Option<(&Map<String, Value>, f64)> = None;
         for f in &ours {
             let n = field(f, "n");

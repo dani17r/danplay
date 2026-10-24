@@ -1,7 +1,6 @@
-//! Lo que comparten las pruebas de la biblioteca que eran de Python (lo de
-//! tests/conftest.py): una carpeta temporal propia que se borra sola al
-//! acabar, y audio de verdad hecho con ffmpeg. Sin ffmpeg, las pruebas que lo
-//! necesitan lo dicen y vuelven sin comprobar nada, como en Python.
+//! Lo que comparten las pruebas de la biblioteca: una carpeta temporal propia
+//! que se borra sola al acabar, y audio de verdad hecho con ffmpeg. Sin
+//! ffmpeg, las pruebas que lo necesitan lo dicen y vuelven sin comprobar nada.
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -44,9 +43,9 @@ pub fn ffmpeg() -> Option<PathBuf> {
     crate::config::which("ffmpeg")
 }
 
-/// `conftest.make_audio`: un archivo de audio de verdad con el códec que se
-/// pida: `seconds` de silencio, o de un tono de `tone` Hz. `None` si no hay
-/// ffmpeg (o si ese ffmpeg no sabe hacer ese formato).
+/// Un archivo de audio de verdad con el códec que se pida: `seconds` de
+/// silencio, o de un tono de `tone` Hz. `None` si no hay ffmpeg (o si ese
+/// ffmpeg no sabe hacer ese formato).
 pub fn make_audio(path: &Path, codec: &[&str], seconds: f64, tone: Option<f64>) -> Option<PathBuf> {
     let ffmpeg = ffmpeg()?;
     std::fs::create_dir_all(path.parent().expect("carpeta")).expect("carpeta");
@@ -64,7 +63,7 @@ pub fn make_audio(path: &Path, codec: &[&str], seconds: f64, tone: Option<f64>) 
     ok.then(|| path.to_path_buf())
 }
 
-/// `conftest.make_mp3`: un mp3 de verdad con esas etiquetas (las que vengan).
+/// Un mp3 de verdad con esas etiquetas (las que vengan).
 pub fn make_mp3(
     path: &Path,
     artist: &str,
@@ -105,12 +104,11 @@ pub fn without_ffmpeg(what: &str) {
     println!("sin ffmpeg: {what} no se comprueba");
 }
 
-/// Cuántos casos prueba cada propiedad (Hypothesis hacía 100 por prueba;
-/// aquí salen baratos).
+/// Cuántos casos prueba cada propiedad (salen baratos).
 pub const CASES: usize = 3000;
 
-/// Un generador fijo de casos (lo que en Python hacía Hypothesis): siempre
-/// la misma serie, así un fallo se repite igual. Un xorshift de 64 bits.
+/// Un generador fijo de casos: siempre la misma serie, así un fallo se repite
+/// igual. Un xorshift de 64 bits.
 pub struct Gen(u64);
 
 impl Gen {

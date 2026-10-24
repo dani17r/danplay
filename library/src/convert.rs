@@ -1,12 +1,11 @@
-//! Conversión de formatos a mp3, conservando etiquetas y portada (lo que
-//! hacía danplay/convert.py, que ahora es la puerta de Python).
+//! Conversión de formatos a mp3, conservando etiquetas y portada.
 //!
 //! Es opcional y desactivable: en la app es una casilla. Las carpetas de
 //! trabajo (Secuencias, Pistas) quedan siempre fuera: ahí los .wav son
 //! material de producción y comprimirlos sería perder calidad.
 //!
 //! Dónde está ffmpeg y qué carpetas no se convierten lo dice quien llama
-//! (en Python, `config.find_tool` y `config.NEVER_CONVERT`).
+//! (con `Config::find_tool` y `Config::never_convert`).
 use crate::num::round_to;
 use crate::paths::{suffix, with_suffix};
 use crate::processes::{self, Error};
@@ -42,8 +41,7 @@ fn quality_args(quality: &str) -> [&'static str; 2] {
 /// Lo que tarda como mucho una conversión (diez minutos).
 const CONVERT_TIMEOUT: Duration = Duration::from_secs(600);
 
-/// Los trozos de la ruta como los da `Path(ruta).parts` de Python, en
-/// minúsculas.
+/// Los trozos de la ruta (sin los «.»), en minúsculas.
 fn lowered_parts(path: &Path) -> Vec<String> {
     path.components()
         .filter(|c| !matches!(c, Component::CurDir))
@@ -196,20 +194,19 @@ pub fn convert(
 pub const COVER_MAX_SIDE: i64 = 1000;
 pub const COVER_MAX_BYTES: usize = 600 * 1024;
 
-/// Lee hasta `n` bytes (menos si se acaba el archivo), como `f.read(n)`.
+/// Lee hasta `n` bytes (menos si se acaba el archivo).
 fn read_up_to(f: &mut impl Read, n: usize) -> io::Result<Vec<u8>> {
     let mut out = Vec::with_capacity(n);
     f.take(n as u64).read_to_end(&mut out)?;
     Ok(out)
 }
 
-/// `head[a:b]` de Python: lo que haya de ese trozo, sin pasarse.
+/// El trozo `a..b` de la cabecera: lo que haya, sin pasarse.
 fn slice(head: &[u8], a: usize, b: usize) -> &[u8] {
     &head[a.min(head.len())..b.min(head.len())]
 }
 
-/// Los números de una cabecera, con la longitud justa o un error (lo que en
-/// Python era un `struct.error`).
+/// Los números de una cabecera, con la longitud justa o un error.
 fn exact<const N: usize>(bytes: &[u8]) -> Result<[u8; N], String> {
     bytes.try_into().map_err(|_| {
         format!(
@@ -219,7 +216,7 @@ fn exact<const N: usize>(bytes: &[u8]) -> Result<[u8; N], String> {
     })
 }
 
-/// `int.from_bytes(chunk, "little")` de Python, con lo que haya.
+/// Un entero de esos bytes, el menos significativo primero, con lo que haya.
 fn little(bytes: &[u8]) -> i64 {
     bytes
         .iter()

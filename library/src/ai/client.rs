@@ -1,5 +1,5 @@
 //! Hablar con un servidor compatible con OpenAI por HTTP (ureq, rustls), sin
-//! el SDK de OpenAI: lo que hacía `openai.OpenAI` para el núcleo.
+//! el SDK de OpenAI.
 //!
 //! Lo mismo que el SDK, en lo que importa: la URL (`{base}/chat/completions`),
 //! la clave en `Authorization: Bearer`, las cabeceras del perfil, el cuerpo

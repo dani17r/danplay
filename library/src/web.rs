@@ -1,4 +1,4 @@
-//! Búsqueda en la web, sin claves de API (lo que hacía danplay/web.py).
+//! Búsqueda en la web, sin claves de API.
 //!
 //! Se usa el HTML de DuckDuckGo, que no pide registro ni cuota. Solo saca
 //! título, enlace y resumen: lo justo para que el asistente pueda comprobar un
@@ -48,9 +48,8 @@ pub fn plain_text(raw: &str) -> String {
         .to_string()
 }
 
-/// `urllib.parse.unquote` de Python: los «%XX» de cada tramo ASCII pasan a
-/// bytes y el tramo se lee como UTF-8 (lo que no lo sea, «�»); lo que no es
-/// ASCII se queda como está.
+/// Los «%XX» de cada tramo ASCII pasan a bytes y el tramo se lee como UTF-8
+/// (lo que no lo sea, «�»); lo que no es ASCII se queda como está.
 pub fn unquote(s: &str) -> String {
     if !s.contains('%') {
         return s.to_string();
@@ -104,8 +103,8 @@ pub fn unwrap_url(u: &str) -> String {
     }
 }
 
-/// `list[:limit]` de Python: sin tope con `None`, y uno negativo cuenta
-/// desde el final.
+/// Los primeros `limit`: todos con `None`, y con uno negativo, todos menos
+/// esos del final.
 fn head<T>(items: &[T], limit: Option<i64>) -> &[T] {
     let n = items.len() as i64;
     let end = match limit {
@@ -198,7 +197,7 @@ mod tests {
     }
 
     #[test]
-    fn unquote_like_python() {
+    fn unquote_reads_each_ascii_run_as_utf8() {
         assert_eq!(unquote("a%20b%zz%e2%82%ac%E2"), "a b%zz€\u{fffd}");
         assert_eq!(unquote("ñ%C3%B1"), "ññ");
     }

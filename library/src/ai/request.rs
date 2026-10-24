@@ -1,4 +1,4 @@
-//! La petición al modelo y lo que se tolera (la otra mitad de danplay/ai.py).
+//! La petición al modelo y lo que se tolera.
 //!
 //! Tolerar es la parte importante: no hay dos servicios que acepten los mismos
 //! parámetros. Anthropic ignora `response_format`, muchos servidores locales

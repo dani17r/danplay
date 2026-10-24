@@ -1,8 +1,8 @@
-//! Las expresiones de chat/narration.py tal como las compilaba Python (sacadas
-//! del módulo de antes, commit f5773b4): las ramas de `WORD` (van tras un
-//! límite de palabra) y de `LOOSE`, con PART, NEG, NO_SI, END… ya puestos. La
-//! lista salió de un corpus de 300 frases (reales y generadas) que vive en
-//! tests/narration.json: tocar una rama sin pasarlo es jugar a ciegas.
+//! Las expresiones de la narración, rama a rama (sacadas de la versión de
+//! antes, commit f5773b4): las ramas de `WORD` (van tras un límite de
+//! palabra) y de `LOOSE`, con PART, NEG, NO_SI, END… ya puestos. La lista
+//! salió de un corpus de 300 frases (reales y generadas) que vive en
+//! corpus.json, al lado: tocar una rama sin pasarlo es jugar a ciegas.
 pub(super) const WORD: [&str; 91] = [
     r"ya (?:la|lo|las|los|le|les|te la|te lo|te las|te los) (?!creo\b)(?:cre|borr|descarg|pus|añad|agregu|guard|puntu|corr|quit|renombr|marqu|mand|elimin|cambi|met|mov|sustitu|orden|reorden|vaci|dej|sa[cq]|arregl|edit|ped|lanc|inici|arranqu|program)\w*",
     r"(?<!no )(?<!nada )(?<!a[uú]n no )(?<!todav[ií]a no )(?<!tampoco )he (?:creado|borrado|descargado|añadido|agregado|puntuado|corregido|guardado|pedido|quitado|bajado|renombrado|marcado|mandado|movido|eliminado|cambiado|metido|sustituido|ordenado|reordenado|vaciado|dejado|sacado|editado|arreglado|reemplazado|colocado|pausado|reanudado|lanzado|iniciado|arrancado|programado|solicitado|archivado)",

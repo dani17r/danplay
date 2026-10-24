@@ -25,7 +25,7 @@ impl std::fmt::Display for NetError {
 
 /// Lo que hace falta saber de un fallo al pedir una página: si el servidor
 /// dijo un estado (un 404 del buscador es «no hay nada») y si fue de la red
-/// (un `OSError` de Python), que algunas fuentes toleran.
+/// (sin respuesta del servidor), que algunas fuentes toleran.
 pub trait FetchFailure {
     fn state(&self) -> Option<u16>;
     fn is_network_error(&self) -> bool;
@@ -88,7 +88,7 @@ pub enum DownloadError {
 }
 
 impl DownloadError {
-    /// El motivo en castellano, como `_why` de stems.py y cues.py.
+    /// El motivo en castellano (el mismo para las pistas y para las guías).
     pub fn why(&self) -> String {
         match self {
             Self::State(code) => format!("el servidor contestó con un error {code}"),

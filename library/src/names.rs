@@ -163,8 +163,8 @@ impl Re {
     }
 }
 
-/// `re.sub` de Python con una función: cada coincidencia, por lo que
-/// devuelva `f` (que recibe el texto entero y los grupos).
+/// Cambia cada coincidencia por lo que devuelva `f` (que recibe el texto
+/// entero y los grupos).
 pub(crate) fn sub_with(re: &Re, text: &str, mut f: impl FnMut(&str, &Groups) -> String) -> String {
     let Some(found) = re.pick(text).all(text) else {
         return text.to_string();
@@ -183,7 +183,7 @@ pub(crate) fn sub_with(re: &Re, text: &str, mut f: impl FnMut(&str, &Groups) -> 
     out
 }
 
-/// `re.sub` de Python con un texto fijo.
+/// Cambia cada coincidencia por un texto fijo.
 pub(crate) fn sub(re: &Re, text: &str, with: &str) -> String {
     sub_with(re, text, |_, _| with.to_string())
 }
@@ -197,7 +197,8 @@ pub(crate) fn group<'a>(text: &'a str, groups: &Groups, n: usize) -> &'a str {
         .map_or("", |(a, b)| &text[a..b])
 }
 
-/// `re.split(text, maxsplit=limit)` de Python (`limit` 0: sin tope).
+/// El texto partido por cada coincidencia, con `limit` cortes como mucho (0:
+/// sin tope).
 pub(crate) fn split(re: &Re, text: &str, limit: usize) -> Vec<String> {
     let mut out = Vec::new();
     let mut start = 0;
@@ -414,10 +415,10 @@ fn windows_reserved(stem: &str) -> bool {
             && matches!(up.as_bytes()[3], b'1'..=b'9'))
 }
 
-/// `os.path.splitext` de Python sobre un nombre: (base, extensión con punto).
-/// Los puntos del principio no cuentan («.bashrc» no tiene extensión).
+/// Un nombre partido en (base, extensión con punto), por el último punto del
+/// archivo. Los puntos del principio no cuentan («.bashrc» no tiene extensión).
 pub fn splitext(name: &str) -> (&str, &str) {
-    // en Linux y macOS la barra invertida no separa carpetas (posixpath)
+    // en Linux y macOS la barra invertida no separa carpetas
     #[cfg(windows)]
     let start = name.rfind(['/', '\\']).map_or(0, |i| i + 1);
     #[cfg(not(windows))]

@@ -128,8 +128,7 @@ pub fn get(conn: &Connection, chat_id: i64) -> rusqlite::Result<Option<Dict>> {
     Ok(Some(out))
 }
 
-/// `v not in (None, False, "", [])` de Python: lo que no cuenta como dato
-/// (y `0` es `False` para Python).
+/// Lo que no cuenta como dato: null, false, cero, «» y [].
 fn is_blank(v: &Value) -> bool {
     match v {
         Value::Null | Value::Bool(false) => true,
@@ -236,8 +235,8 @@ pub fn search(conn: &Connection, query: &str, limit: i64) -> rusqlite::Result<Ve
             .unwrap_or("")
             .chars()
             .collect();
-        // como Python: se busca en el texto en minúsculas y se corta el de
-        // verdad por esas mismas posiciones
+        // se busca en el texto en minúsculas y se corta el de verdad por esas
+        // mismas posiciones
         let lower: Vec<char> = text
             .iter()
             .collect::<String>()
@@ -267,7 +266,7 @@ pub fn search(conn: &Connection, query: &str, limit: i64) -> rusqlite::Result<Ve
     Ok(out)
 }
 
-/// `str.find` por caracteres.
+/// Dónde empieza `needle` en `haystack`, contando caracteres.
 fn find(haystack: &[char], needle: &[char]) -> Option<usize> {
     if needle.is_empty() {
         return Some(0);
@@ -314,7 +313,7 @@ mod tests {
         }
     }
 
-    /// Lo de tests/test_ai.py: las conversaciones se guardan y se buscan.
+    /// Las conversaciones se guardan y se buscan.
     #[test]
     fn chats_are_saved_and_searchable() {
         let dir = crate::testkit::Scratch::new("conversaciones");

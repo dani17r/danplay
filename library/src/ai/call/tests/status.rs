@@ -1,12 +1,11 @@
-//! El estado del proveedor de IA (lo de tests/test_ai_status.py): por qué
-//! falla, quién contesta de verdad y lo que de eso se ve desde fuera (la
-//! franja del chat).
+//! El estado del proveedor de IA: por qué falla, quién contesta de verdad y lo
+//! que de eso se ve desde fuera (la franja del chat).
 //!
-//! Los errores son los cuerpos que mandan de verdad Anthropic, OpenAI,
-//! Gemini, OpenRouter, xAI, Groq, DeepSeek y Mistral, servidos por HTTP a
-//! este mismo cliente (en Python, hechos por el constructor del SDK). Los
-//! proveedores son servidores de mentira en el propio equipo y la hora es la
-//! del reloj a mano de `Bank`: nada sale a la red ni espera de verdad.
+//! Los errores son los cuerpos que mandan de verdad Anthropic, OpenAI, Gemini,
+//! OpenRouter, xAI, Groq, DeepSeek y Mistral, servidos por HTTP a este mismo
+//! cliente. Los proveedores son servidores de mentira en el propio equipo y la
+//! hora es la del reloj a mano de `Bank`: nada sale a la red ni espera de
+//! verdad.
 use super::*;
 
 // ---------------------------------------------------- los errores, de verdad
@@ -375,7 +374,7 @@ fn set_fallback(b: &Bank, enabled: bool) {
 }
 
 /// El fallo de una petición a un servidor que contesta así, como lo da el
-/// cliente (en Python, la excepción del SDK).
+/// cliente.
 fn http_error(code: u16, body: &Body) -> HttpError {
     let body = body.clone();
     let (url, _) = serve_fn(move |_, _| error_response(code, &body));
@@ -399,7 +398,7 @@ fn http_error(code: u16, body: &Body) -> HttpError {
 // ---------------------------------------------------- clasificar un fallo
 
 #[test]
-#[allow(clippy::too_many_lines, reason = "la tabla entera de Python")]
+#[allow(clippy::too_many_lines, reason = "la tabla entera, de una pieza")]
 fn real_errors_are_classified_by_text_before_code() {
     let cases: Vec<(&str, u16, Body, &str)> = vec![
         (
@@ -502,7 +501,7 @@ fn real_errors_are_classified_by_text_before_code() {
             "{id}: {}",
             e.message
         );
-        // solo lo del servicio manda al respaldo (`_is_down` en Python)
+        // solo lo del servicio manda al respaldo
         assert_eq!(
             !kind.is_empty(),
             !failures::classify(&e.message, e.status).0.is_empty(),
@@ -1371,9 +1370,7 @@ fn sanitize_gives_one_line_of_160_max_without_invisibles() {
     assert_eq!(f(&once), once);
 }
 
-/// En Python recibía cualquier cosa (None, un número, bytes, un objeto que
-/// revienta al pasarlo a texto): aquí siempre es texto, así que queda lo que
-/// tiene sentido con él.
+/// Con cualquier texto (vacío, enorme, con una URL rota) no falla nunca.
 #[test]
 fn sanitize_never_fails_whatever_it_gets() {
     let f = |t: &str| failures::sanitize(t, &[]);

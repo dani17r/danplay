@@ -15,8 +15,8 @@ use std::path::Path;
 pub const FILE: &str = "terms.json";
 
 /// Una versión de los términos: su fecha (AAAA-MM-DD) o un número
-/// (`^[0-9][0-9A-Za-z.\-]{0,31}$`, con el `$` de Python, que deja pasar un
-/// salto de línea al final).
+/// (`^[0-9][0-9A-Za-z.\-]{0,31}`; como en las versiones de antes, con un salto
+/// de línea al final también vale).
 pub fn valid_version(v: &str) -> bool {
     let v = v.strip_suffix('\n').unwrap_or(v);
     let mut chars = v.chars();
@@ -42,7 +42,8 @@ pub fn status(data_dir: &Path) -> Dict {
         .filter(|v| valid_version(v))
         .unwrap_or("");
     out.insert("accepted".into(), version.into());
-    // un número (`int` o `float`, también `True`, que en Python es un `int`)
+    // un número, entero o real (también un booleano, que las versiones de
+    // antes daban por número)
     let at = data
         .get("at")
         .filter(|v| v.is_number() || v.is_boolean())

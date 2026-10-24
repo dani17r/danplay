@@ -1,12 +1,11 @@
 //! Detección de duplicados: idénticos byte a byte y misma canción en otra
-//! versión (lo que hacía danplay/duplicates.py, que ahora es la puerta de
-//! Python; resolverlos, que toca la papelera y las carpetas de la biblioteca,
-//! sigue allí).
+//! versión (resolverlos, que toca la papelera y las carpetas de la
+//! biblioteca, lo hace el servidor).
 //!
 //! «La misma canción» compara las claves de `names::match_key` con las dos
-//! puntuaciones de rapidfuzz que se usaban (`fuzz.ratio` y
-//! `fuzz.token_set_ratio`), escritas aquí con sus mismas cuentas: los grupos
-//! salen idénticos.
+//! puntuaciones de rapidfuzz que usaban las versiones de antes (`ratio` y
+//! `token_set_ratio`), escritas aquí con sus mismas cuentas: los grupos salen
+//! idénticos.
 use crate::names;
 use md5::{Digest, Md5};
 use rayon::prelude::*;
@@ -22,7 +21,7 @@ use std::sync::LazyLock;
 /// Cuánto se lee de cada archivo para compararlo (1 MiB).
 pub const PARTIAL_BYTES: usize = 1024 * 1024;
 
-/// El md5 en hexadecimal, como lo da `hashlib.md5().hexdigest()`. md-5 ya no
+/// El md5 en hexadecimal, en minúsculas. md-5 ya no
 /// lo formatea solo (`{:x}` no vale sobre el tipo que devuelve desde la 0.11).
 pub fn hex(bytes: &[u8]) -> String {
     const DIGITS: &[u8; 16] = b"0123456789abcdef";
@@ -87,7 +86,7 @@ pub fn full_hashes(paths: Vec<PathBuf>) -> Vec<(PathBuf, Result<String, String>)
 }
 
 /// Agrupa `items` por `key` en el orden en que aparece cada clave por
-/// primera vez (como un `defaultdict(list)` de Python).
+/// primera vez.
 fn grouped<K: std::hash::Hash + Eq, T>(items: impl IntoIterator<Item = (K, T)>) -> Vec<Vec<T>> {
     let mut index: HashMap<K, usize> = HashMap::new();
     let mut groups: Vec<Vec<T>> = Vec::new();
@@ -388,7 +387,7 @@ pub fn ratio(a: &str, b: &str) -> f64 {
 
 // ------------------------------------------------------ misma canción
 
-/// `os.path.basename` de Python: lo que va tras la última barra.
+/// El nombre del archivo: lo que va tras la última barra.
 fn basename(path: &Path) -> String {
     let s = path.to_string_lossy();
     if cfg!(windows) {
@@ -425,8 +424,7 @@ fn basename(path: &Path) -> String {
 ///
 /// Los grupos que salen son idénticos; lo único que cambia es cuánto tarda.
 pub fn same_song(paths: &[PathBuf], threshold: f64) -> Vec<Vec<usize>> {
-    // cada ruta distinta, una vez (en Python era un diccionario por ruta),
-    // con su clave
+    // cada ruta distinta, una vez, con su clave
     let mut first: HashMap<&Path, usize> = HashMap::new();
     let ids: Vec<usize> = paths
         .iter()

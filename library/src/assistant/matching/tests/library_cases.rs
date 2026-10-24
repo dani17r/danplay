@@ -1,9 +1,8 @@
-//! El emparejador contra una biblioteca SINTÉTICA (lo de tests/test_resolve.py
-//! que no es del lote ni del índice por revisión, que van en
-//! server/src/services/chat/resolve.rs): artistas inventados y títulos de
-//! canciones públicas en una base temporal. Las filas se insertan a mano en
-//! `songs`, sin generar audio, y el índice FTS5 las sigue por sus
-//! disparadores como siempre.
+//! El emparejador contra una biblioteca SINTÉTICA (lo del lote y lo del índice
+//! por revisión van en server/src/services/chat/resolve.rs): artistas
+//! inventados y títulos de canciones públicas en una base temporal. Las filas
+//! se insertan a mano en `songs`, sin generar audio, y el índice FTS5 las
+//! sigue por sus disparadores como siempre.
 use super::*;
 use crate::index::history;
 use crate::testkit::Scratch;
@@ -18,7 +17,7 @@ const INSERT_SONG: &str = "INSERT INTO songs (id, path, root, folder, file, arti
 
 // ------------------------------------------------------------------ ayudas
 
-/// Una canción para `Lib::add_song` (lo de `Lib.add` en Python).
+/// Una canción para `Lib::add_song`.
 #[derive(Default)]
 struct Song<'a> {
     artist: &'a str,
@@ -120,12 +119,12 @@ impl Lib {
         self.conn.execute_batch(query).expect("sql");
     }
 
-    /// El índice de ahora (en Python, `resolve.invalidate()` tras cada cambio).
+    /// El índice de ahora (se vuelve a cargar en cada llamada).
     fn index(&self) -> Index {
         Index::load(&self.conn, &self.db, self.full_limit).expect("el índice")
     }
 
-    /// `resolve.match_song(title)`.
+    /// ¿Tenemos esta canción? (solo el título)
     fn m(&self, title: &str) -> Resolution {
         self.ask(&Ask {
             title,
@@ -133,7 +132,7 @@ impl Lib {
         })
     }
 
-    /// `resolve.match_song(title, artist)`.
+    /// ¿Tenemos esta canción? (título y artista)
     fn ma(&self, title: &str, artist: &str) -> Resolution {
         self.ask(&Ask {
             title,
@@ -333,8 +332,8 @@ fn within<T: Send + 'static>(seconds: u64, f: impl FnOnce() -> T + Send + 'stati
         .unwrap_or_else(|_| panic!("se quedó más de {seconds} s (o falló)"))
 }
 
-/// El tope de tiempo de lo que se mide: el de Python, más holgado sin
-/// optimizar (`cargo test` compila sin optimizar, y SQLite también).
+/// El tope de tiempo de lo que se mide, más holgado sin optimizar (`cargo
+/// test` compila sin optimizar, y SQLite también).
 fn time_limit(seconds: f64) -> f64 {
     if cfg!(debug_assertions) {
         seconds * 10.0
@@ -798,9 +797,8 @@ fn a_subtitle_and_part_of_a_medley() {
 
 // --------------------------------------------------- lo que NO está
 
-/// Lo que daba el adaptador del medidor (`resolve.rank`): [{id, score,
-/// status}] con las candidatas de `match_song(limit=10)`, la primera con el
-/// estado del emparejador; vacío si dice que no está.
+/// Lo que da el medidor: (id, puntuación, estado) de cada candidata, diez como
+/// mucho, la primera con el estado del emparejador; vacío si dice que no está.
 fn rank_of(db: &Lib, title: &str) -> Vec<(i64, f64, &'static str)> {
     let r = db.ask(&Ask {
         title,
@@ -921,7 +919,7 @@ const VIDEO: &str = "AbCdEfGhIjK";
 const URL: &str = "https://www.youtube.com/watch?v=AbCdEfGhIjK";
 const OTHER_URL: &str = "https://youtu.be/Q1w2E3r4T5y";
 
-/// Lo que se apunta de una descarga (como `youtube._log`).
+/// Lo que se apunta de una descarga.
 #[derive(Clone)]
 struct Download<'a> {
     url: &'a str,
@@ -962,7 +960,7 @@ fn record_download(db: &Lib, d: &Download<'_>) {
         unreachable!()
     };
     history::log_download(&db.conn, &entry).expect("el historial");
-    // (la transacción la cierra quien llama: en Python, el `with`)
+    // (la transacción la cierra quien llama)
     if !db.conn.is_autocommit() {
         db.sql("COMMIT");
     }
@@ -1315,8 +1313,7 @@ fn the_remembered_choice_wins_ties() {
         "sigue habiendo tres; solo cambia la elegida"
     );
     assert!(pick(&r) == b.dda_acu && song_ids(&r)[0] == b.dda_acu);
-    // una elección que no está entre las empatadas no cambia nada (en
-    // Python también "no" y None, que ni llegaban a ser ids)
+    // una elección que no está entre las empatadas no cambia nada
     assert_eq!(pick(&prefer(vec![b.rey], "Digno De Adorar")), b.dda);
     assert_eq!(pick(&prefer(vec![99999], "Digno De Adorar")), b.dda);
     // y lo que pide la persona vale más que lo recordado
@@ -1350,7 +1347,7 @@ fn title_key_is_stable_and_tells_apart() {
         title_key("*1.-Digno De Adorar*", "banda  horizonte")
     );
     assert_ne!(with_artist, title_key("Digno De Adorar", ""));
-    // (`title_key(None)` de Python no existe aquí: el texto siempre lo es)
+    // sin artista ni título, la clave sale vacía
     assert_eq!(title_key("", ""), "");
 }
 
@@ -1571,8 +1568,8 @@ fn hostile_inputs_within_a_time_limit() {
     }
 }
 
-/// Un lote entero de entradas hostiles no falla en ninguna (en Python, por el
-/// lote: ningún item `failed`; aquí, ninguna consulta da error).
+/// Un lote entero de entradas hostiles no falla en ninguna: ninguna consulta da
+/// error.
 #[test]
 fn a_whole_hostile_batch_does_not_fail() {
     for (mode, db) in modes() {
@@ -1650,8 +1647,8 @@ fn a_title_of_only_stop_words_and_one_letter() {
     }
 }
 
-/// Cualquier texto da una respuesta válida (en Python, 120 ejemplos de
-/// Hypothesis; aquí, 300 de un generador fijo con lo que suele romper).
+/// Cualquier texto da una respuesta válida (300 textos de un generador fijo,
+/// con lo que suele romper).
 #[test]
 fn any_text_gives_a_valid_answer() {
     let (db, _) = base();
@@ -1819,7 +1816,7 @@ fn the_prefilter_finds_a_typo_with_the_tolerant_retry() {
 
 // --------------------------------------------------------------- escala
 
-/// Un generador fijo (en Python, `random.Random(11)`).
+/// Un generador fijo.
 struct Rng(u64);
 
 impl Rng {
@@ -1853,7 +1850,7 @@ impl Rng {
 #[test]
 #[allow(
     clippy::too_many_lines,
-    reason = "la biblioteca, lo pedido y lo medido, como en Python"
+    reason = "la biblioteca, lo pedido y lo medido, en una sola prueba"
 )]
 fn songs_50000_within_a_time_limit() {
     let db = Lib::new();

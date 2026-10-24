@@ -1,6 +1,5 @@
-//! La conversación (lo que era danplay/chat/loop.py): el texto del sistema y
-//! el turno que habla con el modelo, ejecuta sus herramientas y para los pies
-//! a la narración.
+//! La conversación: el texto del sistema y el turno que habla con el modelo,
+//! ejecuta sus herramientas y para los pies a la narración.
 //!
 //! El turno entero está aquí: el historial que se le manda, cada vuelta con
 //! el modelo, qué se hace con lo que contesta (una llamada escrita como texto,
@@ -206,7 +205,7 @@ pub fn unavailable(reason: &str) -> String {
 
 /// Lo que contestó el modelo en una vuelta.
 pub struct Reply<O> {
-    /// el texto (`ai.message_text`)
+    /// el texto
     pub text: String,
     /// las llamadas: (id, nombre, argumentos), tal cual
     pub calls: Vec<Call<O>>,
@@ -272,9 +271,9 @@ pub trait Chat {
     fn note_pseudo_call(&mut self, name: &str);
     /// Una llamada como la que hace el modelo (`id`, nombre, argumentos).
     fn call(&self, id: &str, name: &str, arguments: &str) -> Result<Call<Self::Obj>, Self::Error>;
-    /// `json.loads` de los argumentos (lo que no es un diccionario, `{}`).
+    /// Los argumentos leídos como JSON (lo que no es un objeto, `{}`).
     fn parse_args(&mut self, arguments: &Self::Obj) -> Result<Self::Obj, Self::Error>;
-    /// Si aún se puede pedir permiso en este turno (`turn.can_ask`).
+    /// Si aún se puede pedir permiso en este turno.
     fn set_can_ask(&mut self, can_ask: bool) -> Result<(), Self::Error>;
     /// Lo que no tiene vuelta atrás: (lo que lee el modelo, lo que espera el
     /// visto bueno, si se puso).
@@ -286,9 +285,9 @@ pub trait Chat {
     ) -> Result<Asked<Self::Obj>, Self::Error>;
     /// Ejecuta una herramienta.
     fn run_tool(&mut self, name: &Self::Obj, args: &Self::Obj) -> Result<Self::Obj, Self::Error>;
-    /// Un elemento de un diccionario (`d[k]`, `d.get(k)`), tal cual.
+    /// Un elemento de un objeto, por su clave, tal cual.
     fn item(&self, d: &Self::Obj, key: &str) -> Result<Option<Self::Obj>, Self::Error>;
-    /// `dict(d)`.
+    /// Una copia del objeto.
     fn copy(&self, d: &Self::Obj) -> Result<Self::Obj, Self::Error>;
     /// El resultado sin la parte de la interfaz (`_ui`).
     fn for_model(&self, res: &Self::Obj) -> Result<Self::Obj, Self::Error>;
@@ -354,7 +353,7 @@ fn text_of(d: &Dict, k: &str) -> String {
     }
 }
 
-/// `str(name)` de un nombre de herramienta, para mirarlo.
+/// El nombre de una herramienta como texto, para mirarlo.
 fn name_text<C: Chat>(chat: &C, name: &C::Obj) -> Result<String, C::Error> {
     Ok(match chat.view(name)? {
         Value::String(s) => s,
@@ -405,8 +404,7 @@ fn history<C: Chat>(chat: &mut C, start: &Start) -> Result<(), Fault<C::Error>> 
     Ok(())
 }
 
-/// Lo que falló en el turno: lo de fuera, o un dato que Python no habría
-/// aceptado.
+/// Lo que falló en el turno: lo de fuera, o un dato raro.
 pub enum Fault<E> {
     Raise(E),
     Data(Error),
@@ -435,10 +433,7 @@ fn done_summaries<O>(state: &State<O>, sep: &str) -> String {
 /// Las herramientas que no tienen vuelta atrás no se ejecutan aquí: se
 /// registran (`Chat::ask`) y se devuelven en `confirm` para que las apruebe
 /// la persona. Lo que se hizo con una lista va en `setlist`.
-#[allow(
-    clippy::too_many_lines,
-    reason = "el turno, de una pieza como en Python"
-)]
+#[allow(clippy::too_many_lines, reason = "el turno, de una pieza")]
 pub fn reply<C: Chat>(chat: &mut C, start: &Start) -> Result<C::Obj, Fault<C::Error>> {
     let raise = Fault::Raise;
     let mut state: State<C::Obj> = State::default();
@@ -685,7 +680,7 @@ fn look<C: Chat>(
 ) -> Result<(), Fault<C::Error>> {
     let raise = Fault::Raise;
     let Some(r) = view.as_object() else {
-        // `res.get(...)` de algo que no es un diccionario: falla como en Python
+        // lo que no es un objeto falla al pedirle «action»
         chat.item(res, "action").map_err(raise)?;
         return Ok(());
     };

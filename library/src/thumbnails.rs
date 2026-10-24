@@ -1,5 +1,4 @@
-//! Miniaturas de las carátulas, guardadas en disco (lo que hacía
-//! danplay/thumbnails.py, que ahora es la puerta de Python).
+//! Miniaturas de las carátulas, guardadas en disco.
 //!
 //! Una lista de mil canciones pedía mil carátulas completas —a menudo de dos
 //! megas cada una— para pintarlas a 40 píxeles; ahora se pide el tamaño que
@@ -13,8 +12,8 @@
 //! de quién era cada una y la carpeta crecía para siempre. Además hay un tope
 //! en bytes: pasado, se van las que hace más que no se piden.
 //!
-//! La carpeta la dice quien llama (en Python, `DATA_DIR/covers`, solo para su
-//! dueño); la carátula original también (`tags.cached_cover`).
+//! La carpeta la dice quien llama (`covers`, en la carpeta de datos, solo para
+//! su dueño); la carátula original también.
 use crate::convert::shrink_bytes;
 use crate::paths::{mtime, mtime_ns, suffix, with_suffix};
 use crate::warnings::{self, Warnings};

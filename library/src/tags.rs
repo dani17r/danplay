@@ -1,6 +1,6 @@
 //! Las etiquetas de una canción, dentro del propio archivo: el mismo
-//! vocabulario en las tres familias de formatos (lo que hacía
-//! danplay/tags.py con mutagen, campo a campo):
+//! vocabulario en las tres familias de formatos (el que escribían con mutagen
+//! las versiones de antes, campo a campo):
 //!
 //!   - ID3 (mp3 y aac, y dentro de su contenedor wav y aiff): POPM, USLT,
 //!     APIC, TKEY, TBPM y TXXX con las descripciones de siempre (FAVORITO,
@@ -45,7 +45,7 @@ const POPM_STARS: [u8; 6] = [0, 1, 64, 128, 196, 255];
 const POPM_EMAIL: &str = "danplay@local";
 const ITUNES: &str = "com.apple.iTunes";
 
-/// Todo lo que DanPlay lee de una canción (`tags.read_all`).
+/// Todo lo que DanPlay lee de una canción.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Tags {
     pub artist: String,
@@ -73,8 +73,8 @@ pub struct Tags {
 }
 
 /// Lo que se cambia al escribir: solo se toca lo que viene (`Some`). Las
-/// listas y las etiquetas libres ya vienen unidas en un texto (ver
-/// `tags._join_list`), y favorito y difuminado como «1» o «0».
+/// listas y las etiquetas libres ya vienen unidas en un texto (con «; »),
+/// y favorito y difuminado como «1» o «0».
 #[derive(Debug, Clone, Default)]
 pub struct Changes {
     pub artist: Option<String>,
@@ -120,7 +120,7 @@ fn truthy(value: &str) -> bool {
 }
 
 /// Las listas y las etiquetas van en UN valor de texto, separadas por «;»
-/// (las de antes, por «, »): ver `tags._split_list`.
+/// (las de antes, por «, »).
 fn split_list(value: &str) -> Vec<String> {
     let sep = if value.contains(';') { ';' } else { ',' };
     value
@@ -131,7 +131,7 @@ fn split_list(value: &str) -> Vec<String> {
         .collect()
 }
 
-/// `float(text)` de Python: sin él, cero.
+/// El número de un texto: si no lo es, o no es finito, cero.
 fn number(value: &str) -> f64 {
     value
         .trim()
@@ -141,12 +141,12 @@ fn number(value: &str) -> f64 {
         .unwrap_or(0.0)
 }
 
-/// Las estrellas de un RATING 0-100, redondeando como Python (al par).
+/// Las estrellas de un RATING 0-100, redondeando al par como hasta la 1.30.
 fn rating_to_stars(value: &str) -> u8 {
     (number(value) / 20.0).round_ties_even().clamp(0.0, 5.0) as u8
 }
 
-/// El bpm entero que se guarda: `round()` de Python, al par.
+/// El bpm entero que se guarda, redondeado al par como hasta la 1.30.
 fn whole_bpm(bpm: f64) -> i64 {
     bpm.round_ties_even() as i64
 }
@@ -322,7 +322,7 @@ const fn id(name: &'static str) -> FrameId<'static> {
 }
 
 /// Un frame de texto, con sus valores (ID3v2.4 los separa con NUL) unidos
-/// con «; »: un NUL dentro de un artista rompía `shutil.move` al renombrar.
+/// con «; »: un NUL dentro de un artista no deja renombrar el archivo.
 fn id3_text(tag: &Id3v2Tag, name: &'static str) -> String {
     match tag.get(&id(name)) {
         Some(Frame::Text(f)) => joined(f.value.split('\0')),

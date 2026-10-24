@@ -7,7 +7,7 @@
 //! Aquí está el recorrido y el índice; lo de después (las pistas separadas,
 //! las ondas y las carátulas de lo que se fue, las listas que vuelven, lo que
 //! se aprovecha de otro archivo de la misma canción) lo hace quien llama con
-//! lo que devuelve `scan` (en Python, library/scan.py).
+//! lo que devuelve `scan`.
 use super::folders::{self, Walk};
 use super::{
     COLUMNS, Dict, SCAN_BATCH, begin, fetch_all, fetch_one, get_str, insert_row, next_song_id, now,
@@ -61,7 +61,7 @@ pub fn read_tags(path: &str) -> (Tags, Option<String>) {
     }
 }
 
-/// `Path(file).stem`: el nombre sin su extensión (la de `suffix`).
+/// El nombre sin su extensión (la de `suffix`).
 fn stem(file: &str) -> &str {
     match file.rfind('.') {
         Some(i) if i > 0 && i < file.len() - 1 => &file[..i],
@@ -87,7 +87,7 @@ fn artist_from_folder(path: &str, root: &str) -> String {
 /// Fila del índice a partir del archivo (en el orden de `COLUMNS`). Una sola
 /// lectura de etiquetas: carátula y letra incluidas, para que un escaneo
 /// rehaga el índice entero aunque se pierda la base. `None` si el archivo ya
-/// no está (`os.stat` falla).
+/// no está.
 pub fn row(path: &str, root: &str, vocab: &[(String, String)], tag: &Tags) -> Option<Vec<Value>> {
     let st = std::fs::metadata(path).ok()?;
     let file = paths::file_name(path);
@@ -176,9 +176,9 @@ fn as_dic(row: &[Value]) -> Dict {
         .collect()
 }
 
-/// `a != b` como en Python: un entero y un real valen igual si son el mismo
-/// número (en SQLite, 120 y 120.0).
-#[allow(clippy::float_cmp, reason = "es la igualdad exacta de Python")]
+/// Si dos valores son distintos: un entero y un real valen igual si son el
+/// mismo número (en SQLite, 120 y 120.0).
+#[allow(clippy::float_cmp, reason = "es la igualdad exacta de dos números")]
 fn differs(a: &Value, b: &Value) -> bool {
     match (a.as_f64(), b.as_f64()) {
         (Some(x), Some(y)) if a.is_number() && b.is_number() => x != y,
@@ -330,7 +330,7 @@ pub enum EntryKind {
 
 /// Lo que dejó un archivo al entrar: cómo, su id, la fila de antes (con
 /// `missing`) y, si es el mismo archivo en otro sitio, su fila de antes para
-/// llevarle lo calculado (`beatgrid.moved`).
+/// llevarle lo calculado.
 pub struct Addition {
     pub kind: EntryKind,
     pub id: i64,
@@ -910,10 +910,9 @@ mod tests {
     use super::*;
     use crate::testkit::{Scratch, make_audio};
 
-    /// Lo de tests/test_tags_lofty.py (`tags.read_many`, ahora lo que lee el
-    /// escaneo por adelantado): las etiquetas leídas a la vez, por tandas y en
-    /// paralelo, son las mismas que de una en una; lo que no existe sale
-    /// vacío.
+    /// Lo que lee el escaneo por adelantado: las etiquetas leídas a la vez,
+    /// por tandas y en paralelo, son las mismas que de una en una; lo que no
+    /// existe sale vacío.
     #[test]
     fn many_at_once_give_the_same_as_one_by_one() {
         let dir = Scratch::new("lote");

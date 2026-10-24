@@ -1,7 +1,7 @@
-//! Las pistas separadas de una canción (lo de danplay/stems.py que no es la
-//! cola, el proceso hijo ni la red): qué fuentes hay y cómo se llaman, dónde
-//! van, su manifiesto, unirlas con su canción tras un escaneo, y el filtro de
-//! ffmpeg que las junta en una mezcla.
+//! Las pistas separadas de una canción (lo que no es la cola, el proceso hijo
+//! ni la red): qué fuentes hay y cómo se llaman, dónde van, su manifiesto,
+//! unirlas con su canción tras un escaneo, y el filtro de ffmpeg que las junta
+//! en una mezcla.
 //!
 //! Las pistas de una canción van en una carpeta con su nombre, dentro de
 //! `Separadas/` en la carpeta de la biblioteca de la que cuelga la canción:
@@ -61,8 +61,8 @@ pub fn waves_path(folder: &Path) -> PathBuf {
 /// mezclador.
 pub const SOURCES: [(&str, &str, &str); 16] = [
     ("drums", "Bateria", "Batería"),
-    // las de la máxima calidad (danplay/mega.py): la percusión de aparte, la
-    // voz principal y los coros, y más instrumentos
+    // las de la máxima calidad: la percusión de aparte, la voz principal y
+    // los coros, y más instrumentos
     ("percussion", "Percusion", "Percusión"),
     ("vocals", "Voces", "Voces"),
     ("lead", "Voz", "Voz principal"),
@@ -534,13 +534,13 @@ pub fn relink(conn: &Connection, found: &[(String, Dict)]) -> rusqlite::Result<u
     Ok(n)
 }
 
-/// La columna `stems` como la escribía Python (`json.dumps`, que escapa lo
-/// que no es ASCII).
+/// La columna `stems`, en JSON con lo que no es ASCII escapado, como en las
+/// versiones de antes.
 pub fn stems_json(data: &Dict) -> String {
     ascii_json(&Value::Object(data.clone()).to_string())
 }
 
-/// `json.dumps` con `ensure_ascii=True`: lo que no es ASCII como `\uXXXX`.
+/// El JSON con lo que no es ASCII como `\uXXXX`.
 pub fn ascii_json(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     for c in text.chars() {
@@ -670,10 +670,7 @@ pub fn pan_filter(coefs: &[f64]) -> String {
     } else {
         (coefs[0], coefs[1], coefs[2], coefs[3])
     };
-    #[allow(
-        clippy::float_cmp,
-        reason = "`not lr and not rl` de Python: exactamente cero"
-    )]
+    #[allow(clippy::float_cmp, reason = "los dos, exactamente cero")]
     if lr == 0.0 && rl == 0.0 {
         return format!("pan=stereo|c0={ll:.4}*c0|c1={rr:.4}*c1");
     }

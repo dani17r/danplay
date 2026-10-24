@@ -85,7 +85,7 @@ struct Bank {
     usages: StdMutex<Vec<Usage>>,
     /// la hora, a mano (compartida: un servidor de mentira puede adelantarla)
     fake_clock: Arc<StdMutex<f64>>,
-    /// lo que se apuntó en el registro (`log.info`)
+    /// lo que se apuntó en el registro (como información)
     logs: StdMutex<Vec<String>>,
     /// la foto del catálogo de modelos (ninguna, si no se pide)
     snapshot: PathBuf,
@@ -437,9 +437,9 @@ fn check_a_profile_and_its_models() {
     assert_eq!(r["verified"], json!(false), "sin clave no se prueba");
 }
 
-// ------------------------------------------------- lo de tests/test_ai.py
+// ---------------------------------------------- con un proveedor de mentira
 // El «proveedor» es un servidor HTTP en el propio equipo que contesta según
-// lo que le piden (en Python, un cliente del SDK de mentira).
+// lo que le piden.
 
 /// Lo que llega al servidor de mentira: la ruta y el cuerpo.
 type Seen = Arc<StdMutex<Vec<(String, Value)>>>;
@@ -772,7 +772,7 @@ fn model_list_is_crossed_with_the_catalog() {
 #[test]
 #[allow(
     clippy::too_many_lines,
-    reason = "la lista, lo probado y lo recordado, como en Python"
+    reason = "la lista, lo probado y lo recordado, en una sola prueba"
 )]
 fn only_models_the_key_can_use_are_shown() {
     let _s = SERIAL.lock().unwrap_or_else(PoisonError::into_inner);
@@ -1108,7 +1108,7 @@ fn unclosed_reasoning_is_not_shown_half_done() {
 }
 
 /// Parar a medias corta la respuesta y deja el flujo: no se espera a que el
-/// servidor acabe (en Python se comprobaba que se cerraba).
+/// servidor acabe.
 #[test]
 fn cancel_cuts_the_reply_and_closes_the_stream() {
     let _s = SERIAL.lock().unwrap_or_else(PoisonError::into_inner);
@@ -1222,8 +1222,7 @@ fn fallback_answers_when_the_active_one_is_down() {
     );
     let pair = |a: &str, m: &str| (a.to_owned(), m.to_owned());
     // el activo, con su modelo de conversación (y los reintentos de un 503
-    // del cliente, como el SDK: el falso de Python no los hacía), y luego el
-    // respaldo con el suyo
+    // que hace el cliente), y luego el respaldo con el suyo
     let first = calls.lock().expect("cerrojo").clone();
     let (last, before) = first.split_last().expect("llamadas");
     assert!(

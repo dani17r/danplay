@@ -3,10 +3,9 @@
 //!
 //! La base es solo un índice (ver docs/ARCHITECTURE.md, «La base de datos es
 //! desechable»): lo que el usuario crea vive en sus archivos, y un escaneo la
-//! reconstruye entera. El esquema y sus migraciones están, de momento, en
-//! danplay/library/db.py, que los aplica sobre esta misma conexión.
+//! reconstruye entera. El esquema y sus migraciones están en `schema`.
 //!
-//! Por partes, como en danplay/library/:
+//! Por partes:
 //!
 //!   carpetas    las carpetas gestionadas, las exclusiones y qué audio hay dentro
 //!   canciones   una canción: leerla, cambiarla, dónde está, su modo estudio
@@ -31,8 +30,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-/// Las sentencias preparadas que se guardan por conexión, como `sqlite3`
-/// de Python (`cached_statements=128`): las de cada pantalla se repiten.
+/// Las sentencias preparadas que se guardan por conexión: las de cada
+/// pantalla se repiten.
 const CACHED_STATEMENTS: usize = 128;
 
 /// Abre el índice que hay en `path` (lo crea si no existe).
@@ -61,12 +60,11 @@ pub fn open(path: &Path) -> rusqlite::Result<Connection> {
 // ------------------------------------------------------------------ filas
 
 /// Una fila (o cualquier diccionario) como la ve el resto: nombre → valor, en
-/// el orden de las columnas. Es lo mismo que devolvía `dict(row)` en Python
-/// y lo mismo que sale en JSON por la API.
+/// el orden de las columnas. Es lo mismo que sale en JSON por la API.
 pub type Dict = Map<String, Value>;
 
 /// Un valor de SQLite como valor de JSON. Un entero sigue siendo entero y un
-/// real, real. Un texto que no es UTF-8 sale con «�» (Python fallaba).
+/// real, real. Un texto que no es UTF-8 sale con «�».
 pub fn value(v: ValueRef<'_>) -> Value {
     match v {
         ValueRef::Null => Value::Null,
@@ -133,7 +131,7 @@ pub fn song_columns(conn: &Connection) -> rusqlite::Result<Vec<String>> {
     rows.collect()
 }
 
-/// `time.time()`: los segundos desde 1970, con decimales.
+/// La hora: los segundos desde 1970, con decimales.
 pub fn now() -> f64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -141,10 +139,9 @@ pub fn now() -> f64 {
 }
 
 /// Antes de escribir: abre una transacción si no hay ninguna y la deja
-/// abierta, como `sqlite3` de Python con un INSERT, UPDATE o DELETE. La
-/// confirma quien abrió la conexión (al salir del `with`, o con `commit`):
-/// así lo que hace una función de aquí y lo que hace Python a su alrededor
-/// van juntos, y se deshacen juntos si algo falla.
+/// abierta. La confirma quien abrió la conexión (con `COMMIT`): así lo que
+/// hace una función de aquí y lo que hace quien llama a su alrededor van
+/// juntos, y se deshacen juntos si algo falla.
 ///
 /// `IMMEDIATE`: el turno de escribir se toma al abrirla (esperando, como
 /// mucho, el `busy_timeout`). Con un `BEGIN` a secas, quien leía antes de

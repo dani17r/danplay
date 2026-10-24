@@ -1,11 +1,10 @@
-//! Lo que falta de `re` de Python sobre las expresiones de `names` (`Re`,
-//! con `\w`, `\b` y `\s` como los de Python): la primera coincidencia
-//! (`re.search`) y todas (`re.findall`).
+//! Lo que falta sobre las expresiones de `names` (`Re`, con su `\w`, su `\b`
+//! y su `\s`): la primera coincidencia y todas.
 use crate::names::{Engine, Groups, Re};
 use std::fmt::Write as _;
 
-/// La primera coincidencia y sus grupos (`re.search`). Si el motor se pasa de
-/// pasos, como si no la hubiera.
+/// La primera coincidencia y sus grupos. Si el motor se pasa de pasos, como
+/// si no la hubiera.
 pub(crate) fn search(re: &Re, text: &str) -> Option<Groups> {
     match re.pick(text) {
         Engine::Fast(r) => r
@@ -19,7 +18,7 @@ pub(crate) fn search(re: &Re, text: &str) -> Option<Groups> {
     }
 }
 
-/// Todas las coincidencias, sin solaparse (`re.finditer`).
+/// Todas las coincidencias, sin solaparse.
 pub(crate) fn find_all(re: &Re, text: &str) -> Vec<Groups> {
     re.pick(text).all(text).unwrap_or_default()
 }
@@ -29,9 +28,9 @@ pub(crate) fn whole<'a>(text: &'a str, groups: &Groups) -> &'a str {
     crate::names::group(text, groups, 0)
 }
 
-/// El valor de una cifra decimal de cualquier escritura (`\d` de Python y
-/// `int()` las aceptan todas: «٣» es 3). Las cifras de Unicode van en tiras
-/// seguidas del 0 al 9, así que basta con contar hasta el principio de la tira.
+/// El valor de una cifra decimal de cualquier escritura (valen todas: «٣» es
+/// 3). Las cifras de Unicode van en tiras seguidas del 0 al 9, así que basta
+/// con contar hasta el principio de la tira.
 pub(crate) fn decimal(c: char) -> Option<u32> {
     use unicode_properties::{GeneralCategory, UnicodeGeneralCategory};
     if let Some(d) = c.to_digit(10) {
@@ -53,8 +52,8 @@ pub(crate) fn decimal(c: char) -> Option<u32> {
     Some(back % 10)
 }
 
-/// Unas cifras (las de `\d+`) como las escribe `str(int(...))`: en ASCII y
-/// sin ceros delante («007» es «7», «٠» es «0»).
+/// Unas cifras (las de `\d+`) escritas como número: en ASCII y sin ceros
+/// delante («007» es «7», «٠» es «0»).
 pub(crate) fn ascii_digits(s: &str) -> String {
     let all: String = s
         .chars()
@@ -69,8 +68,7 @@ pub(crate) fn ascii_digits(s: &str) -> String {
     }
 }
 
-/// `str.capitalize()` de Python: la primera letra en mayúscula y las demás en
-/// minúscula.
+/// La primera letra en mayúscula y las demás en minúscula.
 pub(crate) fn capitalize(s: &str) -> String {
     let mut chars = s.chars();
     match chars.next() {
@@ -82,8 +80,8 @@ pub(crate) fn capitalize(s: &str) -> String {
     }
 }
 
-/// `urllib.parse.quote` de Python: el texto en UTF-8 con «%XX» para todo lo
-/// que no sean letras y cifras ASCII, `_.-~` y lo que se diga en `safe`.
+/// El texto en UTF-8 con «%XX» para todo lo que no sean letras y cifras ASCII,
+/// `_.-~` y lo que se diga en `safe`.
 pub(crate) fn quote(s: &str, safe: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for b in s.bytes() {
@@ -99,8 +97,7 @@ pub(crate) fn quote(s: &str, safe: &str) -> String {
     out
 }
 
-/// `urllib.parse.quote_plus`: como `quote` sin nada a salvo, y los espacios
-/// como «+».
+/// Como `quote` sin nada a salvo, y los espacios como «+».
 pub(crate) fn quote_plus(s: &str) -> String {
     if s.contains(' ') {
         quote(s, " ").replace(' ', "+")

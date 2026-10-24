@@ -1,10 +1,10 @@
 //! JSON que guardaron las versiones de antes, aunque no sea JSON estricto.
 //!
-//! Hasta la 1.30, las cachés se escribían con lo que deja pasar el JSON de
-//! Python: `NaN` e `Infinity` (el tempo de una rejilla de un solo pulso) y
-//! «surrogates» sueltos como «\udcff» (la ruta de un archivo cuyo nombre no
-//! era UTF-8). serde_json no los lee; aquí se cambian por `null` y por «�»,
-//! y lo demás se lee tal cual.
+//! Hasta la 1.30, las cachés se escribían con un JSON que dejaba pasar `NaN` e
+//! `Infinity` (el tempo de una rejilla de un solo pulso) y «surrogates»
+//! sueltos como «\udcff» (la ruta de un archivo cuyo nombre no era UTF-8).
+//! serde_json no los lee; aquí se cambian por `null` y por «�», y lo demás se
+//! lee tal cual.
 use serde_json::Value;
 
 /// El valor de `text`, o `None` si ni así es JSON.
@@ -76,7 +76,7 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn what_python_wrote_is_read() {
+    fn what_old_versions_wrote_is_read() {
         assert_eq!(parse(r#"{"a": [1, 2.5]}"#), Some(json!({"a": [1, 2.5]})));
         assert_eq!(
             parse(r#"{"bpm": NaN, "x": [Infinity, -Infinity], "t": "NaN"}"#),

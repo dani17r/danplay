@@ -1,11 +1,10 @@
-//! Lo de tests/test_core.py que no prueba código sino que las piezas del
-//! repositorio digan lo mismo: la versión, los tipos de audio que DanPlay
-//! dice saber abrir y el instalador de Windows. Se separan solos, y cuando se
-//! separan no falla nada: simplemente el «Acerca de» miente o «Abrir con
-//! DanPlay» no hace nada.
+//! Lo que no prueba código sino que las piezas del repositorio digan lo mismo:
+//! la versión, los tipos de audio que DanPlay dice saber abrir y el instalador
+//! de Windows. Se separan solos, y cuando se separan no falla nada:
+//! simplemente el «Acerca de» miente o «Abrir con DanPlay» no hace nada.
 //!
 //! Va aquí porque la lista de extensiones es la de la biblioteca
-//! (`config::EXTENSIONS`); lo demás se lee como texto, igual que en Python.
+//! (`config::EXTENSIONS`); lo demás se lee como texto.
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
@@ -71,8 +70,7 @@ fn workspace_members() -> Vec<String> {
 
 /// Dónde se escribe de verdad la versión de DanPlay. Los crates la heredan
 /// del workspace (`Cargo.toml` de la raíz) y la app de escritorio, la de su
-/// crate (Tauri); la interfaz la lleva en su package.json. (En Python estaba
-/// también danplay/__init__.py, que se va con Python.)
+/// crate (Tauri); la interfaz la lleva en su package.json.
 fn versions() -> Vec<(&'static str, String)> {
     let cargo = toml_section(&read("Cargo.toml"), "workspace.package");
     let package = json("desktop/package.json");
@@ -163,9 +161,9 @@ fn the_version_script_touches_every_place_this_test_checks() {
     assert!(contributing.contains("bump-version.sh"));
 }
 
-/// La API la lee de Cargo, no la copia. En Python estaba escrita a mano en
-/// `api.py`, así que subirla en un sitio y no en el otro no daba ningún
-/// error: simplemente el «Acerca de» mentía.
+/// La API la lee de Cargo, no la copia. Hasta la 1.30 estaba escrita a mano,
+/// así que subirla en un sitio y no en el otro no daba ningún error:
+/// simplemente el «Acerca de» mentía.
 #[test]
 fn the_api_does_not_repeat_the_version() {
     let app = read("server/src/app.rs");
@@ -316,7 +314,7 @@ fn the_windows_installer_upgrades_instead_of_duplicating() {
         .expect("la función");
     let end = start + nsi[start..].find("FunctionEnd").expect("su final");
     let cleanup = &nsi[start..end];
-    // lo de ahora y lo de hasta la 1.30, con el núcleo de Python aparte
+    // lo de ahora y lo de hasta la 1.30, que llevaba el núcleo aparte
     for piece in [
         "data",
         "tools",

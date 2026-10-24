@@ -1,5 +1,5 @@
 //! Las confirmaciones del asistente, el plan de descarga y lo que se hace al
-//! terminar (lo que era danplay/chat/plan.py).
+//! terminar.
 //!
 //! Lo que no tiene vuelta atrás (descargar, borrar) no lo decide el modelo ni
 //! el cliente. Aquí se sanea lo que se propone y se escriben su resumen y su
@@ -9,8 +9,8 @@
 //! lista, con una sola escritura (`apply_after`).
 //!
 //! El registro en memoria (con su cerrojo, sus topes de tiempo y de entradas
-//! y los hilos que buscan), YouTube y la base siguen en Python: la base llega
-//! por `Index`, que lee y escribe con las funciones de siempre.
+//! y los hilos que buscan), YouTube y la base van aparte, en el servidor: la
+//! base llega por `Index`.
 use super::links::{PLAYLIST, WATCH, clean_youtube_url, host_of};
 use super::text;
 use super::value::{
@@ -23,7 +23,7 @@ use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 
-/// Cuánto se baja de una vez (tools.py lo reexporta).
+/// Cuánto se baja de una vez (también lo usan las herramientas).
 pub const MAX_DOWNLOADS: usize = 25;
 /// Cuántos huecos puede tener lo que se hace al terminar.
 pub const MAX_SLOTS: usize = 50;
@@ -105,7 +105,7 @@ fn mmss(seconds: i64) -> String {
     format!("{}:{:02}", seconds.div_euclid(60), seconds.rem_euclid(60))
 }
 
-/// `str(a or b or "")`: el texto del primero que sea verdadero, o vacío.
+/// El texto del primero que sea verdadero, o vacío.
 fn text_or(values: &[&Value]) -> String {
     values
         .iter()
@@ -113,8 +113,8 @@ fn text_or(values: &[&Value]) -> String {
         .map_or_else(String::new, |v| crate::value::str_of(v))
 }
 
-/// `safe.datum(v, n)` con un valor cualquiera: None no dice nada; lo demás,
-/// su `str`.
+/// `safe::datum` con un valor cualquiera: null no dice nada; lo demás, como
+/// texto.
 fn datum_of(v: &Value, n: i64) -> String {
     if v.is_null() {
         String::new()
@@ -123,12 +123,14 @@ fn datum_of(v: &Value, n: i64) -> String {
     }
 }
 
-/// `names.search_form(v)`: la forma de buscar de `str(v or "")`.
+/// La forma de buscar (`search_form`) de un valor cualquiera, como texto (sin
+/// él, vacío).
 fn form_of(v: &Value) -> String {
     search_form(&text_or(&[v]))
 }
 
-/// `str(v).strip()[:MAX_ITEM].strip()` si `v` es un texto; si no, vacío. Con
+/// Si `v` es un texto, sin espacios a los lados y con `MAX_ITEM` caracteres
+/// como mucho; si no, vacío. Con
 /// esto casan las filas, los huecos y los resultados de la descarga.
 pub fn item_key(v: &Value) -> String {
     match v {
@@ -162,8 +164,9 @@ fn who(song: &Dict) -> Result<Value, Error> {
 
 // ------------------------------------------------------ qué se pide bajar
 
-/// Las letras de `[a-z]` con `re.IGNORECASE`: las ASCII y las cuatro que
-/// Python da por iguales («İ», «ı», «ſ» y el signo de kelvin).
+/// Las letras de `[a-z]` sin mirar mayúsculas: las ASCII y las cuatro que se
+/// dan por iguales a una de ellas («İ», «ı», «ſ» y el signo de kelvin), como
+/// en las versiones de antes.
 fn letter(c: char) -> bool {
     c.is_ascii_alphabetic() || matches!(c, '\u{130}' | '\u{131}' | '\u{17f}' | '\u{212a}')
 }
@@ -752,9 +755,9 @@ impl Card {
 /// Por qué no se pudo construir lo que se baja.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Selection {
-    /// `NothingSelected`: con esas casillas no queda nada que bajar
+    /// con esas casillas no queda nada que bajar
     Nothing(String),
-    /// lo que Python habría lanzado al leer el registro
+    /// un dato raro al leer el registro
     Data(Error),
 }
 
@@ -844,7 +847,7 @@ pub fn video_of(first: &Dict) -> Option<Video> {
     if !url.starts_with(WATCH) {
         return None;
     }
-    // `max(0, int(float(duration or 0)))`, y 0 si no se entiende
+    // los segundos enteros (nunca negativos), y 0 si no se entiende
     let d = get(first, "duration");
     let duration = if crate::value::truthy(d) {
         crate::value::float_of(d)
@@ -861,8 +864,7 @@ pub fn video_of(first: &Dict) -> Option<Video> {
     })
 }
 
-/// Lo que contestó YouTube (`youtube.info`) para una fila: el vídeo, o por
-/// qué no lo hay.
+/// Lo que contestó YouTube para una fila: el vídeo, o por qué no lo hay.
 pub fn answer(res: &Value) -> Result<Result<Answer, String>, Error> {
     let r = dict_of(res)?;
     let ok = yes(r, "ok");
@@ -912,8 +914,7 @@ pub fn doubt(asked: &str, seen: &str, duration: i64) -> String {
     String::new()
 }
 
-/// La canción de la biblioteca que ya es esa (lo que devolvió
-/// `youtube.already_in_library`), en una línea, o "".
+/// La canción de la biblioteca que ya es esa, en una línea, o "".
 pub fn mine(found: &Value) -> Result<String, Error> {
     if !crate::value::truthy(found) {
         return Ok(String::new());
@@ -928,27 +929,25 @@ pub fn mine(found: &Value) -> Result<String, Error> {
 
 // ------------------------------------------------------------ la base
 
-/// Lo que se lee de la base (y la única escritura, `place`), con las
-/// funciones de siempre. Las listas y las canciones llegan como las
-/// devuelven `playlists.by_id` y `library.by_id`: un diccionario o None.
+/// Lo que se lee de la base (y la única escritura, `place`). Las listas y las
+/// canciones llegan como objetos, o null si no están.
 pub trait Index {
     type Error;
-    /// `library.by_id(id)`
+    /// la canción con ese id
     fn song(&mut self, id: i64) -> Result<Value, Self::Error>;
-    /// `playlists.by_id(id)`
+    /// la lista con ese id
     fn playlist(&mut self, id: i64) -> Result<Value, Self::Error>;
-    /// `playlists.by_name(name)`
+    /// la lista que se llama así (sin mirar mayúsculas ni tildes)
     fn playlist_named(&mut self, name: &str) -> Result<Value, Self::Error>;
-    /// `playlists.existing_ids(ids)`
+    /// de esos ids, los que son una canción de verdad
     fn existing(&mut self, ids: &[i64]) -> Result<Vec<i64>, Self::Error>;
-    /// los ids de `playlists.songs(id, light=True)`, en orden
+    /// los ids de las canciones de la lista, en orden
     fn songs(&mut self, playlist: i64) -> Result<Vec<i64>, Self::Error>;
-    /// `playlists.place(id, ids)["order"]`
+    /// pone esas canciones en la lista y da el orden que queda
     fn place(&mut self, playlist: i64, ids: &[i64]) -> Result<Vec<i64>, Self::Error>;
 }
 
-/// Lo que falló al leer o escribir: un dato raro (lo que Python habría
-/// lanzado) o la base.
+/// Lo que falló al leer o escribir: un dato raro o la base.
 #[derive(Debug)]
 pub enum Fault<E> {
     Data(Error),
@@ -972,8 +971,8 @@ impl<E> From<Error> for Fault<E> {
 
 // ------------------------------------------------------------ el registro
 
-/// Lo que se registra: el `Entry` de plan.py sin lo que pone el registro (el
-/// id, la hora, el estado).
+/// Lo que se registra, sin lo que pone el registro (el id, la hora, el
+/// estado).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Draft {
     pub tool: &'static str,
@@ -990,11 +989,11 @@ pub struct Draft {
 /// Por qué no se registra.
 #[derive(Debug)]
 pub enum Refused<E> {
-    /// `ValueError`: no hay nada que proponer
+    /// no hay nada que proponer
     Value(String),
-    /// `AfterError`: lo que se pide hacer al terminar no cuadra
+    /// lo que se pide hacer al terminar no cuadra
     After(String),
-    /// lo que Python habría lanzado al leer un dato raro
+    /// un dato raro al leer
     Data(Error),
     /// lo que falló al leer la base
     Index(E),

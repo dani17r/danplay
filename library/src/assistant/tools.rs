@@ -1,5 +1,5 @@
-//! Las herramientas del asistente (lo que era danplay/chat/tools.py): lo que
-//! se le declara al modelo y lo que hace cada una.
+//! Las herramientas del asistente: lo que se le declara al modelo y lo que hace
+//! cada una.
 //!
 //! Hacen lo mismo que la persona con el ratón (buscar, armar repertorios,
 //! puntuar, reproducir, descargar) y llaman a las mismas funciones del núcleo
@@ -9,8 +9,8 @@
 //! Lo que se decide y se escribe está aquí: qué herramientas se declaran en
 //! cada turno, qué hace cada una con lo que devuelve la base o la red y cómo
 //! se le cuenta al modelo. Todo lo que lee o escribe fuera (la biblioteca, las
-//! listas, YouTube, la web, las letras, los cifrados) llega por `Io`, que en
-//! Python son las funciones de siempre (las pruebas las cambian).
+//! listas, YouTube, la web, las letras, los cifrados) llega por `Io` (las
+//! pruebas ponen el suyo).
 use super::links::{clean_youtube_url, host_of};
 use super::plan::{Fault, MAX_DOWNLOADS};
 use super::text;
@@ -62,7 +62,7 @@ pub const TOOL_ALIASES: [(&str, &str); 5] = [
     ("lyrics_by_name", "get_lyrics"),
 ];
 
-/// Lo que `edit_song` puede cambiar con `library.edit`.
+/// Lo que `edit_song` puede cambiar de una canción.
 pub const EDITABLE_BY_ASSISTANT: [&str; 7] =
     ["title", "artist", "album", "year", "genre", "key", "bpm"];
 
@@ -126,7 +126,8 @@ static OPTIONAL_RX: LazyLock<Vec<(&'static str, Re)>> = LazyLock::new(|| {
         .collect()
 });
 
-/// Con `re.IGNORECASE` Python da la «i» por igual a «İ» y a «ı»; Rust no.
+/// Sin mirar mayúsculas, «İ» y «ı» casan con la «i», como en las versiones de
+/// antes; `regex` no las junta, así que se cambian antes de buscar.
 fn ignorecase_text(text: &str) -> String {
     text.replace(['\u{130}', '\u{131}'], "i")
 }
@@ -153,7 +154,8 @@ pub fn tools_for(text: &str, setlist: bool) -> Vec<usize> {
 }
 
 /// Por qué no valen los argumentos, en castellano (el modelo lo lee y
-/// corrige la llamada). `errors`: (dónde, tipo) de cada error de pydantic.
+/// corrige la llamada). `errors`: (dónde, tipo) de cada error al validar los
+/// argumentos.
 pub fn explain(name: &str, errors: &[(Vec<String>, String)]) -> String {
     let parts: Vec<String> = errors
         .iter()
@@ -247,12 +249,12 @@ fn iter_values(v: &Value) -> Result<Vec<Value>, Error> {
     }
 }
 
-/// `d.get(k, default)`.
+/// El valor de `k`, o `default` si no está.
 fn get_or<'a>(d: &'a Dict, k: &str, default: &'a Value) -> &'a Value {
     d.get(k).unwrap_or(default)
 }
 
-/// `str(a or b or "")`.
+/// El texto del primero que sea verdadero, o vacío.
 fn text_or(values: &[&Value]) -> String {
     values
         .iter()
@@ -272,7 +274,7 @@ fn s(v: &Value) -> String {
     crate::value::str_of(v)
 }
 
-/// `max(low, min(high, default if value is None else value))`.
+/// El entero de `value` (o `default` si no lo es), entre `low` y `high`.
 fn clamp(value: &Value, default: i64, low: i64, high: i64) -> i64 {
     let v = value.as_i64().unwrap_or(default);
     low.max(high.min(v))
@@ -282,7 +284,7 @@ fn clamp(value: &Value, default: i64, low: i64, high: i64) -> i64 {
 
 /// Una canción tal y como se le cuenta al modelo.
 pub fn song_brief(c: &Value) -> Result<Value, Error> {
-    // en el orden de Python: el primer campo que falte es el que se dice
+    // en este orden: el primer campo que falte es el que se dice
     let id = at(c, "id")?.clone();
     let artist = at(c, "artist")?.clone();
     let title = at(c, "title")?.clone();
@@ -341,10 +343,7 @@ fn get_len(d: &Dict, k: &str) -> Result<usize, Error> {
 }
 
 /// Lo que se hizo, en una línea (las fichas del chat).
-#[allow(
-    clippy::too_many_lines,
-    reason = "una rama por herramienta, como en Python"
-)]
+#[allow(clippy::too_many_lines, reason = "una rama por herramienta")]
 pub fn summarize(name: &str, res: &Value) -> Result<String, Error> {
     let r = dict_of(res)?;
     let g = |k: &str| get(r, k);
@@ -607,12 +606,11 @@ pub fn download_plan(args: &Dict, default_quality: &Value) -> Dict {
 // ------------------------------------------------------------ lo de fuera
 
 /// Lo que las herramientas leen y escriben fuera: la biblioteca, las listas,
-/// YouTube, la web, las letras y los cifrados. Los valores llegan como los
-/// devuelven las funciones de Python (diccionarios y listas) y los
-/// argumentos van igual que iban.
+/// YouTube, la web, las letras y los cifrados. Los valores llegan como JSON
+/// (objetos y listas) y los argumentos van como siempre.
 pub trait Io {
     type Error;
-    /// `library.search(query, None, sort, limit, desc=desc)`
+    /// busca en la biblioteca, con ese orden y ese tope
     fn search(
         &mut self,
         query: &str,
@@ -620,62 +618,62 @@ pub trait Io {
         limit: i64,
         desc: bool,
     ) -> Result<Value, Self::Error>;
-    /// `library.by_id(id)`
+    /// la canción con ese id
     fn song(&mut self, id: &Value) -> Result<Value, Self::Error>;
-    /// `library.stats_of()`
+    /// los números de la biblioteca
     fn stats(&mut self) -> Result<Value, Self::Error>;
-    /// `library.facets()`
+    /// los valores disponibles para los filtros
     fn facets(&mut self) -> Result<Value, Self::Error>;
-    /// `library.update(id, lyrics=..., lyrics_synced=...)`
+    /// guarda la letra (y la sincronizada) de una canción
     fn save_lyrics(
         &mut self,
         id: &Value,
         lyrics: &Value,
         synced: &Value,
     ) -> Result<(), Self::Error>;
-    /// `library.edit(id, **fields)`
+    /// cambia esos campos de una canción
     fn edit(&mut self, id: &Value, fields: &Dict) -> Result<Value, Self::Error>;
-    /// `library.trash(id)`
+    /// manda la canción a la papelera
     fn trash(&mut self, id: &Value) -> Result<Value, Self::Error>;
-    /// `library.download_history(limit)` (None si no se pudo leer)
+    /// las últimas descargas (None si no se pudo leer)
     fn history(&mut self, limit: i64) -> Option<Value>;
-    /// `resolve.match_song(query, limit=limit)`: {status, song, candidates:
-    /// [{song, score, why}], other_version}
+    /// ¿tenemos esta canción?: {status, song, candidates: [{song, score,
+    /// why}], other_version}
     fn match_song(&mut self, query: &str, limit: i64) -> Result<Value, Self::Error>;
-    /// `resolve.match_song("", url=item)` o `resolve.match_song(item)`; None si
-    /// no se pudo mirar (quien lo implementa lo apunta en el registro)
+    /// si ya está lo de ese enlace (`url`) o esa canción; None si no se pudo
+    /// mirar (quien lo implementa lo apunta en el registro)
     fn already_have(&mut self, item: &str, url: bool) -> Option<Value>;
-    /// `playlists.by_name(name)`
+    /// la lista que se llama así
     fn playlist_named(&mut self, name: &str) -> Result<Value, Self::Error>;
-    /// `playlists.by_id(raw)`
+    /// la lista con ese id (tal como llegó)
     fn playlist(&mut self, raw: &Value) -> Result<Value, Self::Error>;
-    /// `playlists.list_all()`
+    /// todas las listas
     fn playlists(&mut self) -> Result<Value, Self::Error>;
-    /// `playlists.existing_ids(ids)`
+    /// de esos ids, los que son una canción de verdad
     fn existing(&mut self, ids: &[i64]) -> Result<Value, Self::Error>;
-    /// `playlists.songs(id)`
+    /// las canciones de la lista
     fn playlist_songs(&mut self, id: &Value) -> Result<Value, Self::Error>;
-    /// `playlists.create(name, note)`
+    /// crea una lista, con su nota
     fn create(&mut self, name: &str, note: &str) -> Result<Value, Self::Error>;
-    /// `playlists.add(id, ids)`
+    /// añade esas canciones a la lista
     fn add(&mut self, id: &Value, ids: &Value) -> Result<Value, Self::Error>;
-    /// `playlists.set_songs(id, ids)`
+    /// deja la lista con esas canciones
     fn set_songs(&mut self, id: &Value, ids: &Value) -> Result<Value, Self::Error>;
-    /// `playlists.edit(id, name=name, note=note)`
+    /// cambia el nombre y la nota de la lista
     fn rename(&mut self, id: &Value, name: &Value, note: &Value) -> Result<Value, Self::Error>;
-    /// `playlists.remove(id)`
+    /// borra la lista (las canciones, no)
     fn remove(&mut self, id: &Value) -> Result<(), Self::Error>;
-    /// `playlists.remove_song(id, ids)`
+    /// quita esas canciones de la lista
     fn remove_songs(&mut self, id: &Value, ids: &[i64]) -> Result<(), Self::Error>;
-    /// `playlists.rate(id, stars)`
+    /// pone las estrellas a una canción
     fn rate(&mut self, id: &Value, stars: i64) -> Result<Value, Self::Error>;
-    /// `playlists.favorite(id, value)`
+    /// marca o desmarca una canción como favorita
     fn favorite(&mut self, id: &Value, value: &Value) -> Result<Value, Self::Error>;
-    /// `playlists.export_sheet(id, with_lyrics=...)`
+    /// la hoja de la lista (con las letras, si se piden)
     fn export_sheet(&mut self, id: &Value, with_lyrics: &Value) -> Result<Value, Self::Error>;
-    /// `enrich.lyrics(artist, title)`
+    /// la letra, por artista y título
     fn lyrics_by_name(&mut self, artist: &Value, title: &Value) -> Result<Value, Self::Error>;
-    /// `enrich.lyrics(artist, title, album, duration)`
+    /// la letra, por artista, título, álbum y duración
     fn lyrics_of(
         &mut self,
         artist: &Value,
@@ -683,41 +681,42 @@ pub trait Io {
         album: &Value,
         duration: &Value,
     ) -> Result<Value, Self::Error>;
-    /// `enrich.lrc_to_plain(text)`
+    /// una letra sincronizada (LRC), sin los tiempos
     fn lrc_to_plain(&mut self, text: &Value) -> Result<Value, Self::Error>;
-    /// `enrich.chords(song)`
+    /// los acordes de una canción
     fn chords_of(&mut self, song: &Value) -> Result<Value, Self::Error>;
-    /// `chord_sheets.find(artist, title)`
+    /// el cifrado publicado de esa canción
     fn chord_sheet(&mut self, artist: &Value, title: &Value) -> Result<Value, Self::Error>;
-    /// `enrich.details_for(song)`: (detalles, si venían guardados)
+    /// los detalles de una canción: (detalles, si venían guardados)
     fn details(&mut self, song: &Value) -> Result<(Value, Value), Self::Error>;
-    /// `enrich.enrich(id, with_lyrics=..., with_cover=..., with_details=False)`
+    /// completa una canción: la letra y la carátula si se piden (los
+    /// detalles, no)
     fn enrich(&mut self, id: &Value, lyrics: &Value, cover: &Value) -> Result<Value, Self::Error>;
-    /// `theory.transpose_to(chords, from_key, to_key)`
+    /// los acordes, pasados de un tono a otro
     fn transpose(&mut self, chords: &Value, from: &Value, to: &Value)
     -> Result<Value, Self::Error>;
-    /// `theory.to_latin(text)`
+    /// el texto con las notas en latino (Do, Re…)
     fn to_latin(&mut self, text: &Value) -> Result<Value, Self::Error>;
-    /// `theory.suggested_capo(key)`
+    /// la cejilla que se sugiere para ese tono
     fn capo(&mut self, key: &Value) -> Result<Value, Self::Error>;
-    /// `theory.related_keys(key)`
+    /// los tonos vecinos de uno
     fn related_keys(&mut self, key: &Value) -> Result<Value, Self::Error>;
-    /// `youtube.available()` (su verdad)
+    /// si se puede bajar de YouTube
     fn youtube_available(&mut self) -> Result<bool, Self::Error>;
-    /// `youtube.unavailable_reason()`
+    /// por qué no se puede bajar de YouTube
     fn youtube_unavailable(&mut self) -> Result<Value, Self::Error>;
-    /// `youtube.info(query, limit)`
+    /// lo que dice YouTube de `query` (hasta `limit` resultados)
     fn youtube_info(&mut self, query: &str, limit: i64) -> Result<Value, Self::Error>;
-    /// `youtube.run_many(items, quality=..., file_it=..., results=1,
-    /// force=..., source="assistant")`
+    /// lanza las descargas de un plan (`download_plan`): el primer resultado
+    /// de cada una, como pedidas por el asistente
     fn run_many(&mut self, plan: &Dict) -> Result<Value, Self::Error>;
-    /// `youtube.STATE`
+    /// la descarga en marcha
     fn youtube_state(&mut self) -> Result<Value, Self::Error>;
-    /// `web.search(query, limit)`
+    /// busca en la web (hasta `limit` resultados)
     fn web_search(&mut self, query: &str, limit: i64) -> Result<Value, Self::Error>;
-    /// `config.MP3_QUALITY`
+    /// la calidad de mp3 de la configuración
     fn default_quality(&mut self) -> Result<Value, Self::Error>;
-    /// `time.time()`
+    /// la hora de ahora, en segundos desde 1970
     fn now(&mut self) -> f64;
 }
 
@@ -1699,7 +1698,7 @@ fn setlist_sheet<I: Io>(a: &Dict, io_: &mut I) -> Out<I::Error> {
 }
 
 /// Las herramientas que se hacen aquí (las de listas pegadas, `fill_playlist`
-/// y `find_songs`, las hace setlist.py con el turno).
+/// y `find_songs`, las hace `setlist` con el turno).
 pub const RUST_TOOLS: [&str; 25] = [
     "search_songs",
     "library_summary",
@@ -1728,9 +1727,9 @@ pub const RUST_TOOLS: [&str; 25] = [
     "setlist_sheet",
 ];
 
-/// Ejecuta una herramienta con sus argumentos ya validados (los campos de su
-/// modelo de pydantic). Lo que falle (fuera o en un dato raro) vuelve como
-/// error: quien llama lo cuenta como `{"error": str(e)}`.
+/// Ejecuta una herramienta con sus argumentos ya validados (los campos que
+/// declara). Lo que falle (fuera o en un dato raro) vuelve como error: quien
+/// llama lo cuenta como `{"error": …}` con su texto.
 pub fn run<I: Io>(name: &str, a: &Dict, io_: &mut I) -> Out<I::Error> {
     match name {
         "search_songs" => search_songs(a, io_),

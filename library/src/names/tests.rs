@@ -53,7 +53,7 @@ fn featured_artists_and_final_name() {
 }
 
 #[test]
-fn extension_like_python() {
+fn extension_is_from_the_last_dot_of_the_name() {
     assert_eq!(splitext("a.b.mp3"), ("a.b", ".mp3"));
     assert_eq!(splitext(".bashrc"), (".bashrc", ""));
     assert_eq!(splitext("..mp3"), ("..mp3", ""));
@@ -119,7 +119,7 @@ fn control_separators_split_words() {
     assert_eq!(match_key("hola\u{1f}mundo.mp3"), "hola mundo");
 }
 
-// ------------------------------------------------- lo de tests/test_core.py
+// ----------------------------------- limpiar los nombres y sacar el artista
 
 fn vocab(pairs: &[(&str, &str)]) -> Vec<(String, String)> {
     pairs
@@ -507,11 +507,11 @@ fn no_dash_channel_is_artist_and_youtube_music_wins() {
     assert_eq!(channel_as_artist("Ish Melton - Topic"), "Ish Melton");
 }
 
-// ------------------------------------------- lo de tests/test_properties.py
+// ------------------------------------------------------ con cualquier texto
 // Propiedades que se cumplen con CUALQUIER texto, no solo con los ejemplos de
-// siempre (en Python con Hypothesis; aquí con un generador fijo y lo que más
-// rompe mezclado). Así salieron los dos fallos de `names`: `sanitize` dejaba
-// pasar saltos de línea, y `strip_accents` convertía en ñ los caracteres NUL.
+// siempre (con un generador fijo y lo que más rompe mezclado). Así salieron
+// los dos fallos de `names`: `sanitize` dejaba pasar saltos de línea, y
+// `strip_accents` convertía en ñ los caracteres NUL.
 
 mod properties {
     use super::*;
@@ -519,8 +519,8 @@ mod properties {
 
     const FORBIDDEN: &str = "\\/:*?\"<>|";
 
-    /// `_is_control` de Python: categoría Cc o uno de `CONTROL_CHARS` (los
-    /// invisibles que cambian la dirección o no ocupan nada).
+    /// Un carácter de control: categoría Cc o uno de los invisibles que
+    /// cambian la dirección o no ocupan nada.
     fn is_control(c: char) -> bool {
         c.general_category() == GeneralCategory::Control
             || matches!(c,
@@ -532,7 +532,7 @@ mod properties {
                 | '\u{2066}'..='\u{2069}')
     }
 
-    /// `WINDOWS_RESERVED` de Python, con `upper()`.
+    /// Los nombres reservados de Windows, sin mirar mayúsculas.
     fn reserved(stem: &str) -> bool {
         let up = stem.to_uppercase();
         ["CON", "PRN", "AUX", "NUL"].contains(&up.as_str())
@@ -573,7 +573,7 @@ mod properties {
             let what = (&artist, &title, &feat, &out);
             #[allow(
                 clippy::case_sensitive_file_extension_comparisons,
-                reason = "como en Python: el nombre acaba en «.mp3», tal cual"
+                reason = "el nombre acaba en «.mp3», tal cual"
             )]
             let mp3 = out.ends_with(".mp3");
             assert!(mp3, "{what:?}");
@@ -656,7 +656,7 @@ mod properties {
     }
 }
 
-// ------------------------------------------------ lo de tests/test_names.py
+// --------------------------------------------- la forma de buscar un nombre
 // La forma de buscar un nombre (`search_form`): la regla del usuario. «Al
 // buscar, hay que convertir las canciones sin caracteres extraños ni acentos,
 // todo en minúsculas, y la ñ debe ir.» Con lo que de verdad llega por el chat

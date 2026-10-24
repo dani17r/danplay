@@ -1,5 +1,4 @@
-//! Texto de fuera como DATO, nunca como instrucción (lo que hacía
-//! danplay/chat/safe.py).
+//! Texto de fuera como DATO, nunca como instrucción.
 //!
 //! Todo lo que no escribe la persona (el título de un vídeo de YouTube, un
 //! canal, una letra, el resultado de una búsqueda web, las líneas de una lista
@@ -25,12 +24,11 @@ use unicode_properties::{GeneralCategory, UnicodeGeneralCategory};
 ///   BOM, anotaciones intercaladas y no-caracteres
 ///   etiquetas (U+E0000-U+E007F): texto invisible que un modelo SÍ lee
 ///   uso privado: no significa nada (los sustitutos sueltos, que tampoco, no
-///   llegan a un texto de Rust: quien lo pase desde Python los cambia antes
-///   por uno de uso privado)
+///   caben en un texto de Rust)
 ///   y cualquier otro de formato (Cf), como la marca de número árabe
 ///   (U+0600) o la de abreviatura siria (U+070F): no se ven y ningún dato los
 ///   necesita (la lista de arriba se quedaba corta: la prueba de propiedades
-///   de tests/test_safe.py los pedía fuera y pasaban)
+///   los pedía fuera y pasaban)
 fn dropped(c: char) -> bool {
     c.general_category() == GeneralCategory::Format
         || matches!(
@@ -220,11 +218,10 @@ mod tests {
         );
     }
 
-    // ------------------------------------------- lo de tests/test_safe.py
+    // -------------------------------------------- lo que disfraza una orden
     // Los casos que de verdad sirven para disfrazar una orden (saltos de
     // línea, marcas de dirección, ancho cero, comillas que cierran el dato)
-    // y propiedades sobre texto cualquiera (en Python con Hypothesis; aquí
-    // con un generador fijo).
+    // y propiedades sobre texto cualquiera (de un generador fijo).
 
     fn chars(ranges: &[std::ops::RangeInclusive<u32>]) -> Vec<char> {
         ranges
@@ -364,8 +361,8 @@ mod tests {
             "Cena Del Señor ¿Quién Es Él?"
         );
         assert_eq!(datum("", 80), "");
-        // (`datum(None)` y `datum(12)` eran de Python: aquí el dato ya es
-        // texto, y lo que falta va como None en `data_block`)
+        // (el dato siempre es texto; lo que falta va como None en
+        // `data_block`)
     }
 
     #[test]
@@ -464,7 +461,7 @@ mod tests {
         assert_eq!(datum("xy", -3), "");
     }
 
-    /// (El 80 de siempre: en Python era el valor por defecto.)
+    /// (El 80 es el tope de siempre.)
     #[test]
     fn the_default_is_80() {
         let out = datum(&"palabra ".repeat(50), 80);
@@ -539,7 +536,7 @@ mod tests {
 
     // ------------------------------------------------------------ data_block
 
-    /// El tope de siempre (`limit=60` en Python).
+    /// El tope de siempre.
     const BLOCK: i64 = 60;
 
     #[test]

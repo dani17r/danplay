@@ -1,11 +1,11 @@
 //! Decodificación del audio para la forma de onda del modo estudio (con
 //! symphonia, sin ffmpeg). Estaba en core/src/audio.rs.
 //!
-//! Aquí vivía también el análisis de tonalidad (Krumhansl-Schmuckler) y de
-//! BPM por FFT, pero desde Python no lo llamaba nadie (`analyze`,
-//! `analyze_many` y `chromagrams` no tenían quién las usara): el tono que se
-//! enseña viene de la IA y el pulso del metrónomo lo calcula la app de
-//! escritorio (`beats.rs`). Se quitó, y con él la FFT.
+//! Aquí vivía también el análisis de tonalidad (Krumhansl-Schmuckler) y de BPM
+//! por FFT, pero no lo llamaba nadie (`analyze`, `analyze_many` y
+//! `chromagrams` no tenían quién las usara): el tono que se enseña viene de la
+//! IA y el pulso del metrónomo lo calcula la app de escritorio (`beats.rs`).
+//! Se quitó, y con él la FFT.
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::Path;
 use symphonia::core::codecs::audio::AudioDecoderOptions;
@@ -189,10 +189,9 @@ pub fn columns(blocks: &[(f32, f32)], buckets: usize) -> (Vec<f32>, Vec<f32>) {
 
 /// Ejecuta `f` conteniendo cualquier panic. Un archivo corrupto puede hacer
 /// saltar un `assert` dentro de symphonia o un índice fuera de rango; sin esto
-/// el panic llega a Python como `PanicException`, que hereda de
-/// `BaseException` y no lo captura un `except Exception`. `AssertUnwindSafe`
-/// es legítimo porque el cierre solo maneja estado propio de ese archivo: nada
-/// compartido queda a medias tras el panic.
+/// el panic le llegaría a quien llama en vez de un error de ese archivo.
+/// `AssertUnwindSafe` es legítimo porque el cierre solo maneja estado propio
+/// de ese archivo: nada compartido queda a medias tras el panic.
 pub fn guarded<T>(f: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
     match catch_unwind(AssertUnwindSafe(f)) {
         Ok(r) => r,

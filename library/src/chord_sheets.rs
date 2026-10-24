@@ -1,5 +1,4 @@
-//! Acordes y tono sacados de cifrados publicados en la web, nunca inventados
-//! (lo que hacía danplay/chord_sheets.py).
+//! Acordes y tono sacados de cifrados publicados en la web, nunca inventados.
 //!
 //! Cada fuente se consulta con su propio buscador o su propio índice: no hace
 //! falta ningún buscador general (los gratuitos cortan si se les pregunta
@@ -22,8 +21,8 @@
 //! adivinan.
 //!
 //! Las páginas se piden con la función que se reciba (ver `net`). Los datos de
-//! Ultimate Guitar son JSON de fuera y se leen como los leía Python: lo que
-//! no tiene la forma esperada falla igual que fallaba allí (`Error::Data`).
+//! Ultimate Guitar son JSON de fuera: lo que no tiene la forma esperada falla
+//! con `Error::Data`.
 use crate::html::unescape;
 use crate::names::{Re, channel_as_artist, group, match_key, rx, split, strip_chars, sub};
 use crate::net::FetchFailure;
@@ -378,7 +377,7 @@ fn or_object<E>(v: Option<&Value>) -> Result<&Value, Error<E>> {
     }
 }
 
-/// `x.get(key)` de un objeto (lo que no es un objeto no tiene `.get`).
+/// El valor de `key` en un objeto (lo que no es un objeto es un dato raro).
 fn get<'a, E>(v: &'a Value, key: &str) -> Result<Option<&'a Value>, Error<E>> {
     match v {
         Value::Object(o) => Ok(o.get(key)),
@@ -450,7 +449,6 @@ static SPACES: LazyLock<Re> = LazyLock::new(|| rx(r"\s+"));
 /// y sin el artista, que los canales meten delante.
 pub fn search_title(artist: &str, title: &str) -> String {
     let mut title = sub(&LIVE_OR_SPANISH, &no_parens(title), " ");
-    // Python los quitaba en el orden de un conjunto (el que tocara); aquí,
     // primero el artista tal cual y después el nombre limpio del canal: así
     // «BarakVEVO» se va entero y no deja el «VEVO»
     let channel = channel_as_artist(artist);
@@ -642,7 +640,7 @@ pub fn ultimate_guitar<E: FetchFailure>(
     if sheet.sections.is_empty() {
         return Ok(None);
     }
-    // `tab` solo se mira si hay cifrado, como en Python
+    // `tab` solo se mira si hay cifrado
     let tab = or_object(tab)?;
     let tonality = [get(tab, "tonality_name")?, get(meta, "tonality")?]
         .into_iter()

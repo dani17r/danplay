@@ -1,5 +1,4 @@
-//! La lista del reproductor: lo que has abierto desde fuera de DanPlay
-//! (lo que hacía danplay/external.py).
+//! La lista del reproductor: lo que has abierto desde fuera de DanPlay.
 //!
 //! Abrir un mp3 desde el explorador de archivos **no es importarlo**. El archivo
 //! puede estar en las descargas, en un pincho o en la carpeta de otra persona, y
@@ -95,7 +94,7 @@ pub fn by_id(conn: &Connection, cid: i64) -> rusqlite::Result<Option<Dict>> {
     Ok(fetch_one(conn, &query, [-cid])?.map(|r| row(&r)))
 }
 
-/// `tags.duration`: la duración del archivo (0 si no se puede leer).
+/// La duración del archivo (0 si no se puede leer).
 fn duration_of(path: &str) -> f64 {
     catch_unwind(AssertUnwindSafe(|| {
         tags::audio_properties(Path::new(path)).0

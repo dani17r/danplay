@@ -1,10 +1,8 @@
-//! Identificación por huella acústica: Chromaprint → AcoustID → MusicBrainz
-//! (lo que hacía danplay/fingerprint.py con pyacoustid).
+//! Identificación por huella acústica: Chromaprint → AcoustID → MusicBrainz.
 //!
 //! Reconoce la canción por cómo suena, no por el nombre del archivo. Necesita
 //! el binario `fpcalc` (paquete libchromaprint-tools) y una clave de API
-//! gratuita: quien llama dice dónde está fpcalc y cuál es la clave (en Python,
-//! `convert.tool("fpcalc")` y `config.ACOUSTID_API_KEY`).
+//! gratuita: quien llama dice dónde está fpcalc y cuál es la clave.
 use crate::num::round_to;
 use crate::processes::{self, Error};
 use serde_json::Value;

@@ -1,12 +1,13 @@
-//! El esquema del índice y sus migraciones (lo de danplay/library/db.py):
-//! lo que la base necesita para abrirse sola, sin Python, en la fase 4.
+//! El esquema del índice y sus migraciones: lo que la base necesita para
+//! abrirse sola.
 //!
 //! El esquema lleva su versión (`PRAGMA user_version`) y cada cambio es una
 //! migración numerada que se aplica una sola vez, dentro de una transacción
 //! `BEGIN IMMEDIATE` (si dos procesos abren la base a la vez, el segundo
-//! espera y ya la encuentra migrada). Cómo dejaba Python la base partiendo
-//! de cada una de las de antes (nueva, sin versiones, en castellano, de la
-//! versión 3) está en schema/python_cases.json, y las pruebas lo comparan.
+//! espera y ya la encuentra migrada). Cómo dejaban la base las versiones de
+//! antes, partiendo de cada tipo de base (nueva, sin versiones, en castellano,
+//! de la versión 3), está guardado en el JSON de los casos de schema/, y las
+//! pruebas lo comparan.
 use super::touch;
 use rusqlite::Connection;
 use std::collections::HashSet;
@@ -561,9 +562,9 @@ pub fn private_database(path: &Path) {
 /// una vez por base, no de cada consulta.
 static PREPARED: Mutex<Option<HashSet<String>>> = Mutex::new(None);
 
-/// Abre el índice de `path` preparándolo la primera vez (como
-/// `library.connect()`): crea la carpeta y el archivo solo para su dueño, y
-/// aplica el esquema y las migraciones una vez por proceso.
+/// Abre el índice de `path` preparándolo la primera vez: crea la carpeta y el
+/// archivo solo para su dueño, y aplica el esquema y las migraciones una vez
+/// por proceso.
 pub fn connect(path: &Path) -> rusqlite::Result<Connection> {
     let key = path.to_string_lossy().into_owned();
     // una base que se borró por fuera (para rehacerla) se prepara otra vez:

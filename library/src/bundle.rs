@@ -1,5 +1,5 @@
 //! Llevar una canción separada al celular: un solo archivo `.danpista` (lo
-//! de danplay/bundle.py que no es pedir la rejilla, la carátula ni la onda).
+//! que no es pedir la rejilla, la carátula ni la onda).
 //!
 //! La app del celular (`mobile/`) no separa, ni convierte, ni ordena nada:
 //! solo abre lo que se separó aquí y deja estudiarlo. Para eso necesita todo
@@ -254,7 +254,7 @@ pub fn target_for(song: &Dict) -> String {
 /// Lo que se necesita para armar el paquete de una canción.
 pub struct Bundle<'a> {
     pub song: &'a Dict,
-    /// lo que dice `stems.info` de sus pistas (completas)
+    /// lo que dice `stems::info` de sus pistas (completas)
     pub info: &'a Dict,
     pub ffmpeg: &'a Path,
     /// lo que contesta `ffmpeg -encoders`
@@ -372,7 +372,7 @@ fn entry_date(secs: f64, utc_offset: i64) -> zip::DateTime {
     }
 }
 
-/// `st_mode` de Python: el de un archivo que se copia dentro tal cual.
+/// El modo (tipo y permisos) de un archivo que se copia dentro tal cual.
 fn mode(meta: &std::fs::Metadata) -> u32 {
     #[cfg(unix)]
     {

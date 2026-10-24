@@ -1,5 +1,4 @@
-//! La IA: cualquier proveedor compatible con la API de OpenAI (lo que eran
-//! danplay/providers.py, danplay/model_catalog.py y danplay/ai.py).
+//! La IA: cualquier proveedor compatible con la API de OpenAI.
 //!
 //! Por partes:
 //!
@@ -10,10 +9,6 @@
 //!   cliente      hablar con el servidor por HTTP (ureq), sin el SDK de OpenAI
 //!   llamar       una llamada con sus tolerancias y el respaldo entre
 //!                proveedores
-//!
-//! De momento Python sigue haciendo las llamadas (con el SDK de OpenAI, que
-//! las pruebas sustituyen) y usa de aquí la lógica; `client` y `call` son
-//! los del núcleo entero en Rust.
 pub mod catalog;
 pub mod client;
 
