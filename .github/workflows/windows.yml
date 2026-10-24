@@ -150,7 +150,7 @@ jobs:
           vp install --frozen-lockfile
           vp exec tauri build --no-bundle
 
-      # La de hoy (lo que hacia scripts/update-models.py); sin red, la que hay.
+      # La de hoy; sin red, la que hay.
       # Con Start-Process -Wait: es una app de ventanas, y sin eso PowerShell
       # no la espera.
       - name: la foto del catálogo de modelos

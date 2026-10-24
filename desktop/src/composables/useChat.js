@@ -878,8 +878,8 @@ async function deliver(t, hidden, event) {
       if ((r.tools || []).some((/** @type {any} */ h) => CHANGES_LIBRARY.includes(h.name))) {
         hooks.reload()
       }
-      // reproducir no se puede hacer desde Python: el núcleo devuelve la orden
-      // y la ejecuta la app (aunque el chat ya no esté a la vista)
+      // reproducir no lo hace el núcleo: devuelve la orden y la ejecuta la
+      // app (aunque el chat ya no esté a la vista)
       for (const a of r.actions || []) hooks.action(a)
     }
     // quién contestó y si el elegido falla: la franja bajo la cabecera

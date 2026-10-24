@@ -50,8 +50,8 @@ fi
 if [ "${1:-}" = "--package" ]; then
     step "extra  la foto del catalogo de modelos, la de hoy"
     # Para que ningun paquete salga con una lista de hace meses, la saca la
-    # propia app recien compilada (lo que hacia scripts/update-models.py), y
-    # en data/, que es lo que se empaqueta: la del repositorio no se toca.
+    # propia app recien compilada, y en data/, que es lo que se empaqueta: la
+    # del repositorio no se toca.
     # Sin internet viaja la del repositorio.
     "$APP" --models-snapshot desktop/src-tauri/data/models-snapshot.json \
       || echo "  sin red: viaja la del repositorio"

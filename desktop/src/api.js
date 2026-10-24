@@ -6,7 +6,7 @@
 // proceso del equipo puede hablar con el núcleo.
 // En el navegador (npm run dev suelto) cae a fetch contra el proxy de Vite.
 //
-// Lo que aquí se llama es el contrato con Rust y con Python que describe
+// Lo que aquí se llama es el contrato con el núcleo que describe
 // docs/INTERNAL-CONTRACT.md. Si un nombre cambia allí, cambia aquí.
 
 /**
@@ -372,8 +372,8 @@ export function errorMessage(e) {
 }
 
 /**
- * Lo que el núcleo pone en el cuerpo de un error. FastAPI manda
- * `{"detail": "..."}`; si no es eso, se enseña el texto tal cual.
+ * Lo que el núcleo pone en el cuerpo de un error: `{"detail": "..."}`;
+ * si no es eso, se enseña el texto tal cual.
  * @param {string} text
  * @param {number} status
  */
@@ -389,7 +389,7 @@ function describeFailure(text, status) {
 
 /**
  * Un fallo que llega por el puente de Rust. Rust lo manda como
- * `<código>: <cuerpo>`, y el cuerpo es el JSON de FastAPI: se saca el
+ * `<código>: <cuerpo>`, y el cuerpo es el JSON del núcleo: se saca el
  * `detail` para que el usuario lea «ya hay una descarga en marcha» y no
  * `409: {"detail":"ya hay una descarga en marcha"}`.
  * @param {unknown} e
@@ -884,7 +884,7 @@ function createBrowserWatch() {
 }
 const browserWatch = inTauri ? null : createBrowserWatch()
 
-/** El núcleo Python, visto desde Rust (o, en el navegador, sondeando). */
+/** El núcleo, visto desde Rust (o, en el navegador, sondeando). */
 export const core = {
   /**
    * Avisa cuando el núcleo arranca, muere o se reinicia.

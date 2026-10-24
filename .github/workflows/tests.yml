@@ -50,9 +50,8 @@ jobs:
           cargo fmt --all --check
           cargo clippy -p danplay-library -p danplay-analysis -p danplay-server --all-targets -- -D warnings
       # la biblioteca (el índice, las etiquetas, el asistente), el análisis
-      # (el pulso, el clic, los pesos) y la API con todas sus rutas: las
-      # pruebas que eran de Python, con sus bibliotecas de verdad en
-      # carpetas temporales
+      # (el pulso, el clic, los pesos) y la API con todas sus rutas, con sus
+      # bibliotecas de verdad en carpetas temporales
       - name: pruebas
         run: cargo test --release -p danplay-library -p danplay-analysis -p danplay-server
 

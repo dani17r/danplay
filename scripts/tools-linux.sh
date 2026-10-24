@@ -32,8 +32,7 @@ FPCALC_SHA256=fc16cd37a70168040bc9ceb45f1d4d1216f5a75bc4c9cf8564bea70ac6a45733
 # QuickJS-NG 0.17.0, el mismo que el de Windows y macOS (un binario suelto)
 QJS_URL=https://github.com/quickjs-ng/quickjs/releases/download/v0.17.0/qjs-linux-x86_64
 QJS_SHA256=0bfc02511a9f549c28b53880d988fc7cd5d361e90c5e8afdfcd7dc6774ceace5
-# yt-dlp 2026.08.19, la misma que el yt-dlp de Python del proyecto
-# (pyproject.toml), con la suma de su SHA2-256SUMS. La app se pone al día sola
+# yt-dlp 2026.08.19, con la suma de su SHA2-256SUMS. La app se pone al día sola
 # desde GitHub (services::ytdlp): esta es la de partida.
 YTDLP_URL=https://github.com/yt-dlp/yt-dlp/releases/download/2026.08.19/yt-dlp_linux
 YTDLP_SHA256=58162f9bfdc27458ea47bfcb311cf47028f17d8154a8bf7d689861d46399230a

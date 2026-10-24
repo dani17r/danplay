@@ -72,7 +72,7 @@ jobs:
           vp install --frozen-lockfile
           vp exec tauri build --no-bundle
 
-      # la de hoy (lo que hacia scripts/update-models.py); sin red, la que hay
+      # la de hoy; sin red, la que hay
       - name: la foto del catálogo de modelos
         run: target/release/danplay-app --models-snapshot desktop/src-tauri/data/models-snapshot.json || true
 

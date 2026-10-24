@@ -45,7 +45,7 @@ const THANKS = [
   ['Piper', 'Rhasspy · las voces de España, México y Argentina'],
   ['yt-dlp', 'las descargas'],
   ['FFmpeg', 'convertir y leer audio'],
-  ['Tauri, Vue y FastAPI', 'la aplicación']
+  ['Rust, Tauri y Vue', 'la aplicación']
 ]
 
 /** @param {string} d AAAA-MM-DD */

@@ -4,8 +4,8 @@
 # Linux (hace falta el SDK de Apple y un Mac). Salen dos, uno por procesador:
 # Apple Silicon (M1 en adelante) e Intel.
 #
-# Sin Python: el nucleo va dentro de la app (el crate `server`). Las pruebas
-# del nucleo de Python, solo en tests.yml.
+# El nucleo va dentro de la app (el crate `server`). Sus pruebas en macOS,
+# en tests.yml («nucleo en macOS»).
 #
 # SIN FIRMA DE APPLE NI NOTARIZACION (no hay cuenta de desarrollador): va
 # firmado «ad hoc», que es lo minimo para que un Mac con Apple Silicon lo deje
@@ -91,7 +91,7 @@ jobs:
           vp install --frozen-lockfile
           vp exec tauri build --no-bundle
 
-      # la de hoy (lo que hacia scripts/update-models.py); sin red, la que hay
+      # la de hoy; sin red, la que hay
       - name: la foto del catálogo de modelos
         run: target/release/danplay-app --models-snapshot desktop/src-tauri/data/models-snapshot.json || true
 
