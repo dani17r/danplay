@@ -16,6 +16,17 @@
 /** @type {Release[]} */
 export const RELEASES = [
   {
+    version: '1.40.1',
+    date: '2026-10-24',
+    summary: 'Por dentro, más ordenada; y unos arreglos que se notan.',
+    items: [
+      'Al mejorar las pistas mientras suena, el clic sigue cuadrando con los golpes.',
+      'Editar la ficha de una canción sin año ya no escribe «None» como año.',
+      'Los avisos de lo que falla salen en castellano.',
+      'Bajar de YouTube justo después de poner al día yt-dlp ya no falla.'
+    ]
+  },
+  {
     version: '1.40.0',
     date: '2026-10-23',
     summary: 'Por dentro, nueva: más rápida, más ligera y sin programas aparte.',

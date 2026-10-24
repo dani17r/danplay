@@ -16,7 +16,7 @@
   <img alt="Windows" src="https://img.shields.io/badge/Windows-portable%20%2B%20instalador-0078d4?logo=windows&logoColor=white">
   <img alt="Vue 3" src="https://img.shields.io/badge/Vue-3-42b883?logo=vue.js&logoColor=white">
   <img alt="Rust" src="https://img.shields.io/badge/Rust-Tauri%202-b7410e?logo=rust&logoColor=white">
-  <img alt="Version" src="https://img.shields.io/badge/version-1.40.0-4ade80">
+  <img alt="Version" src="https://img.shields.io/badge/version-1.40.1-4ade80">
   <img alt="Pruebas" src="https://img.shields.io/badge/pruebas-2.671%20en%20verde-2ea043">
 </p>
 

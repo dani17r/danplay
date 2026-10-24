@@ -3,7 +3,7 @@
 Lo que cambia en cada versión que se entrega. El detalle de por qué está
 hecho así, en [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-## Sin publicar
+## 1.40.1 — 2026-10-24
 
 - **Por dentro, Rust de verdad**: el núcleo ya no copia cómo hacía Python
   cada cosa (sus rutas, su JSON, sus errores, sus tablas de caracteres);
