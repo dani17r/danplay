@@ -3,6 +3,15 @@
 Lo que cambia en cada versión que se entrega. El detalle de por qué está
 hecho así, en [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
+## Sin publicar
+
+- **Avisos de datos mal formados en castellano**: cuando al núcleo le llega
+  algo que no vale, el aviso salía en inglés («Field required», «Input
+  should be a valid string»…) y la app lo enseñaba como un JSON en bruto.
+  Ahora dice qué campo y qué le pasa («provider: falta», «remove: puede
+  tener como mucho 200 elementos, y tiene 250»), y si el JSON está roto,
+  dónde y por qué («se acaba a medias», «una clave sin comillas»).
+
 ## 1.40.1 — 2026-10-24
 
 - **Por dentro, Rust de verdad**: el núcleo ya no copia cómo hacía Python

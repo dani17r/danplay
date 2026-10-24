@@ -595,11 +595,10 @@ impl Kind for Floats {
 }
 
 fn too_long(what: &str, max: usize, n: usize, loc: &[Value], v: &Value) -> Value {
-    let items = if max == 1 { "item" } else { "items" };
     validate::error(
         "too_long",
         loc,
-        &format!("{what} should have at most {max} {items} after validation, not {n}"),
+        &validate::say::too_many(max, n),
         v,
         Some(json!({"field_type": what, "max_length": max, "actual_length": n})),
     )
@@ -633,13 +632,7 @@ fn models(parent: &mut Fields, loc: &[Value], key: &str, max: usize) -> Option<V
     let v = parent.any(key).opt()?;
     let here = loc_with(loc, key);
     let Value::Array(items) = &v else {
-        parent.push_error(
-            "list_type",
-            Some(key),
-            "Input should be a valid list",
-            &v,
-            None,
-        );
+        parent.push_error("list_type", Some(key), validate::say::NOT_LIST, &v, None);
         return Some(Vec::new());
     };
     if items.len() > max {
@@ -771,7 +764,7 @@ fn mixer(f: &mut Fields, loc: &[Value]) -> Value {
                 f.push_error(
                     "dict_type",
                     Some("tracks"),
-                    "Input should be a valid dictionary",
+                    validate::say::NOT_OBJECT,
                     other,
                     None,
                 );

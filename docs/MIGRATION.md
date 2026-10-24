@@ -362,3 +362,14 @@ salían en inglés de Python salen en castellano. Al hacerlo salió un fallo de
 verdad que hacía fallar a veces las pruebas de YouTube: lanzar un programa
 recién escrito podía dar «text file busy»; ahora se reintenta
 (`processes::spawn`), lo que también vale para yt-dlp recién puesto al día.
+
+Después, en la rama `fase-7/retoques`, lo último que copiaba a Python: los
+avisos de lo que no vale (el 422) seguían saliendo con los textos de
+pydantic en inglés («Field required», «Input should be a valid list»...);
+ahora salen en castellano (`validate::say`) y la app los enseña campo a
+campo. La forma del 422 (`type`, `loc`, `msg`, `input`, `ctx`) no cambia:
+la interfaz mira el `type`, no el texto. También se fueron las dos
+variables de entorno con las que el banco de Python ponía un separador y un
+detector de pulso de mentira (`DANPLAY_SEPARATE_COMMAND` y
+`DANPLAY_PULSE_DETECTOR`; las pruebas usan `set_detector` y el separador
+de mentira de `App`).

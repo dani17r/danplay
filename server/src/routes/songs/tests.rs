@@ -136,10 +136,7 @@ fn editing_writes_the_index_and_the_file() {
     let (st, v) = call(&app, "PATCH", &url, Some(json!({"bpm": 500, "year": 1999})));
     assert_eq!(st, 422);
     assert_eq!(v["detail"][0]["loc"], json!(["body", "year"]));
-    assert_eq!(
-        v["detail"][1]["msg"],
-        "Input should be less than or equal to 400"
-    );
+    assert_eq!(v["detail"][1]["msg"], "tiene que ser menor o igual que 400");
     assert_eq!(v["detail"][1]["ctx"], json!({"le": 400.0}));
     assert_eq!(
         serde_json::to_string(&v["detail"][1]["ctx"]["le"]).expect("json"),

@@ -72,14 +72,10 @@ pub fn update_one(app: &App, cid: i64, key: &str, value: Value) -> Result<usize,
 
 /// El campo nuevo o, si no llega, el de la fila, como texto; `None` si queda
 /// vacío (en las etiquetas solo se escribe lo que tiene valor).
-fn field_or(fields: &Dict, song: &Dict, key: &str, as_str: bool) -> Option<String> {
-    let v = fields
-        .get(key)
-        .or_else(|| song.get(key))
-        .cloned()
-        .unwrap_or(Value::Null);
-    let s = if as_str || value::truthy(&v) {
-        value::str_of(&v)
+fn field_or(fields: &Dict, song: &Dict, key: &str) -> Option<String> {
+    let v = fields.get(key).or_else(|| song.get(key))?;
+    let s = if value::truthy(v) {
+        value::str_of(v)
     } else {
         String::new()
     };
@@ -101,12 +97,11 @@ pub fn edit(app: &App, cid: i64, fields: &Dict) -> Result<Option<Dict>, ApiError
         written = true;
         if METADATA_FIELDS.iter().any(|k| fields.contains_key(*k)) {
             let changes = Changes {
-                artist: field_or(fields, &c, "artist", false),
-                title: field_or(fields, &c, "title", false),
-                album: field_or(fields, &c, "album", false),
-                // el año, como texto aunque sea falso (un 0 es «0»)
-                year: field_or(fields, &c, "year", true),
-                genre: field_or(fields, &c, "genre", false),
+                artist: field_or(fields, &c, "artist"),
+                title: field_or(fields, &c, "title"),
+                album: field_or(fields, &c, "album"),
+                year: field_or(fields, &c, "year"),
+                genre: field_or(fields, &c, "genre"),
                 ..Changes::default()
             };
             written = tags::write_fields(app, &path, &changes) && written;

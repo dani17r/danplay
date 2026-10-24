@@ -15,8 +15,8 @@
 //! ctx.done(b)?; // 422 si algo no cuadra (también una clave de más)
 //! ```
 //!
-//! Cada campo termina en `.required()` (sin valor por defecto: si falta,
-//! «Field required»), `.or(valor)` (si falta, ese) u `.opt()` (opcional: si
+//! Cada campo termina en `.required()` (sin valor por defecto: si falta, un
+//! `missing`), `.or(valor)` (si falta, ese) u `.opt()` (opcional: si
 //! falta o es `null`, `None`). Lo que no cuadra se apunta y se
 //! devuelve el valor por defecto: hasta `ctx.done` no se sabe si vale, así
 //! que no se usa nada antes.
@@ -101,6 +101,59 @@ fn plural(n: i64, one: &str, many: &str) -> String {
     format!("{n} {}", if n == 1 { one } else { many })
 }
 
+/// Lo que se dice de cada fallo (el `msg`), en castellano. El `type` de cada
+/// uno («missing», «string_too_long»...) es lo que mira la interfaz.
+pub mod say {
+    use super::plural;
+
+    pub const MISSING: &str = "falta";
+    pub const EXTRA: &str = "sobra: no se esperaba";
+    pub const NOT_OBJECT: &str = "tiene que ser un objeto";
+    pub const NOT_LIST: &str = "tiene que ser una lista";
+    pub const NOT_TEXT: &str = "tiene que ser un texto";
+    pub const NOT_BOOL: &str = "tiene que ser sí o no";
+    pub const NOT_INT: &str = "tiene que ser un número entero";
+    pub const NOT_WHOLE: &str = "tiene que ser un número entero, sin decimales";
+    pub const NOT_NUMBER: &str = "tiene que ser un número";
+
+    /// Un texto más corto de la cuenta.
+    pub fn text_too_short(min: usize) -> String {
+        format!(
+            "tiene que tener al menos {}",
+            plural(min as i64, "carácter", "caracteres")
+        )
+    }
+
+    /// Un texto más largo de la cuenta.
+    pub fn text_too_long(max: usize) -> String {
+        format!(
+            "puede tener como mucho {}",
+            plural(max as i64, "carácter", "caracteres")
+        )
+    }
+
+    /// Una lista (o un objeto) con más de la cuenta.
+    pub fn too_many(max: usize, n: usize) -> String {
+        format!(
+            "puede tener como mucho {}, y tiene {n}",
+            plural(max as i64, "elemento", "elementos")
+        )
+    }
+
+    /// Una lista con menos de la cuenta.
+    pub fn too_few(min: usize, n: usize) -> String {
+        format!(
+            "tiene que tener al menos {}, y tiene {n}",
+            plural(min as i64, "elemento", "elementos")
+        )
+    }
+
+    /// Uno de esos valores («'a', 'b' o 'c'»).
+    pub fn one_of(expected: &str) -> String {
+        format!("tiene que ser {expected}")
+    }
+}
+
 // ---------------------------------------------------------------- campos
 
 /// Un objeto que se comprueba campo a campo: el cuerpo, la consulta, las
@@ -109,7 +162,7 @@ fn plural(n: i64, one: &str, many: &str) -> String {
 pub struct Fields {
     loc: Vec<Value>,
     obj: Map<String, Value>,
-    /// lo que se enseña en «Field required» (el objeto entero, o `null` en
+    /// el `input` de un `missing` (el objeto entero, o `null` en
     /// la consulta y la ruta)
     missing_input: Value,
     used: Vec<String>,
@@ -139,7 +192,7 @@ impl Fields {
                 f.errors.push(error(
                     "model_attributes_type",
                     &f.loc,
-                    "Input should be a valid dictionary or object to extract fields from",
+                    say::NOT_OBJECT,
                     other,
                     None,
                 ));
@@ -168,16 +221,11 @@ impl Fields {
         }
     }
 
-    /// Un cuerpo que falta del todo (sin bytes): «Field required» en `body`.
+    /// Un cuerpo que falta del todo (sin bytes): un `missing` en `body`.
     pub fn missing_body() -> Self {
         let mut f = Self::params("body", &[]);
-        f.errors.push(error(
-            "missing",
-            &f.loc,
-            "Field required",
-            &Value::Null,
-            None,
-        ));
+        f.errors
+            .push(error("missing", &f.loc, say::MISSING, &Value::Null, None));
         f.invalid = true;
         f
     }
@@ -253,13 +301,8 @@ impl Fields {
                 .collect();
             for (k, v) in extra {
                 let loc = self.loc_of(&k);
-                self.errors.push(error(
-                    "extra_forbidden",
-                    &loc,
-                    "Extra inputs are not permitted",
-                    &v,
-                    None,
-                ));
+                self.errors
+                    .push(error("extra_forbidden", &loc, say::EXTRA, &v, None));
             }
         }
         self.errors
@@ -374,13 +417,8 @@ impl Fields {
             ),
             other => {
                 let loc = self.loc_of(key);
-                self.errors.push(error(
-                    "list_type",
-                    &loc,
-                    "Input should be a valid list",
-                    &other,
-                    None,
-                ));
+                self.errors
+                    .push(error("list_type", &loc, say::NOT_LIST, &other, None));
                 Some(Vec::new())
             }
         }
@@ -401,7 +439,7 @@ impl<K: Kind> Field<'_, K> {
         self.kind.convert(v, &loc, &mut self.fields.errors)
     }
 
-    /// Sin valor por defecto: si falta, «Field required».
+    /// Sin valor por defecto: si falta, un `missing`.
     pub fn required(mut self) -> K::Out
     where
         K::Out: Default,
@@ -413,7 +451,7 @@ impl<K: Kind> Field<'_, K> {
                     let input = self.fields.missing_input.clone();
                     self.fields
                         .errors
-                        .push(error("missing", &loc, "Field required", &input, None));
+                        .push(error("missing", &loc, say::MISSING, &input, None));
                 }
                 K::Out::default()
             }
@@ -439,7 +477,7 @@ impl<K: Kind> Field<'_, K> {
     }
 
     /// Optativo y obligatorio a la vez (puede ser `null`, pero sin valor por
-    /// defecto): si falta, «Field required»; `null` es `None`.
+    /// defecto): si falta, un `missing`; `null` es `None`.
     pub fn nullable(mut self) -> Option<K::Out> {
         match self.value.take() {
             None => {
@@ -448,7 +486,7 @@ impl<K: Kind> Field<'_, K> {
                     let input = self.fields.missing_input.clone();
                     self.fields
                         .errors
-                        .push(error("missing", &loc, "Field required", &input, None));
+                        .push(error("missing", &loc, say::MISSING, &input, None));
                 }
                 None
             }
@@ -478,23 +516,14 @@ impl Kind for Str {
     type Out = String;
     fn convert(&self, v: &Value, loc: &[Value], errors: &mut Vec<Value>) -> Option<String> {
         let Value::String(s) = v else {
-            errors.push(error(
-                "string_type",
-                loc,
-                "Input should be a valid string",
-                v,
-                None,
-            ));
+            errors.push(error("string_type", loc, say::NOT_TEXT, v, None));
             return None;
         };
         let n = s.chars().count();
         if let Some(min) = self.min
             && n < min
         {
-            let msg = format!(
-                "String should have at least {}",
-                plural(min as i64, "character", "characters")
-            );
+            let msg = say::text_too_short(min);
             errors.push(error(
                 "string_too_short",
                 loc,
@@ -507,10 +536,7 @@ impl Kind for Str {
         if let Some(max) = self.max
             && n > max
         {
-            let msg = format!(
-                "String should have at most {}",
-                plural(max as i64, "character", "characters")
-            );
+            let msg = say::text_too_long(max);
             errors.push(error(
                 "string_too_long",
                 loc,
@@ -553,13 +579,7 @@ impl Kind for Bool {
     type Out = bool;
     fn convert(&self, v: &Value, loc: &[Value], errors: &mut Vec<Value>) -> Option<bool> {
         let parsing = |errors: &mut Vec<Value>| {
-            errors.push(error(
-                "bool_parsing",
-                loc,
-                "Input should be a valid boolean, unable to interpret input",
-                v,
-                None,
-            ));
+            errors.push(error("bool_parsing", loc, say::NOT_BOOL, v, None));
             None
         };
         match v {
@@ -575,13 +595,7 @@ impl Kind for Bool {
                 _ => parsing(errors),
             },
             _ => {
-                errors.push(error(
-                    "bool_type",
-                    loc,
-                    "Input should be a valid boolean",
-                    v,
-                    None,
-                ));
+                errors.push(error("bool_type", loc, say::NOT_BOOL, v, None));
                 None
             }
         }
@@ -616,20 +630,20 @@ fn bounds_with(
     float_ctx: bool,
 ) -> bool {
     let checks: [Check<'_>; 4] = [
-        (b.gt, "greater_than", "gt", "greater than", |x, b| x > b),
+        (b.gt, "greater_than", "gt", "mayor que", |x, b| x > b),
         (
             b.ge,
             "greater_than_equal",
             "ge",
-            "greater than or equal to",
+            "mayor o igual que",
             |x, b| x >= b,
         ),
-        (b.lt, "less_than", "lt", "less than", |x, b| x < b),
+        (b.lt, "less_than", "lt", "menor que", |x, b| x < b),
         (
             b.le,
             "less_than_equal",
             "le",
-            "less than or equal to",
+            "menor o igual que",
             |x, b| x <= b,
         ),
     ];
@@ -649,7 +663,7 @@ fn bounds_with(
             errors.push(error(
                 kind,
                 loc,
-                &format!("Input should be {words} {}", b.text()),
+                &format!("tiene que ser {words} {}", b.text()),
                 v,
                 Some(Value::Object(ctx)),
             ));
@@ -713,12 +727,9 @@ impl Kind for Int {
                 } else if let Some(f) = n.as_f64() {
                     if self.strict || f.fract() != 0.0 {
                         let (kind, msg) = if self.strict {
-                            ("int_type", "Input should be a valid integer")
+                            ("int_type", say::NOT_INT)
                         } else {
-                            (
-                                "int_from_float",
-                                "Input should be a valid integer, got a number with a fractional part",
-                            )
+                            ("int_from_float", say::NOT_WHOLE)
                         };
                         errors.push(error(kind, loc, msg, v, None));
                         return None;
@@ -731,13 +742,7 @@ impl Kind for Int {
             Value::Bool(b) if !self.strict => Some(i64::from(*b)),
             Value::String(s) if !self.strict => {
                 let Some(i) = parse_int_text(s) else {
-                    errors.push(error(
-                        "int_parsing",
-                        loc,
-                        "Input should be a valid integer, unable to parse string as an integer",
-                        v,
-                        None,
-                    ));
+                    errors.push(error("int_parsing", loc, say::NOT_INT, v, None));
                     return None;
                 };
                 Some(i)
@@ -745,13 +750,7 @@ impl Kind for Int {
             _ => None,
         };
         let Some(i) = n else {
-            errors.push(error(
-                "int_type",
-                loc,
-                "Input should be a valid integer",
-                v,
-                None,
-            ));
+            errors.push(error("int_type", loc, say::NOT_INT, v, None));
             return None;
         };
         bounds(
@@ -830,13 +829,7 @@ impl Kind for Float {
             Value::Bool(b) => Some(f64::from(u8::from(*b))),
             Value::String(s) => {
                 let Some(x) = value::parse_float(s.trim()) else {
-                    errors.push(error(
-                        "float_parsing",
-                        loc,
-                        "Input should be a valid number, unable to parse string as a number",
-                        v,
-                        None,
-                    ));
+                    errors.push(error("float_parsing", loc, say::NOT_NUMBER, v, None));
                     return None;
                 };
                 Some(x)
@@ -844,13 +837,7 @@ impl Kind for Float {
             _ => None,
         };
         let Some(x) = x else {
-            errors.push(error(
-                "float_type",
-                loc,
-                "Input should be a valid number",
-                v,
-                None,
-            ));
+            errors.push(error("float_type", loc, say::NOT_NUMBER, v, None));
             return None;
         };
         let b = Bounds {
@@ -895,13 +882,13 @@ pub struct Lit {
     options: &'static [&'static str],
 }
 
-/// «'a', 'b' or 'c'».
+/// «'a', 'b' o 'c'».
 pub fn expected(options: &[&str]) -> String {
     let quoted: Vec<String> = options.iter().map(|o| format!("'{o}'")).collect();
     match quoted.split_last() {
         None => String::new(),
         Some((last, [])) => last.clone(),
-        Some((last, rest)) => format!("{} or {last}", rest.join(", ")),
+        Some((last, rest)) => format!("{} o {last}", rest.join(", ")),
     }
 }
 
@@ -917,7 +904,7 @@ impl Kind for Lit {
         errors.push(error(
             "literal_error",
             loc,
-            &format!("Input should be {want}"),
+            &say::one_of(&want),
             v,
             Some(json!({ "expected": want })),
         ));
@@ -947,13 +934,7 @@ impl<K: Kind> Kind for List<K> {
     type Out = Vec<K::Out>;
     fn convert(&self, v: &Value, loc: &[Value], errors: &mut Vec<Value>) -> Option<Vec<K::Out>> {
         let Value::Array(items) = v else {
-            errors.push(error(
-                "list_type",
-                loc,
-                "Input should be a valid list",
-                v,
-                None,
-            ));
+            errors.push(error("list_type", loc, say::NOT_LIST, v, None));
             return None;
         };
         let mut out = Vec::with_capacity(items.len());
@@ -970,10 +951,7 @@ impl<K: Kind> Kind for List<K> {
         if let Some(max) = self.max
             && n > max
         {
-            let msg = format!(
-                "List should have at most {} after validation, not {n}",
-                plural(max as i64, "item", "items")
-            );
+            let msg = say::too_many(max, n);
             errors.push(error(
                 "too_long",
                 loc,
@@ -986,10 +964,7 @@ impl<K: Kind> Kind for List<K> {
         if let Some(min) = self.min
             && n < min
         {
-            let msg = format!(
-                "List should have at least {} after validation, not {n}",
-                plural(min as i64, "item", "items")
-            );
+            let msg = say::too_few(min, n);
             errors.push(error(
                 "too_short",
                 loc,
@@ -1045,29 +1020,21 @@ impl Kind for Dict {
         if let Value::Object(o) = v {
             return Some(o.clone());
         }
-        errors.push(error(
-            "dict_type",
-            loc,
-            "Input should be a valid dictionary",
-            v,
-            None,
-        ));
+        errors.push(error("dict_type", loc, say::NOT_OBJECT, v, None));
         None
     }
 }
 
 // ---------------------------------------------------------------- el JSON
 
-/// El fallo de un cuerpo que no es JSON: la posición y el mensaje de la API
-/// («Expecting value», «Extra data»...; los más comunes; la posición, en
-/// caracteres).
+/// El fallo de un cuerpo que no es JSON: dónde (en caracteres desde el
+/// principio) y qué le pasa.
 pub fn json_invalid(body: &[u8], e: &serde_json::Error) -> Value {
     let text = String::from_utf8_lossy(body);
     // de línea y columna (en bytes) a la posición en caracteres
     let mut pos = 0usize;
     for (i, line) in text.split('\n').enumerate() {
         if i + 1 == e.line() {
-            // (lo que se acaba a medias lo cuenta `eof_expectation`)
             let col = e.column().saturating_sub(1).min(line.len());
             pos += line
                 .get(..col)
@@ -1078,140 +1045,42 @@ pub fn json_invalid(body: &[u8], e: &serde_json::Error) -> Value {
     }
     let what = e.to_string();
     if what.contains("expected ident") {
-        // una palabra que no es `null`, `true` ni `false`: la posición es
-        // dónde EMPIEZA el valor, no dónde dejó de cuadrar
+        // una palabra que no es `null`, `true` ni `false`: dónde EMPIEZA,
+        // no dónde dejó de cuadrar
         let chars: Vec<char> = text.chars().collect();
         pos = pos.min(chars.len());
         while pos > 0 && chars[pos - 1].is_ascii_alphabetic() {
             pos -= 1;
         }
     }
-    if what.contains("EOF while parsing") {
-        // se acabó a medias: se dice qué esperaba y dónde (el final, o
-        // dónde empieza el texto sin cerrar)
-        let (msg, at) = eof_expectation(&text);
-        return error(
-            "json_invalid",
-            &[Value::from("body"), Value::from(at)],
-            "JSON decode error",
-            &json!({}),
-            Some(json!({ "error": msg })),
-        );
+    if e.is_eof() {
+        // se acaba a medias: donde se acaba
+        pos = text.chars().count();
     }
-    let msg = if what.contains("trailing characters") {
-        "Extra data"
+    let why = if e.is_eof() {
+        "se acaba a medias"
+    } else if what.contains("trailing characters") {
+        "sobra algo al final"
     } else if what.contains("key must be a string") {
-        "Expecting property name enclosed in double quotes"
+        "una clave sin comillas"
     } else if what.contains("expected `:`") {
-        "Expecting ':' delimiter"
+        "falta «:» tras una clave"
     } else if what.contains("expected `,` or") {
-        "Expecting ',' delimiter"
+        "falta una «,» entre dos valores"
     } else if what.contains("control character") {
-        "Invalid control character at"
+        "un carácter de control dentro de un texto"
     } else if what.contains("escape") {
-        "Invalid \\escape"
-    } else if what.contains("EOF while parsing a string") {
-        "Unterminated string starting at"
+        "un escape que no vale dentro de un texto"
     } else {
-        "Expecting value"
+        "se esperaba un valor"
     };
     error(
         "json_invalid",
         &[Value::from("body"), Value::from(pos)],
-        "JSON decode error",
+        &format!("el cuerpo no es JSON: {why}"),
         &json!({}),
-        Some(json!({ "error": msg })),
+        Some(json!({ "error": why })),
     )
-}
-
-/// Qué faltaba en un JSON que se acaba a medias, y dónde: el final, o
-/// dónde empieza el texto que no se cerró.
-fn eof_expectation(text: &str) -> (&'static str, usize) {
-    #[derive(Clone, Copy, PartialEq)]
-    enum Want {
-        Value,
-        After,
-        Key,
-        Colon,
-    }
-    let chars: Vec<char> = text.chars().collect();
-    let mut stack: Vec<char> = Vec::new();
-    let mut want = Want::Value;
-    let mut i = 0;
-    while i < chars.len() {
-        let c = chars[i];
-        match c {
-            ' ' | '\t' | '\n' | '\r' => {}
-            '"' => {
-                let start = i;
-                i += 1;
-                while i < chars.len() && chars[i] != '"' {
-                    if chars[i] == '\\' {
-                        i += 1;
-                    }
-                    i += 1;
-                }
-                if i >= chars.len() {
-                    return ("Unterminated string starting at", start);
-                }
-                want = if want == Want::Key {
-                    Want::Colon
-                } else {
-                    Want::After
-                };
-            }
-            '{' => {
-                stack.push('{');
-                want = Want::Key;
-            }
-            '[' => {
-                stack.push('[');
-                want = Want::Value;
-            }
-            '}' | ']' => {
-                stack.pop();
-                want = Want::After;
-            }
-            ':' => want = Want::Value,
-            ',' => {
-                want = if stack.last() == Some(&'{') {
-                    Want::Key
-                } else {
-                    Want::Value
-                };
-            }
-            _ => {
-                // un número o una palabra (`true`, `null`...)
-                let start = i;
-                while i + 1 < chars.len()
-                    && !matches!(
-                        chars[i + 1],
-                        ' ' | '\t' | '\n' | '\r' | ',' | ']' | '}' | ':' | '"'
-                    )
-                {
-                    i += 1;
-                }
-                let token: String = chars[start..=i].iter().collect();
-                let complete = matches!(
-                    token.as_str(),
-                    "true" | "false" | "null" | "NaN" | "Infinity" | "-Infinity"
-                ) || serde_json::from_str::<serde_json::Number>(&token).is_ok();
-                if !complete && i + 1 >= chars.len() {
-                    // una palabra cortada: se esperaba un valor donde empieza
-                    return ("Expecting value", start);
-                }
-                want = Want::After;
-            }
-        }
-        i += 1;
-    }
-    let msg = match want {
-        Want::Value => "Expecting value",
-        Want::Key => "Expecting property name enclosed in double quotes",
-        Want::Colon => "Expecting ':' delimiter",
-        Want::After => "Expecting ',' delimiter",
-    };
-    (msg, chars.len())
 }
 
 /// El cuerpo como JSON: sin `content-type`, o con uno
@@ -1253,8 +1122,8 @@ mod tests {
         assert_eq!(
             Value::Array(errors),
             json!([
-                {"type": "missing", "loc": ["body", "name"], "msg": "Field required", "input": {"raro": 1}},
-                {"type": "extra_forbidden", "loc": ["body", "raro"], "msg": "Extra inputs are not permitted", "input": 1}
+                {"type": "missing", "loc": ["body", "name"], "msg": say::MISSING, "input": {"raro": 1}},
+                {"type": "extra_forbidden", "loc": ["body", "raro"], "msg": say::EXTRA, "input": 1}
             ])
         );
     }
@@ -1270,11 +1139,11 @@ mod tests {
         b.int_list("ids").max_items(3).or(Vec::new());
         let e = Value::Array(b.into_errors());
         assert_eq!(e[0]["type"], "string_too_short");
-        assert_eq!(e[0]["msg"], "String should have at least 1 character");
+        assert_eq!(e[0]["msg"], "tiene que tener al menos 1 carácter");
         assert_eq!(e[0]["ctx"], json!({"min_length": 1}));
-        assert_eq!(e[1]["msg"], "Input should be less than or equal to 5");
+        assert_eq!(e[1]["msg"], "tiene que ser menor o igual que 5");
         assert_eq!(e[1]["ctx"], json!({"le": 5}));
-        assert_eq!(e[2]["msg"], "Input should be 'glob' or 'path'");
+        assert_eq!(e[2]["msg"], "tiene que ser 'glob' o 'path'");
         assert_eq!(e[3]["loc"], json!(["body", "ids", 2]));
         assert_eq!(e[3]["type"], "int_parsing");
     }
@@ -1302,33 +1171,32 @@ mod tests {
         assert_eq!(e[0]["loc"], json!(["body"]));
     }
 
+    /// Lo que no es JSON dice qué le pasa y dónde (en caracteres).
     #[test]
     fn json_that_does_not_parse() {
-        let Err(crate::ApiError::Validation(e)) = parse_body(None, b"{x") else {
-            panic!("tenia que fallar");
-        };
-        assert_eq!(e[0]["type"], "json_invalid");
-        assert_eq!(e[0]["loc"], json!(["body", 1]));
-        assert_eq!(
-            e[0]["ctx"]["error"],
-            "Expecting property name enclosed in double quotes"
-        );
-        // cortado: la posición es donde se acaba (la 10)
-        let Err(crate::ApiError::Validation(e)) = parse_body(None, b"{\"query\": ") else {
-            panic!("tenia que fallar");
-        };
-        assert_eq!(e[0]["loc"], json!(["body", 10]));
-        assert_eq!(e[0]["ctx"]["error"], "Expecting value");
-        let Err(crate::ApiError::Validation(e)) = parse_body(None, b"[") else {
-            panic!("tenia que fallar");
-        };
-        assert_eq!(e[0]["loc"], json!(["body", 1]));
-        // cortado: la posición es donde esperaba algo más
-        let Err(crate::ApiError::Validation(e)) = parse_body(None, br#"{"tracks": ["#) else {
-            panic!("tenia que fallar");
-        };
-        assert_eq!(e[0]["loc"], json!(["body", 12]));
-        assert_eq!(e[0]["ctx"]["error"], "Expecting value");
+        let cases = [
+            ("{x", "una clave sin comillas", 1),
+            ("{\"a\" 1}", "falta «:» tras una clave", 5),
+            ("[1 2]", "falta una «,» entre dos valores", 3),
+            ("[1] x", "sobra algo al final", 4),
+            ("no es json", "se esperaba un valor", 0),
+            ("{\"query\": ", "se acaba a medias", 10),
+            ("{\"tracks\": [", "se acaba a medias", 12),
+            ("\"ñandú", "se acaba a medias", 6),
+        ];
+        for (text, why, pos) in cases {
+            let Err(crate::ApiError::Validation(e)) = parse_body(None, text.as_bytes()) else {
+                panic!("tenia que fallar: {text}");
+            };
+            assert_eq!(e[0]["type"], "json_invalid", "{text}");
+            assert_eq!(e[0]["ctx"]["error"], why, "{text}");
+            assert_eq!(
+                e[0]["msg"],
+                format!("el cuerpo no es JSON: {why}"),
+                "{text}"
+            );
+            assert_eq!(e[0]["loc"], json!(["body", pos]), "{text}");
+        }
     }
 
     #[test]
@@ -1337,52 +1205,16 @@ mod tests {
         assert_eq!(b.float("gain").ge(0).le(2).opt(), None);
         assert_eq!(b.int("n").le(5).opt(), None);
         let e = b.into_errors();
-        assert_eq!(e[0]["msg"], "Input should be less than or equal to 2");
+        assert_eq!(e[0]["msg"], "tiene que ser menor o igual que 2");
         assert_eq!(e[0]["ctx"], json!({"le": 2.0}));
         assert_eq!(e[1]["ctx"], json!({"le": 5}));
-    }
-
-    #[test]
-    fn json_that_ends_too_soon_says_what_was_expected_and_where() {
-        // el mensaje y la posición de cada caso
-        let cases = [
-            ("{\"messages\": [", "Expecting value", 14),
-            ("{\"a\"", "Expecting ':' delimiter", 4),
-            ("{\"a\":", "Expecting value", 5),
-            ("{", "Expecting property name enclosed in double quotes", 1),
-            ("{\"a\": 1", "Expecting ',' delimiter", 7),
-            ("[1,", "Expecting value", 3),
-            ("\"abc", "Unterminated string starting at", 0),
-            ("{\"a\": \"b", "Unterminated string starting at", 6),
-            ("   ", "Expecting value", 3),
-            ("[1", "Expecting ',' delimiter", 2),
-            (
-                "{\"a\": 1,",
-                "Expecting property name enclosed in double quotes",
-                8,
-            ),
-            ("{\"a\": tr", "Expecting value", 6),
-            ("[\"x\\\"", "Unterminated string starting at", 1),
-            ("{\"a\": {\"b\": [1, 2", "Expecting ',' delimiter", 17),
-        ];
-        for (text, msg, pos) in cases {
-            let Err(crate::ApiError::Validation(e)) = parse_body(None, text.as_bytes()) else {
-                panic!("tenia que fallar: {text}");
-            };
-            assert_eq!(e[0]["ctx"]["error"], msg, "{text}");
-            assert_eq!(e[0]["loc"], json!(["body", pos]), "{text}");
-        }
-        let Err(crate::ApiError::Validation(e)) = parse_body(None, b"no es json") else {
-            panic!("tenia que fallar");
-        };
-        assert_eq!(e[0]["loc"], json!(["body", 0]));
     }
 
     #[test]
     fn the_list_of_options_reads_as_text() {
         assert_eq!(
             expected(&["high", "medium", "variable"]),
-            "'high', 'medium' or 'variable'"
+            "'high', 'medium' o 'variable'"
         );
         assert_eq!(expected(&["x"]), "'x'");
     }

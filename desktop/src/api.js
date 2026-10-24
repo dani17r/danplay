@@ -372,8 +372,9 @@ export function errorMessage(e) {
 }
 
 /**
- * Lo que el núcleo pone en el cuerpo de un error: `{"detail": "..."}`;
- * si no es eso, se enseña el texto tal cual.
+ * Lo que el núcleo pone en el cuerpo de un error: `{"detail": "..."}`, o en
+ * un 422, la lista de lo que no vale (`[{loc, msg}]`): «campo: lo que le
+ * pasa». Si no es nada de eso, se enseña el texto tal cual.
  * @param {string} text
  * @param {number} status
  */
@@ -381,6 +382,16 @@ function describeFailure(text, status) {
   try {
     const parsed = JSON.parse(text)
     if (typeof parsed?.detail === 'string') return parsed.detail
+    if (Array.isArray(parsed?.detail) && parsed.detail.length) {
+      return parsed.detail
+        .map((/** @type {any} */ f) => {
+          const where = (Array.isArray(f?.loc) ? f.loc : [])
+            .filter((/** @type {unknown} */ p) => p !== 'body' && p !== 'query' && p !== 'path')
+            .join('.')
+          return where ? `${where}: ${f?.msg ?? ''}` : String(f?.msg ?? '')
+        })
+        .join('; ')
+    }
   } catch {
     /* no era JSON */
   }

@@ -5,7 +5,7 @@ use crate::error::ApiError;
 use crate::router::{Ctx, Reply, Route};
 use crate::services::chat::{self, Live, plan, tools};
 use crate::services::{ai, youtube};
-use crate::validate::{Dict as DictKind, Fields, Int, Kind, List, error};
+use crate::validate::{Dict as DictKind, Fields, Int, Kind, List, error, say};
 use library::ai::call;
 use library::index::Dict;
 use library::value;
@@ -48,13 +48,7 @@ impl Kind for Messages {
     type Out = Vec<Dict>;
     fn convert(&self, v: &Value, loc: &[Value], errors: &mut Vec<Value>) -> Option<Vec<Dict>> {
         let Value::Array(items) = v else {
-            errors.push(error(
-                "list_type",
-                loc,
-                "Input should be a valid list",
-                v,
-                None,
-            ));
+            errors.push(error("list_type", loc, say::NOT_LIST, v, None));
             return None;
         };
         let mut out = Vec::with_capacity(items.len());
@@ -66,7 +60,7 @@ impl Kind for Messages {
                 errors.push(error(
                     "model_type",
                     &at,
-                    "Input should be a valid dictionary or instance of ChatMessage",
+                    say::NOT_OBJECT,
                     item,
                     Some(json!({"class_name": "ChatMessage"})),
                 ));
@@ -123,7 +117,7 @@ impl Kind for Messages {
             errors.push(error(
                 "too_long",
                 loc,
-                &format!("List should have at most 200 items after validation, not {n}"),
+                &say::too_many(200, n),
                 v,
                 Some(json!({"field_type": "List", "max_length": 200, "actual_length": n})),
             ));
@@ -497,7 +491,7 @@ fn confirm_tool(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
             b.push(error(
                 "value_error",
                 &loc,
-                &format!("Value error, {why}"),
+                why,
                 &input,
                 Some(json!({"error": {}})),
             ));
@@ -875,7 +869,7 @@ mod tests {
         assert_eq!(s, 422);
         assert_eq!(
             v["detail"][0],
-            json!({"type": "value_error", "loc": ["body"], "msg": "Value error, con id no se mandan tool ni args: los pone el servidor", "input": {"id": "abc", "tool": "delete_song"}, "ctx": {"error": {}}})
+            json!({"type": "value_error", "loc": ["body"], "msg": "con id no se mandan tool ni args: los pone el servidor", "input": {"id": "abc", "tool": "delete_song"}, "ctx": {"error": {}}})
         );
         let (s, v) = call(
             &app,

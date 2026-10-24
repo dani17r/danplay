@@ -4,7 +4,7 @@ use crate::error::ApiError;
 use crate::router::{Ctx, Reply, Route};
 use crate::services::ai;
 use crate::startup;
-use crate::validate::{Kind, error};
+use crate::validate::{Kind, error, say};
 use library::ai::{call, catalog, providers};
 use library::index::Dict;
 use library::value;
@@ -100,13 +100,7 @@ impl Kind for StrMap {
     type Out = Dict;
     fn convert(&self, v: &Value, loc: &[Value], errors: &mut Vec<Value>) -> Option<Dict> {
         let Value::Object(o) = v else {
-            errors.push(error(
-                "dict_type",
-                loc,
-                "Input should be a valid dictionary",
-                v,
-                None,
-            ));
+            errors.push(error("dict_type", loc, say::NOT_OBJECT, v, None));
             return None;
         };
         let mut ok = true;
@@ -114,13 +108,7 @@ impl Kind for StrMap {
             if !x.is_string() {
                 let mut at = loc.to_vec();
                 at.push(Value::from(k.as_str()));
-                errors.push(error(
-                    "string_type",
-                    &at,
-                    "Input should be a valid string",
-                    x,
-                    None,
-                ));
+                errors.push(error("string_type", &at, say::NOT_TEXT, x, None));
                 ok = false;
             }
         }

@@ -7,6 +7,7 @@ use crate::router::{Ctx, Reply, Route};
 use crate::services::cues::{self, CueError, Edit};
 use crate::services::songs;
 use crate::services::structure::{self, AutoGuide};
+use crate::validate::say;
 use library::index::Dict;
 use library::value;
 use serde_json::{Value, json};
@@ -105,7 +106,7 @@ fn cue_auto(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
         }
         if n > 200 {
             let input = b.raw().get("sections").cloned().unwrap_or(Value::Null);
-            let msg = format!("List should have at most 200 items after validation, not {n}");
+            let msg = say::too_many(200, n);
             let c = json!({"field_type": "List", "max_length": 200, "actual_length": n});
             b.push_error("too_long", Some("sections"), &msg, &input, Some(c));
         }

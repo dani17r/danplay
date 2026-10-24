@@ -112,6 +112,18 @@ describe('errors are told in a single sentence', () => {
     expect(e.status).toBe(409)
     // sin JSON, el texto tal cual; sin codigo, el mensaje entero
     expect(fromBridge('500: se rompio').message).toBe('se rompio')
+    // un 422: cada campo con lo que le pasa
+    const invalid = fromBridge(
+      new Error(
+        '422: {"detail":[{"type":"missing","loc":["body","name"],"msg":"falta"},' +
+          '{"type":"too_long","loc":["body","ids"],"msg":"puede tener como mucho 3 elementos, y tiene 5"},' +
+          '{"type":"json_invalid","loc":["body",4],"msg":"el cuerpo no es JSON: se acaba a medias"}]}'
+      )
+    )
+    expect(invalid.status).toBe(422)
+    expect(invalid.message).toBe(
+      'name: falta; ids: puede tener como mucho 3 elementos, y tiene 5; 4: el cuerpo no es JSON: se acaba a medias'
+    )
     expect(fromBridge('el nucleo no contesta').message).toBe('el nucleo no contesta')
   })
 })

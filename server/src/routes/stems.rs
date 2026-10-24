@@ -7,7 +7,7 @@ use crate::jobs::{self, JobError};
 use crate::router::{Ctx, Reply, Route};
 use crate::services::stems::{self, Mix, MixClick, MixCue, MixTrack, StemsError};
 use crate::services::{bundle, sequence, songs};
-use crate::validate::{Bool, Fields, List};
+use crate::validate::{Bool, Fields, List, say};
 use library::num;
 use library::value;
 use serde_json::{Value, json};
@@ -127,7 +127,7 @@ fn model_list(
     required: bool,
 ) -> Option<Vec<Fields>> {
     let present = b.raw().contains_key(key);
-    // «Field required» si falta (y el cuerpo es un objeto)
+    // un `missing` si falta (y el cuerpo es un objeto)
     let value = if required {
         b.any(key).nullable()
     } else {
@@ -137,13 +137,7 @@ fn model_list(
         return b.objects(key, forbid_extra);
     }
     if required && present {
-        b.push_error(
-            "list_type",
-            Some(key),
-            "Input should be a valid list",
-            &Value::Null,
-            None,
-        );
+        b.push_error("list_type", Some(key), say::NOT_LIST, &Value::Null, None);
     }
     None
 }
@@ -151,21 +145,14 @@ fn model_list(
 /// El fallo de una lista de más o de menos.
 fn list_length(b: &mut Fields, key: &str, n: usize, min: Option<usize>, max: usize) {
     let input = b.raw().get(key).cloned().unwrap_or(Value::Null);
-    let items = |k: usize| format!("{k} item{}", if k == 1 { "" } else { "s" });
     if n > max {
-        let msg = format!(
-            "List should have at most {} after validation, not {n}",
-            items(max)
-        );
+        let msg = say::too_many(max, n);
         let ctx = json!({"field_type": "List", "max_length": max, "actual_length": n});
         b.push_error("too_long", Some(key), &msg, &input, Some(ctx));
     } else if let Some(min) = min
         && n < min
     {
-        let msg = format!(
-            "List should have at least {} after validation, not {n}",
-            items(min)
-        );
+        let msg = say::too_few(min, n);
         let ctx = json!({"field_type": "List", "min_length": min, "actual_length": n});
         b.push_error("too_short", Some(key), &msg, &input, Some(ctx));
     }
@@ -416,14 +403,14 @@ pub(crate) mod tests {
         assert_eq!(st, 422);
         assert_eq!(
             v["detail"],
-            json!([{"type": "list_type", "loc": ["body", "tracks"], "msg": "Input should be a valid list", "input": null}])
+            json!([{"type": "list_type", "loc": ["body", "tracks"], "msg": crate::validate::say::NOT_LIST, "input": null}])
         );
         let (st, v) = call(&app, "POST", &mix, Some(json!({"tracks": [], "path": "x"})));
         assert_eq!(st, 422);
         assert_eq!(v["detail"][0]["type"], "too_short");
         assert_eq!(
             v["detail"][0]["msg"],
-            "List should have at least 1 item after validation, not 0"
+            "tiene que tener al menos 1 elemento, y tiene 0"
         );
         let (st, v) = call(
             &app,

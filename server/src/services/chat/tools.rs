@@ -74,7 +74,7 @@ impl Kind for LooseText {
                 errors.push(error(
                     "string_type",
                     loc,
-                    "Input should be a valid string",
+                    crate::validate::say::NOT_TEXT,
                     v,
                     None,
                 ));

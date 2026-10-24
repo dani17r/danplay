@@ -26,7 +26,10 @@ use tauri::AppHandle;
 ///
 /// Tiene que coincidir con `bundle.fileAssociations` de `tauri.conf.json` y
 /// con `AUDIO_TYPES` de `server/src/services/media.rs`, porque son tres sitios
-/// y se separan solos. Una prueba de alli compara esos dos.
+/// y se separan solos: `the_app_knows_the_same_types` (en
+/// `library/src/repo_checks.rs`) compara esta lista con la de
+/// `tauri.conf.json`, y `every_association_declares_the_type_the_api_serves`
+/// (en `media.rs`), la de `tauri.conf.json` con la de la API.
 pub const MIME_TYPES: &[&str] = &[
     "audio/mpeg",
     "audio/flac",
@@ -236,10 +239,10 @@ mod platform {
 
 #[cfg(windows)]
 mod platform {
-    use super::{MIME_TYPES, Status};
+    use super::Status;
     use tauri::AppHandle;
 
-    /// Las extensiones, en el mismo orden que `MIME_TYPES`.
+    /// Las extensiones que DanPlay sabe abrir.
     const EXTENSIONS: &[&str] = crate::open::EXTENSIONS;
     const CAPABILITIES: &str = r"Software\DanPlay\Capabilities";
 
@@ -264,7 +267,7 @@ mod platform {
             .or_else(|_| hkcu.create_subkey(r"Software\Classes").map(|(k, _)| k))
             .map_err(|e| e.to_string())?;
 
-        for (ext, mime) in EXTENSIONS.iter().zip(MIME_TYPES) {
+        for ext in EXTENSIONS {
             let progid = format!("DanPlay.{ext}");
 
             let (key, _) = classes.create_subkey(&progid).map_err(|e| e.to_string())?;
@@ -288,7 +291,6 @@ mod platform {
                 .create_subkey(format!(r"{CAPABILITIES}\FileAssociations"))
                 .map_err(|e| e.to_string())?;
             caps.set_value(format!(".{ext}"), &progid).map_err(|e| e.to_string())?;
-            let _ = mime;
         }
 
         let (caps, _) = hkcu.create_subkey(CAPABILITIES).map_err(|e| e.to_string())?;
@@ -402,16 +404,6 @@ pub async fn make_default_player(app: AppHandle) -> Result<Status, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn every_extension_has_its_type() {
-        assert_eq!(
-            MIME_TYPES.len(),
-            crate::open::EXTENSIONS.len(),
-            "las extensiones y los tipos MIME van en paralelo: si se añade una, \
-             hay que añadir el otro en el mismo sitio"
-        );
-    }
 
     #[test]
     fn the_types_are_written_the_way_the_system_expects() {

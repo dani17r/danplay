@@ -443,8 +443,7 @@ pub fn reanalyze(
 /// Con qué se lanza el detector: el propio programa con `--pulse`. La app
 /// que lleve el enrutador dentro tiene que contestar a ese argumento con
 /// `child_main` (como `danplay-server`); quien quiera otro (las pruebas),
-/// `set_detector`, o desde fuera del proceso `DANPLAY_PULSE_DETECTOR` (una
-/// lista JSON con el programa y sus argumentos).
+/// `set_detector`.
 static DETECTOR: Mutex<Option<Vec<OsString>>> = Mutex::new(None);
 
 /// Cambia el programa del detector (`[programa, argumentos...]`, a los que
@@ -453,18 +452,12 @@ pub fn set_detector(command: Vec<OsString>) {
     *DETECTOR.lock().unwrap_or_else(PoisonError::into_inner) = Some(command);
 }
 
-/// El detector puesto a mano (`set_detector` o `DANPLAY_PULSE_DETECTOR`).
+/// El detector puesto a mano (`set_detector`).
 fn custom_detector() -> Option<Vec<OsString>> {
-    if let Some(c) = DETECTOR
+    DETECTOR
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
         .clone()
-    {
-        return Some(c);
-    }
-    let raw = std::env::var("DANPLAY_PULSE_DETECTOR").ok()?;
-    let command: Vec<String> = serde_json::from_str(&raw).ok()?;
-    (!command.is_empty()).then(|| command.into_iter().map(OsString::from).collect())
 }
 
 fn detector() -> Vec<OsString> {
