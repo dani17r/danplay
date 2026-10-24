@@ -7,16 +7,15 @@
 //! puntuaciones de rapidfuzz que se usaban (`fuzz.ratio` y
 //! `fuzz.token_set_ratio`), escritas aquí con sus mismas cuentas: los grupos
 //! salen idénticos.
-use crate::names::{self, is_py_space, py_words};
-use crate::parity::{code_points, from_points};
+use crate::names;
 use md5::{Digest, Md5};
 use rayon::prelude::*;
+use regex::Regex;
 use std::collections::{HashMap, HashSet};
-use std::ffi::{OsStr, OsString};
 use std::fs::File;
 use std::io::{ErrorKind, Read};
 use std::path::{Path, PathBuf};
-use unicode_properties::{GeneralCategory, UnicodeGeneralCategory};
+use std::sync::LazyLock;
 
 // ---------------------------------------------------------------- hashes
 
@@ -302,7 +301,7 @@ fn norm_distance(dist: usize, lensum: usize) -> f64 {
 /// Las palabras de un texto como las ve `token_set_ratio`: ordenadas y sin
 /// repetir (las de `match_key` ya vienen así).
 fn sorted_words(s: &str) -> Vec<&str> {
-    let mut words: Vec<&str> = py_words(s).collect();
+    let mut words: Vec<&str> = s.split_whitespace().collect();
     words.sort_unstable();
     words.dedup();
     words
@@ -522,83 +521,18 @@ pub fn same_song(paths: &[PathBuf], threshold: f64) -> Vec<Vec<usize>> {
 
 // ------------------------------------------------------------ el sufijo
 
-fn is_space(p: u32) -> bool {
-    char::from_u32(p).is_some_and(is_py_space)
-}
+/// El sufijo de duplicado del final de un nombre: « - r», «-R12».
+static DUP_SUFFIX: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)\s*-\s*r\d*$").expect("el sufijo"));
 
-fn is_digit(p: u32) -> bool {
-    char::from_u32(p).is_some_and(|c| c.general_category() == GeneralCategory::DecimalNumber)
-}
-
-/// `os.path.splitext` de Python sobre puntos de código: la extensión desde
-/// el último punto del nombre, si delante hay algo que no sea un punto.
-fn splitext_points(p: &[u32]) -> (&[u32], &[u32]) {
-    let is_sep = |c: u32| c == u32::from(b'/') || (cfg!(windows) && c == u32::from(b'\\'));
-    let sep = p.iter().rposition(|&c| is_sep(c));
-    if let Some(dot) = p.iter().rposition(|&c| c == u32::from(b'.'))
-        && sep.is_none_or(|s| dot > s)
-    {
-        let name_start = sep.map_or(0, |s| s + 1);
-        if p[name_start..dot].iter().any(|&c| c != u32::from(b'.')) {
-            return (&p[..dot], &p[dot..]);
-        }
-    }
-    (p, &[])
-}
-
-/// Dónde empieza el sufijo « - r», « - r2»... que acaba en `end` (lo que
-/// casaba `\s*-\s*r\d*$` en Python, sin distinguir mayúsculas), o `None`.
-fn dup_suffix_start(p: &[u32], end: usize) -> Option<usize> {
-    let mut i = end;
-    while i > 0 && is_digit(p[i - 1]) {
-        i -= 1;
-    }
-    if i == 0 || !matches!(p[i - 1], 0x72 | 0x52) {
-        return None;
-    }
-    i -= 1;
-    while i > 0 && is_space(p[i - 1]) {
-        i -= 1;
-    }
-    if i == 0 || p[i - 1] != u32::from(b'-') {
-        return None;
-    }
-    i -= 1;
-    while i > 0 && is_space(p[i - 1]) {
-        i -= 1;
-    }
-    Some(i)
-}
-
-/// «Barak - Mi Gozo - r2.mp3» → «Barak - Mi Gozo.mp3». Sobre el nombre tal
-/// cual (también si no es UTF-8: se devuelve con sus bytes), porque con lo
-/// que sale se renombra el archivo.
-pub fn name_without_suffix(name: &OsStr) -> OsString {
-    let points = code_points(name);
-    let (stem, ext) = splitext_points(&points);
-    // el `$` de Python también vale justo antes de un salto de línea final
-    let cleaned: Vec<u32> = match stem.last() {
-        Some(0x0A) => match dup_suffix_start(stem, stem.len() - 1) {
-            Some(start) => [&stem[..start], &[0x0A]].concat(),
-            None => stem.to_vec(),
-        },
-        _ => match dup_suffix_start(stem, stem.len()) {
-            Some(start) => stem[..start].to_vec(),
-            None => stem.to_vec(),
-        },
-    };
-    // `.strip()`
-    let from = cleaned
-        .iter()
-        .position(|&c| !is_space(c))
-        .unwrap_or(cleaned.len());
-    let to = cleaned
-        .iter()
-        .rposition(|&c| !is_space(c))
-        .map_or(from, |i| i + 1);
-    let cleaned = &cleaned[from..to];
+/// «Barak - Mi Gozo - r2.mp3» → «Barak - Mi Gozo.mp3». Con lo que sale se
+/// renombra el archivo: si sin el sufijo no queda nada, se deja como está.
+pub fn name_without_suffix(name: &str) -> String {
+    let (stem, ext) = names::splitext(name);
+    let cleaned = DUP_SUFFIX.replace(stem.trim_end(), "");
+    let cleaned = cleaned.trim();
     let kept = if cleaned.is_empty() { stem } else { cleaned };
-    from_points(&[kept, ext].concat())
+    format!("{kept}{ext}")
 }
 
 #[cfg(test)]

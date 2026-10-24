@@ -18,7 +18,6 @@ use super::value::{
 };
 use crate::index::Dict;
 use crate::names::search_form;
-use crate::py;
 use crate::safe::datum;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
@@ -110,8 +109,8 @@ fn mmss(seconds: i64) -> String {
 fn text_or(values: &[&Value]) -> String {
     values
         .iter()
-        .find(|v| py::truthy(v))
-        .map_or_else(String::new, |v| py::str_of(v))
+        .find(|v| crate::value::truthy(v))
+        .map_or_else(String::new, |v| crate::value::str_of(v))
 }
 
 /// `safe.datum(v, n)` con un valor cualquiera: None no dice nada; lo demás,
@@ -120,7 +119,7 @@ fn datum_of(v: &Value, n: i64) -> String {
     if v.is_null() {
         String::new()
     } else {
-        datum(&py::str_of(v), n)
+        datum(&crate::value::str_of(v), n)
     }
 }
 
@@ -133,7 +132,7 @@ fn form_of(v: &Value) -> String {
 /// esto casan las filas, los huecos y los resultados de la descarga.
 pub fn item_key(v: &Value) -> String {
     match v {
-        Value::String(s) => py::strip(py::head(py::strip(s), MAX_ITEM)).to_owned(),
+        Value::String(s) => crate::text::head(s.trim(), MAX_ITEM).trim().to_owned(),
         _ => String::new(),
     }
 }
@@ -145,7 +144,7 @@ fn who(song: &Dict) -> Result<Value, Error> {
     let mut parts: Vec<&str> = Vec::new();
     for k in ["artist", "title"] {
         let v = get(song, k);
-        if !py::truthy(v) {
+        if !crate::value::truthy(v) {
             continue;
         }
         let Value::String(s) = v else {
@@ -180,7 +179,7 @@ fn alnum(c: char) -> bool {
 
 /// `\s*:` desde `at`.
 fn colon_after(chars: &[char], mut at: usize) -> bool {
-    while chars.get(at).is_some_and(|c| py::isspace(*c)) {
+    while chars.get(at).is_some_and(|c| char::is_whitespace(*c)) {
         at += 1;
     }
     chars.get(at) == Some(&':')
@@ -249,7 +248,7 @@ pub fn is_link(text: &str) -> bool {
     if dangerous(&chars) {
         return true;
     }
-    if chars.iter().any(|c| py::isspace(*c)) {
+    if chars.iter().any(|c| char::is_whitespace(*c)) {
         return false;
     }
     domain(text) || (text.contains('.') && text.chars().any(|c| "/@\\?#".contains(c)))
@@ -305,7 +304,7 @@ pub fn wanted_items(args: &Dict) -> (Vec<String>, usize) {
             Value::Number(n) if !n.is_f64() => n.to_string(),
             _ => continue,
         };
-        let s = py::strip(py::head(py::strip(&s), MAX_ITEM)).to_owned();
+        let s = crate::text::head(s.trim(), MAX_ITEM).trim().to_owned();
         if !s.is_empty() && seen.insert(s.clone()) {
             out.push(s);
         }
@@ -851,8 +850,8 @@ pub fn video_of(first: &Dict) -> Option<Video> {
     }
     // `max(0, int(float(duration or 0)))`, y 0 si no se entiende
     let d = get(first, "duration");
-    let duration = if py::truthy(d) {
-        py::float_of(d)
+    let duration = if crate::value::truthy(d) {
+        crate::value::float_of(d)
             .filter(|f| f.is_finite())
             .map_or(0, |f| (f.trunc() as i64).max(0))
     } else {
@@ -887,7 +886,7 @@ pub fn answer(res: &Value) -> Result<Result<Answer, String>, Error> {
     }
     let mut reason = NOT_FOUND.to_owned();
     if !ok && yes(r, "reason") {
-        reason = datum(&py::str_of(get(r, "reason")), 120);
+        reason = datum(&crate::value::str_of(get(r, "reason")), 120);
     }
     Ok(Err(reason))
 }
@@ -899,10 +898,10 @@ pub fn answer(res: &Value) -> Result<Result<Answer, String>, Error> {
 pub fn doubt(asked: &str, seen: &str, duration: i64) -> String {
     let fold = |t: &str| t.replace('ñ', "n");
     let form = search_form(asked);
-    let want: Vec<String> = py::words(&form).map(fold).collect();
+    let want: Vec<String> = form.split_whitespace().map(fold).collect();
     if !want.is_empty() {
         let found = search_form(seen);
-        let have: HashSet<String> = py::words(&found).map(fold).collect();
+        let have: HashSet<String> = found.split_whitespace().map(fold).collect();
         let hits = want.iter().filter(|t| have.contains(*t)).count();
         if 2 * hits < want.len() {
             return NOT_ALIKE.into();
@@ -920,7 +919,7 @@ pub fn doubt(asked: &str, seen: &str, duration: i64) -> String {
 /// La canción de la biblioteca que ya es esa (lo que devolvió
 /// `youtube.already_in_library`), en una línea, o "".
 pub fn mine(found: &Value) -> Result<String, Error> {
-    if !py::truthy(found) {
+    if !crate::value::truthy(found) {
         return Ok(String::new());
     }
     let first = match found {
@@ -1048,7 +1047,7 @@ fn check_after<I: Index>(
     let (Some(pid), Value::String(name)) = (int_of(get(pl, "id")), get(pl, "name")) else {
         return Err(after_error(which));
     };
-    if py::strip(name).is_empty() || text::len(name) > 200 {
+    if name.trim().is_empty() || text::len(name) > 200 {
         return Err(after_error(which));
     }
     let current = index.playlist(pid).map_err(Refused::Index)?;
@@ -1255,12 +1254,12 @@ fn loose_id(raw: &Value) -> Result<Option<i64>, Error> {
     let Value::String(s) = raw else {
         return Ok(None);
     };
-    let s = py::strip(s);
+    let s = s.trim();
     if !text::all_digit(s) {
         return Ok(None);
     }
     if !text::all_decimal(s) {
-        return Err(Error::Integer(py::repr_str(s)));
+        return Err(Error::Integer(format!("{s:?}")));
     }
     Ok(Some(text::int_of_digits(s)))
 }
@@ -1271,12 +1270,16 @@ fn delete_song_entry<I: Index>(args: &Dict, index: &mut I) -> Result<Draft, Refu
         Some(i) => index.song(i).map_err(Refused::Index)?,
         None => Value::Null,
     };
-    let (Some(sid), true) = (sid, py::truthy(&song)) else {
+    let (Some(sid), true) = (sid, crate::value::truthy(&song)) else {
         return Err(Refused::Value("no existe esa canción".into()));
     };
     let song = dict_of(&song)?;
     let who = who(song)?;
-    let shown = if py::truthy(&who) { who } else { sid.into() };
+    let shown = if crate::value::truthy(&who) {
+        who
+    } else {
+        sid.into()
+    };
     Ok(Draft {
         tool: "delete_song",
         args: dic([("id", sid.into())]),
@@ -1289,7 +1292,7 @@ fn delete_song_entry<I: Index>(args: &Dict, index: &mut I) -> Result<Draft, Refu
 
 fn delete_playlist_entry<I: Index>(args: &Dict, index: &mut I) -> Result<Draft, Refused<I::Error>> {
     let name = text_or(&[get(args, "name"), get(args, "playlist")]);
-    let name = py::strip(&name);
+    let name = name.trim();
     let mut pl = if name.is_empty() {
         Value::Null
     } else {
@@ -1307,7 +1310,7 @@ fn delete_playlist_entry<I: Index>(args: &Dict, index: &mut I) -> Result<Draft, 
     }
     let p = dict_of(&pl)?;
     let n = get(p, "n");
-    let n = if py::truthy(n) { int(n)? } else { 0 };
+    let n = if crate::value::truthy(n) { int(n)? } else { 0 };
     let (id, name) = (at_of(p, "id")?.clone(), at_of(p, "name")?.clone());
     let summary = format!(
         "Borrar la lista «{}» ({n} {})",
@@ -1372,14 +1375,16 @@ pub fn target_changed<I: Index>(
         "delete_song" => {
             let id = int(at_of(args, "id")?)?;
             let song = index.song(id).map_err(Fault::Index)?;
-            if !py::truthy(&song) || !same(get(dict_of(&song)?, "path"), get(guard, "path")) {
+            if !crate::value::truthy(&song)
+                || !same(get(dict_of(&song)?, "path"), get(guard, "path"))
+            {
                 return Ok("Esa canción ya no está o ya no es la misma.");
             }
         }
         "delete_playlist" => {
             let id = int(at_of(args, "playlist_id")?)?;
             let pl = index.playlist(id).map_err(Fault::Index)?;
-            if !py::truthy(&pl)
+            if !crate::value::truthy(&pl)
                 || !same(
                     &Value::String(form_of(at(&pl, "name")?)),
                     get(guard, "form"),
@@ -1432,7 +1437,7 @@ fn marks(raw: &Value, with_reason: bool) -> Vec<Value> {
         };
         let item = datum(&text_or(&[get(x, "item")]), MAX_ITEM as i64);
         let label = match get(x, "label") {
-            l if py::truthy(l) => datum(&py::str_of(l), 120),
+            l if crate::value::truthy(l) => datum(&crate::value::str_of(l), 120),
             _ => datum(&item, 120),
         };
         let mut mark = dic([
@@ -1464,7 +1469,7 @@ pub fn after_spec(after: &Value) -> Result<AfterSpec, String> {
     let (Some(pid), Value::String(name)) = (pid, name) else {
         return Err(none());
     };
-    if py::strip(name).is_empty() {
+    if name.trim().is_empty() {
         return Err(none());
     }
     let too_many = || format!("el «después» tiene que llevar como mucho {MAX_SLOTS} huecos");
@@ -1496,7 +1501,7 @@ pub fn after_spec(after: &Value) -> Result<AfterSpec, String> {
             return Err("un hueco del «después» no dice qué se bajó".into());
         }
         let label = match get(s, "label") {
-            l if py::truthy(l) => datum(&py::str_of(l), 120),
+            l if crate::value::truthy(l) => datum(&crate::value::str_of(l), 120),
             _ => datum(&item, 120),
         };
         clean.push(Slot::Item { n, item, label });
@@ -1566,8 +1571,8 @@ pub fn songs_from(results: &Value) -> HashMap<String, (Option<i64>, String)> {
             "se bajó pero no entró en la biblioteca".to_owned()
         } else {
             let reason = get(r, "reason");
-            let reason = if py::truthy(reason) {
-                py::str_of(reason)
+            let reason = if crate::value::truthy(reason) {
+                crate::value::str_of(reason)
             } else {
                 "falló".into()
             };

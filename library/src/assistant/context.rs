@@ -9,7 +9,7 @@ use super::value::{
     dict_of, get, int, items, key, key_of, obj, or_empty, s, s_or_empty, type_name,
 };
 use crate::index::Dict;
-use crate::py;
+use crate::text;
 use crate::toon::{self, Val};
 use serde_json::Value;
 use std::fmt::Write as _;
@@ -60,7 +60,7 @@ pub fn window_start<E>(
 
 fn song(c: &Value) -> Result<String, Error> {
     let c = dict_of(c)?;
-    let who = if py::truthy(get(c, "artist")) {
+    let who = if crate::value::truthy(get(c, "artist")) {
         format!("{} - ", s(c, "artist"))
     } else {
         String::new()
@@ -77,7 +77,9 @@ pub fn brief(name: &str, res: &Value, limit: usize) -> Result<String, Error> {
     let Some(res) = obj(res) else {
         return Ok(String::new());
     };
-    if py::truthy(get(res, "error")) || py::truthy(get(res, "needs_confirmation")) {
+    if crate::value::truthy(get(res, "error"))
+        || crate::value::truthy(get(res, "needs_confirmation"))
+    {
         return Ok(String::new());
     }
     Ok(match name {
@@ -88,7 +90,7 @@ pub fn brief(name: &str, res: &Value, limit: usize) -> Result<String, Error> {
         | "set_playlist_songs"
         | "remove_from_playlist" => {
             let songs = items(get(res, "songs"));
-            let head = if py::truthy(get(res, "playlist_id")) {
+            let head = if crate::value::truthy(get(res, "playlist_id")) {
                 format!("«{}» (id {}): ", s(res, "name"), s(res, "playlist_id"))
             } else {
                 String::new()
@@ -115,7 +117,7 @@ pub fn brief(name: &str, res: &Value, limit: usize) -> Result<String, Error> {
         "fill_playlist" | "find_songs" => {
             // una fila por canción de la lista, con su número: «la tercera»,
             // «la de Mission Musica» o «cambia la 14» se resuelven con esto
-            let head = if py::truthy(get(res, "playlist")) {
+            let head = if crate::value::truthy(get(res, "playlist")) {
                 format!("«{}» ({}): ", s(res, "playlist"), s(res, "mode"))
             } else {
                 String::new()
@@ -142,9 +144,9 @@ pub fn brief(name: &str, res: &Value, limit: usize) -> Result<String, Error> {
             .collect::<Result<Vec<_>, _>>()?
             .join("; "),
         "play_song" => or_empty(get(res, "playing")),
-        "edit_song" if py::truthy(get(res, "song")) => song(get(res, "song"))?,
+        "edit_song" if crate::value::truthy(get(res, "song")) => song(get(res, "song"))?,
         "set_stars" | "set_favorite" | "delete_song" => {
-            let v = if py::truthy(get(res, "song")) {
+            let v = if crate::value::truthy(get(res, "song")) {
                 get(res, "song")
             } else {
                 get(res, "name")
@@ -167,16 +169,16 @@ pub fn tool_note(text: &str, tools: &[Value], app: bool) -> Result<String, Error
         let mut parts = Vec::new();
         for t in tools {
             let t = dict_of(t)?;
-            if !py::truthy(get(t, "name")) {
+            if !crate::value::truthy(get(t, "name")) {
                 continue;
             }
             let name = s(t, "name");
-            let mut piece = if py::truthy(get(t, "summary")) {
+            let mut piece = if crate::value::truthy(get(t, "summary")) {
                 format!("{name} ({})", s(t, "summary"))
             } else {
                 name.clone()
             };
-            if py::truthy(get(t, "detail")) {
+            if crate::value::truthy(get(t, "detail")) {
                 // la tabla de una lista entera cabe; lo demás, en corto
                 let cap = if matches!(
                     get(t, "name").as_str(),
@@ -187,7 +189,7 @@ pub fn tool_note(text: &str, tools: &[Value], app: bool) -> Result<String, Error
                     600
                 };
                 piece.push_str(": ");
-                piece.push_str(py::head(&s(t, "detail"), cap));
+                piece.push_str(text::head(&s(t, "detail"), cap));
             }
             parts.push(piece);
         }
@@ -214,8 +216,17 @@ fn with_id(v: &Value) -> Vec<&Dict> {
     items(v)
         .iter()
         .filter_map(obj)
-        .filter(|c| py::truthy(get(c, "id")))
+        .filter(|c| crate::value::truthy(get(c, "id")))
         .collect()
+}
+
+/// «Artista - Título» de una canción (lo que tenga de los dos).
+fn who(c: &Dict) -> String {
+    [s_or_empty(c, "artist"), s_or_empty(c, "title")]
+        .into_iter()
+        .filter(|p| !p.is_empty())
+        .collect::<Vec<_>>()
+        .join(" - ")
 }
 
 /// Lo que la persona tiene delante, en dos o tres líneas.
@@ -229,19 +240,19 @@ pub fn screen_note(context: &Value) -> Result<Vec<String>, Error> {
     };
     let mut lines = Vec::new();
     let empty = Dict::new();
-    let view = if py::truthy(get(context, "view")) {
+    let view = if crate::value::truthy(get(context, "view")) {
         obj(get(context, "view")).unwrap_or(&empty)
     } else {
         &empty
     };
     let songs = with_id(get(context, "songs"));
-    if py::truthy(get(view, "name")) || !songs.is_empty() {
-        let total = if py::truthy(get(context, "total")) {
+    if crate::value::truthy(get(view, "name")) || !songs.is_empty() {
+        let total = if crate::value::truthy(get(context, "total")) {
             s(context, "total")
         } else {
             songs.len().to_string()
         };
-        let place = if py::truthy(get(view, "name")) {
+        let place = if crate::value::truthy(get(view, "name")) {
             s(view, "name")
         } else {
             "la biblioteca".into()
@@ -258,11 +269,11 @@ pub fn screen_note(context: &Value) -> Result<Vec<String>, Error> {
                     ("id".into(), Val::Integer(int(get(c, "id"))?.to_string())),
                     (
                         "artist".into(),
-                        Val::Text(py::head(&or_empty(get(c, "artist")), 60).into()),
+                        Val::Text(text::head(&or_empty(get(c, "artist")), 60).into()),
                     ),
                     (
                         "title".into(),
-                        Val::Text(py::head(&or_empty(get(c, "title")), 80).into()),
+                        Val::Text(text::head(&or_empty(get(c, "title")), 80).into()),
                     ),
                 ]));
             }
@@ -282,12 +293,7 @@ pub fn screen_note(context: &Value) -> Result<Vec<String>, Error> {
     if !selected.is_empty() {
         let mut shown = Vec::new();
         for c in selected.iter().take(CONTEXT_ROWS) {
-            shown.push(format!(
-                "id {} «{} - {}»",
-                int(get(c, "id"))?,
-                s_or_empty(c, "artist"),
-                s_or_empty(c, "title")
-            ));
+            shown.push(format!("id {} «{}»", int(get(c, "id"))?, who(c)));
         }
         let more = if selected.len() > CONTEXT_ROWS {
             format!(" y {} mas", selected.len() - CONTEXT_ROWS)
@@ -301,18 +307,17 @@ pub fn screen_note(context: &Value) -> Result<Vec<String>, Error> {
         ));
     }
     if let Some(playing) = obj(get(context, "playing"))
-        && py::truthy(get(playing, "id"))
+        && crate::value::truthy(get(playing, "id"))
     {
-        let state = if py::truthy(get(playing, "paused")) {
+        let state = if crate::value::truthy(get(playing, "paused")) {
             "en pausa"
         } else {
             "sonando"
         };
         lines.push(format!(
-            "- Ahora mismo {state}: id {} «{} - {}».",
+            "- Ahora mismo {state}: id {} «{}».",
             int(get(playing, "id"))?,
-            s_or_empty(playing, "artist"),
-            s_or_empty(playing, "title")
+            who(playing)
         ));
     }
     Ok(lines)
@@ -375,9 +380,9 @@ pub fn context_note(messages: &[Dict], context: &Value, state: &State) -> Result
     let last_ai = messages
         .iter()
         .rev()
-        .find(|m| get(m, "role").as_str() == Some("ai") && !py::truthy(get(m, "app")));
+        .find(|m| get(m, "role").as_str() == Some("ai") && !crate::value::truthy(get(m, "app")));
     if let Some(last) = last_ai
-        && !py::truthy(get(last, "tools"))
+        && !crate::value::truthy(get(last, "tools"))
     {
         lines.push(
             "- Tu ultimo mensaje no uso ninguna herramienta: si prometiste o \
@@ -397,7 +402,7 @@ fn stats_line(stats: &Dict, top: &[Value]) -> Result<String, Error> {
         .collect::<Result<Vec<_>, Error>>()?
         .join(", ");
     let total = key_of(stats, "total")?;
-    let without = if py::truthy(get(stats, "without_artist")) {
+    let without = if crate::value::truthy(get(stats, "without_artist")) {
         format!(", {} sin artista", s(stats, "without_artist"))
     } else {
         String::new()
@@ -430,7 +435,7 @@ fn lists_line(lists: &[Value]) -> Result<String, Error> {
 
 fn download_line(e: &Dict) -> Result<String, Error> {
     let need = |k: &str| e.get(k).ok_or_else(|| Error::Key(k.into()));
-    if !py::truthy(need("active")?) {
+    if !crate::value::truthy(need("active")?) {
         return Ok("- Descarga en marcha: no.".into());
     }
     let (phase, index, total) = (
@@ -441,7 +446,7 @@ fn download_line(e: &Dict) -> Result<String, Error> {
     let name = match need("name")? {
         // `', ' + e['name']`: tiene que ser un texto
         Value::String(n) if !n.is_empty() => format!(", {n}"),
-        v if py::truthy(v) => return Err(Error::Type(type_name(v).into())),
+        v if crate::value::truthy(v) => return Err(Error::Type(type_name(v).into())),
         _ => String::new(),
     };
     Ok(format!(
@@ -472,8 +477,8 @@ fn floordiv(a: f64, b: f64) -> f64 {
 fn recent_parts(recent: &[(Dict, bool)], now: f64) -> Option<Vec<String>> {
     let mut parts = Vec::new();
     for (h, still) in recent {
-        let at = if py::truthy(get(h, "at")) {
-            py::float_of(get(h, "at"))?
+        let at = if crate::value::truthy(get(h, "at")) {
+            crate::value::float_of(get(h, "at"))?
         } else {
             0.0
         };
@@ -484,9 +489,9 @@ fn recent_parts(recent: &[(Dict, bool)], now: f64) -> Option<Vec<String>> {
         let minutes = (minutes as i64).max(0);
         let asked = match [get(h, "title"), get(h, "query")]
             .into_iter()
-            .find(|v| py::truthy(v))
+            .find(|v| crate::value::truthy(v))
         {
-            Some(Value::String(t)) => py::head(t, 60).to_owned(),
+            Some(Value::String(t)) => text::head(t, 60).to_owned(),
             Some(_) => return None,
             None => String::new(),
         };
@@ -615,13 +620,10 @@ mod tests {
                 .starts_with("- Esta viendo «domingo» (repertorio): 1 canciones. Las primeras 1")
         );
         assert!(lines[0].ends_with("songs[1]{id,artist,title}:\n  3,Barak,Mi Gozo"));
-        assert_eq!(
-            lines[1],
-            "- Tiene seleccionadas 1 canciones: id 4 « - Sola»."
-        );
-        assert_eq!(lines[2], "- Ahora mismo en pausa: id 3 «None - Mi Gozo».");
+        assert_eq!(lines[1], "- Tiene seleccionadas 1 canciones: id 4 «Sola».");
+        assert_eq!(lines[2], "- Ahora mismo en pausa: id 3 «Mi Gozo».");
         let bad = json!({"selected": [{"id": "x"}]});
-        assert_eq!(screen_note(&bad), Err(Error::Integer("'x'".into())));
+        assert_eq!(screen_note(&bad), Err(Error::Integer("\"x\"".into())));
     }
 
     /// Lo de tests/test_ai.py: lo que se ve, lo seleccionado y lo que suena.

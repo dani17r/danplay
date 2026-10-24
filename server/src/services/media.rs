@@ -60,7 +60,7 @@ pub fn cached_cover(path: &Path) -> Option<Cover> {
     let meta = std::fs::metadata(path).ok()?;
     let key = (
         path.to_string_lossy().into_owned(),
-        library::py::mtime(&meta),
+        library::paths::mtime(&meta),
         meta.len(),
     );
     {
@@ -294,9 +294,9 @@ fn http_date(secs: f64) -> String {
     )
 }
 
-/// `str(st.st_mtime)` de Python: el `repr` del real.
+/// La fecha de modificación, como texto (para la ETag).
 fn mtime_text(meta: &std::fs::Metadata) -> String {
-    library::py::repr_float(library::py::mtime(meta))
+    library::paths::mtime(meta).to_string()
 }
 
 fn md5_hex(text: &str) -> String {
@@ -407,7 +407,7 @@ pub fn file_response(
 ) -> std::io::Result<Response> {
     let meta = std::fs::metadata(path)?;
     let size = meta.len();
-    let last_modified = http_date(library::py::mtime(&meta));
+    let last_modified = http_date(library::paths::mtime(&meta));
     let etag = format!("\"{}\"", md5_hex(&format!("{}-{size}", mtime_text(&meta))));
     let mut r = Response::file(path, media_type)?;
     if let Some(name) = filename {

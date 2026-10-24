@@ -86,7 +86,7 @@ pub fn rename_old_data(data_dir: &Path) {
 pub fn old_cue_paths(app: &App) -> Result<bool, ApiError> {
     let data = app.config().data_dir.clone();
     let mut bases = vec![data.to_string_lossy().into_owned()];
-    let real = library::py::realpath(&bases[0]);
+    let real = library::paths::real(&bases[0]);
     if !bases.contains(&real) {
         bases.push(real);
     }
@@ -96,15 +96,15 @@ pub fn old_cue_paths(app: &App) -> Result<bool, ApiError> {
         let text = if ascii {
             json_ascii(s)
         } else {
-            library::py::dumps(&serde_json::Value::from(s))
+            serde_json::Value::from(s).to_string()
         };
         text[1..text.len() - 1].to_owned()
     };
     let mut in_study: Vec<(String, String)> = Vec::new();
     let mut in_missing: Vec<(String, String)> = Vec::new();
     for base in &bases {
-        let old = format!("{}{sep}", library::py::join(base, "guias"));
-        let new = format!("{}{sep}", library::py::join(base, "cues"));
+        let old = format!("{}{sep}", library::paths::join(base, "guias"));
+        let new = format!("{}{sep}", library::paths::join(base, "cues"));
         for ascii in [true, false] {
             let (o, n) = (quoted(&old, ascii), quoted(&new, ascii));
             // ...y en las apartadas, con el estudio como texto dentro del
@@ -171,7 +171,7 @@ pub fn old_cue_paths(app: &App) -> Result<bool, ApiError> {
 
 /// `json.dumps(s)` (con `ensure_ascii`): lo que no es ASCII, como `\uXXXX`.
 fn json_ascii(s: &str) -> String {
-    let full = library::py::dumps(&serde_json::Value::from(s));
+    let full = serde_json::Value::from(s).to_string();
     let mut out = String::with_capacity(full.len());
     for c in full.chars() {
         if c.is_ascii() {
@@ -221,7 +221,7 @@ pub fn refresh_catalog(app: &App, force: bool) -> serde_json::Value {
     let now = library::index::now();
     let checked = current
         .get("checked_at")
-        .and_then(library::py::float_of)
+        .and_then(library::value::float_of)
         .unwrap_or(0.0);
     if !force && now - checked < catalog::MIN_INTERVAL {
         ai::log_warnings("danplay.model_catalog", warnings);
@@ -272,7 +272,7 @@ pub fn refresh_catalog_in_background(app: &App, max_age: f64) -> bool {
     ai::log_warnings("danplay.model_catalog", warnings);
     let checked = data
         .get("checked_at")
-        .and_then(library::py::float_of)
+        .and_then(library::value::float_of)
         .unwrap_or(0.0);
     if catalog_refreshing() || library::index::now() - checked < max_age {
         return false;

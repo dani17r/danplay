@@ -148,15 +148,15 @@ pub fn ask_version(exe: &Path) -> Result<String, String> {
     cmd.env("PYTHONIOENCODING", "utf-8");
     let out = processes::run(&mut cmd, VERSION_CAP).map_err(|e| e.to_string())?;
     let text = String::from_utf8_lossy(&out.stdout);
-    let first = text.lines().map(library::py::strip).find(|l| !l.is_empty());
+    let first = text.lines().map(str::trim).find(|l| !l.is_empty());
     match first {
         Some(v) if out.succeeded() => Ok(v.to_owned()),
         _ => {
-            let why = library::py::strip(&out.stderr_text()).to_owned();
+            let why = out.stderr_text().trim().to_owned();
             Err(if why.is_empty() {
                 "no dice su version".into()
             } else {
-                library::py::head(&why, 120).to_owned()
+                library::text::head(&why, 120).to_owned()
             })
         }
     }
@@ -413,7 +413,7 @@ pub fn query_args(url: &str, timeout: Option<f64>) -> Vec<String> {
     if let Some(t) = timeout {
         a.extend([
             "--socket-timeout".into(),
-            library::py::repr_float(t),
+            t.to_string(),
             "--retries".into(),
             "0".into(),
             "--extractor-retries".into(),
@@ -500,7 +500,7 @@ pub fn parse_progress(line: &str) -> Option<Map<String, Value>> {
 fn first_truthy<'a>(m: &'a Map<String, Value>, keys: &[&str]) -> Option<&'a Value> {
     keys.iter()
         .filter_map(|k| m.get(*k))
-        .find(|v| library::py::truthy(v))
+        .find(|v| library::value::truthy(v))
 }
 
 fn bytes_of(v: Option<&Value>) -> Option<library::youtube::Bytes> {
@@ -526,7 +526,7 @@ pub fn progress_step(status: &Map<String, Value>) -> Option<Map<String, Value>> 
             };
             let percent = if percent.is_null() { json!(0) } else { percent };
             let filename = first_truthy(status, &["filename"])
-                .map(library::py::str_of)
+                .map(library::value::str_of)
                 .unwrap_or_default();
             Some(library::youtube::downloading(percent, &filename))
         }
@@ -939,10 +939,10 @@ fn switch_to(app: &App, new_version: &str, folder: &Path) -> Result<(), UpdateEr
         Ok(v) => v,
         Err(why) => {
             log::warn!("yt-dlp {new_version} no contesta ({why}); se vuelve al de antes");
-            library::py::rmtree(folder);
+            library::paths::remove_tree(folder);
             return fail(format!(
                 "yt-dlp {new_version} no se pudo cargar ({}); se sigue con la version de antes",
-                library::py::head(&why, 120)
+                library::text::head(&why, 120)
             ));
         }
     };
@@ -972,7 +972,7 @@ pub fn update(app: &App, progress: &dyn Fn(i64, &str)) -> Result<Value, UpdateEr
     let latest = release
         .get("tag_name")
         .and_then(Value::as_str)
-        .map(library::py::strip)
+        .map(str::trim)
         .unwrap_or_default()
         .to_owned();
     if latest.is_empty() {
@@ -1010,17 +1010,17 @@ pub fn update(app: &App, progress: &dyn Fn(i64, &str)) -> Result<Value, UpdateEr
         .duration_since(SystemTime::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs());
     let staging = root.join(format!(".nueva-{}-{stamp}", std::process::id()));
-    library::py::rmtree(&staging);
+    library::paths::remove_tree(&staging);
     let final_dir = root.join(&latest);
     let placed = (|| {
         std::fs::create_dir_all(&staging)?;
         let exe = staging.join(EXE);
         std::fs::write(&exe, &blob)?;
         make_executable(&exe)?;
-        library::py::rmtree(&final_dir);
+        library::paths::remove_tree(&final_dir);
         std::fs::rename(&staging, &final_dir)
     })();
-    library::py::rmtree(&staging);
+    library::paths::remove_tree(&staging);
     if let Err(e) = placed {
         return fail(format!("no pude guardar yt-dlp {latest} ({e})"));
     }

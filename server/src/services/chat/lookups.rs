@@ -52,7 +52,7 @@ pub fn lyrics(app: &App, artist: &Value, title: &Value, album: &Value, duration:
         artist: text(artist),
         title: text(title),
         album: text(album),
-        duration: library::py::float_of(duration).unwrap_or(0.0),
+        duration: library::value::float_of(duration).unwrap_or(0.0),
     };
     let mut here = Here { app };
     library::enrich::lyrics(&mut here, &track, true).map_or(Value::Null, |l| l.to_value())

@@ -147,7 +147,7 @@ fn an_error_with_the_sdk_text_and_its_retry() {
     assert_eq!(e.status, Some(429));
     assert_eq!(
         e.message,
-        "Error code: 429 - {'error': {'message': 'Rate limit reached', 'type': 'rate'}}"
+        r#"Error code: 429 - {"error":{"message":"Rate limit reached","type":"rate"}}"#
     );
     assert_eq!(
         crate::ai::failures::classify(&e.message, e.status),

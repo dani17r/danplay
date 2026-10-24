@@ -5,7 +5,10 @@
 //! mandarla a la papelera, moverla de carpeta y llevarle lo calculado) sigue
 //! en library/songs.py, que usa esto.
 use super::{Dict, SCAN_BATCH, begin, fetch_all, fetch_one, markers};
-use crate::py;
+use crate::num;
+use crate::paths;
+use crate::text;
+use crate::value;
 use rusqlite::Connection;
 use serde_json::Value;
 use std::path::Path;
@@ -120,7 +123,7 @@ pub const MAX_CUE_LANES: usize = 6;
 /// `float(x)` de un valor que puede faltar, con «o esto» si es falso (`float(x or d)`).
 fn float_or(v: Option<&Value>, default: f64) -> Option<f64> {
     match v {
-        Some(x) if py::truthy(x) => py::float_of(x),
+        Some(x) if value::truthy(x) => value::float_of(x),
         _ => Some(default),
     }
 }
@@ -129,10 +132,10 @@ fn float_or(v: Option<&Value>, default: f64) -> Option<f64> {
 /// `str(x or "").strip()[:n]`.
 fn text_of(v: Option<&Value>, n: usize) -> String {
     let raw = match v {
-        Some(x) if py::truthy(x) => py::str_of(x),
+        Some(x) if value::truthy(x) => value::str_of(x),
         _ => String::new(),
     };
-    py::head(py::strip(&raw), n).to_owned()
+    text::head(raw.trim(), n).to_owned()
 }
 
 /// Cómo compara Python dos reales al ordenar: 0.0 y -0.0 son iguales (y el
@@ -149,19 +152,19 @@ fn num(x: f64) -> Value {
 /// pisan: la forma en que el reproductor los recorre uno detrás de otro.
 pub fn segments(raw: Option<&Value>, limit: usize) -> Vec<[f64; 2]> {
     let items = raw
-        .filter(|v| py::truthy(v))
-        .map(py::list_of)
+        .filter(|v| value::truthy(v))
+        .map(value::list_of)
         .unwrap_or_default();
     let mut out: Vec<[f64; 2]> = Vec::new();
     for v in items.iter().take(limit) {
         let Some(pair) = v.as_array().filter(|a| a.len() == 2) else {
             continue;
         };
-        let (Some(a), Some(b)) = (py::float_of(&pair[0]), py::float_of(&pair[1])) else {
+        let (Some(a), Some(b)) = (value::float_of(&pair[0]), value::float_of(&pair[1])) else {
             continue;
         };
         if 0.0 <= a && a < b && b < f64::INFINITY {
-            out.push([py::round(a, 2), py::round(b, 2)]);
+            out.push([num::round_to(a, 2), num::round_to(b, 2)]);
         }
     }
     out.sort_by(|x, y| py_cmp(x[0], y[0]).then(py_cmp(x[1], y[1])));
@@ -186,8 +189,8 @@ fn segments_value(s: &[[f64; 2]]) -> Value {
 /// `round(float(t.get(k, 1.0)), 2)` si vale (entre `lo` y `hi` y distinto de
 /// `skip`): el volumen o el panorama de una pista.
 fn level(t: &Dict, k: &str, default: f64, lo: f64, hi: f64, skip: f64) -> Option<f64> {
-    let raw = t.get(k).map_or(Some(default), py::float_of)?;
-    let x = py::round(raw, 2);
+    let raw = t.get(k).map_or(Some(default), value::float_of)?;
+    let x = num::round_to(raw, 2);
     #[allow(clippy::float_cmp, reason = "como `gain != 1.0` en Python")]
     let keep = lo <= x && x <= hi && x != skip;
     keep.then_some(x)
@@ -200,7 +203,7 @@ pub fn mixer(raw: Option<&Value>) -> Dict {
     let Some(Value::Object(raw)) = raw else {
         return out;
     };
-    if raw.get("on").is_some_and(py::truthy) {
+    if raw.get("on").is_some_and(value::truthy) {
         out.insert("on".into(), Value::Bool(true));
     }
     let mut tracks = Dict::new();
@@ -208,7 +211,7 @@ pub fn mixer(raw: Option<&Value>) -> Dict {
     if let Some(Value::Object(all)) = raw.get("tracks") {
         for (name, t) in all.iter().take(32) {
             let Value::Object(t) = t else { continue };
-            if !py::isidentifier(name) || name.chars().count() > 24 {
+            if !text::is_identifier(name) || name.chars().count() > 24 {
                 continue;
             }
             let mut item = Dict::new();
@@ -219,7 +222,7 @@ pub fn mixer(raw: Option<&Value>) -> Dict {
                 item.insert("pan".into(), num(pan));
             }
             for flag in ["mute", "solo"] {
-                if t.get(flag).is_some_and(py::truthy) {
+                if t.get(flag).is_some_and(value::truthy) {
                     item.insert(flag.into(), Value::Bool(true));
                 }
             }
@@ -243,13 +246,13 @@ pub fn own_click(own: Option<&Value>) -> Option<Dict> {
     let mut beats: Vec<f64> = Vec::new();
     let raw = own
         .get("beats")
-        .filter(|v| py::truthy(v))
-        .map(py::list_of)
+        .filter(|v| value::truthy(v))
+        .map(value::list_of)
         .unwrap_or_default();
     for t in raw.iter().take(8000) {
-        let Some(t) = py::float_of(t)
+        let Some(t) = value::float_of(t)
             .filter(|t| t.is_finite())
-            .map(|t| py::round(t, 3))
+            .map(|t| num::round_to(t, 3))
         else {
             continue;
         };
@@ -262,8 +265,8 @@ pub fn own_click(own: Option<&Value>) -> Option<Dict> {
     }
     let raw_bars = own
         .get("bars")
-        .filter(|v| py::truthy(v))
-        .map(py::list_of)
+        .filter(|v| value::truthy(v))
+        .map(value::list_of)
         .unwrap_or_default();
     let mut bars: Vec<i64> = raw_bars
         .iter()
@@ -286,7 +289,7 @@ pub fn own_click(own: Option<&Value>) -> Option<Dict> {
         "bars".into(),
         Value::Array(bars.into_iter().map(Value::from).collect()),
     );
-    if let Some(meter) = own.get("meter").and_then(|m| py::number_in(m, &METERS)) {
+    if let Some(meter) = own.get("meter").and_then(|m| value::number_in(m, &METERS)) {
         out.insert("meter".into(), Value::from(meter));
     }
     Some(out)
@@ -314,7 +317,7 @@ pub fn cue_lanes(raw: Option<&Value>) -> Vec<Dict> {
     for lane in raw.iter().take(MAX_CUE_LANES) {
         let Value::Object(lane) = lane else { continue };
         let key = match lane.get("key") {
-            Some(k) if py::truthy(k) => py::str_of(k),
+            Some(k) if value::truthy(k) => value::str_of(k),
             _ => String::new(),
         };
         if !lane_key(&key) || seen.contains(&key) {
@@ -328,7 +331,7 @@ pub fn cue_lanes(raw: Option<&Value>) -> Vec<Dict> {
             item.insert("gain".into(), num(gain));
         }
         for flag in ["mute", "solo", "auto"] {
-            if lane.get(flag).is_some_and(py::truthy) {
+            if lane.get(flag).is_some_and(value::truthy) {
                 item.insert(flag.into(), Value::Bool(true));
             }
         }
@@ -346,9 +349,9 @@ pub fn own_cue_file(path: Option<&Value>, base: &str, previews: bool) -> Option<
     if path.is_empty() || path.chars().count() > 1024 {
         return None;
     }
-    let p = py::realpath(path);
-    let base = py::realpath(base);
-    let name = py::basename(&p);
+    let p = paths::real(path);
+    let base = paths::real(base);
+    let name = paths::file_name(&p);
     let suffix = match name.rfind('.') {
         Some(i) if i > 0 && i < name.len() - 1 => name[i..].to_lowercase(),
         _ => String::new(),
@@ -356,21 +359,21 @@ pub fn own_cue_file(path: Option<&Value>, base: &str, previews: bool) -> Option<
     if suffix != ".wav" {
         return None;
     }
-    let parent = py::normcase(&py::dirname(&p));
-    if parent == py::normcase(&base)
-        || (previews && parent == py::normcase(&py::join(&base, "previews")))
+    let parent = paths::comparable(&paths::parent(&p));
+    if parent == paths::comparable(&base)
+        || (previews && parent == paths::comparable(&paths::join(&base, "previews")))
     {
         return Some(p);
     }
     // Hasta la 1.30 la carpeta era `guias/` (y `guias/prueba/`), al lado de
     // la de ahora: lo guardado con esas rutas apunta a la carpeta nueva, que
     // es la misma renombrada al arrancar.
-    let legacy = py::join(&py::dirname(&base), "guias");
-    if parent == py::normcase(&legacy) {
-        return Some(py::join(&base, &name));
+    let legacy = paths::join(&paths::parent(&base), "guias");
+    if parent == paths::comparable(&legacy) {
+        return Some(paths::join(&base, &name));
     }
-    (previews && parent == py::normcase(&py::join(&legacy, "prueba")))
-        .then(|| py::join(&py::join(&base, "previews"), &name))
+    (previews && parent == paths::comparable(&paths::join(&legacy, "prueba")))
+        .then(|| paths::join(&paths::join(&base, "previews"), &name))
 }
 
 /// Las guías habladas: en su segundo y con su archivo, que tiene que ser
@@ -378,15 +381,15 @@ pub fn own_cue_file(path: Option<&Value>, base: &str, previews: bool) -> Option<
 /// un archivo de fuera podría apuntar a cualquier sitio).
 pub fn cues(raw: Option<&Value>, cues_dir: &str) -> Vec<Dict> {
     let items = raw
-        .filter(|v| py::truthy(v))
-        .map(py::list_of)
+        .filter(|v| value::truthy(v))
+        .map(value::list_of)
         .unwrap_or_default();
     let mut out: Vec<Dict> = Vec::new();
     for c in items.iter().take(200) {
         let Value::Object(c) = c else { continue };
         let Some(t) = float_or(c.get("t"), 0.0)
             .filter(|t| t.is_finite())
-            .map(|t| py::round(t, 2))
+            .map(|t| num::round_to(t, 2))
         else {
             continue;
         };
@@ -406,7 +409,7 @@ pub fn cues(raw: Option<&Value>, cues_dir: &str) -> Vec<Dict> {
             item.insert("voice".into(), voice.into());
         }
         let lane = match c.get("lane") {
-            Some(l) if py::truthy(l) => py::str_of(l),
+            Some(l) if value::truthy(l) => value::str_of(l),
             _ => String::new(),
         };
         if lane_key(&lane) {
@@ -420,7 +423,7 @@ pub fn cues(raw: Option<&Value>, cues_dir: &str) -> Vec<Dict> {
             && (0.0..=3.0).contains(&gain)
             && (gain - 1.0).abs() > 1e-3
         {
-            item.insert("gain".into(), num(py::round(gain, 2)));
+            item.insert("gain".into(), num(num::round_to(gain, 2)));
         }
         out.push(item);
     }
@@ -436,23 +439,29 @@ fn metronome(metro: &Dict) -> Dict {
     if let Some(bpm) = metro
         .get("bpm")
         .filter(|v| !v.is_null())
-        .and_then(py::float_of)
+        .and_then(value::float_of)
         && (20.0..=300.0).contains(&bpm)
     {
-        m.insert("bpm".into(), num(py::round(bpm, 2)));
+        m.insert("bpm".into(), num(num::round_to(bpm, 2)));
     }
     // el compás: 0 es sin acento (todos los clics iguales)
-    if let Some(meter) = metro.get("meter").and_then(|v| py::number_in(v, &METERS)) {
+    if let Some(meter) = metro
+        .get("meter")
+        .and_then(|v| value::number_in(v, &METERS))
+    {
         m.insert("meter".into(), Value::from(meter));
     }
     let shift = match metro.get("shift") {
-        Some(v) if py::truthy(v) => py::int_of(v),
+        Some(v) if value::truthy(v) => value::int_of(v),
         _ => Some(0),
     };
     if let Some(shift) = shift.filter(|&s| s != 0) {
         m.insert("shift".into(), Value::from(shift.clamp(-12, 12)));
     }
-    if let Some(mult) = metro.get("mult").and_then(|v| py::number_in(v, &[-1, 1])) {
+    if let Some(mult) = metro
+        .get("mult")
+        .and_then(|v| value::number_in(v, &[-1, 1]))
+    {
         m.insert("mult".into(), Value::from(mult));
     }
     if let Some(own) = own_click(metro.get("own")) {
@@ -466,16 +475,19 @@ fn metronome(metro: &Dict) -> Dict {
 /// `Infinity`, que no es JSON y la interfaz no podía leer.
 fn marker(m: &Dict) -> Option<Dict> {
     let raw_t = m.get("t").filter(|v| !v.is_null())?;
-    let t = py::float_of(raw_t)?;
+    let t = value::float_of(raw_t)?;
     if t < 0.0 {
         return None;
     }
     let mut item = Dict::new();
-    item.insert("t".into(), num(py::round(t, 2)));
+    item.insert("t".into(), num(num::round_to(t, 2)));
     item.insert("label".into(), text_of(m.get("label"), 60).into());
-    let end = m.get("end").filter(|v| !v.is_null()).and_then(py::float_of);
+    let end = m
+        .get("end")
+        .filter(|v| !v.is_null())
+        .and_then(value::float_of);
     if let Some(end) = end.filter(|&e| e > t) {
-        item.insert("end".into(), num(py::round(end, 2)));
+        item.insert("end".into(), num(num::round_to(end, 2)));
     }
     // un marcador de varios tramos: `t` y `end` abarcan todos, para que una
     // versión anterior lo vea como un tramo largo
@@ -527,13 +539,13 @@ pub fn clean_study(study: &Value, cues_dir: &str) -> String {
             && (0.25..=3.0).contains(&speed)
             && (speed - 1.0).abs() > 1e-3
         {
-            clean.insert("speed".into(), num(py::round(speed, 2)));
+            clean.insert("speed".into(), num(num::round_to(speed, 2)));
         }
         // el tono corrido, en semitonos (al centésimo: medio semitono es un
         // cuarto de tono); 0 no se guarda, y uno entero se guarda entero
         if let Some(pitch) = float_or(study.get("pitch"), 0.0)
             .filter(|p| p.is_finite())
-            .map(|p| py::round(p, 2))
+            .map(|p| num::round_to(p, 2))
             && pitch != 0.0
             && (-12.0..=12.0).contains(&pitch)
         {
@@ -555,8 +567,8 @@ pub fn clean_study(study: &Value, cues_dir: &str) -> String {
         // sus notas; sin `end` es un instante suelto.
         let raw_markers = study
             .get("markers")
-            .filter(|v| py::truthy(v))
-            .map(py::list_of)
+            .filter(|v| value::truthy(v))
+            .map(value::list_of)
             .unwrap_or_default();
         let mut markers: Vec<Dict> = raw_markers
             .iter()
@@ -604,6 +616,6 @@ pub fn clean_study(study: &Value, cues_dir: &str) -> String {
     if clean.is_empty() {
         String::new()
     } else {
-        py::dumps(&Value::Object(clean))
+        Value::Object(clean).to_string()
     }
 }

@@ -6,7 +6,7 @@
 //! Lo que no se puede leer, no es JSON o no es un objeto no vale: se
 //! calcula otra vez. Las que dejaron las versiones de antes se leen aunque
 //! lleven `NaN` o un nombre que no era UTF-8 (`crate::lenient_json`).
-use crate::parity::with_suffix;
+use crate::paths::with_suffix;
 use serde_json::{Map, Value};
 use std::path::Path;
 
@@ -28,7 +28,7 @@ pub fn saved(cache: &Path) -> Option<Map<String, Value>> {
 pub fn is_valid(cache: &Path, version: i64) -> bool {
     saved(cache).is_some_and(|v| {
         v.get("version").and_then(Value::as_f64) == Some(version as f64)
-            || v.get("exact").is_some_and(crate::py::truthy)
+            || v.get("exact").is_some_and(crate::value::truthy)
     })
 }
 

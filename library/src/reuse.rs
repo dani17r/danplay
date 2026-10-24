@@ -11,7 +11,8 @@
 //! pistas y la rejilla sigue en reuse.py.
 use crate::index::scan::{DURATION_TOL, ident};
 use crate::index::{Dict, fetch_all, get_str};
-use crate::py;
+use crate::num;
+use crate::value;
 use rusqlite::Connection;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
@@ -22,7 +23,7 @@ pub const SMALL_LAG: f64 = 0.003;
 /// `float(v or 0)` de Python; None si no es un número.
 fn seconds(v: Option<&Value>) -> Option<f64> {
     match v {
-        Some(x) if py::truthy(x) => py::float_of(x),
+        Some(x) if value::truthy(x) => value::float_of(x),
         _ => Some(0.0),
     }
 }
@@ -39,13 +40,13 @@ pub fn close(a: Option<&Value>, b: Option<&Value>, tol: f64) -> bool {
 /// apartadas (con `missing`: True), de la duración más parecida a la menos.
 pub fn twins(conn: &Connection, song: &Dict) -> rusqlite::Result<Vec<Dict>> {
     let key = ident(song);
-    if key.is_empty() || (py::words(&key).count() < 2 && key.chars().count() < 6) {
+    if key.is_empty() || (key.split_whitespace().count() < 2 && key.chars().count() < 6) {
         return Ok(Vec::new());
     }
     let duration = seconds(song.get("duration")).unwrap_or(0.0);
     let id = song
         .get("id")
-        .filter(|v| py::truthy(v))
+        .filter(|v| value::truthy(v))
         .map_or(Value::from(-1), Clone::clone);
     let mut out: Vec<Dict> = fetch_all(
         conn,
@@ -160,7 +161,7 @@ pub fn shift_study(study: &Dict, lag: f64) -> Dict {
     if study.is_empty() || lag.abs() < SMALL_LAG {
         return study.clone();
     }
-    let at = |t: &Value| py::float_of(t).map(|t| py::round(t + lag, 3));
+    let at = |t: &Value| value::float_of(t).map(|t| num::round_to(t + lag, 3));
     let pair = |v: &Value| -> Option<(f64, f64)> {
         let a = v.as_array().filter(|a| a.len() == 2)?;
         Some((at(&a[0])?, at(&a[1])?))
@@ -208,7 +209,7 @@ pub fn shift_study(study: &Dict, lag: f64) -> Dict {
             if let Some(end) = m.get("end").filter(|v| !v.is_null()).cloned() {
                 m.insert("end".into(), at(&end).map_or(Value::Null, Value::from));
             }
-            if let Some(parts) = m.get("parts").filter(|v| py::truthy(v)).cloned() {
+            if let Some(parts) = m.get("parts").filter(|v| value::truthy(v)).cloned() {
                 let shifted: Vec<Value> = parts
                     .as_array()
                     .map(|a| {
@@ -226,7 +227,7 @@ pub fn shift_study(study: &Dict, lag: f64) -> Dict {
     if study.contains_key("markers") {
         out.insert("markers".into(), Value::Array(markers));
     }
-    if let Some(Value::Array(cues)) = study.get("cues").filter(|v| py::truthy(v)) {
+    if let Some(Value::Array(cues)) = study.get("cues").filter(|v| value::truthy(v)) {
         let shifted: Vec<Value> = cues
             .iter()
             .filter_map(|c| {
@@ -242,7 +243,7 @@ pub fn shift_study(study: &Dict, lag: f64) -> Dict {
     }
     let metro = study.get("metronome").and_then(Value::as_object);
     if let Some(own) = metro.and_then(|m| m.get("own")).and_then(Value::as_object)
-        && own.get("beats").is_some_and(py::truthy)
+        && own.get("beats").is_some_and(value::truthy)
     {
         let beats: Vec<f64> = own
             .get("beats")

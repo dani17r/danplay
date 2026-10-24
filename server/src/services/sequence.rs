@@ -193,7 +193,7 @@ pub fn import_sequence(app: &App, folder: &str, p: &Progress) -> Result<Value, J
     ));
     let stems_parent = library_root.join(ls::FOLDER);
     std::fs::create_dir_all(&stems_parent).map_err(JobError::from)?;
-    let mix_stem = library::py::path_stem(&text(&mix_path));
+    let mix_stem = library::paths::stem(std::path::Path::new(&text(&mix_path)));
     let mut stems_dir = stems_parent.join(&mix_stem);
     let total = tracks.len() + 3;
     let title = seq.title.clone();
@@ -403,8 +403,8 @@ pub fn import_sequence(app: &App, folder: &str, p: &Progress) -> Result<Value, J
         let size = std::fs::metadata(&mix_path)
             .map(|m| m.len())
             .map_err(JobError::from)?;
-        let now = library::py::round(library::index::now(), 1);
-        let rel_folder = library::py::relpath(
+        let now = library::num::round_to(library::index::now(), 1);
+        let rel_folder = library::paths::relative(
             &text(mix_path.parent().unwrap_or(&mix_path)),
             &text(&library_root),
         )
@@ -432,7 +432,7 @@ pub fn import_sequence(app: &App, folder: &str, p: &Progress) -> Result<Value, J
                 "file": mix_path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
                 "folder": rel_folder,
                 "size": size,
-                "duration": library::py::round(seconds, 2),
+                "duration": library::num::round_to(seconds, 2),
                 "artist": seq.artist,
                 "title": seq.title,
             },
@@ -446,7 +446,7 @@ pub fn import_sequence(app: &App, folder: &str, p: &Progress) -> Result<Value, J
                 "source": t.key, "file": file_of(&t.key), "name": t.name, "role": t.role,
             })).collect::<Vec<_>>(),
         });
-        let text_out = library::py::dumps_indent(&manifest, 1) + "\n";
+        let text_out = library::value::pretty(&manifest) + "\n";
         std::fs::write(work.join(ls::MANIFEST), text_out).map_err(JobError::from)?;
         if stems_dir.exists() {
             stems_dir = stems_parent.join(library::names::free_name(&stems_parent, &mix_stem));
@@ -466,7 +466,7 @@ pub fn import_sequence(app: &App, folder: &str, p: &Progress) -> Result<Value, J
         })?;
     let id = row.get("id").and_then(Value::as_i64).unwrap_or(0);
     let root = songs::text(&row, "root");
-    let rel = library::py::relpath(&text(&stems_dir), &root).unwrap_or_default();
+    let rel = library::paths::relative(&text(&stems_dir), &root).unwrap_or_default();
     let mut d = library::index::Dict::new();
     d.insert("folder".into(), rel.into());
     d.insert("model".into(), "secuencia".into());

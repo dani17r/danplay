@@ -6,19 +6,16 @@ use crate::error::ApiError;
 use crate::services::{folders, library as lib, trash};
 use library::duplicates;
 use serde_json::{Value, json};
-use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
-/// `name_without_suffix`: «Barak - Mi Gozo - r2.mp3» → «Barak - Mi Gozo.mp3».
+/// «Barak - Mi Gozo - r2.mp3» → «Barak - Mi Gozo.mp3».
 pub fn name_without_suffix(name: &str) -> String {
-    duplicates::name_without_suffix(OsStr::new(name))
-        .to_string_lossy()
-        .into_owned()
+    duplicates::name_without_suffix(name)
 }
 
 /// Por qué una ruta no se puede tocar desde aquí, o "".
 fn rejection(app: &App, path: &str) -> Result<String, ApiError> {
-    let base = library::py::basename(path);
+    let base = library::paths::file_name(path);
     let ext = library::names::splitext(&base).1.to_lowercase();
     if !library::config::EXTENSIONS.contains(&ext.as_str()) {
         return Ok(format!("«{base}» no es un archivo de audio"));
@@ -36,10 +33,10 @@ fn rejection(app: &App, path: &str) -> Result<String, ApiError> {
 /// « - r» si el nombre limpio queda libre). Todas tienen que ser audio y
 /// estar dentro de las carpetas gestionadas.
 pub fn resolve(app: &App, keep: &str, remove: &[String], dry_run: bool) -> Result<Value, ApiError> {
-    let keep = library::py::abspath(keep);
+    let keep = library::paths::absolute(keep);
     let remove: Vec<String> = remove
         .iter()
-        .map(|b| library::py::abspath(b))
+        .map(|b| library::paths::absolute(b))
         .filter(|b| *b != keep)
         .collect();
     if !Path::new(&keep).is_file() {
@@ -74,14 +71,16 @@ pub fn resolve(app: &App, keep: &str, remove: &[String], dry_run: bool) -> Resul
             }
         }
     }
-    let folder = library::py::dirname(&keep);
-    let current = library::py::basename(&keep);
+    let folder = library::paths::parent(&keep);
+    let current = library::paths::file_name(&keep);
     let clean = name_without_suffix(&current);
     let mut target = keep.clone();
     let mut renamed = false;
     if clean != current {
-        let candidate = library::py::join(&folder, &clean);
-        if !Path::new(&candidate).exists() || deleted.contains(&library::py::abspath(&candidate)) {
+        let candidate = library::paths::join(&folder, &clean);
+        if !Path::new(&candidate).exists()
+            || deleted.contains(&library::paths::absolute(&candidate))
+        {
             if dry_run {
                 target = candidate;
                 renamed = true;
@@ -100,7 +99,7 @@ pub fn resolve(app: &App, keep: &str, remove: &[String], dry_run: bool) -> Resul
         "ok": failures.is_empty(),
         "kept": target,
         "renamed": renamed,
-        "final_name": library::py::basename(&target),
+        "final_name": library::paths::file_name(&target),
         "deleted": deleted,
         "failures": failures,
         "dry_run": dry_run,
@@ -123,11 +122,11 @@ pub fn report(app: &App) -> Result<Value, ApiError> {
                 .map(|r| {
                     let c = index.iter().find(|(p, _)| p == r).map(|(_, c)| c);
                     let get = |k: &str, d: Value| c.and_then(|c| c.get(k)).cloned().unwrap_or(d);
-                    let file = library::py::basename(r);
+                    let file = library::paths::file_name(r);
                     json!({
                         "id": c.and_then(|c| c.get("id")).cloned().unwrap_or(Value::Null),
                         "path": r,
-                        "relative": library::py::relpath(r, &library_root).unwrap_or_else(|| (*r).to_owned()),
+                        "relative": library::paths::relative(r, &library_root).unwrap_or_else(|| (*r).to_owned()),
                         "file": file,
                         "artist": get("artist", "".into()),
                         "title": get("title", "".into()),
@@ -177,10 +176,10 @@ pub fn resolve_route(
 ) -> Result<Value, ApiError> {
     let base = app.config().library.to_string_lossy().into_owned();
     let full = |r: &str| {
-        if library::py::isabs(r) {
+        if std::path::Path::new(r).is_absolute() {
             r.to_owned()
         } else {
-            library::py::join(&base, r)
+            library::paths::join(&base, r)
         }
     };
     let keep = full(keep);
@@ -200,7 +199,7 @@ pub fn resolve_route(
         lib::index_file(app, &kept, None, None)?;
     }
     if r["ok"] != true
-        && let Some(reason) = r.get("reason").filter(|v| library::py::truthy(v))
+        && let Some(reason) = r.get("reason").filter(|v| library::value::truthy(v))
     {
         return Err(ApiError::bad_request(reason.clone()));
     }
@@ -258,7 +257,7 @@ mod tests {
         // queda un solo archivo, con el nombre limpio, y es el que conservamos
         assert_eq!(names_in(&folder), ["Barak - Mi Gozo.mp3"]);
         let kept = r["kept"].as_str().expect("kept");
-        assert_eq!(library::py::basename(kept), "Barak - Mi Gozo.mp3");
+        assert_eq!(library::paths::file_name(kept), "Barak - Mi Gozo.mp3");
         assert_eq!(r["renamed"], true);
         #[cfg(unix)]
         assert_eq!(

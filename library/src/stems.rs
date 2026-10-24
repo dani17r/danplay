@@ -17,7 +17,10 @@
 //! qué canción es (`.danplay-stems.json`), y un escaneo vuelve a unirlas si
 //! el índice se pierde.
 use crate::index::{Dict, begin, fetch_all, fetch_one, get_str, now};
-use crate::py;
+use crate::num;
+use crate::paths;
+use crate::text;
+use crate::value;
 use rusqlite::Connection;
 use serde_json::Value;
 use std::fmt::Write as _;
@@ -108,7 +111,7 @@ fn is_source_name(source: &str) -> bool {
 pub fn stems_of(song: &Dict) -> Dict {
     let raw = match song.get("stems") {
         Some(Value::String(s)) if !s.is_empty() => s.as_str(),
-        Some(v) if py::truthy(v) => return Dict::new(),
+        Some(v) if value::truthy(v) => return Dict::new(),
         _ => "{}",
     };
     match serde_json::from_str::<Value>(raw) {
@@ -122,13 +125,13 @@ pub fn stems_of(song: &Dict) -> Dict {
 pub fn folder_of(song: &Dict, library: &str) -> Option<String> {
     let rel = stems_of(song)
         .get("folder")
-        .filter(|v| py::truthy(v))
-        .map(py::str_of)?;
+        .filter(|v| value::truthy(v))
+        .map(value::str_of)?;
     let root = song
         .get("root")
-        .filter(|v| py::truthy(v))
-        .map_or_else(|| library.to_owned(), py::str_of);
-    Some(py::purepath(&py::join(&root, &rel)))
+        .filter(|v| value::truthy(v))
+        .map_or_else(|| library.to_owned(), value::str_of);
+    Some(paths::clean(&paths::join(&root, &rel)))
 }
 
 /// El manifiesto de una carpeta de pistas, si lo tiene y es un diccionario.
@@ -153,30 +156,30 @@ pub fn info(song: &Dict, library: &str) -> Option<Dict> {
         .unwrap_or_else(|| Value::Object(Dict::new()));
     let wave_tracks = waves
         .get("tracks")
-        .filter(|v| py::truthy(v))
+        .filter(|v| value::truthy(v))
         .and_then(Value::as_object)
         .cloned()
         .unwrap_or_default();
     let mut tracks: Vec<Value> = Vec::new();
     for t in manifest
         .get("tracks")
-        .filter(|v| py::truthy(v))
-        .map(py::list_of)
+        .filter(|v| value::truthy(v))
+        .map(value::list_of)
         .unwrap_or_default()
     {
         let get = |k: &str| t.get(k).cloned().unwrap_or(Value::Null);
         let file = t
             .get("file")
-            .filter(|v| py::truthy(v))
-            .map_or_else(String::new, py::str_of);
-        let path = py::purepath(&py::join(&folder, &file));
+            .filter(|v| value::truthy(v))
+            .map_or_else(String::new, value::str_of);
+        let path = paths::clean(&paths::join(&folder, &file));
         let source = t
             .get("source")
-            .filter(|v| py::truthy(v))
-            .map_or_else(String::new, py::str_of);
+            .filter(|v| value::truthy(v))
+            .map_or_else(String::new, value::str_of);
         let name = t
             .get("name")
-            .filter(|v| py::truthy(v))
+            .filter(|v| value::truthy(v))
             .cloned()
             .unwrap_or_else(|| display_name(&source).into());
         let role = match t.get("role").and_then(Value::as_str) {
@@ -199,14 +202,14 @@ pub fn info(song: &Dict, library: &str) -> Option<Dict> {
     }
     let quality = manifest
         .get("quality")
-        .filter(|v| py::truthy(v))
+        .filter(|v| value::truthy(v))
         .cloned()
         .unwrap_or_else(|| "".into());
     let q = quality.as_str().unwrap_or("");
     let dropped: Vec<Value> = manifest
         .get("dropped")
-        .filter(|v| py::truthy(v))
-        .map(py::list_of)
+        .filter(|v| value::truthy(v))
+        .map(value::list_of)
         .unwrap_or_default()
         .into_iter()
         .filter(|s| s.as_str().is_some_and(is_source_name))
@@ -237,7 +240,7 @@ pub fn info(song: &Dict, library: &str) -> Option<Dict> {
     // de una secuencia descargada (con su tempo y sus partes), no separadas
     out.insert(
         "sequence".into(),
-        Value::Bool(manifest.get("sequence").is_some_and(py::truthy)),
+        Value::Bool(manifest.get("sequence").is_some_and(value::truthy)),
     );
     Some(out)
 }
@@ -256,7 +259,7 @@ pub fn safe_name(text: &str) -> String {
         })
         .collect();
     let clean = clean.trim_matches([' ', '.']);
-    let clean = py::head(clean, 150);
+    let clean = text::head(clean, 150);
     if clean.is_empty() {
         "Cancion".into()
     } else {
@@ -268,7 +271,7 @@ pub fn safe_name(text: &str) -> String {
 pub fn is_source(manifest: &Dict, song: &Dict) -> bool {
     let src = manifest
         .get("source")
-        .filter(|v| py::truthy(v))
+        .filter(|v| value::truthy(v))
         .and_then(Value::as_object)
         .cloned()
         .unwrap_or_default();
@@ -280,9 +283,9 @@ pub fn is_source(manifest: &Dict, song: &Dict) -> bool {
 /// Si ya hay una carpeta con ese nombre de OTRA canción (dos archivos que se
 /// llaman igual en carpetas distintas), se le pone un número.
 pub fn target_for(song: &Dict) -> String {
-    let base = py::join(get_str(song, "root"), FOLDER);
-    let name = safe_name(&py::path_stem(get_str(song, "file")));
-    let mut candidate = py::purepath(&py::join(&base, &name));
+    let base = paths::join(get_str(song, "root"), FOLDER);
+    let name = safe_name(&paths::stem(std::path::Path::new(get_str(song, "file"))));
+    let mut candidate = paths::clean(&paths::join(&base, &name));
     let mut n = 2;
     while Path::new(&candidate).exists() {
         if let Some(manifest) = read_manifest(&candidate)
@@ -290,7 +293,7 @@ pub fn target_for(song: &Dict) -> String {
         {
             return candidate;
         }
-        candidate = py::purepath(&py::join(&base, &format!("{name} ({n})")));
+        candidate = paths::clean(&paths::join(&base, &format!("{name} ({n})")));
         n += 1;
     }
     candidate
@@ -335,7 +338,12 @@ pub fn manifest_text(
         MAXIMUM => format!("{FAST}+htdemucs_ft+{MAX}"),
         _ => format!("{FAST}+htdemucs_ft"),
     };
-    let or = |k: &str, d: Value| song.get(k).filter(|v| py::truthy(v)).cloned().unwrap_or(d);
+    let or = |k: &str, d: Value| {
+        song.get(k)
+            .filter(|v| value::truthy(v))
+            .cloned()
+            .unwrap_or(d)
+    };
     let mut source = Dict::new();
     source.insert(
         "file".into(),
@@ -353,10 +361,10 @@ pub fn manifest_text(
     m.insert("quality".into(), quality.into());
     let created = match created {
         Value::Number(n) if !n.is_f64() => created.clone(),
-        v => Value::from(py::round(py::float_of(v).unwrap_or(0.0), 1)),
+        v => Value::from(num::round_to(value::float_of(v).unwrap_or(0.0), 1)),
     };
     m.insert("created".into(), created);
-    m.insert("updated".into(), Value::from(py::round(now(), 1)));
+    m.insert("updated".into(), Value::from(num::round_to(now(), 1)));
     m.insert("source".into(), Value::Object(source));
     m.insert(
         "tracks".into(),
@@ -395,7 +403,7 @@ pub fn manifest_text(
                 .collect(),
         ),
     );
-    py::dumps_with(&Value::Object(m), Some(1), false) + "\n"
+    value::pretty(&Value::Object(m)) + "\n"
 }
 
 /// Quita lo que dejó a medias una separación que no acabó (la app se cerró,
@@ -418,8 +426,8 @@ pub fn sweep(folder: &str) {
 pub fn publish(work: &str, target: &str, old_prefix: &str) -> std::io::Result<Option<String>> {
     let mut old = None;
     if Path::new(target).exists() {
-        let (head, name) = py::split(target);
-        let moved = py::join(
+        let (head, name) = (paths::parent(target), paths::file_name(target));
+        let moved = paths::join(
             &head,
             &format!("{old_prefix}-{name}-{}", now().trunc() as i64),
         );
@@ -449,11 +457,11 @@ pub fn relink(conn: &Connection, found: &[(String, Dict)]) -> rusqlite::Result<u
         let rel = match serde_json::from_str::<Value>(get_str(&r, "stems")) {
             Ok(Value::Object(o)) => o
                 .get("folder")
-                .filter(|v| py::truthy(v))
-                .map_or_else(String::new, py::str_of),
+                .filter(|v| value::truthy(v))
+                .map_or_else(String::new, value::str_of),
             _ => String::new(),
         };
-        let path = py::normpath(&py::join(get_str(&r, "root"), &rel));
+        let path = paths::normalize(&paths::join(get_str(&r, "root"), &rel));
         if !rel.is_empty() && manifest_path(Path::new(&path)).is_file() {
             linked.push(path);
             continue;
@@ -466,23 +474,23 @@ pub fn relink(conn: &Connection, found: &[(String, Dict)]) -> rusqlite::Result<u
         n += 1;
     }
     for (folder, manifest) in found {
-        let folder = py::normpath(folder);
+        let folder = paths::normalize(folder);
         if linked.contains(&folder) {
             continue;
         }
         let src = manifest
             .get("source")
-            .filter(|v| py::truthy(v))
+            .filter(|v| value::truthy(v))
             .and_then(Value::as_object)
             .cloned()
             .unwrap_or_default();
-        let Some(file) = src.get("file").filter(|v| py::truthy(v)) else {
+        let Some(file) = src.get("file").filter(|v| value::truthy(v)) else {
             continue;
         };
         let file = crate::index::sql(file);
         let in_folder = crate::index::sql(
             &src.get("folder")
-                .filter(|v| py::truthy(v))
+                .filter(|v| value::truthy(v))
                 .cloned()
                 .unwrap_or_else(|| "".into()),
         );
@@ -492,7 +500,7 @@ pub fn relink(conn: &Connection, found: &[(String, Dict)]) -> rusqlite::Result<u
             rusqlite::params![file, in_folder],
         )?;
         if row.is_none()
-            && let Some(size) = src.get("size").filter(|v| py::truthy(v))
+            && let Some(size) = src.get("size").filter(|v| value::truthy(v))
         {
             row = fetch_one(
                 conn,
@@ -501,7 +509,7 @@ pub fn relink(conn: &Connection, found: &[(String, Dict)]) -> rusqlite::Result<u
             )?;
         }
         let Some(row) = row else { continue };
-        let rel = py::relpath(&folder, get_str(&row, "root")).unwrap_or_default();
+        let rel = paths::relative(&folder, get_str(&row, "root")).unwrap_or_default();
         let mut data = Dict::new();
         data.insert("folder".into(), rel.into());
         data.insert(
@@ -529,7 +537,7 @@ pub fn relink(conn: &Connection, found: &[(String, Dict)]) -> rusqlite::Result<u
 /// La columna `stems` como la escribía Python (`json.dumps`, que escapa lo
 /// que no es ASCII).
 pub fn stems_json(data: &Dict) -> String {
-    ascii_json(&py::dumps(&Value::Object(data.clone())))
+    ascii_json(&Value::Object(data.clone()).to_string())
 }
 
 /// `json.dumps` con `ensure_ascii=True`: lo que no es ASCII como `\uXXXX`.
@@ -563,16 +571,16 @@ pub fn stem_paths(conn: &Connection) -> rusqlite::Result<Vec<String>> {
         let Some(rel) = data.get("folder").and_then(Value::as_str) else {
             continue;
         };
-        let folder = py::purepath(&py::join(get_str(&r, "root"), rel));
+        let folder = paths::clean(&paths::join(get_str(&r, "root"), rel));
         let manifest = read_manifest(&folder).unwrap_or_default();
         for t in manifest
             .get("tracks")
-            .filter(|v| py::truthy(v))
-            .map(py::list_of)
+            .filter(|v| value::truthy(v))
+            .map(value::list_of)
             .unwrap_or_default()
         {
             if let Some(file) = t.get("file") {
-                let p = py::purepath(&py::join(&folder, &py::str_of(file)));
+                let p = paths::clean(&paths::join(&folder, &value::str_of(file)));
                 if !out.contains(&p) {
                     out.push(p);
                 }

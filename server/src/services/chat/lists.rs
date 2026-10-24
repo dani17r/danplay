@@ -6,14 +6,14 @@ use crate::app::App;
 use crate::error::ApiError;
 use crate::services::playlists;
 use library::index::{Dict, touch};
-use library::py;
+use library::value;
 use serde_json::{Value, json};
 
 /// `int(v)` de Python, o None si daría `TypeError`/`ValueError`.
 pub fn int_of(v: &Value) -> Option<i64> {
     match v {
         Value::Null | Value::Array(_) | Value::Object(_) => None,
-        other => py::int_of(other),
+        other => value::int_of(other),
     }
 }
 
@@ -21,7 +21,7 @@ pub fn int_of(v: &Value) -> Option<i64> {
 pub fn ints(values: &Value) -> Vec<i64> {
     match values {
         Value::Array(a) => a.iter().filter_map(int_of).collect(),
-        v if py::truthy(v) => int_of(v).into_iter().collect(),
+        v if value::truthy(v) => int_of(v).into_iter().collect(),
         _ => Vec::new(),
     }
 }

@@ -13,8 +13,10 @@ use super::{
     COLUMNS, Dict, SCAN_BATCH, begin, fetch_all, fetch_one, get_str, insert_row, next_song_id, now,
     song_columns, to_missing,
 };
+use crate::names;
+use crate::paths;
 use crate::tags::{self, Tags};
-use crate::{names, py};
+use crate::value;
 use rayon::prelude::*;
 use rusqlite::Connection;
 use serde_json::Value;
@@ -69,7 +71,7 @@ fn stem(file: &str) -> &str {
 
 /// Si el archivo cuelga de Artistas/<Nombre>/ ... la carpeta es el artista.
 fn artist_from_folder(path: &str, root: &str) -> String {
-    let rel = py::relpath(path, root).unwrap_or_default();
+    let rel = paths::relative(path, root).unwrap_or_default();
     let parts: Vec<&str> = rel
         .split(['/', std::path::MAIN_SEPARATOR])
         .filter(|p| !p.is_empty())
@@ -88,7 +90,7 @@ fn artist_from_folder(path: &str, root: &str) -> String {
 /// no está (`os.stat` falla).
 pub fn row(path: &str, root: &str, vocab: &[(String, String)], tag: &Tags) -> Option<Vec<Value>> {
     let st = std::fs::metadata(path).ok()?;
-    let file = py::basename(path);
+    let file = paths::file_name(path);
     let stem = stem(&file);
 
     let mut artist = if tag.artist.is_empty() {
@@ -139,7 +141,7 @@ pub fn row(path: &str, root: &str, vocab: &[(String, String)], tag: &Tags) -> Op
             .collect::<Vec<_>>()
             .join(", ");
     }
-    let folder = py::relpath(&py::dirname(path), root).unwrap_or_default();
+    let folder = paths::relative(&paths::parent(path), root).unwrap_or_default();
     Some(vec![
         path.into(),
         root.into(),
@@ -155,7 +157,7 @@ pub fn row(path: &str, root: &str, vocab: &[(String, String)], tag: &Tags) -> Op
         Value::from(tag.duration),
         Value::from(tag.bitrate),
         Value::from(st.len()),
-        Value::from(py::mtime(&st)),
+        Value::from(paths::mtime(&st)),
         tag.key.clone().into(),
         Value::from(tag.bpm),
         if tag.cover { "embedded" } else { "" }.into(),
@@ -189,13 +191,13 @@ fn differs(a: &Value, b: &Value) -> bool {
 pub fn ident(row: &Dict) -> String {
     let text = |k: &str| {
         row.get(k)
-            .filter(|v| py::truthy(v))
-            .map(py::str_of)
+            .filter(|v| value::truthy(v))
+            .map(value::str_of)
             .unwrap_or_default()
     };
     let artist = text("artist");
     let title = text("title");
-    let (artist, title) = (py::strip(&artist), py::strip(&title));
+    let (artist, title) = (artist.trim(), title.trim());
     if !artist.is_empty() && !title.is_empty() {
         return names::match_key(&format!("{artist} {title}"));
     }
@@ -265,8 +267,8 @@ fn twin_candidates(conn: &Connection, key: &str) -> rusqlite::Result<Vec<(i64, f
             let k = ident(&data);
             let duration = data
                 .get("duration")
-                .filter(|v| py::truthy(v))
-                .and_then(py::float_of)
+                .filter(|v| value::truthy(v))
+                .and_then(value::float_of)
                 .unwrap_or(0.0);
             if !k.is_empty() && duration > 0.0 {
                 index
@@ -289,8 +291,8 @@ fn twin_candidates(conn: &Connection, key: &str) -> rusqlite::Result<Vec<(i64, f
 fn find_twin(conn: &Connection, fresh: &Dict) -> rusqlite::Result<Option<Dict>> {
     let duration = fresh
         .get("duration")
-        .filter(|v| py::truthy(v))
-        .and_then(py::float_of)
+        .filter(|v| value::truthy(v))
+        .and_then(value::float_of)
         .unwrap_or(0.0);
     let key = ident(fresh);
     if duration <= 0.0 || key.is_empty() {
@@ -387,8 +389,8 @@ pub fn add(
         merged.insert(k.clone(), v.clone());
     }
     for k in KEEP_IF_EMPTY {
-        let fresh_empty = !fresh.get(k).is_some_and(py::truthy);
-        if fresh_empty && let Some(v) = data.get(k).filter(|v| py::truthy(v)) {
+        let fresh_empty = !fresh.get(k).is_some_and(value::truthy);
+        if fresh_empty && let Some(v) = data.get(k).filter(|v| value::truthy(v)) {
             merged.insert(k.into(), v.clone());
         }
     }
@@ -589,7 +591,7 @@ pub fn scan(
         let Ok(st) = std::fs::metadata(path) else {
             return false;
         };
-        !(Some(py::mtime(&st)) == v.get("mtime").and_then(Value::as_f64)
+        !(Some(paths::mtime(&st)) == v.get("mtime").and_then(Value::as_f64)
             && Some(st.len() as f64) == v.get("size").and_then(Value::as_f64))
     };
     let mut ahead = ReadAhead::new(
@@ -615,7 +617,7 @@ pub fn scan(
             let Ok(st) = std::fs::metadata(path) else {
                 continue;
             }; // se fue mientras tanto
-            let (size, mtime) = (st.len(), py::mtime(&st));
+            let (size, mtime) = (st.len(), paths::mtime(&st));
             if let Some(v) = v
                 && Some(mtime) == v.get("mtime").and_then(Value::as_f64)
                 && Some(size as f64) == v.get("size").and_then(Value::as_f64)
@@ -836,7 +838,7 @@ pub fn index_file(
     vocab: Option<&[(String, String)]>,
     artists_dir: &Path,
 ) -> rusqlite::Result<Option<Indexed>> {
-    let path = py::abspath(path);
+    let path = paths::absolute(path);
     if !Path::new(&path).is_file() {
         return Ok(None);
     }

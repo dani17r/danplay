@@ -11,8 +11,9 @@ use crate::services::{playlists, songs, youtube};
 use library::assistant::intake::{Intent, SetlistParse};
 use library::assistant::setlist::{self as sl, Change, Filled, ProposeArgs};
 use library::index::Dict;
-use library::py;
 use library::safe::datum;
+use library::text;
+use library::value;
 use serde_json::{Value, json};
 
 /// Lo que el bucle sabe del turno y las herramientas necesitan (`setlist.Turn`).
@@ -173,7 +174,7 @@ fn target(
     turn: &Turn,
     create: bool,
 ) -> Result<(Option<Value>, bool, String), ApiError> {
-    let name = py::head(py::strip(name), 120).to_owned();
+    let name = text::head(name.trim(), 120).to_owned();
     let names_of = |lists: &[Value]| sl::playlist_names(lists, 12).map_err(err);
     let all = || -> Result<Vec<Value>, ApiError> {
         Ok(playlists::list_all(app)?
@@ -217,7 +218,7 @@ fn target(
         let made = playlists::create(app, &name, Some(""), Some(""))?;
         let id = made.get("id").and_then(Value::as_i64).unwrap_or(0);
         let pl = playlists::by_id(app, id)?.map(Value::Object);
-        let created = made.get("created").is_some_and(py::truthy);
+        let created = made.get("created").is_some_and(value::truthy);
         return Ok((pl, created, String::new()));
     }
     let lists = all()?;
@@ -269,10 +270,10 @@ pub fn fill(app: &App, args: &Dict, turn: &mut Turn) -> Result<Value, ApiError> 
     let (mode, mode_note) = sl::mode(&get("mode"), &turn.intent).map_err(err)?;
     let wanted_name = [get("playlist"), get("name")]
         .into_iter()
-        .find(py::truthy)
-        .map(|v| py::str_of(&v))
+        .find(value::truthy)
+        .map(|v| value::str_of(&v))
         .unwrap_or_default();
-    let (pl, created, bad) = target(app, &wanted_name, turn, py::truthy(&get("create")))?;
+    let (pl, created, bad) = target(app, &wanted_name, turn, value::truthy(&get("create")))?;
     let Some(pl) = pl else {
         return Ok(json!({ "error": bad }));
     };
@@ -324,7 +325,7 @@ pub fn fill(app: &App, args: &Dict, turn: &mut Turn) -> Result<Value, ApiError> 
     for i in &removed {
         if let Some(s) = songs::by_id(app, *i)? {
             let light = sl::light(&Value::Object(s)).map_err(err)?;
-            if py::truthy(&light) {
+            if value::truthy(&light) {
                 removed_songs.push(light);
             }
         }

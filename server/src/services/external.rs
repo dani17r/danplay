@@ -11,7 +11,7 @@ use serde_json::Value;
 
 /// Si la ruta tiene una extensión de audio de las que se reconocen.
 pub fn is_audio(path: &str) -> bool {
-    let ext = library::names::splitext(&library::py::basename(path))
+    let ext = library::names::splitext(&library::paths::file_name(path))
         .1
         .to_lowercase();
     library::config::EXTENSIONS.contains(&ext.as_str())
@@ -37,7 +37,7 @@ pub const NOT_AUDIO: &str = "eso no es un archivo de audio";
 /// y se devuelve la canción. `Ok(None)` si el archivo no está; un 400 si no
 /// es audio (`NotAudio`).
 pub fn played(app: &App, path: &str) -> Result<Option<Dict>, ApiError> {
-    let path = library::py::abspath(path);
+    let path = library::paths::absolute(path);
     if !is_audio(&path) {
         return Err(ApiError::bad_request(NOT_AUDIO));
     }
@@ -53,7 +53,7 @@ pub fn played(app: &App, path: &str) -> Result<Option<Dict>, ApiError> {
 pub fn describe(app: &App, paths: &[String], limit: usize) -> Result<Vec<Option<Dict>>, ApiError> {
     let mut out = Vec::new();
     for raw in paths.iter().take(limit) {
-        let path = library::py::abspath(raw);
+        let path = library::paths::absolute(raw);
         if !is_audio(&path) || !std::path::Path::new(&path).is_file() {
             out.push(None);
             continue;

@@ -109,9 +109,7 @@ fn the_fields_we_keep_from_yt_dlp() {
     let get = |k: &str| bad.get(k).cloned().unwrap_or(Value::Null);
     assert_eq!(
         pick_fields(get),
-        Err(FieldError::Value(
-            "could not convert string to float: 'doce'".into()
-        ))
+        Err(FieldError::Value("«doce» no es un número".into()))
     );
 }
 

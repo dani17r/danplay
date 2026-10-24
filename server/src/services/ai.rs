@@ -59,7 +59,7 @@ pub fn unavailable_reason(app: &App) -> String {
 /// Un texto del perfil (`p["model"]`), o "" sin perfil.
 pub fn field(p: Option<&Dict>, key: &str) -> String {
     p.and_then(|p| p.get(key))
-        .map(library::py::str_of)
+        .map(library::value::str_of)
         .unwrap_or_default()
 }
 

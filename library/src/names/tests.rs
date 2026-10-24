@@ -762,7 +762,7 @@ mod search_form_cases {
             assert_eq!(out, out.trim(), "{s:?}");
             assert!(!out.contains("  "), "{s:?} → {out:?}");
             assert!(
-                out.chars().all(|c| crate::py::isalnum(c) || c == ' '),
+                out.chars().all(|c| char::is_alphanumeric(c) || c == ' '),
                 "{s:?} → {out:?}"
             );
             assert_eq!(out, out.to_lowercase(), "{s:?}");

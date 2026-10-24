@@ -60,7 +60,7 @@ fn songs(app: &App, files: &[&str]) -> Vec<i64> {
     files
         .iter()
         .map(|f| {
-            let name = library::py::basename(f);
+            let name = library::paths::file_name(f);
             app.db(|c| {
                 c.query_row("SELECT id FROM songs WHERE file=?", [&name], |r| {
                     r.get::<_, i64>(0)
@@ -450,9 +450,8 @@ fn the_waveform() {
         Some("private, max-age=3600")
     );
     let text = String::from_utf8(r.into_bytes().expect("bytes")).expect("texto");
-    // `json.dumps` de Python, con sus espacios
-    assert!(text.starts_with("{\"peaks\": ["), "{text}");
-    assert!(text.ends_with(", \"buckets\": 10}"), "{text}");
+    assert!(text.starts_with("{\"peaks\":["), "{text}");
+    assert!(text.ends_with(",\"buckets\":10}"), "{text}");
     let (st, v) = call(&app, "GET", &format!("{url}?start=1"), None);
     assert_eq!(
         (st, v),

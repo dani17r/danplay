@@ -107,7 +107,7 @@ fn a_lost_database_is_rebuilt_from_the_files() {
     let back = by_path(&app, chosen["path"].as_str().expect("ruta"));
     assert_eq!(back["stars"], 4, "las estrellas no volvieron del archivo");
     assert!(
-        library::py::truthy(&back["favorite"]),
+        library::value::truthy(&back["favorite"]),
         "el favorito no volvió del archivo"
     );
     assert_eq!(back["blur"], 1, "el difuminado no volvió del archivo");

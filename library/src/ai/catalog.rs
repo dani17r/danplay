@@ -21,7 +21,8 @@
 //! las pruebas corten la red allí); esto la recorta, la guarda y la consulta.
 use crate::index::Dict;
 use crate::names::{Re, is_match, rx};
-use crate::py;
+use crate::text;
+use crate::value;
 use crate::warnings::{self, Warnings};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
@@ -63,7 +64,7 @@ fn dict(v: Option<&Value>) -> Dict {
 /// `str(v or default)`.
 fn str_or(v: Option<&Value>, default: &str) -> String {
     match v {
-        Some(x) if py::truthy(x) => py::str_of(x),
+        Some(x) if value::truthy(x) => value::str_of(x),
         _ => default.to_owned(),
     }
 }
@@ -83,18 +84,18 @@ pub fn trim_model(mid: &str, m: &Dict) -> Option<Dict> {
     let mods = dict(m.get("modalities"));
     let outs = mods
         .get("output")
-        .filter(|v| py::truthy(v))
+        .filter(|v| value::truthy(v))
         .cloned()
         .unwrap_or(json!([]));
     let ins = mods
         .get("input")
-        .filter(|v| py::truthy(v))
+        .filter(|v| value::truthy(v))
         .cloned()
         .unwrap_or(json!([]));
-    if py::truthy(&outs) && !has_text(&outs) {
+    if value::truthy(&outs) && !has_text(&outs) {
         return None;
     }
-    if py::truthy(&ins) && !has_text(&ins) {
+    if value::truthy(&ins) && !has_text(&ins) {
         return None;
     }
     let name = str_or(m.get("name"), "");
@@ -105,9 +106,9 @@ pub fn trim_model(mid: &str, m: &Dict) -> Option<Dict> {
     let limit = dict(m.get("limit"));
     let num = |v: Option<&Value>| match v {
         None | Some(Value::Null) => Value::Null,
-        Some(x) => py::float_of(x).map_or(Value::Null, Value::from),
+        Some(x) => value::float_of(x).map_or(Value::Null, Value::from),
     };
-    let input: Vec<Value> = py::list_of(&ins)
+    let input: Vec<Value> = value::list_of(&ins)
         .into_iter()
         .filter(|x| x != "text")
         .collect();
@@ -116,7 +117,7 @@ pub fn trim_model(mid: &str, m: &Dict) -> Option<Dict> {
     out.insert("name".into(), str_or(m.get("name"), mid).into());
     out.insert(
         "tools".into(),
-        Value::Bool(m.get("tool_call").is_some_and(py::truthy)),
+        Value::Bool(m.get("tool_call").is_some_and(value::truthy)),
     );
     out.insert(
         "json".into(),
@@ -128,7 +129,7 @@ pub fn trim_model(mid: &str, m: &Dict) -> Option<Dict> {
     );
     out.insert(
         "reasoning".into(),
-        Value::Bool(m.get("reasoning").is_some_and(py::truthy)),
+        Value::Bool(m.get("reasoning").is_some_and(value::truthy)),
     );
     out.insert("cost_in".into(), num(cost.get("input")));
     out.insert("cost_out".into(), num(cost.get("output")));
@@ -147,7 +148,7 @@ pub fn trim_model(mid: &str, m: &Dict) -> Option<Dict> {
     );
     out.insert(
         "open".into(),
-        Value::Bool(m.get("open_weights").is_some_and(py::truthy)),
+        Value::Bool(m.get("open_weights").is_some_and(value::truthy)),
     );
     out.insert("input".into(), Value::Array(input));
     out.insert("family".into(), str_or(m.get("family"), "").into());
@@ -170,7 +171,7 @@ fn trim_provider(pid: &str, p: &Dict) -> Option<Value> {
     }
     let or_empty = |k: &str| {
         p.get(k)
-            .filter(|v| py::truthy(v))
+            .filter(|v| value::truthy(v))
             .cloned()
             .unwrap_or(json!(""))
     };
@@ -369,7 +370,7 @@ pub fn store_trimmed(
 }
 
 fn save(cache: &Path, data: &Value, out: &mut Warnings) {
-    let text = py::dumps(data);
+    let text = data.to_string();
     let tmp = cache.with_extension("tmp");
     let result = cache
         .parent()
@@ -394,7 +395,7 @@ pub fn status(data: &Dict, refreshing: bool) -> Dict {
         .sum();
     let or_zero = |k: &str| {
         data.get(k)
-            .filter(|v| py::truthy(v))
+            .filter(|v| value::truthy(v))
             .cloned()
             .unwrap_or(json!(0))
     };
@@ -410,7 +411,7 @@ pub fn status(data: &Dict, refreshing: bool) -> Dict {
     out.insert(
         "error".into(),
         data.get("error")
-            .filter(|v| py::truthy(v))
+            .filter(|v| value::truthy(v))
             .cloned()
             .unwrap_or(json!("")),
     );
@@ -436,7 +437,7 @@ pub fn describe(error: &str) -> String {
     {
         return "no hay conexion con models.dev".into();
     }
-    py::head(error, 120).to_owned()
+    text::head(error, 120).to_owned()
 }
 
 /// Lo que pasó al preguntar a models.dev.
@@ -655,7 +656,7 @@ pub fn date_of(secs: i64) -> String {
 pub fn recommend(models: &[Dict], now: f64) -> Dict {
     let s = |m: &Dict, k: &str| {
         m.get(k)
-            .map(py::str_of)
+            .map(value::str_of)
             .filter(|_| m.get(k).is_some_and(Value::is_string))
             .unwrap_or_default()
     };
@@ -663,9 +664,9 @@ pub fn recommend(models: &[Dict], now: f64) -> Dict {
     let ok: Vec<&Dict> = models
         .iter()
         .filter(|m| {
-            !m.get("deprecated").is_some_and(py::truthy)
-                && m.get("released").is_some_and(py::truthy)
-                && m.get("tools").is_some_and(py::truthy)
+            !m.get("deprecated").is_some_and(value::truthy)
+                && m.get("released").is_some_and(value::truthy)
+                && m.get("tools").is_some_and(value::truthy)
                 && cost(m).is_some()
                 && !is_match(&UNSTABLE, &s(m, "id"))
                 && !is_match(&SPECIALIZED, &s(m, "id"))

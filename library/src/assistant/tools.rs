@@ -17,12 +17,12 @@ use super::text;
 use super::value::{Error, at, at_of, dic, dict_of, get, same, type_name, yes};
 use crate::index::Dict;
 use crate::names::{self, Re, search_form};
-use crate::py;
 use serde_json::{Value, json};
 use std::fmt::Write as _;
 use std::sync::LazyLock;
 
 mod declared;
+use crate::num;
 pub use declared::declared;
 
 /// Lo que no tiene vuelta atrás NO lo hace el modelo por su cuenta: estas
@@ -200,7 +200,7 @@ fn round_of(v: &Value) -> Result<Value, Error> {
                     "cannot convert float infinity to integer".into(),
                 ))
             } else {
-                Ok(py::round_int(f).into())
+                Ok((f.round_ties_even() as i64).into())
             }
         }
         other => Err(Error::TypeText(format!(
@@ -238,7 +238,7 @@ fn len_of(v: &Value) -> Result<usize, Error> {
 /// `v[:n]` de un texto o una lista.
 fn head_of(v: &Value, n: usize) -> Result<Value, Error> {
     match v {
-        Value::String(s) => Ok(py::head(s, n).into()),
+        Value::String(s) => Ok(crate::text::head(s, n).into()),
         Value::Array(a) => Ok(Value::Array(a.iter().take(n).cloned().collect())),
         other => Err(Error::Type(type_name(other).into())),
     }
@@ -279,20 +279,20 @@ fn get_or<'a>(d: &'a Dict, k: &str, default: &'a Value) -> &'a Value {
 fn text_or(values: &[&Value]) -> String {
     values
         .iter()
-        .find(|v| py::truthy(v))
-        .map_or_else(String::new, |v| py::str_of(v))
+        .find(|v| crate::value::truthy(v))
+        .map_or_else(String::new, |v| crate::value::str_of(v))
 }
 
 /// `a or b or ""` (el valor, no su texto).
 fn or_value(values: &[&Value]) -> Value {
     values
         .iter()
-        .find(|v| py::truthy(v))
+        .find(|v| crate::value::truthy(v))
         .map_or_else(|| Value::String(String::new()), |v| (*v).clone())
 }
 
 fn s(v: &Value) -> String {
-    py::str_of(v)
+    crate::value::str_of(v)
 }
 
 /// `max(low, min(high, default if value is None else value))`.
@@ -313,7 +313,7 @@ pub fn song_brief(c: &Value) -> Result<Value, Error> {
     let duration = round_of(at(c, "duration")?)?;
     let key = at(c, "key")?.clone();
     let bpm = at(c, "bpm")?;
-    let bpm = if py::truthy(bpm) {
+    let bpm = if crate::value::truthy(bpm) {
         round_of(bpm)?
     } else {
         0.into()
@@ -328,14 +328,14 @@ pub fn song_brief(c: &Value) -> Result<Value, Error> {
         ("key", key),
         ("bpm", bpm),
         ("stars", get_or(d, "stars", &json!(0)).clone()),
-        ("favorite", py::truthy(get(d, "favorite")).into()),
+        ("favorite", crate::value::truthy(get(d, "favorite")).into()),
     ])))
 }
 
 /// Las primeras canciones de la lista, para que se vea QUÉ entró.
 pub fn first_names(res: &Value, limit: usize) -> Result<String, Error> {
     let songs = get(dict_of(res)?, "songs");
-    if !py::truthy(songs) {
+    if !crate::value::truthy(songs) {
         return Ok(String::new());
     }
     let Value::Array(songs) = songs else {
@@ -372,8 +372,11 @@ pub fn summarize(name: &str, res: &Value) -> Result<String, Error> {
     let r = dict_of(res)?;
     let g = |k: &str| get(r, k);
     let or0 = |k: &str| s(get_or(r, k, &json!(0)));
-    if py::truthy(g("error")) {
-        return Ok(format!("error: {}", py::head(&s(at_of(r, "error")?), 80)));
+    if crate::value::truthy(g("error")) {
+        return Ok(format!(
+            "error: {}",
+            crate::text::head(&s(at_of(r, "error")?), 80)
+        ));
     }
     Ok(match name {
         "search_songs" => format!("{} resultados", or0("total")),
@@ -382,7 +385,7 @@ pub fn summarize(name: &str, res: &Value) -> Result<String, Error> {
             if *g("mode") == json!("check") {
                 return Ok(format!("comprobada «{pl}»"));
             }
-            let missing = if py::truthy(g("missing")) {
+            let missing = if crate::value::truthy(g("missing")) {
                 len_of(g("missing"))?
             } else {
                 0
@@ -392,7 +395,7 @@ pub fn summarize(name: &str, res: &Value) -> Result<String, Error> {
             } else {
                 String::new()
             };
-            if *g("mode") == json!("set") && py::truthy(g("applied")) {
+            if *g("mode") == json!("set") && crate::value::truthy(g("applied")) {
                 format!(
                     "«{pl}» exacta: entran {}, salen {}{tail}",
                     or0("added"),
@@ -444,18 +447,18 @@ pub fn summarize(name: &str, res: &Value) -> Result<String, Error> {
                 get_or(r, "already_there", &zero),
                 get_or(r, "failures", &zero),
             );
-            if py::truthy(already) {
+            if crate::value::truthy(already) {
                 parts.push(format!("{} ya la tenias", s(already)));
             }
-            if py::truthy(failed) {
+            if crate::value::truthy(failed) {
                 parts.push(format!("{} con fallo", s(failed)));
             }
             parts.join(", ")
         }
         "download_status" => {
-            if py::truthy(g("phase")) {
+            if crate::value::truthy(g("phase")) {
                 s(g("phase"))
-            } else if py::truthy(g("active")) {
+            } else if crate::value::truthy(g("active")) {
                 "en marcha".into()
             } else {
                 "parada".into()
@@ -463,9 +466,9 @@ pub fn summarize(name: &str, res: &Value) -> Result<String, Error> {
         }
         "search_web" => format!("{} resultados en la web", get_len(r, "results")?),
         "play" | "play_song" | "play_playlist" => {
-            if py::truthy(g("playing")) {
+            if crate::value::truthy(g("playing")) {
                 let line = format!("sonando: {}", s(get_or(r, "playing", &json!(""))));
-                py::head(&line, 60).to_owned()
+                crate::text::head(&line, 60).to_owned()
             } else {
                 format!("lista con {} temas", or0("songs"))
             }
@@ -481,7 +484,7 @@ pub fn summarize(name: &str, res: &Value) -> Result<String, Error> {
         }
         .into(),
         "set_stars" => format!("{} estrellas", or0("stars")),
-        "set_favorite" => if py::truthy(g("favorite")) {
+        "set_favorite" => if crate::value::truthy(g("favorite")) {
             "favorita"
         } else {
             "ya no es favorita"
@@ -490,7 +493,7 @@ pub fn summarize(name: &str, res: &Value) -> Result<String, Error> {
         "edit_song" => {
             let mut changed = iter_values(get_or(r, "changed", &json!([])))?;
             // `res.get("song") or {}`
-            let song = if py::truthy(g("song")) {
+            let song = if crate::value::truthy(g("song")) {
                 g("song").clone()
             } else {
                 json!({})
@@ -515,7 +518,7 @@ pub fn summarize(name: &str, res: &Value) -> Result<String, Error> {
             }
             if take(&mut changed, "favorite") {
                 parts.push(
-                    if song_get("favorite")?.is_some_and(|f| py::truthy(&f)) {
+                    if song_get("favorite")?.is_some_and(|f| crate::value::truthy(&f)) {
                         "favorita"
                     } else {
                         "ya no es favorita"
@@ -535,7 +538,7 @@ pub fn summarize(name: &str, res: &Value) -> Result<String, Error> {
         "find_lyrics_and_cover" => {
             let done: Vec<&str> = ["lyrics", "cover"]
                 .into_iter()
-                .filter(|k| py::truthy(g(k)))
+                .filter(|k| crate::value::truthy(g(k)))
                 .collect();
             if done.is_empty() {
                 "no se encontro nada".into()
@@ -545,7 +548,7 @@ pub fn summarize(name: &str, res: &Value) -> Result<String, Error> {
         }
         "delete_song" => {
             let line = format!("a la papelera: {}", s(get_or(r, "name", &json!(""))));
-            py::head(&line, 60).to_owned()
+            crate::text::head(&line, 60).to_owned()
         }
         "remove_from_playlist" => format!("{} fuera de «{}»", or0("removed"), s(g("name"))),
         "delete_playlist" => format!("borrada «{}»", s(g("name"))),
@@ -569,12 +572,12 @@ pub fn download_plan(args: &Dict, default_quality: &Value) -> Dict {
     let mut items: Vec<String> = raw
         .iter()
         .take(200)
-        .map(py::str_of)
-        .filter(|x| !py::strip(x).is_empty())
-        .map(|x| py::head(py::strip(&x), 300).to_owned())
+        .map(crate::value::str_of)
+        .filter(|x| !x.trim().is_empty())
+        .map(|x| crate::text::head(x.trim(), 300).to_owned())
         .collect();
     if items.is_empty() && yes(args, "query") {
-        items = vec![py::head(py::strip(&s(get(args, "query"))), 300).to_owned()];
+        items = vec![crate::text::head(s(get(args, "query")).trim(), 300).to_owned()];
     }
     let mut seen = std::collections::HashSet::new();
     let mut unique: Vec<String> = Vec::new();
@@ -619,7 +622,7 @@ pub fn download_plan(args: &Dict, default_quality: &Value) -> Dict {
         ),
         (
             "force",
-            py::truthy(get_or(args, "force", &json!(false))).into(),
+            crate::value::truthy(get_or(args, "force", &json!(false))).into(),
         ),
     ])
 }
@@ -765,10 +768,10 @@ pub fn find_playlist<I: Io>(
     io_: &mut I,
 ) -> Result<(Option<Value>, String), Fault<I::Error>> {
     let name = text_or(&[get(args, "name"), get(args, "playlist")]);
-    let name = py::strip(&name);
+    let name = name.trim();
     if !name.is_empty() {
         let pl = io(io_.playlist_named(name))?;
-        if py::truthy(&pl) {
+        if crate::value::truthy(&pl) {
             return Ok((Some(pl), String::new()));
         }
     }
@@ -776,7 +779,7 @@ pub fn find_playlist<I: Io>(
     let given = !raw.is_null() && *raw != json!("");
     if given {
         let pl = io(io_.playlist(raw))?;
-        if py::truthy(&pl) {
+        if crate::value::truthy(&pl) {
             return Ok((Some(pl), String::new()));
         }
     }
@@ -814,7 +817,7 @@ fn int_strict(v: &Value) -> Result<i64, Error> {
             "int() argument must be a string, a bytes-like object or a real number, not '{}'",
             type_name(v)
         ))),
-        _ => py::int_of(v).ok_or_else(|| Error::Integer(py::repr(v))),
+        _ => crate::value::int_of(v).ok_or_else(|| Error::Integer(v.to_string())),
     }
 }
 
@@ -830,7 +833,7 @@ pub fn checked_song_ids<I: Io>(
         _ => raw.clone(),
     };
     let mut wanted = Vec::new();
-    let items = if py::truthy(&raw) {
+    let items = if crate::value::truthy(&raw) {
         iter_values(&raw)?
     } else {
         Vec::new()
@@ -866,7 +869,7 @@ pub fn checked_song_ids<I: Io>(
 /// Un repertorio con sus canciones, tal y como se le cuenta al modelo.
 fn playlist_view<I: Io>(id: &Value, io_: &mut I) -> Result<Dict, Fault<I::Error>> {
     let found = io(io_.playlist(id))?;
-    let pl = if py::truthy(&found) {
+    let pl = if crate::value::truthy(&found) {
         found
     } else {
         json!({"id": id, "name": "", "note": ""})
@@ -908,23 +911,17 @@ fn recently_downloaded_warning<I: Io>(
             Err(_) => return Ok(String::new()),
         }
     }
-    let wanted: std::collections::HashSet<String> = items
-        .iter()
-        .map(|x| text::lower(py::strip(&s(x))))
-        .collect();
+    let wanted: std::collections::HashSet<String> =
+        items.iter().map(|x| text::lower(s(x).trim())).collect();
     for h in entries {
         let d = dict_of(&h)?;
-        if !wanted.contains(&text::lower(py::strip(&text_or(&[get(d, "query")])))) {
+        if !wanted.contains(&text::lower(text_or(&[get(d, "query")]).trim())) {
             continue;
         }
         let at_ = or_value(&[get(d, "at")]);
-        let at_ = if py::truthy(get(d, "at")) {
-            py::float_of(&at_).ok_or_else(|| {
-                Error::Val(format!(
-                    "could not convert string to float: {}",
-                    py::repr(&at_)
-                ))
-            })?
+        let at_ = if crate::value::truthy(get(d, "at")) {
+            crate::value::float_of(&at_)
+                .ok_or_else(|| Error::Val(format!("{at_} no es un número")))?
         } else {
             0.0
         };
@@ -937,7 +934,7 @@ fn recently_downloaded_warning<I: Io>(
         }
         let sid = int_strict(at_of(d, "song_id")?)?;
         let song = io(io_.song(&json!(sid)))?;
-        if py::truthy(&song) {
+        if crate::value::truthy(&song) {
             return Ok(format!(
                 " OJO: esa misma direccion se bajo hace {} min y entro como «{} - {}»; bajarla otra vez la duplica.",
                 age.trunc() as i64,
@@ -955,9 +952,13 @@ pub fn describe<I: Io>(name: &str, args: &Dict, io_: &mut I) -> Result<String, F
         "delete_song" => {
             let zero = json!(0);
             let raw = get_or(args, "id", &zero);
-            let id = if py::truthy(raw) { int_strict(raw)? } else { 0 };
+            let id = if crate::value::truthy(raw) {
+                int_strict(raw)?
+            } else {
+                0
+            };
             let c = io(io_.song(&json!(id)))?;
-            let which = if py::truthy(&c) {
+            let which = if crate::value::truthy(&c) {
                 format!("«{} - {}»", s(at(&c, "artist")?), s(at(&c, "title")?))
             } else {
                 format!("la cancion {}", s(get(args, "id")))
@@ -1000,10 +1001,10 @@ pub fn describe<I: Io>(name: &str, args: &Dict, io_: &mut I) -> Result<String, F
                 let _ = write!(shown, " y {} mas", items.len() - 5);
             }
             let mut text = format!("Descargar de YouTube: {shown}.");
-            if py::truthy(&plan["force"]) {
+            if crate::value::truthy(&plan["force"]) {
                 text.push_str(" Aunque ya la tengas: se guarda como otra version.");
             }
-            if !py::truthy(&plan["file_it"]) {
+            if !crate::value::truthy(&plan["file_it"]) {
                 text.push_str(" Se deja en Entrada/ sin archivar.");
             }
             text.push_str(&recently_downloaded_warning(&items, io_, 30.0)?);
@@ -1017,7 +1018,7 @@ pub fn describe<I: Io>(name: &str, args: &Dict, io_: &mut I) -> Result<String, F
 fn or_value_none(values: &[&Value]) -> Value {
     values
         .iter()
-        .find(|v| py::truthy(v))
+        .find(|v| crate::value::truthy(v))
         .or_else(|| values.last())
         .map_or(Value::Null, |v| (*v).clone())
 }
@@ -1032,7 +1033,7 @@ fn or_value_none(values: &[&Value]) -> Value {
 pub fn check_downloads<I: Io>(args: &Dict, io_: &mut I) -> Result<Dict, Fault<I::Error>> {
     let quality = io(io_.default_quality())?;
     let mut plan = download_plan(args, &quality);
-    let force = py::truthy(&plan["force"]);
+    let force = crate::value::truthy(&plan["force"]);
     let (mut keep, mut already, mut rows) = (Vec::new(), Vec::new(), Vec::new());
     for item in plan["items"].as_array().cloned().unwrap_or_default() {
         let item = s(&item);
@@ -1058,7 +1059,7 @@ pub fn check_downloads<I: Io>(args: &Dict, io_: &mut I) -> Result<Dict, Fault<I:
             .and_then(|r| r.as_object())
             .filter(|d| *get(d, "status") == json!("probable"))
             .map(|d| get(d, "song").clone())
-            .filter(py::truthy);
+            .filter(crate::value::truthy);
         let note = match &doubt {
             Some(song) => {
                 let g = dict_of(song)?;
@@ -1091,11 +1092,11 @@ pub fn check_downloads<I: Io>(args: &Dict, io_: &mut I) -> Result<Dict, Fault<I:
 fn has_filters(query: &str) -> bool {
     let c: Vec<char> = query.chars().collect();
     let filter = (1..c.len().saturating_sub(1))
-        .any(|i| c[i] == ':' && text::is_word(c[i - 1]) && !py::isspace(c[i + 1]));
+        .any(|i| c[i] == ':' && text::is_word(c[i - 1]) && !char::is_whitespace(c[i + 1]));
     let compare = c.iter().enumerate().any(|(i, ch)| {
         matches!(ch, '<' | '>' | '=') && {
             let mut j = i + 1;
-            while c.get(j).is_some_and(|x| py::isspace(*x)) {
+            while c.get(j).is_some_and(|x| char::is_whitespace(*x)) {
                 j += 1;
             }
             c.get(j).is_some_and(|x| text::isdecimal(*x))
@@ -1124,7 +1125,7 @@ fn search_songs<I: Io>(a: &Dict, io_: &mut I) -> Out<I::Error> {
         yes(a, "desc"),
     ))?;
     let rows = iter_values(&rows)?;
-    if !rows.is_empty() || py::strip(&query).is_empty() || has_filters(&query) {
+    if !rows.is_empty() || query.trim().is_empty() || has_filters(&query) {
         let songs = rows.iter().map(song_brief).collect::<Result<Vec<_>, _>>()?;
         return Ok(json!({"total": rows.len(), "songs": songs}));
     }
@@ -1139,7 +1140,7 @@ fn search_songs<I: Io>(a: &Dict, io_: &mut I) -> Out<I::Error> {
     for c in iter_values(get(res, "candidates"))? {
         let song = at(&c, "song")?;
         let found = io(io_.song(at(song, "id")?))?;
-        if py::truthy(&found) {
+        if crate::value::truthy(&found) {
             songs.push(song_brief(&found)?);
         }
     }
@@ -1161,8 +1162,8 @@ fn library_summary<I: Io>(io_: &mut I) -> Out<I::Error> {
             .map(|x| at(x, "value").cloned())
             .collect()
     };
-    let hours = py::round(divide(at(&e, "seconds")?, 3600.0, "int")?, 1);
-    let gigabytes = py::round(divide(at(&e, "bytes")?, f64::from(1u32 << 30), "int")?, 2);
+    let hours = num::round_to(divide(at(&e, "seconds")?, 3600.0, "int")?, 1);
+    let gigabytes = num::round_to(divide(at(&e, "bytes")?, f64::from(1u32 << 30), "int")?, 2);
     Ok(Value::Object(dic([
         ("songs", at(&e, "total")?.clone()),
         ("hours", json!(hours)),
@@ -1181,7 +1182,7 @@ fn with_view(mut view: Dict, extra: Vec<(&str, Value)>) -> Value {
 }
 
 fn create_playlist<I: Io>(a: &Dict, io_: &mut I) -> Out<I::Error> {
-    let title = py::strip(&text_arg(a, "name")).to_owned();
+    let title = text_arg(a, "name").trim().to_owned();
     if title.is_empty() {
         return error_of("la lista necesita un nombre");
     }
@@ -1192,7 +1193,7 @@ fn create_playlist<I: Io>(a: &Dict, io_: &mut I) -> Out<I::Error> {
     let made = io(io_.create(&title, &text_arg(a, "note")))?;
     let (lid, created) = (at(&made, "id")?.clone(), at(&made, "created")?.clone());
     let n = io(io_.add(&lid, &json!(ids)))?;
-    let note = if py::truthy(&created) {
+    let note = if crate::value::truthy(&created) {
         String::new()
     } else {
         format!("ya existia una lista «{title}»: se han añadido a esa")
@@ -1272,13 +1273,13 @@ fn rename_playlist<I: Io>(a: &Dict, io_: &mut I) -> Out<I::Error> {
         Ok(pl) => pl,
         Err(bad) => return Ok(bad),
     };
-    let new_name = py::strip(&text_arg(a, "new_name")).to_owned();
+    let new_name = text_arg(a, "new_name").trim().to_owned();
     if new_name.is_empty() && get(a, "note").is_null() {
         return error_of("no me has dicho que cambiar");
     }
     if !new_name.is_empty() {
         let other = io(io_.playlist_named(&new_name))?;
-        if py::truthy(&other) && !same(at(&other, "id")?, at(&pl, "id")?) {
+        if crate::value::truthy(&other) && !same(at(&other, "id")?, at(&pl, "id")?) {
             return error_of(format!(
                 "ya hay otra lista que se llama «{}»",
                 s(at(&other, "name")?)
@@ -1316,16 +1317,16 @@ fn get_lyrics<I: Io>(a: &Dict, io_: &mut I) -> Out<I::Error> {
             &or_value(&[get(a, "artist")]),
             &or_value(&[get(a, "title")]),
         ))?;
-        if py::truthy(&r) {
+        if crate::value::truthy(&r) {
             return Ok(lyrics_result(&r)?);
         }
         return error_of("no se encontro la letra");
     }
     let c = io(io_.song(get(a, "id")))?;
-    if !py::truthy(&c) {
+    if !crate::value::truthy(&c) {
         return error_of("no existe esa cancion");
     }
-    if py::truthy(at(&c, "lyrics")?) {
+    if crate::value::truthy(at(&c, "lyrics")?) {
         let plain = io(io_.lrc_to_plain(at(&c, "lyrics")?))?;
         return Ok(Value::Object(dic([
             ("source", "stored".into()),
@@ -1338,7 +1339,7 @@ fn get_lyrics<I: Io>(a: &Dict, io_: &mut I) -> Out<I::Error> {
         at(&c, "album")?,
         at(&c, "duration")?,
     ))?;
-    if py::truthy(&r) {
+    if crate::value::truthy(&r) {
         let synced = or_value(&[get(dict_of(&r)?, "synced")]);
         io(io_.save_lyrics(at(&c, "id")?, at(&r, "lyrics")?, &synced))?;
         return Ok(lyrics_result(&r)?);
@@ -1351,13 +1352,13 @@ fn get_lyrics<I: Io>(a: &Dict, io_: &mut I) -> Out<I::Error> {
 fn sheet_for_chat(r: &Value) -> Result<Value, Error> {
     let d = dict_of(r)?;
     let sheet = get(d, "sheet");
-    if !py::truthy(sheet) {
-        if py::truthy(get(d, "failed")) {
+    if !crate::value::truthy(sheet) {
+        if crate::value::truthy(get(d, "failed")) {
             let failed = join_texts(" ni ", &iter_values(at_of(d, "failed")?)?)?;
             return Ok(json!({"error": format!("no se pudo consultar {failed}; prueba luego")}));
         }
         let tried = or_value(&[get(d, "tried")]);
-        let tried = if py::truthy(&tried) {
+        let tried = if crate::value::truthy(&tried) {
             iter_values(&tried)?
         } else {
             vec![json!("las paginas de acordes")]
@@ -1371,13 +1372,13 @@ fn sheet_for_chat(r: &Value) -> Result<Value, Error> {
     let empty = json!("");
     let mut sections = Vec::new();
     let all = or_value(&[get(sh, "sections")]);
-    for sec in if py::truthy(&all) {
+    for sec in if crate::value::truthy(&all) {
         iter_values(&all)?
     } else {
         Vec::new()
     } {
         let sd = dict_of(&sec)?;
-        if !py::truthy(get(sd, "chords")) {
+        if !crate::value::truthy(get(sd, "chords")) {
             continue;
         }
         let chords = iter_values(get(sd, "chords"))?;
@@ -1402,7 +1403,7 @@ fn sheet_for_chat(r: &Value) -> Result<Value, Error> {
         ),
         (
             "key",
-            if py::truthy(key) {
+            if crate::value::truthy(key) {
                 key.clone()
             } else {
                 "el cifrado no dice el tono".into()
@@ -1417,7 +1418,7 @@ fn sheet_for_chat(r: &Value) -> Result<Value, Error> {
 fn get_chords<I: Io>(a: &Dict, io_: &mut I) -> Out<I::Error> {
     if !yes(a, "id") {
         // sin id, por artista y título, sin guardar nada
-        if py::strip(&text_arg(a, "title")).is_empty() {
+        if text_arg(a, "title").trim().is_empty() {
             return error_of("hace falta el titulo (y mejor el artista)");
         }
         let r = io(io_.chord_sheet(
@@ -1427,7 +1428,7 @@ fn get_chords<I: Io>(a: &Dict, io_: &mut I) -> Out<I::Error> {
         return Ok(sheet_for_chat(&r)?);
     }
     let c = io(io_.song(get(a, "id")))?;
-    if !py::truthy(&c) {
+    if !crate::value::truthy(&c) {
         return error_of("no existe esa cancion");
     }
     let r = io(io_.chords_of(&c))?;
@@ -1436,12 +1437,12 @@ fn get_chords<I: Io>(a: &Dict, io_: &mut I) -> Out<I::Error> {
 
 fn music_details<I: Io>(a: &Dict, io_: &mut I) -> Out<I::Error> {
     let c = io(io_.song(get(a, "id")))?;
-    if !py::truthy(&c) {
+    if !crate::value::truthy(&c) {
         return error_of("no existe esa cancion");
     }
     let (d, cached) = io(io_.details(&c))?;
-    if py::truthy(&d) && !yes(dict_of(&d)?, "error") {
-        if py::truthy(&cached) {
+    if crate::value::truthy(&d) && !yes(dict_of(&d)?, "error") {
+        if crate::value::truthy(&cached) {
             let mut out = dic([("cached", cached)]);
             for (k, v) in dict_of(&d)? {
                 out.insert(k.clone(), v.clone());
@@ -1465,7 +1466,7 @@ fn transpose_chords<I: Io>(a: &Dict, io_: &mut I) -> Out<I::Error> {
 }
 
 fn search_youtube<I: Io>(a: &Dict, io_: &mut I) -> Out<I::Error> {
-    let mut query = py::head(py::strip(&text_arg(a, "query")), 300).to_owned();
+    let mut query = crate::text::head(text_arg(a, "query").trim(), 300).to_owned();
     if host_of(&query).is_empty() {
         // el texto, en la forma de buscar de la casa; un enlace se queda tal cual
         let form = search_form(&query);
@@ -1520,7 +1521,7 @@ fn download_music<I: Io>(a: &Dict, io_: &mut I) -> Out<I::Error> {
             ("matches", get_or(d, "matches", &json!([])).clone()),
             (
                 "title",
-                if py::truthy(title) {
+                if crate::value::truthy(title) {
                     title.clone()
                 } else {
                     get_or(d, "source", &empty).clone()
@@ -1535,15 +1536,15 @@ fn download_music<I: Io>(a: &Dict, io_: &mut I) -> Out<I::Error> {
         ])));
     }
     let count = |f: &dyn Fn(&Value) -> bool| done.iter().filter(|h| f(h)).count();
-    let ok = |h: &Value| py::truthy(&h["ok"]);
-    let there = |h: &Value| py::truthy(&h["already_there"]);
+    let ok = |h: &Value| crate::value::truthy(&h["ok"]);
+    let there = |h: &Value| crate::value::truthy(&h["already_there"]);
     Ok(Value::Object(dic([
         ("downloaded", count(&ok).into()),
         ("already_there", count(&there).into()),
         ("failures", count(&|h| !ok(h) && !there(h)).into()),
         (
             "trimmed_to",
-            if py::truthy(&plan["trimmed"]) {
+            if crate::value::truthy(&plan["trimmed"]) {
                 MAX_DOWNLOADS.into()
             } else {
                 Value::Null
@@ -1568,7 +1569,7 @@ fn download_status<I: Io>(io_: &mut I) -> Out<I::Error> {
 
 fn search_web<I: Io>(a: &Dict, io_: &mut I) -> Out<I::Error> {
     let r = io(io_.web_search(&text_arg(a, "query"), clamp(get(a, "limit"), 5, 1, 10)))?;
-    if !py::truthy(&r) {
+    if !crate::value::truthy(&r) {
         return Ok(json!({"results": [], "note": "no se pudo comprobar; no te lo inventes, dilo"}));
     }
     // texto de páginas ajenas: se recuerda de dónde sale al devolverlo
@@ -1581,7 +1582,7 @@ fn search_web<I: Io>(a: &Dict, io_: &mut I) -> Out<I::Error> {
 fn play<I: Io>(a: &Dict, io_: &mut I) -> Out<I::Error> {
     if yes(a, "id") {
         let c = io(io_.song(get(a, "id")))?;
-        if !py::truthy(&c) {
+        if !crate::value::truthy(&c) {
             return error_of("no existe esa cancion");
         }
         return Ok(json!({
@@ -1595,7 +1596,7 @@ fn play<I: Io>(a: &Dict, io_: &mut I) -> Out<I::Error> {
         Err(bad) => return Ok(bad),
     };
     let songs = io(io_.playlist_songs(at(&pl, "id")?))?;
-    if !py::truthy(&songs) {
+    if !crate::value::truthy(&songs) {
         return error_of(format!("la lista «{}» esta vacia", s(at(&pl, "name")?)));
     }
     Ok(json!({
@@ -1627,19 +1628,19 @@ fn edit_song<I: Io>(a: &Dict, io_: &mut I) -> Out<I::Error> {
     let id = get(a, "id");
     let mut changed: Vec<Value> = Vec::new();
     if let Some(stars) = get(a, "stars").as_i64() {
-        if !py::truthy(&io(io_.rate(id, stars.clamp(0, 5)))?) {
+        if !crate::value::truthy(&io(io_.rate(id, stars.clamp(0, 5)))?) {
             return error_of("no existe esa cancion");
         }
         changed.push("stars".into());
     }
     if !get(a, "favorite").is_null() {
-        if !py::truthy(&io(io_.favorite(id, get(a, "favorite")))?) {
+        if !crate::value::truthy(&io(io_.favorite(id, get(a, "favorite")))?) {
             return error_of("no existe esa cancion");
         }
         changed.push("favorite".into());
     }
     if !fields.is_empty() {
-        if !py::truthy(&io(io_.edit(id, &fields))?) {
+        if !crate::value::truthy(&io(io_.edit(id, &fields))?) {
             return error_of("no existe esa cancion");
         }
         changed.extend(fields.keys().map(|k| Value::String(k.clone())));
@@ -1648,7 +1649,7 @@ fn edit_song<I: Io>(a: &Dict, io_: &mut I) -> Out<I::Error> {
         return error_of("no me has dicho que cambiar");
     }
     let c = io(io_.song(id))?;
-    if !py::truthy(&c) {
+    if !crate::value::truthy(&c) {
         return error_of("no existe esa cancion");
     }
     Ok(json!({"ok": true, "changed": changed, "song": song_brief(&c)?}))
@@ -1656,7 +1657,7 @@ fn edit_song<I: Io>(a: &Dict, io_: &mut I) -> Out<I::Error> {
 
 fn find_lyrics_and_cover<I: Io>(a: &Dict, io_: &mut I) -> Out<I::Error> {
     let r = io(io_.enrich(get(a, "id"), get(a, "lyrics"), get(a, "cover")))?;
-    Ok(if py::truthy(&r) {
+    Ok(if crate::value::truthy(&r) {
         r
     } else {
         json!({"error": "no se pudo"})
@@ -1705,7 +1706,7 @@ fn delete_playlist<I: Io>(a: &Dict, io_: &mut I) -> Out<I::Error> {
 
 fn related_keys<I: Io>(a: &Dict, io_: &mut I) -> Out<I::Error> {
     let r = io(io_.related_keys(&or_value(&[get(a, "key")])))?;
-    Ok(if py::truthy(&r) {
+    Ok(if crate::value::truthy(&r) {
         r
     } else {
         json!({ "error": format!("no reconozco el tono «{}»", s(get(a, "key"))) })

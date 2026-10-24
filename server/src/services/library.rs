@@ -15,8 +15,8 @@ pub const MISSING_DAYS: f64 = 30.0;
 /// `_carry_grid`: el mismo archivo en otro sitio: su clic sigue valiendo
 /// (sin esto se volvía a calcular, 15-20 s por canción, al mover la carpeta).
 pub fn carry_grid(app: &App, old: &Dict, new_path: &str) {
-    let size = old.get("size").and_then(library::py::int_of);
-    let mtime = old.get("mtime").and_then(library::py::float_of);
+    let size = old.get("size").and_then(library::value::int_of);
+    let mtime = old.get("mtime").and_then(library::value::float_of);
     let old_path = index::get_str(old, "path");
     let (Some(size), Some(mtime), Some(after)) = (size, mtime, tags::stamp(Path::new(new_path)))
     else {
@@ -260,7 +260,7 @@ pub fn index_file(
     roots: Option<&[String]>,
     vocab: Option<&[(String, String)]>,
 ) -> Result<Option<Dict>, ApiError> {
-    let path = library::py::abspath(path);
+    let path = library::paths::absolute(path);
     if !Path::new(&path).is_file() {
         return Ok(None);
     }
@@ -292,7 +292,7 @@ pub fn index_file(
 /// `forget_path(path)`: saca del índice lo que estaba en esa ruta (se
 /// aparta, por si vuelve). No toca el disco. Cuántas filas.
 pub fn forget_path(app: &App, path: &str) -> Result<usize, ApiError> {
-    let abs = library::py::abspath(path);
+    let abs = library::paths::absolute(path);
     let n = app.db(|c| index::to_missing(c, std::slice::from_ref(&abs)))?;
     forget_cached(app, std::slice::from_ref(&abs));
     touch();

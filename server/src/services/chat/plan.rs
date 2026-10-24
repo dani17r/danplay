@@ -22,7 +22,6 @@ use crate::services::{playlists, songs, youtube, ytdlp};
 use library::assistant::plan::{self as p, Card, Refused, Selection};
 use library::assistant::value::Error as DataError;
 use library::index::Dict;
-use library::py;
 use library::safe::datum;
 use serde_json::Value;
 use std::collections::VecDeque;
@@ -593,8 +592,13 @@ fn lookup(app: &App, query: &str, key: &str, cancel: &AtomicBool, blocked: &Atom
             return d;
         }
     };
-    let reason = res.get("reason").map(py::str_of).unwrap_or_default();
-    if res.get("ok").is_some_and(py::truthy) || youtube::failure_kind(&reason).is_empty() {
+    let reason = res
+        .get("reason")
+        .map(library::value::str_of)
+        .unwrap_or_default();
+    if res.get("ok").is_some_and(library::value::truthy)
+        || youtube::failure_kind(&reason).is_empty()
+    {
         cache_put(key, res.clone());
     } else {
         blocked.store(true, Ordering::SeqCst);
@@ -732,13 +736,17 @@ fn work(app: &App, id: &str, search: &Arc<AtomicBool>) {
     while !search.load(Ordering::SeqCst) {
         match rx.recv_timeout(Duration::from_millis(250)) {
             Ok((i, res)) => {
-                if res.get("skipped").is_some_and(py::truthy) {
+                if res.get("skipped").is_some_and(library::value::truthy) {
                     continue;
                 }
-                let kind = if res.get("ok").is_some_and(py::truthy) {
+                let kind = if res.get("ok").is_some_and(library::value::truthy) {
                     ""
                 } else {
-                    youtube::failure_kind(&res.get("reason").map(py::str_of).unwrap_or_default())
+                    youtube::failure_kind(
+                        &res.get("reason")
+                            .map(library::value::str_of)
+                            .unwrap_or_default(),
+                    )
                 };
                 if kind.is_empty() {
                     settle_row(app, id, i, &res);
@@ -765,9 +773,10 @@ pub fn apply_after(app: &App, after: &Dict, results: &Value) -> Dict {
         Err(why) => return p::after_refused(&why),
     };
     let canceled = youtube::canceled(app)
-        || results
-            .as_array()
-            .is_some_and(|a| a.iter().any(|r| r.get("canceled").is_some_and(py::truthy)));
+        || results.as_array().is_some_and(|a| {
+            a.iter()
+                .any(|r| r.get("canceled").is_some_and(library::value::truthy))
+        });
     let _lock = app.playlists_lock.lock();
     let (out, failure) = p::apply_after(&spec, results, canceled, &mut Index(app));
     if let Some(f) = failure {

@@ -245,7 +245,7 @@ pub(crate) mod tests {
         // en Windows el temporal puede venir con su nombre corto
         // (C:\Users\RUNNER~1) y en macOS por un enlace (/var); si no, las
         // rutas de la app y las de la prueba no coinciden
-        PathBuf::from(library::py::realpath(&dir.to_string_lossy()))
+        PathBuf::from(library::paths::real(&dir.to_string_lossy()))
     }
 
     /// Una ruta relativa escrita con «/», con el separador del sistema: en

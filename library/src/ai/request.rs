@@ -8,8 +8,9 @@
 //! próxima vez. Lo que se sabe de antemano por el catálogo ni se manda.
 use crate::index::Dict;
 use crate::names::{Re, is_match, rx, sub};
+use crate::num;
 use crate::patterns::search;
-use crate::py;
+use crate::value;
 use serde_json::{Value, json};
 use std::fmt::Write as _;
 use std::sync::LazyLock;
@@ -163,7 +164,7 @@ static THINK_TAG: LazyLock<Re> = LazyLock::new(|| rx(r"(?i)</?think>"));
 pub fn strip_thoughts(t: &str) -> String {
     let t = sub(&THINK_BLOCK, t, "");
     let t = sub(&THINK_TAG, &t, "");
-    py::strip(&t).to_owned()
+    t.trim().to_owned()
 }
 
 /// Un <think> abierto sin cerrar: lo que hay es razonamiento, no respuesta.
@@ -181,8 +182,8 @@ static BRACES: LazyLock<Re> = LazyLock::new(|| rx(r"(?s)\{.*\}"));
 /// (JSON válido las tres), y quien llama mira dentro de lo que recibe; eso
 /// era un 500 en la ficha y en «Completar con IA».
 pub fn json_from(text: &str) -> Option<Dict> {
-    let text = sub(&FENCES, py::strip(text), "");
-    let text = py::strip(&text);
+    let text = sub(&FENCES, text.trim(), "");
+    let text = text.trim();
     if let Ok(Value::Object(o)) = serde_json::from_str::<Value>(text) {
         return Some(o);
     }
@@ -213,10 +214,10 @@ pub fn py_eq(a: &Value, b: &Value) -> bool {
 /// Si un modelo se puede usar sin clave según la regla del proveedor (LLM7 lo
 /// llama «turbo», Kilo marca `isFree`, OpenCode Zen termina en «-free»).
 pub fn anonymous_ok(mid: &str, extra: &Dict, rule: &Dict) -> bool {
-    if let Some(suffix) = rule.get("suffix").filter(|v| py::truthy(v)) {
-        return mid.ends_with(&py::str_of(suffix));
+    if let Some(suffix) = rule.get("suffix").filter(|v| value::truthy(v)) {
+        return mid.ends_with(&value::str_of(suffix));
     }
-    let field = rule.get("field").map(py::str_of).unwrap_or_default();
+    let field = rule.get("field").map(value::str_of).unwrap_or_default();
     let got = extra.get(&field).unwrap_or(&Value::Null);
     py_eq(got, rule.get("value").unwrap_or(&Value::Null))
 }
@@ -228,15 +229,15 @@ pub fn merge(mid: &str, extra: &Dict, info: Option<&Dict>) -> Dict {
     let empty = Dict::new();
     let info = info.unwrap_or(&empty);
     let get = |k: &str| info.get(k).cloned().unwrap_or(Value::Null);
-    let truthy = |k: &str| info.get(k).filter(|v| py::truthy(v)).cloned();
+    let truthy = |k: &str| info.get(k).filter(|v| value::truthy(v)).cloned();
     let mut out = Dict::new();
     out.insert("id".into(), mid.into());
     let name = truthy("name").unwrap_or_else(|| {
         Value::String(
             extra
                 .get("name")
-                .filter(|v| py::truthy(v))
-                .map_or_else(|| mid.to_owned(), py::str_of),
+                .filter(|v| value::truthy(v))
+                .map_or_else(|| mid.to_owned(), value::str_of),
         )
     });
     out.insert("name".into(), name);
@@ -256,7 +257,7 @@ pub fn merge(mid: &str, extra: &Dict, info: Option<&Dict>) -> Dict {
     out.insert("released".into(), truthy("released").unwrap_or(json!("")));
     out.insert(
         "deprecated".into(),
-        Value::Bool(info.get("deprecated").is_some_and(py::truthy)),
+        Value::Bool(info.get("deprecated").is_some_and(value::truthy)),
     );
     out.insert("known".into(), Value::Bool(!info.is_empty()));
     if let Some(Value::Array(params)) = extra.get("supported_parameters") {
@@ -268,18 +269,21 @@ pub fn merge(mid: &str, extra: &Dict, info: Option<&Dict>) -> Dict {
         );
     }
     if let Some(Value::Object(pricing)) = extra.get("pricing") {
-        let price = |k: &str| py::float_of(pricing.get(k).unwrap_or(&json!(0)));
+        let price = |k: &str| value::float_of(pricing.get(k).unwrap_or(&json!(0)));
         if let Some(x) = price("prompt") {
-            out.insert("cost_in".into(), Value::from(py::round(x * 1_000_000.0, 4)));
+            out.insert(
+                "cost_in".into(),
+                Value::from(num::round_to(x * 1_000_000.0, 4)),
+            );
             if let Some(y) = price("completion") {
                 out.insert(
                     "cost_out".into(),
-                    Value::from(py::round(y * 1_000_000.0, 4)),
+                    Value::from(num::round_to(y * 1_000_000.0, 4)),
                 );
             }
         }
     }
-    let released_empty = !out.get("released").is_some_and(py::truthy);
+    let released_empty = !out.get("released").is_some_and(value::truthy);
     let created = match extra.get("created") {
         Some(Value::Bool(b)) => Some(f64::from(u8::from(*b))),
         Some(Value::Number(n)) => n.as_f64(),
@@ -301,7 +305,7 @@ pub fn merge(mid: &str, extra: &Dict, info: Option<&Dict>) -> Dict {
 /// El `response_format` más fuerte que admite el modelo: con esquema si el
 /// catálogo dice que lo admite; si no, «un objeto JSON».
 pub fn json_format(schema: Option<&Value>, info: Option<&Dict>) -> Dict {
-    if let Some(schema) = schema.filter(|s| py::truthy(s))
+    if let Some(schema) = schema.filter(|s| value::truthy(s))
         && info.is_some_and(|i| i.get("json") == Some(&Value::Bool(true)))
     {
         return json!({"type": "json_schema", "json_schema": schema})
@@ -368,10 +372,14 @@ pub fn song_schema() -> Value {
 /// Lo que se le pide al modelo para identificar un archivo, ya limpio.
 pub fn identified(data: &Dict) -> Dict {
     let s = |k: &str, default: &str| {
-        py::strip(&data.get(k).map_or_else(|| default.to_owned(), py::str_of)).to_owned()
+        (data
+            .get(k)
+            .map_or_else(|| default.to_owned(), value::str_of))
+        .trim()
+        .to_owned()
     };
     let confidence = match data.get("confidence") {
-        Some(v) if py::truthy(v) => py::float_of(v).unwrap_or(0.0),
+        Some(v) if value::truthy(v) => value::float_of(v).unwrap_or(0.0),
         _ => 0.0,
     };
     let mut out = Dict::new();

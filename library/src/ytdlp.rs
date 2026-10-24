@@ -1,21 +1,17 @@
-//! yt-dlp al día (lo que era danplay/ytdlp.py): qué versión es más nueva,
-//! qué motor de JavaScript hay y si le vale a yt-dlp, qué versión descargada
-//! toca usar (y cuál se aparta), qué rueda de PyPI se baja y con qué
-//! yt-dlp-ejs, si coincide con lo que publica PyPI, y descomprimirla sin que
-//! un nombre raro escriba fuera ni el total se dispare.
+//! yt-dlp al día: qué versión es más nueva, qué motor de JavaScript hay y
+//! si le vale a yt-dlp, y qué versión descargada toca usar (y cuál se
+//! aparta).
 //!
 //! Bajarlo, el cerrojo alrededor y la caché del motor de JavaScript son de
 //! `server::services::ytdlp`.
-use crate::{processes, py};
-use serde_json::Value;
+use crate::paths;
+use crate::processes;
+use crate::text;
 use sha2::{Digest, Sha256};
 use std::cmp::Ordering;
 use std::ffi::OsStr;
 use std::path::Path;
 use std::time::Duration;
-
-/// Los paquetes que se bajan y se cargan de la carpeta descargada.
-pub const PACKAGES: [&str; 2] = ["yt_dlp", "yt_dlp_ejs"];
 
 // ------------------------------------------------------------- versiones
 
@@ -197,13 +193,13 @@ pub struct Runtime {
 
 /// Lo que va desde `at` mientras no sea espacio (`\S+`).
 fn word(s: &str) -> &str {
-    let end = s.find(py::isspace).unwrap_or(s.len());
+    let end = s.find(char::is_whitespace).unwrap_or(s.len());
     &s[..end]
 }
 
 /// `\s+`: lo que queda tras uno o más espacios, o `None` si no hay ninguno.
 fn after_spaces(s: &str) -> Option<&str> {
-    let rest = s.trim_start_matches(py::isspace);
+    let rest = s.trim_start_matches(char::is_whitespace);
     (rest.len() < s.len()).then_some(rest)
 }
 
@@ -343,26 +339,7 @@ pub fn marked_version(root: &Path) -> Result<Option<String>, NotUtf8> {
     let text = String::from_utf8(bytes).map_err(|e| NotUtf8(e.into_bytes()))?;
     // `read_text` lee con los saltos de línea de siempre
     let text = text.replace("\r\n", "\n").replace('\r', "\n");
-    Ok(Some(py::strip(&text).to_owned()))
-}
-
-/// (versión, carpeta) de la descargada que dice `current`, si está entera:
-/// todavía sin mirar si es más nueva que la de la app.
-pub fn marked(root: &str) -> Result<Option<(String, String)>, NotUtf8> {
-    let Some(version) = marked_version(Path::new(root))? else {
-        return Ok(None);
-    };
-    // `root() / version`, como lo escribe pathlib
-    let folder = py::purepath(&py::join(root, &version));
-    if version.is_empty()
-        || !Path::new(&folder)
-            .join("yt_dlp")
-            .join("__init__.py")
-            .is_file()
-    {
-        return Ok(None);
-    }
-    Ok(Some((version, folder)))
+    Ok(Some(text.trim().to_owned()))
 }
 
 /// Si la descargada vale frente a la que viaja con la app: sin ninguna en
@@ -371,20 +348,14 @@ pub fn usable(version: &str, bundled: &str) -> bool {
     bundled.is_empty() || newer(version, bundled)
 }
 
-/// `downloaded`: (versión, carpeta) de la descargada que toca usar, la que
-/// dice `current`, si está entera y es más nueva que `bundled`.
-pub fn downloaded(root: &str, bundled: &str) -> Result<Option<(String, String)>, NotUtf8> {
-    Ok(marked(root)?.filter(|(version, _)| usable(version, bundled)))
-}
-
 /// Una versión descargada que no sirve: fuera, y que no se vuelva a probar
 /// (si `current` la nombra, se borra la marca).
 pub fn discard(root: &str, folder: &str) -> Result<(), NotUtf8> {
     let root = Path::new(root);
-    if marked_version(root)?.is_some_and(|v| v == py::path_name(folder)) {
+    if marked_version(root)?.is_some_and(|v| v == paths::file_name(folder)) {
         let _ = std::fs::remove_file(root.join("current"));
     }
-    py::rmtree(Path::new(folder));
+    paths::remove_tree(Path::new(folder));
     Ok(())
 }
 
@@ -394,7 +365,7 @@ pub fn prune(root: &Path, keep: &str) -> std::io::Result<()> {
         let entry = entry?;
         let path = entry.path();
         if path.is_dir() && entry.file_name() != OsStr::new(keep) {
-            py::rmtree(&path);
+            paths::remove_tree(&path);
         }
     }
     Ok(())
@@ -418,212 +389,13 @@ pub fn why(code: Option<&str>, text: &str) -> String {
     {
         return "sin conexion a internet".into();
     }
-    py::head(text, 160).to_owned()
-}
-
-/// Lo de PyPI que no es lo que se esperaba: un archivo que no es un
-/// diccionario (en Python, `AttributeError` al pedirle `get`).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NotADict(pub &'static str);
-
-fn type_name(v: &Value) -> &'static str {
-    match v {
-        Value::Null => "NoneType",
-        Value::Bool(_) => "bool",
-        Value::Number(n) if n.is_f64() => "float",
-        Value::Number(_) => "int",
-        Value::String(_) => "str",
-        Value::Array(_) => "list",
-        Value::Object(_) => "dict",
-    }
-}
-
-fn get<'a>(v: &'a Value, key: &str) -> Result<&'a Value, NotADict> {
-    match v {
-        Value::Object(o) => Ok(o.get(key).unwrap_or(&Value::Null)),
-        other => Err(NotADict(type_name(other))),
-    }
-}
-
-/// La rueda universal (py3-none-any) de una versión de PyPI: su posición en
-/// `urls`. `Ok(None)` si no la hay, o si la primera no trae su sha256.
-pub fn wheel(urls: &[Value]) -> Result<Option<usize>, NotADict> {
-    for (i, f) in urls.iter().enumerate() {
-        let filename = get(f, "filename")?;
-        let name = if py::truthy(filename) {
-            py::str_of(filename)
-        } else {
-            String::new()
-        };
-        if get(f, "packagetype")? == "bdist_wheel" && name.ends_with("-py3-none-any.whl") {
-            let digests = get(f, "digests")?;
-            let sha = if py::truthy(digests) {
-                get(digests, "sha256")?
-            } else {
-                &Value::Null
-            };
-            return Ok(py::truthy(sha).then_some(i));
-        }
-    }
-    Ok(None)
-}
-
-/// `^\s*yt-dlp-ejs\s*==\s*([\w.]+)`.
-fn pinned(req: &str) -> Option<&str> {
-    let rest = req
-        .trim_start_matches(py::isspace)
-        .strip_prefix("yt-dlp-ejs")?;
-    let rest = rest.trim_start_matches(py::isspace).strip_prefix("==")?;
-    let rest = rest.trim_start_matches(py::isspace);
-    let end = rest
-        .find(|c: char| !(c == '_' || c == '.' || py::isalnum(c)))
-        .unwrap_or(rest.len());
-    (end > 0).then(|| &rest[..end])
-}
-
-/// La versión de yt-dlp-ejs que pide esa versión de yt-dlp (su extra
-/// «default»), de su `requires_dist`. yt-dlp exige que casen: con otra, no
-/// resuelve los retos. "" si no pide ninguna.
-pub fn ejs_pin(requires: &[Value]) -> String {
-    for req in requires {
-        let text = py::str_of(req);
-        if let Some(v) = pinned(&text)
-            && text.contains("default")
-        {
-            return v.to_owned();
-        }
-    }
-    String::new()
+    text::head(text, 160).to_owned()
 }
 
 /// El sha256 de lo bajado, en hexadecimal (como `hexdigest()`).
 pub fn sha256_hex(data: &[u8]) -> String {
     crate::duplicates::hex(&Sha256::digest(data))
 }
-
-/// Por qué no se descomprimió una rueda.
-#[derive(Debug)]
-pub enum UnpackError {
-    /// Lo que se le dice a quien actualiza (`UpdateError`).
-    Refused(String),
-    /// El zip está mal (`zipfile.BadZipFile`).
-    BadZip(String),
-    /// Un archivo cifrado (el `RuntimeError` de `zipfile`).
-    Encrypted(String),
-    /// Algo que `zipfile` no sabe leer (`NotImplementedError`).
-    Unsupported(String),
-    /// Lo comprimido no se deja descomprimir (`zlib.error`).
-    Inflate(String),
-    /// Lo comprimido se acaba antes de tiempo (`EOFError`).
-    Eof,
-    /// Un nombre que dice ser UTF-8 y no lo es (`UnicodeDecodeError`).
-    Decode(Vec<u8>),
-    /// No se pudo escribir (o crear una carpeta).
-    Io(std::io::Error),
-}
-
-impl From<std::io::Error> for UnpackError {
-    fn from(e: std::io::Error) -> Self {
-        Self::Io(e)
-    }
-}
-
-/// `Path(name).parts`, sin la raíz: los componentes que no son vacíos ni «.».
-fn parts(name: &str) -> Vec<&str> {
-    let seps: &[char] = if cfg!(windows) { &['/', '\\'] } else { &['/'] };
-    name.split(seps)
-        .filter(|p| !p.is_empty() && *p != ".")
-        .collect()
-}
-
-/// Dónde va un archivo de la rueda dentro de `target` (`_extract_member`):
-/// sin unidad ni raíz, sin «.», «..» ni componentes vacíos, y en Windows sin
-/// los caracteres que no se dejan usar.
-fn target_path(target: &str, filename: &str) -> String {
-    let sep = if cfg!(windows) { "\\" } else { "/" };
-    let mut arcname = filename.replace('/', sep);
-    if cfg!(windows) {
-        // `os.path.splitdrive(arcname)[1]`
-        let drive = py::nt_splitroot(&arcname).0.len();
-        arcname = arcname[drive..].to_owned();
-    }
-    let mut kept: Vec<String> = arcname
-        .split(sep)
-        .filter(|x| !matches!(*x, "" | "." | ".."))
-        .map(str::to_owned)
-        .collect();
-    if cfg!(windows) {
-        kept = kept
-            .into_iter()
-            .map(|x| {
-                x.chars()
-                    .map(|c| if ":<>|\"?*".contains(c) { '_' } else { c })
-                    .collect::<String>()
-                    .trim_end_matches([' ', '.'])
-                    .to_owned()
-            })
-            .filter(|x| !x.is_empty())
-            .collect();
-    }
-    py::normpath(&py::join(target, &kept.join(sep)))
-}
-
-/// Descomprime las ruedas en `target`, sin dejar que un nombre raro escriba
-/// fuera («../», rutas absolutas) ni que el total pase de `limit` bytes. De
-/// cada rueda solo sale el paquete y su `.dist-info`: lo de
-/// `<paquete>.data/` (páginas de manual, autocompletado) no hace falta para
-/// importarlo. Cada rueda se lee como la leía `zipfile` (`wheel_zip`).
-pub fn unpack(wheels: &[&[u8]], target: &Path, limit: u64) -> Result<(), UnpackError> {
-    let target = target.to_string_lossy();
-    let mut total: u64 = 0;
-    for data in wheels {
-        for m in wheel_zip::members(data)? {
-            let name = &m.filename;
-            let p = parts(name);
-            if name.starts_with(['/', '\\'])
-                || p.contains(&"..")
-                || name.contains(':')
-                || p.is_empty()
-            {
-                return Err(UnpackError::Refused(format!(
-                    "la rueda trae un archivo que no toca: {name}"
-                )));
-            }
-            if !(PACKAGES.contains(&p[0]) || p[0].ends_with(".dist-info")) {
-                continue;
-            }
-            total = total.saturating_add(m.file_size);
-            if total > limit {
-                return Err(UnpackError::Refused(
-                    "la rueda descomprimida pesa demasiado".into(),
-                ));
-            }
-            extract(data, &m, &target)?;
-        }
-    }
-    Ok(())
-}
-
-/// Un archivo de la rueda a su sitio (`ZipFile.extract`).
-fn extract(data: &[u8], m: &wheel_zip::Member, target: &str) -> Result<(), UnpackError> {
-    let path = target_path(target, &m.filename);
-    let upper = py::dirname(&path);
-    if !upper.is_empty() && !Path::new(&upper).exists() {
-        std::fs::create_dir_all(&upper)?;
-    }
-    if m.is_dir() {
-        if !Path::new(&path).is_dir()
-            && let Err(e) = std::fs::create_dir(&path)
-            && !(e.kind() == std::io::ErrorKind::AlreadyExists && Path::new(&path).is_dir())
-        {
-            return Err(e.into());
-        }
-        return Ok(());
-    }
-    wheel_zip::extract_to(data, m, || std::fs::File::create(&path))
-}
-
-mod wheel_zip;
 
 #[cfg(test)]
 mod tests;

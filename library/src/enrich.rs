@@ -10,8 +10,8 @@
 //! entrada hacen lo de aquí: las pruebas ponen otros en su lugar.
 use crate::index::Dict;
 use crate::patterns::quote_plus;
-use crate::py::truthy;
 use crate::tags::lrc;
+use crate::value::truthy;
 use crate::{chord_sheets, theory};
 use regex::Regex;
 use serde_json::{Value, json};

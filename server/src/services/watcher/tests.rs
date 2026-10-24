@@ -5,6 +5,7 @@
 //! biblioteca en una carpeta temporal.
 use super::*;
 use crate::tests::{app, scratch, wav};
+use library::value;
 use notify::event::{DataChange, MetadataKind, RenameMode};
 
 /// Un segundo de algo (para que el escaneo lo vea como una canción).
@@ -39,7 +40,7 @@ fn ids(app: &App) -> HashMap<String, (i64, String)> {
         .iter()
         .map(|r| {
             let id = r.get("id").and_then(Value::as_i64).unwrap_or(0);
-            (py::str_of(&r["file"]), (id, py::str_of(&r["path"])))
+            (value::str_of(&r["file"]), (id, value::str_of(&r["path"])))
         })
         .collect()
 }

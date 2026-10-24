@@ -11,8 +11,8 @@
 pub mod dotenv;
 #[cfg(test)]
 mod tests;
-
-use crate::py;
+use crate::paths;
+use crate::value;
 use std::collections::HashMap;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
@@ -70,7 +70,7 @@ pub fn env_or_default(name: &str, default: &str) -> String {
 
 /// La carpeta de casa (`Path.home()`).
 pub fn home() -> PathBuf {
-    PathBuf::from(py::expanduser("~"))
+    PathBuf::from(paths::expand_home("~"))
 }
 
 /// La carpeta de datos del sistema, como `platformdirs.user_data_dir(app,
@@ -100,8 +100,8 @@ pub fn user_config_dir(app: &str) -> PathBuf {
 
 fn xdg(var: &str, fallback: &str) -> PathBuf {
     match process_env(var) {
-        Some(p) if !py::strip(&p).is_empty() => PathBuf::from(p),
-        _ => PathBuf::from(py::expanduser(fallback)),
+        Some(p) if !p.trim().is_empty() => PathBuf::from(p),
+        _ => PathBuf::from(paths::expand_home(fallback)),
     }
 }
 
@@ -123,9 +123,9 @@ pub fn user_music_dir() -> PathBuf {
             let Some((k, v)) = line.split_once('=').or_else(|| line.split_once(':')) else {
                 continue;
             };
-            if py::strip(k).eq_ignore_ascii_case("XDG_MUSIC_DIR") {
-                let v = py::strip(v).trim_matches('"');
-                return PathBuf::from(v.replace("$HOME", &py::expanduser("~")));
+            if k.trim().eq_ignore_ascii_case("XDG_MUSIC_DIR") {
+                let v = v.trim().trim_matches('"');
+                return PathBuf::from(v.replace("$HOME", &paths::expand_home("~")));
             }
         }
         return xdg_music_env();
@@ -135,8 +135,8 @@ pub fn user_music_dir() -> PathBuf {
 
 fn xdg_music_env() -> PathBuf {
     match process_env("XDG_MUSIC_DIR") {
-        Some(p) if !py::strip(&p).is_empty() => PathBuf::from(py::strip(&p)),
-        _ => PathBuf::from(py::expanduser("~/Music")),
+        Some(p) if !p.trim().is_empty() => PathBuf::from(p.trim()),
+        _ => PathBuf::from(paths::expand_home("~/Music")),
     }
 }
 
@@ -221,8 +221,8 @@ pub fn dotenv_value(value: &str) -> String {
 
 /// La variable que define una línea del archivo («export X=1» incluido).
 fn key_of(line: &str) -> &str {
-    let head = py::strip(line.split_once('=').map_or(line, |(h, _)| h));
-    head.strip_prefix("export ").map_or(head, py::strip)
+    let head = (line.split_once('=').map_or(line, |(h, _)| h)).trim();
+    head.strip_prefix("export ").map_or(head, str::trim)
 }
 
 /// La configuración de DanPlay.
@@ -275,12 +275,12 @@ impl Config {
         let data_dir = if data_override.is_empty() {
             user_data_dir("danplay")
         } else {
-            PathBuf::from(py::expanduser(&data_override))
+            PathBuf::from(paths::expand_home(&data_override))
         };
         let config_dir = if config_override.is_empty() {
             user_config_dir("danplay")
         } else {
-            PathBuf::from(py::expanduser(&config_override))
+            PathBuf::from(paths::expand_home(&config_override))
         };
         let _ = private_dir(&data_dir);
         let _ = private_dir(&config_dir);
@@ -427,11 +427,11 @@ impl Config {
         self.write_tags = self.flag("DANPLAY_TAGS", "1");
         self.stems_format = self.env("DANPLAY_STEMS_FORMAT", "flac");
         self.duplicate_threshold =
-            py::parse_float(&self.env("DANPLAY_DUP_THRESHOLD", "0.88")).unwrap_or(0.88);
+            value::parse_float(&self.env("DANPLAY_DUP_THRESHOLD", "0.88")).unwrap_or(0.88);
     }
 
     fn set_library_paths(&mut self, library: &Path) {
-        self.library = PathBuf::from(py::expanduser(&library.to_string_lossy()));
+        self.library = PathBuf::from(paths::expand_home(&library.to_string_lossy()));
         self.inbox = self.library.join(self.env("DANPLAY_INBOX", "Entrada"));
         self.artists_dir = self.library.join("Artistas");
         self.review_dir = self.library.join("Revisar");
@@ -469,7 +469,7 @@ impl Config {
         let mut lines: Vec<String> = text.lines().map(str::to_owned).collect();
         for (key, value) in pairs {
             let value = value.replace(['\r', '\n'], " ");
-            let value = py::strip(&value);
+            let value = value.trim();
             lines.retain(|line| key_of(line) != *key);
             lines.push(format!("{key}={}", dotenv_value(value)));
         }

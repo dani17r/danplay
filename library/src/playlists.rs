@@ -17,7 +17,9 @@ use crate::index::search::{light, light_columns};
 use crate::index::{Dict, begin, fetch_all, fetch_one, markers, now, sql};
 // El id de una lista va tal cual llegó a la consulta, como antes: lo que no
 // es un número (un `None` de quien llama) no casa con ninguna.
-use crate::{names, py};
+use crate::names;
+use crate::paths;
+use crate::value;
 use rusqlite::Connection;
 use rusqlite::types::Value as Sql;
 use serde_json::Value;
@@ -164,7 +166,7 @@ pub fn create(
     note: Option<&str>,
     color: Option<&str>,
 ) -> rusqlite::Result<Dict> {
-    let name = py::strip(name);
+    let name = name.trim();
     let mut out = Dict::new();
     if let Some(row) = fetch_one(conn, "SELECT id FROM playlists WHERE name=?", [name])? {
         out.insert("id".into(), row.get("id").cloned().unwrap_or(Value::Null));
@@ -261,7 +263,7 @@ pub fn by_name(conn: &Connection, name: &str) -> rusqlite::Result<Option<Dict>> 
     }
     let found = fetch_all(conn, "SELECT id, name FROM playlists ORDER BY name", [])?
         .into_iter()
-        .find(|r| names::flat(&r.get("name").map(py::str_of).unwrap_or_default()) == key);
+        .find(|r| names::flat(&r.get("name").map(value::str_of).unwrap_or_default()) == key);
     match found.and_then(|r| r.get("id").and_then(Value::as_i64)) {
         Some(id) => by_id(conn, id),
         None => Ok(None),
@@ -281,7 +283,7 @@ pub fn edit(
     };
     let mut fields: Vec<&str> = Vec::new();
     let mut values: Vec<String> = Vec::new();
-    if let Some(name) = name.map(py::strip).filter(|n| !n.is_empty()) {
+    if let Some(name) = name.map(str::trim).filter(|n| !n.is_empty()) {
         fields.push("name=?");
         values.push(name.to_owned());
     }
@@ -499,7 +501,7 @@ pub fn cards(conn: &Connection, ids: &[i64]) -> rusqlite::Result<Vec<(i64, Dict)
     };
     let or = |d: &Dict, k: &str, default: Value| {
         d.get(k)
-            .filter(|v| py::truthy(v))
+            .filter(|v| value::truthy(v))
             .cloned()
             .unwrap_or(default)
     };
@@ -523,7 +525,7 @@ pub fn cards(conn: &Connection, ids: &[i64]) -> rusqlite::Result<Vec<(i64, Dict)
             card.insert("artist".into(), or(&d, "artist", "".into()));
             card.insert("title".into(), or(&d, "title", "".into()));
             card.insert("duration".into(), or(&d, "duration", Value::from(0)));
-            card.insert("file".into(), or(&d, "file", py::basename(path).into()));
+            card.insert("file".into(), or(&d, "file", paths::file_name(path).into()));
             card.insert("path".into(), path.into());
             // un id que sale dos veces (no debería) se queda con la última
             put(
@@ -574,20 +576,20 @@ fn path_stem(file: &str) -> String {
 pub fn ghost(cid: i64, card: &Dict, position: &Value) -> Dict {
     let or = |k: &str, default: Value| {
         card.get(k)
-            .filter(|v| py::truthy(v))
+            .filter(|v| value::truthy(v))
             .cloned()
             .unwrap_or(default)
     };
     let file_stem = path_stem(
         &card
             .get("file")
-            .filter(|v| py::truthy(v))
-            .map(py::str_of)
+            .filter(|v| value::truthy(v))
+            .map(value::str_of)
             .unwrap_or_default(),
     );
     let title = card
         .get("title")
-        .filter(|v| py::truthy(v))
+        .filter(|v| value::truthy(v))
         .cloned()
         .unwrap_or_else(|| {
             if file_stem.is_empty() {
@@ -736,8 +738,8 @@ pub fn keep_cards(conn: &Connection, ids: &[i64]) -> rusqlite::Result<()> {
 /// `reuse._close`: dos duraciones que son la misma canción.
 fn close(a: &Value, b: &Value) -> bool {
     let f = |v: &Value| {
-        if py::truthy(v) {
-            py::float_of(v)
+        if value::truthy(v) {
+            value::float_of(v)
         } else {
             Some(0.0)
         }

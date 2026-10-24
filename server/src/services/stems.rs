@@ -12,8 +12,9 @@ use crate::error::ApiError;
 use crate::jobs::{JobError, Progress};
 use crate::services::{folders, onnx, reuse, songs, trash};
 use library::index::Dict;
-use library::py;
+use library::paths;
 use library::stems::{self as ls, FAST, FINAL, MAX, MAXIMUM, QUICK, REFINE, REST};
+use library::value;
 use serde_json::{Map, Value, json};
 use std::collections::HashMap;
 use std::ffi::OsString;
@@ -533,7 +534,7 @@ pub fn file_stem(file: &str) -> String {
     if file.is_empty() {
         String::new()
     } else {
-        py::path_stem(file)
+        paths::stem(std::path::Path::new(file))
     }
 }
 
@@ -589,7 +590,7 @@ fn step_message(step: &str, title: &str, verb: &str) -> Option<String> {
 /// `x or 0` de Python con un número que llega en JSON.
 fn or_zero(v: Option<Value>) -> Value {
     match v {
-        Some(v) if py::truthy(&v) => v,
+        Some(v) if value::truthy(&v) => v,
         _ => json!(0),
     }
 }
@@ -754,12 +755,12 @@ fn read_lines(
         };
         if m.contains_key("done") {
             report.step(m.get("done").cloned(), m.get("total").cloned(), None);
-        } else if m.get("step").is_some_and(py::truthy) {
-            let step = m.get("step").map(py::str_of).unwrap_or_default();
+        } else if m.get("step").is_some_and(value::truthy) {
+            let step = m.get("step").map(value::str_of).unwrap_or_default();
             report.step(None, None, Some(&step));
-        } else if m.get("error").is_some_and(py::truthy) {
-            failure = m.get("error").map(py::str_of).unwrap_or_default();
-        } else if m.get("ok").is_some_and(py::truthy) {
+        } else if m.get("error").is_some_and(value::truthy) {
+            failure = m.get("error").map(value::str_of).unwrap_or_default();
+        } else if m.get("ok").is_some_and(value::truthy) {
             result = m;
         }
     }
@@ -867,7 +868,7 @@ fn needs_refine(app: &App, tracks: &Value) -> bool {
 
 fn relative_to_root(target: &Path, song: &Dict) -> String {
     let root = songs::text(song, "root");
-    py::relpath(&path_text(target), &root).unwrap_or_else(|| path_text(target))
+    paths::relative(&path_text(target), &root).unwrap_or_else(|| path_text(target))
 }
 
 fn save_stems_column(app: &App, cid: i64, rel: &str, model: &str, quality: &str) -> Result<()> {
@@ -951,7 +952,7 @@ fn separate_song(app: &App, cid: i64, report: &Report<'_>) -> Result<Dict> {
 
 fn stamp_of(m: &Dict) -> Value {
     m.get("updated")
-        .filter(|v| py::truthy(v))
+        .filter(|v| value::truthy(v))
         .or_else(|| m.get("created"))
         .cloned()
         .unwrap_or(Value::Null)
@@ -959,14 +960,14 @@ fn stamp_of(m: &Dict) -> Value {
 
 fn tracks_of(m: &Dict) -> Vec<(String, String)> {
     m.get("tracks")
-        .filter(|v| py::truthy(v))
-        .map(py::list_of)
+        .filter(|v| value::truthy(v))
+        .map(value::list_of)
         .unwrap_or_default()
         .iter()
         .map(|t| {
             (
-                t.get("source").map(py::str_of).unwrap_or_default(),
-                t.get("file").map(py::str_of).unwrap_or_default(),
+                t.get("source").map(value::str_of).unwrap_or_default(),
+                t.get("file").map(value::str_of).unwrap_or_default(),
             )
         })
         .collect()
@@ -989,7 +990,7 @@ fn merged_levels(manifest: &Dict, mut result: Dict) -> Dict {
 
 fn created_of(m: &Dict) -> Value {
     m.get("created")
-        .filter(|v| py::truthy(v))
+        .filter(|v| value::truthy(v))
         .cloned()
         .unwrap_or_else(|| Value::from(library::index::now()))
 }
@@ -1174,7 +1175,7 @@ fn max_song(app: &App, cid: i64, report: &Report<'_>) -> Result<Dict> {
 }
 
 fn is_true(d: &Dict, k: &str) -> bool {
-    d.get(k).is_some_and(py::truthy)
+    d.get(k).is_some_and(value::truthy)
 }
 
 /// Lo que hay que hacer para que tenga las mejores pistas: mejorar las
@@ -1389,7 +1390,7 @@ fn drain_queue(app: &App, progress: &Progress) -> Result<Value> {
         let report = Report {
             app,
             progress: Some(progress),
-            title: it.get("title").map(py::str_of).unwrap_or_default(),
+            title: it.get("title").map(value::str_of).unwrap_or_default(),
             verb,
             position,
         };
@@ -1405,7 +1406,7 @@ fn drain_queue(app: &App, progress: &Progress) -> Result<Value> {
                 }
             }),
             _ => separate_song(app, cid, &report).inspect(|r| {
-                if r.get("refine").is_some_and(py::truthy) {
+                if r.get("refine").is_some_and(value::truthy) {
                     // las rápidas ya están: la mejora, a la cola
                     lock(&app.separator.queue)
                         .queue
@@ -1565,7 +1566,7 @@ fn with_name(path: &Path, name: &str) -> PathBuf {
 
 /// `Path.suffix` (con el punto), como pathlib.
 fn suffix(path: &Path) -> String {
-    py::path_suffix(&path_text(path))
+    paths::suffix(std::path::Path::new(&path_text(path)))
 }
 
 /// Guarda en `target` la mezcla de las pistas de la canción (ver
@@ -1586,7 +1587,7 @@ pub fn export_mix(app: &App, cid: i64, mix: &Mix, progress: &dyn Fn(f64, f64)) -
                 "esta canción no tiene sus pistas separadas completas",
             ));
         };
-        let tracks = d.get("tracks").map(py::list_of).unwrap_or_default();
+        let tracks = d.get("tracks").map(value::list_of).unwrap_or_default();
         for t in &mix.tracks {
             let Some(track) = tracks
                 .iter()
@@ -1596,7 +1597,10 @@ pub fn export_mix(app: &App, cid: i64, mix: &Mix, progress: &dyn Fn(f64, f64)) -
             };
             let coefs = track_matrix(t);
             if coefs.iter().any(|c| *c > 1e-4) {
-                chosen.push((track.get("path").map(py::str_of).unwrap_or_default(), coefs));
+                chosen.push((
+                    track.get("path").map(value::str_of).unwrap_or_default(),
+                    coefs,
+                ));
             }
         }
     }
@@ -1605,7 +1609,7 @@ pub fn export_mix(app: &App, cid: i64, mix: &Mix, progress: &dyn Fn(f64, f64)) -
             "todas las pistas están calladas: no hay nada que guardar",
         ));
     }
-    let mut path = PathBuf::from(py::abspath(&py::expanduser(&mix.path)));
+    let mut path = PathBuf::from(paths::absolute(&paths::expand_home(&mix.path)));
     let fmt = mix
         .format
         .clone()
@@ -1642,7 +1646,7 @@ pub fn export_mix(app: &App, cid: i64, mix: &Mix, progress: &dyn Fn(f64, f64)) -
     let muted: Vec<String> = data
         .as_ref()
         .and_then(|d| d.get("tracks"))
-        .map(py::list_of)
+        .map(value::list_of)
         .unwrap_or_default()
         .iter()
         .filter(|t| {
@@ -1651,12 +1655,12 @@ pub fn export_mix(app: &App, cid: i64, mix: &Mix, progress: &dyn Fn(f64, f64)) -
                 .any(|u| Some(u.as_str()) == t.get("path").and_then(Value::as_str))
         })
         .map(|t| {
-            let source = t.get("source").map(py::str_of).unwrap_or_default();
+            let source = t.get("source").map(value::str_of).unwrap_or_default();
             ls::SOURCES
                 .iter()
                 .find(|(k, _, _)| *k == source)
                 .map_or_else(
-                    || t.get("name").map(py::str_of).unwrap_or_default(),
+                    || t.get("name").map(value::str_of).unwrap_or_default(),
                     |(_, _, n)| (*n).to_owned(),
                 )
                 .to_lowercase()
@@ -1689,7 +1693,10 @@ pub fn export_mix(app: &App, cid: i64, mix: &Mix, progress: &dyn Fn(f64, f64)) -
     if !what.is_empty() {
         title = format!("{title} ({})", what.join(", "));
     }
-    let duration = song.get("duration").and_then(py::float_of).unwrap_or(0.0);
+    let duration = song
+        .get("duration")
+        .and_then(value::float_of)
+        .unwrap_or(0.0);
     let length = if duration == 0.0 {
         beats
             .iter()
@@ -1700,7 +1707,7 @@ pub fn export_mix(app: &App, cid: i64, mix: &Mix, progress: &dyn Fn(f64, f64)) -
     } else {
         duration
     };
-    let stem = py::path_stem(&path_text(&path));
+    let stem = paths::stem(std::path::Path::new(&path_text(&path)));
     let tmp = with_name(&path, &format!(".{stem}.parte{}", suffix(&path)));
     let work = make_temp_dir(&std::env::temp_dir(), "danplay-mezcla-")?;
     let outcome = (|| -> Result<()> {

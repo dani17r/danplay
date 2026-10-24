@@ -24,7 +24,7 @@
 //! Es el modo «lax» de pydantic: un número en texto vale como número (`"5"`),
 //! `1` y `"true"` valen como verdadero, `5.0` vale como entero; un número no
 //! vale como texto.
-use library::py;
+use library::value;
 use serde_json::{Map, Value, json};
 
 /// Un número de una restricción (`ge=0`, `le=0.25`), escrito como en
@@ -828,7 +828,7 @@ impl Kind for Float {
             Value::Number(n) => n.as_f64(),
             Value::Bool(b) => Some(f64::from(u8::from(*b))),
             Value::String(s) => {
-                let Some(x) = py::parse_float(s.trim()) else {
+                let Some(x) = value::parse_float(s.trim()) else {
                     errors.push(error(
                         "float_parsing",
                         loc,
@@ -894,9 +894,9 @@ pub struct Lit {
     options: &'static [&'static str],
 }
 
-/// «'a', 'b' or 'c'», como lo escribe pydantic.
+/// «'a', 'b' or 'c'».
 pub fn expected(options: &[&str]) -> String {
-    let quoted: Vec<String> = options.iter().map(|o| py::repr_str(o)).collect();
+    let quoted: Vec<String> = options.iter().map(|o| format!("'{o}'")).collect();
     match quoted.split_last() {
         None => String::new(),
         Some((last, [])) => last.clone(),

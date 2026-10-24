@@ -33,7 +33,9 @@ use crate::app::{App, path_str};
 use crate::error::ApiError;
 use crate::services::{folders, ingest, library as lib, songs, stems, tags, tools, ytdlp};
 use library::index::{Dict, history, search};
-use library::py;
+use library::paths;
+use library::text;
+use library::value;
 use library::youtube::{self as yt, Logged, Seen, Target};
 use serde_json::{Map, Value, json};
 use std::path::{Path, PathBuf};
@@ -137,7 +139,7 @@ pub fn state(app: &App) -> Map<String, Value> {
 /// se suelta solo. Un turno nuevo empieza con `after` en `null`.
 pub fn claim(app: &App) -> u64 {
     let mut s = turn(app);
-    if s.get("active").is_some_and(py::truthy) {
+    if s.get("active").is_some_and(value::truthy) {
         return 0;
     }
     app.downloads.cancel.store(false, Ordering::SeqCst);
@@ -273,7 +275,7 @@ pub fn pick(v: &Value) -> Result<Map<String, Value>, String> {
 /// devuelve `info`: los vídeos (de una lista, los que vinieron) o por qué
 /// no hay nada.
 pub fn query_result(data: &Value, seen: &Seen) -> Result<Map<String, Value>, String> {
-    if !py::truthy(data) {
+    if !value::truthy(data) {
         return Ok(yt::query_empty(seen));
     }
     let Value::Object(d) = data else {
@@ -281,19 +283,19 @@ pub fn query_result(data: &Value, seen: &Seen) -> Result<Map<String, Value>, Str
     };
     let mut entries: Vec<&Value> = Vec::new();
     match d.get("entries") {
-        Some(listed) if py::truthy(listed) => {
+        Some(listed) if value::truthy(listed) => {
             let Value::Array(listed) = listed else {
                 return Err("yt-dlp ha contestado algo que no se entiende".into());
             };
-            entries.extend(listed.iter().filter(|e| py::truthy(e)));
+            entries.extend(listed.iter().filter(|e| value::truthy(e)));
         }
         Some(_) => {}
         None => entries.push(data),
     }
-    let playlist = d.get("entries").is_some_and(py::truthy);
+    let playlist = d.get("entries").is_some_and(value::truthy);
     let name = d
         .get("title")
-        .filter(|t| py::truthy(t))
+        .filter(|t| value::truthy(t))
         .cloned()
         .unwrap_or_else(|| json!(""));
     let items = entries
@@ -380,27 +382,27 @@ impl TempDir {
 
 impl Drop for TempDir {
     fn drop(&mut self) {
-        py::rmtree(&self.0);
+        paths::remove_tree(&self.0);
     }
 }
 
 /// Lo que se bajó (el JSON del final): el vídeo, o el primero de una lista.
 fn single(data: Value) -> Result<Value, &'static str> {
-    if !py::truthy(&data) {
+    if !value::truthy(&data) {
         return Err("no se pudo leer el video");
     }
-    let Some(entries) = data.get("entries").filter(|e| py::truthy(e)) else {
+    let Some(entries) = data.get("entries").filter(|e| value::truthy(e)) else {
         return Ok(data);
     };
     entries
         .as_array()
-        .and_then(|list| list.iter().find(|e| py::truthy(e)).cloned())
+        .and_then(|list| list.iter().find(|e| value::truthy(e)).cloned())
         .ok_or("lista vacia")
 }
 
 fn text_of(v: Option<&Value>) -> String {
     match v {
-        Some(v) if py::truthy(v) => py::str_of(v),
+        Some(v) if value::truthy(v) => value::str_of(v),
         _ => String::new(),
     }
 }
@@ -462,7 +464,7 @@ pub fn download_one(
     ));
     let ran = match ytdlp::run(&exe.path, &args, None, Some(tmp.path()), progress, cancel) {
         Ok(r) => r,
-        Err(e) => return Ok(failure(py::head(&e.to_string(), 200))),
+        Err(e) => return Ok(failure(text::head(&e.to_string(), 200))),
     };
     if ran.canceled {
         let mut out = failure("canceled");
@@ -471,7 +473,7 @@ pub fn download_one(
     }
     let Some(data) = ran.json.clone() else {
         log::warn!("yt-dlp no bajo {target_url}: {}", ran.tail.join(" | "));
-        return Ok(failure(py::head(&ran.failure(), 200)));
+        return Ok(failure(text::head(&ran.failure(), 200)));
     };
     if !ran.tail.is_empty() {
         log::info!("yt-dlp con {target_url}: {}", ran.tail.join(" | "));
@@ -548,14 +550,14 @@ fn log_download(app: &App, entry: &Map<String, Value>, query: &str, source: &str
     let id = get("id");
     let already = get("already_there");
     let target = get_or("target");
-    let first_match = if id.is_null() && py::truthy(&already) {
+    let first_match = if id.is_null() && value::truthy(&already) {
         entry
             .get("matches")
-            .filter(|m| py::truthy(m))
+            .filter(|m| value::truthy(m))
             .and_then(|m| m.get(0))
             .map(|mine| {
                 let song = mine.get("id").cloned().unwrap_or(Value::Null);
-                let path = if py::truthy(&target) {
+                let path = if value::truthy(&target) {
                     Value::Null
                 } else {
                     mine.get("path").cloned().unwrap_or_else(|| json!(""))
@@ -593,7 +595,7 @@ fn get_value<'a>(m: &'a Map<String, Value>, k: &str) -> &'a Value {
 
 /// `a or b` de dos campos.
 fn either<'a>(a: &'a Value, b: &'a Value) -> &'a Value {
-    if py::truthy(a) { a } else { b }
+    if value::truthy(a) { a } else { b }
 }
 
 /// `download`: baja (uno, una lista o una búsqueda) y, con `file_it`, lo
@@ -625,7 +627,7 @@ fn download_unlocked(
         .filter(|q| !q.is_empty())
         .unwrap_or_else(|| cfg.mp3_quality.clone());
     let meta = info_unlocked(app, inbox, w.results, None)?;
-    if !meta.get("ok").is_some_and(py::truthy) {
+    if !meta.get("ok").is_some_and(value::truthy) {
         // `requested` en TODO resultado: quien completa una lista al terminar
         // casa cada resultado con lo que pidió
         let mut out = failure("");
@@ -674,7 +676,7 @@ fn download_unlocked(
         let mut step = |p: Map<String, Value>| {
             let name = p
                 .get("name")
-                .filter(|v| py::truthy(v))
+                .filter(|v| value::truthy(v))
                 .cloned()
                 .unwrap_or_else(|| title.clone());
             let mut p = p;
@@ -703,7 +705,7 @@ fn download_unlocked(
         r.insert("forced".into(), json!(w.force));
         r.insert("source".into(), title.clone());
         r.insert("requested".into(), json!(inbox));
-        if r.get("ok").is_some_and(py::truthy) && w.file_it {
+        if r.get("ok").is_some_and(value::truthy) && w.file_it {
             progress(object(vec![
                 ("phase", json!("filing")),
                 ("index", json!(i)),
@@ -778,7 +780,7 @@ fn file_it(
         &found.artist,
         &found.title,
         found.confidence,
-        &found.source,
+        found.source,
     );
     known.feat = found.feat;
     let file = text_of(r.get("file"));
@@ -899,7 +901,7 @@ fn run_many_with(
 ) -> Vec<Map<String, Value>> {
     let queries: Vec<String> = queries
         .iter()
-        .map(|q| py::strip(q).to_owned())
+        .map(|q| q.trim().to_owned())
         .filter(|q| !q.is_empty())
         .collect();
     let token = if claimed {
@@ -921,7 +923,7 @@ fn run_many_with(
         Err(_) => Some("la descarga se paro por un fallo".into()),
     };
     if let Some(why) = why {
-        let short = py::head(&why, 200).to_owned();
+        let short = text::head(&why, 200).to_owned();
         log::warn!("la descarga fallo: {why}");
         put(app, token, vec![("error", json!(short))]);
         let mut f = failure(&short);
@@ -962,11 +964,11 @@ fn each_query(
         let pending = (queries.len() - position - 1) as i64;
         let mut step = |mut p: Map<String, Value>| {
             if let Some(i) = p.get("index") {
-                let i = py::int_of(i).unwrap_or(0);
+                let i = value::int_of(i).unwrap_or(0);
                 p.insert("index".into(), json!(offset + i));
             }
             if let Some(t) = p.get("total") {
-                let t = py::int_of(t).unwrap_or(0);
+                let t = value::int_of(t).unwrap_or(0);
                 p.insert("total".into(), json!(offset + t + pending));
             }
             publish(app, &p, token);
@@ -1057,7 +1059,7 @@ pub fn choose_folder(
     app: &App,
     path: &str,
 ) -> Result<Result<Map<String, Value>, String>, ApiError> {
-    let chosen = py::purepath(&py::abspath(&py::expanduser(path)));
+    let chosen = paths::clean(&paths::absolute(&paths::expand_home(path)));
     if !Path::new(&chosen).is_dir() {
         return Ok(Err("esa carpeta no existe".into()));
     }

@@ -1,4 +1,5 @@
 use super::*;
+use crate::value;
 
 #[test]
 fn the_catalog_has_the_usual_entries() {
@@ -62,19 +63,6 @@ fn a_url_template_with_fields() {
     assert!(resolve("azure", empty.as_object().expect("objeto")).is_none());
     let broken = json!({"provider": "azure", "base_url": "https://{0}.x/"});
     assert!(resolve("azure", broken.as_object().expect("objeto")).is_none());
-}
-
-#[test]
-fn indented_json_like_python() {
-    let v = json!({"a": 1, "b": [], "c": {}, "d": [1.0, "ñ"], "e": {"f": null}});
-    assert_eq!(
-        py::dumps_indent(&v, 1),
-        "{\n \"a\": 1,\n \"b\": [],\n \"c\": {},\n \"d\": [\n  1.0,\n  \"ñ\"\n ],\n \"e\": {\n  \"f\": null\n }\n}"
-    );
-    assert_eq!(
-        without_non_finite(r#"{"a": Infinity, "b": "NaN", "c": -Infinity}"#),
-        r#"{"a": null, "b": "NaN", "c": null}"#
-    );
 }
 
 // ------------------------------------------------- lo de tests/test_ai.py
@@ -328,11 +316,11 @@ fn free_providers_come_first_and_need_no_key() {
             "{pid}"
         );
         assert!(
-            py::truthy(&p["suggest"]["chat"]) && py::truthy(&p["suggest"]["fast"]),
+            value::truthy(&p["suggest"]["chat"]) && value::truthy(&p["suggest"]["fast"]),
             "{pid}"
         );
         assert!(
-            py::truthy(&p["quirks"]["anon_filter"]),
+            value::truthy(&p["quirks"]["anon_filter"]),
             "{pid}: sin filtro, la lista enseñaría modelos de pago"
         );
     }

@@ -10,7 +10,7 @@
 //! 429 - {...}», «Connection error.», «Request timed out.»): de ese texto
 //! sacan `failures` por qué falla y `request` qué parámetro sobra.
 use crate::index::Dict;
-use crate::py;
+use crate::value;
 use serde_json::Value;
 use std::io::{BufRead, BufReader};
 use std::time::Duration;
@@ -50,12 +50,12 @@ impl HttpError {
     }
 
     /// El de un estado de error: con el cuerpo en JSON, `Error code: N -
-    /// {...}` (como lo escribe Python); si no es JSON, su texto.
+    /// {...}`; si no es JSON, su texto.
     fn status(code: u16, text: &str) -> Self {
-        let text = py::strip(text);
+        let text = text.trim();
         let code = i64::from(code);
         if let Ok(body) = serde_json::from_str::<Value>(text) {
-            let message = format!("Error code: {code} - {}", py::repr(&body));
+            let message = format!("Error code: {code} - {body}");
             let inner = match &body {
                 Value::Object(o) => o.get("error").cloned().unwrap_or(body.clone()),
                 other => other.clone(),
@@ -159,17 +159,21 @@ impl Client {
         let headers = p
             .get("headers")
             .and_then(Value::as_object)
-            .map(|h| h.iter().map(|(k, v)| (k.clone(), py::str_of(v))).collect())
+            .map(|h| {
+                h.iter()
+                    .map(|(k, v)| (k.clone(), value::str_of(v)))
+                    .collect()
+            })
             .unwrap_or_default();
         let timeout = p
             .get("timeout")
             .and_then(Value::as_f64)
             .filter(|t| t.is_finite() && *t > 0.0)
             .unwrap_or(60.0);
-        let local = p.get("local").is_some_and(py::truthy);
+        let local = p.get("local").is_some_and(value::truthy);
         let retries = match p.get("retries") {
             Some(v) if !v.is_null() => {
-                py::int_of(v).map_or(0, |n| u32::try_from(n.max(0)).unwrap_or(0))
+                value::int_of(v).map_or(0, |n| u32::try_from(n.max(0)).unwrap_or(0))
             }
             _ => u32::from(!local) * 2,
         };
@@ -365,7 +369,7 @@ impl Client {
                     message: e.to_string(),
                     body: None,
                 })?;
-                if let Some(err) = chunk.get("error").filter(|e| py::truthy(e)) {
+                if let Some(err) = chunk.get("error").filter(|e| value::truthy(e)) {
                     let message = err
                         .get("message")
                         .and_then(Value::as_str)

@@ -83,7 +83,10 @@ mod tests {
             Some(json!({"bpm": null, "x": [null, null], "t": "NaN"}))
         );
         assert_eq!(
-            parse(r#"{"path": "/m\udcffñ", "ok": "🎵", "q": "\"\\"}"#),
+            parse(concat!(
+                r#"{"path": "/m\udcff\u00f1", "#,
+                r#""ok": "\ud83c\udfb5", "q": "\"\\"}"#
+            )),
             Some(json!({"path": "/m\u{FFFD}ñ", "ok": "🎵", "q": "\"\\"}))
         );
         assert_eq!(

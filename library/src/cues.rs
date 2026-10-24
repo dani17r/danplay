@@ -2,7 +2,9 @@
 //! voces (`data/voices.json`: qué voces hay, dónde va cada archivo y qué le
 //! falta a cada una), el nombre del archivo de cada guía, lo que puede durar
 //! un audio importado y la carpeta de las pruebas, que se vacía sola.
-use crate::py;
+use crate::num;
+use crate::paths;
+use crate::text;
 use serde_json::{Map, Value};
 use sha1::{Digest, Sha1};
 use std::collections::HashMap;
@@ -197,7 +199,7 @@ pub fn voices<S: BuildHasher>(
         if let Some(b) = downloads.get(pack)
             && !missing.is_empty()
         {
-            let progress = py::round(b.got as f64 / b.total.max(1) as f64, 3);
+            let progress = num::round_to(b.got as f64 / b.total.max(1) as f64, 3);
             item.insert(
                 "progress".into(),
                 serde_json::Number::from_f64(progress).map_or(Value::Null, Value::Number),
@@ -244,7 +246,7 @@ fn sha1_hex(text: &str) -> String {
 /// la clave de la versión, la voz y la frase (la misma frase con la misma
 /// voz es el mismo archivo). `None` si no hay nada que decir.
 pub fn spoken_cue_name(text: &str, voice: &str, version: i64) -> Option<(String, String)> {
-    let text = py::head(py::strip(text), 300);
+    let text = text::head(text.trim(), 300);
     if text.is_empty() {
         return None;
     }
@@ -336,7 +338,7 @@ pub fn sweep_previews(dir: &Path, max_age: f64) -> usize {
         let Ok(meta) = std::fs::metadata(&path) else {
             continue;
         };
-        if now - py::mtime(&meta) > max_age && std::fs::remove_file(&path).is_ok() {
+        if now - paths::mtime(&meta) > max_age && std::fs::remove_file(&path).is_ok() {
             n += 1;
         }
     }

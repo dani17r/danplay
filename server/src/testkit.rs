@@ -205,7 +205,7 @@ pub fn ids_by_file(app: &App) -> std::collections::BTreeMap<String, i64> {
         .map(|r| {
             let path = library::index::get_str(r, "path");
             (
-                library::py::basename(path),
+                library::paths::file_name(path),
                 r.get("id").and_then(Value::as_i64).expect("id"),
             )
         })
@@ -216,7 +216,7 @@ pub fn ids_by_file(app: &App) -> std::collections::BTreeMap<String, i64> {
 pub fn row(app: &App, name: &str) -> Option<library::index::Dict> {
     rows(app)
         .into_iter()
-        .find(|r| library::py::basename(library::index::get_str(r, "path")) == name)
+        .find(|r| library::paths::file_name(library::index::get_str(r, "path")) == name)
 }
 
 /// El texto de una ruta.

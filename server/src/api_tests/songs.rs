@@ -141,7 +141,7 @@ fn the_study_mode_is_saved_in_the_index_and_in_the_file() {
         Some(json!({"pitch": -2.0})),
     );
     assert_eq!(
-        d["study"], r#"{"pitch": -2}"#,
+        d["study"], r#"{"pitch":-2}"#,
         "un tono entero se guarda entero"
     );
     // varios tramos: en orden, juntando los que se pisan y sin los que no valen

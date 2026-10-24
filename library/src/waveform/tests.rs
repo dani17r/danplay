@@ -56,25 +56,28 @@ fn columns_follow_the_sound() {
 }
 
 #[test]
-fn python_sum_compensates() {
-    // sumando de uno en uno sale 0.0; con la de Python, 2.0
-    assert_eq!(python_sum([1e100, 1.0, -1e100, 1.0]), 2.0);
-    assert_eq!(python_sum([]), 0.0);
-    // enteros exactos, como la suma de enteros de Python
+fn the_compensated_sum_keeps_the_small_ones() {
+    // sumando de uno en uno sale 0.0; con compensación, 2.0
+    assert_eq!(compensated_sum([1e100, 1.0, -1e100, 1.0]), 2.0);
+    assert_eq!(compensated_sum([]), 0.0);
+    // con enteros, exacta
     assert_eq!(
-        python_sum((0..1000).map(|i| f64::from(i * i))),
+        compensated_sum((0..1000).map(|i| f64::from(i * i))),
         332_833_500.0
     );
 }
 
 #[test]
-fn numpy_pairwise_sum() {
+fn the_pairwise_sum() {
     // pocos: de uno en uno
-    assert_eq!(numpy_sum(&[0.1, 0.2, 0.3]), 0.1 + 0.2 + 0.3);
+    assert_eq!(pairwise_sum(&[0.1, 0.2, 0.3]), 0.1 + 0.2 + 0.3);
     // muchos: igual que sumar a mano por el mismo camino
     let a: Vec<f64> = (0..1000).map(|i| f64::from(i) * 0.001).collect();
     let half = 496;
-    assert_eq!(numpy_sum(&a), numpy_sum(&a[..half]) + numpy_sum(&a[half..]));
+    assert_eq!(
+        pairwise_sum(&a),
+        pairwise_sum(&a[..half]) + pairwise_sum(&a[half..])
+    );
 }
 
 #[test]
@@ -95,7 +98,7 @@ fn saved_read_relocated_and_pruned() {
     );
     assert_eq!(peaks.iter().copied().fold(0.0, f64::max), 1.0);
     assert!(rms.iter().all(|&r| (0.0..=1.0).contains(&r)));
-    // compacta, como json.dumps con separators=(",", ":")
+    // compacta, con la ruta y la fecha
     let file = cache_file(&cache, song.as_os_str());
     let text = std::fs::read_to_string(&file).expect("guardada");
     let stamp = mtime(&std::fs::metadata(&song).expect("meta"));
@@ -103,7 +106,7 @@ fn saved_read_relocated_and_pruned() {
     assert!(text.starts_with(&format!(
         "{{\"path\":{},\"mtime\":{},\"peaks\":[",
         quoted(&song),
-        repr_float(stamp)
+        serde_json::Value::from(stamp)
     )));
     // la segunda vez sale de la caché: se nota cambiándola a mano
     let tampered = text
@@ -140,7 +143,7 @@ fn saved_read_relocated_and_pruned() {
     let text = std::fs::read_to_string(cache_file(&cache, moved.as_os_str())).expect("movida");
     assert!(
         text.starts_with(&format!(
-            "{{\"path\": {}, \"mtime\": 123.5, \"peaks\": [",
+            "{{\"path\":{},\"mtime\":123.5,\"peaks\":[",
             quoted(&moved)
         )),
         "{text}"
@@ -177,7 +180,7 @@ fn saved_read_relocated_and_pruned() {
 
 #[cfg(unix)]
 #[test]
-fn non_utf8_path_is_saved_like_python() {
+fn a_path_that_is_not_utf8_has_its_own_cache() {
     use std::os::unix::ffi::OsStrExt;
     let dir = scratch("bytes");
     let cache = dir.join("waveforms");
@@ -188,7 +191,7 @@ fn non_utf8_path_is_saved_like_python() {
         .expect("e/s")
         .expect("onda");
     let text = std::fs::read_to_string(cache_file(&cache, song.as_os_str())).expect("guardada");
-    assert!(text.contains("Barak - \\udcff.wav"), "{text}");
+    assert!(text.contains("Barak - \u{FFFD}.wav"), "{text}");
     // se lee de vuelta: la ruta coincide aunque no sea UTF-8
     assert_eq!(
         compute(&cache, &song, 8, None, &mut warnings).expect("e/s"),

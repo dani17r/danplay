@@ -6,7 +6,8 @@ use crate::app::App;
 use crate::error::ApiError;
 use library::assistant::matching::{self, Index};
 use library::index::{Dict, revision};
-use library::py;
+use library::text;
+use library::value;
 use serde_json::{Value, json};
 use std::collections::HashSet;
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
@@ -107,7 +108,7 @@ pub fn invalidate() {
 /// `str(x or "")[:n]`.
 fn text_head(v: Option<&Value>, n: usize) -> String {
     match v {
-        Some(x) if py::truthy(x) => py::head(&py::str_of(x), n).to_owned(),
+        Some(x) if value::truthy(x) => text::head(&value::str_of(x), n).to_owned(),
         _ => String::new(),
     }
 }
@@ -195,7 +196,7 @@ fn failed(item: &Dict, n: Option<i64>, note: &str) -> Resolution {
 fn int_or_none(v: &Value) -> Option<i64> {
     match v {
         Value::Null | Value::Array(_) | Value::Object(_) => None,
-        other => py::int_of(other),
+        other => value::int_of(other),
     }
 }
 
@@ -292,8 +293,8 @@ fn resolve_items_within(
                     });
                 }
             }
-            let note = item.get("note").filter(|v| py::truthy(v));
-            let hints: Vec<String> = note.map(|v| vec![py::str_of(v)]).unwrap_or_default();
+            let note = item.get("note").filter(|v| value::truthy(v));
+            let hints: Vec<String> = note.map(|v| vec![value::str_of(v)]).unwrap_or_default();
             let mut res = matched(&index, item, &hints, "", &prefer, 5, strict, n)?;
             if given && res.note.is_empty() {
                 "ese id no existe; se buscó por el título".clone_into(&mut res.note);

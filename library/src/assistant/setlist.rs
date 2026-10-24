@@ -16,7 +16,6 @@ use super::value::{
 };
 use crate::index::Dict;
 use crate::names::search_form;
-use crate::py;
 use crate::safe::datum;
 use serde_json::{Value, json};
 use std::collections::HashSet;
@@ -119,7 +118,7 @@ fn addable(status: &Value) -> bool {
 /// Una canción como la pinta la interfaz: id, artista y título (None si no
 /// hay canción).
 pub fn light(song: &Value) -> Result<Value, Error> {
-    if !py::truthy(song) {
+    if !crate::value::truthy(song) {
         return Ok(Value::Null);
     }
     let c = dict_of(song)?;
@@ -133,7 +132,7 @@ pub fn light(song: &Value) -> Result<Value, Error> {
 
 /// «Artista - Título», o el título solo.
 pub fn song_name(song: &Value) -> Result<String, Error> {
-    if !py::truthy(song) {
+    if !crate::value::truthy(song) {
         return Ok(String::new());
     }
     let c = dict_of(song)?;
@@ -151,8 +150,8 @@ pub fn song_name(song: &Value) -> Result<String, Error> {
 pub fn names(values: &[Value], limit: usize) -> String {
     let vals: Vec<String> = values
         .iter()
-        .filter(|v| py::truthy(v))
-        .map(py::str_of)
+        .filter(|v| crate::value::truthy(v))
+        .map(crate::value::str_of)
         .collect();
     if vals.is_empty() {
         return String::new();
@@ -175,7 +174,7 @@ pub fn names(values: &[Value], limit: usize) -> String {
 /// «la lista de los domingos» y «Domingo» dan lo mismo: («domingo»,).
 pub fn core(name: &str) -> Vec<String> {
     let form = search_form(name);
-    let toks: Vec<&str> = py::words(&form).collect();
+    let toks: Vec<&str> = form.split_whitespace().collect();
     let kept: Vec<&str> = toks.iter().copied().filter(|t| !is_filler(t)).collect();
     let core = if kept.is_empty() { toks } else { kept };
     core.into_iter()
@@ -276,10 +275,10 @@ fn kind_of(url: &str) -> &'static str {
 
 /// Un item que manda el modelo como texto: un título o un enlace.
 pub fn item_from_text(raw: &str) -> Dict {
-    let text = py::strip(raw);
-    let raw = py::head(text, 300);
+    let text = raw.trim();
+    let raw = crate::text::head(text, 300);
     if !host_of(text).is_empty() {
-        let url = clean_youtube_url(py::head(text, MAX_URL));
+        let url = clean_youtube_url(crate::text::head(text, MAX_URL));
         let kind = kind_of(&url);
         return dic([
             ("title", "".into()),
@@ -291,7 +290,7 @@ pub fn item_from_text(raw: &str) -> Dict {
         ]);
     }
     dic([
-        ("title", py::head(text, MAX_TITLE).into()),
+        ("title", crate::text::head(text, MAX_TITLE).into()),
         ("artist", "".into()),
         ("url", "".into()),
         ("kind", "".into()),
@@ -302,7 +301,7 @@ pub fn item_from_text(raw: &str) -> Dict {
 
 /// `str(raw.get(k) or "").strip()[:n]`
 fn field(raw: &Dict, k: &str, n: usize) -> String {
-    py::head(py::strip(&or_empty(get(raw, k))), n).to_owned()
+    crate::text::head(or_empty(get(raw, k)).trim(), n).to_owned()
 }
 
 /// Un item que manda el modelo como diccionario.
@@ -342,7 +341,7 @@ pub fn item_from_dict(raw: &Dict) -> Dict {
 pub fn requested(items_: &Value, setlist: Option<&SetlistParse>, fresh: bool) -> (Vec<Dict>, Dict) {
     let model_items: Vec<&Value> = match items_ {
         Value::Array(a) => a.iter().collect(),
-        v if py::truthy(v) => vec![v],
+        v if crate::value::truthy(v) => vec![v],
         _ => Vec::new(),
     };
     if let Some(sl) = setlist
@@ -390,7 +389,7 @@ pub fn requested(items_: &Value, setlist: Option<&SetlistParse>, fresh: bool) ->
     for raw in model_items.iter().take(MAX_ITEMS) {
         let mut it = match raw {
             Value::Object(d) => item_from_dict(d),
-            other => item_from_text(&py::str_of(other)),
+            other => item_from_text(&crate::value::str_of(other)),
         };
         if !(yes(&it, "title") || yes(&it, "url") || yes(&it, "id")) {
             continue;
@@ -413,7 +412,7 @@ pub fn requested(items_: &Value, setlist: Option<&SetlistParse>, fresh: bool) ->
 /// («Banda: …», «Ensayo: …»), que sí merece decirse que se dejó fuera.
 pub fn is_request(line: &str) -> bool {
     let form = search_form(line);
-    let words: Vec<&str> = py::words(&form).collect();
+    let words: Vec<&str> = form.split_whitespace().collect();
     if words.is_empty() {
         return false;
     }
@@ -422,7 +421,7 @@ pub fn is_request(line: &str) -> bool {
         return true;
     }
     let asks = words.iter().take(3).any(|w| asks_(w));
-    asks && (line.trim_end_matches(py::isspace).ends_with(':') || words.contains(&"lista"))
+    asks && (line.trim_end_matches(char::is_whitespace).ends_with(':') || words.contains(&"lista"))
 }
 
 /// Las canciones que eligió la persona para un item: [{n, id}], las que se
@@ -432,8 +431,8 @@ pub fn overrides(raw: &Value) -> Result<Vec<Dict>, Error> {
     for o in iter_of(raw)? {
         let Some(o) = obj(&o) else { continue };
         let (Some(n), Some(id)) = (
-            o.get("n").and_then(py::int_of),
-            o.get("id").and_then(py::int_of),
+            o.get("n").and_then(crate::value::int_of),
+            o.get("id").and_then(crate::value::int_of),
         ) else {
             continue;
         };
@@ -447,7 +446,7 @@ pub fn overrides(raw: &Value) -> Result<Vec<Dict>, Error> {
 pub fn only(raw: &Value) -> Result<Vec<i64>, Error> {
     let mut out: Vec<i64> = Vec::new();
     for x in iter_of(raw)? {
-        if let Some(n) = py::int_of(&x)
+        if let Some(n) = crate::value::int_of(&x)
             && !out.contains(&n)
         {
             out.push(n);
@@ -484,7 +483,7 @@ pub fn row(item: &Dict, res: &Outcome) -> Result<Dict, Error> {
     let mut alts = Vec::new();
     for c in &res.candidates {
         let sid = get(dict_of(c)?, "id");
-        if py::truthy(song) && same(sid, get(dict_of(song)?, "id")) {
+        if crate::value::truthy(song) && same(sid, get(dict_of(song)?, "id")) {
             continue;
         }
         alts.push(light(c)?);
@@ -494,10 +493,10 @@ pub fn row(item: &Dict, res: &Outcome) -> Result<Dict, Error> {
     }
     let url = at_of(item, "url")?;
     let title_v = at_of(item, "title")?;
-    let title = if py::truthy(title_v) {
-        py::str_of(title_v)
-    } else if py::truthy(url) {
-        format!("enlace {}", py::str_of(url))
+    let title = if crate::value::truthy(title_v) {
+        crate::value::str_of(title_v)
+    } else if crate::value::truthy(url) {
+        format!("enlace {}", crate::value::str_of(url))
     } else {
         String::new()
     };
@@ -519,7 +518,7 @@ pub fn row(item: &Dict, res: &Outcome) -> Result<Dict, Error> {
         ("note", datum(note, 160).into()),
         (
             "link",
-            if py::truthy(url) {
+            if crate::value::truthy(url) {
                 json!({"url": url})
             } else {
                 Value::Null
@@ -557,7 +556,7 @@ pub fn rows(wanted: &[Dict], resolved: &[Outcome]) -> Result<Vec<Dict>, Error> {
 
 /// `s[k][:n]` de un texto.
 fn cut(v: &Value, k: &str, n: usize) -> Result<String, Error> {
-    Ok(py::head(&key(v, k)?, n).to_owned())
+    Ok(crate::text::head(&key(v, k)?, n).to_owned())
 }
 
 /// La tabla para el modelo, en una línea por fila y con tope.
@@ -570,7 +569,7 @@ pub fn model_rows(rows: &[Value]) -> Result<String, Error> {
         let status = at(r, "status")?;
         let n = key(r, "n")?;
         let piece = if status.as_str() == Some("missing") {
-            let link = if py::truthy(at(r, "link")?) {
+            let link = if crate::value::truthy(at(r, "link")?) {
                 " (enlace)"
             } else {
                 ""
@@ -582,11 +581,11 @@ pub fn model_rows(rows: &[Value]) -> Result<String, Error> {
                 Some("other_version") => " otra version (el enlace no)",
                 Some("ambiguous") => " varias versiones",
                 Some("probable") => " dudosa, NO añadida",
-                _ => return Err(Error::Key(py::str_of(status))),
+                _ => return Err(Error::Key(crate::value::str_of(status))),
             };
             let mut piece = format!("n={n} id{} {}{label}", key(s, "id")?, cut(s, "title", 40)?);
             let alts = at(r, "alts")?;
-            if py::truthy(alts) {
+            if crate::value::truthy(alts) {
                 let shown = items(alts)
                     .iter()
                     .take(2)
@@ -594,7 +593,7 @@ pub fn model_rows(rows: &[Value]) -> Result<String, Error> {
                     .collect::<Result<Vec<_>, Error>>()?;
                 let _ = write!(piece, " [alt: {}]", shown.join(", "));
             }
-            if py::truthy(at(r, "in_list")?) {
+            if crate::value::truthy(at(r, "in_list")?) {
                 piece.push_str(" (en la lista)");
             }
             piece
@@ -603,7 +602,7 @@ pub fn model_rows(rows: &[Value]) -> Result<String, Error> {
     }
     let out = parts.join(" | ");
     if text::len(&out) > MODEL_ROWS_CHARS {
-        let head = py::head(&out, MODEL_ROWS_CHARS - 12);
+        let head = crate::text::head(&out, MODEL_ROWS_CHARS - 12);
         let kept = head.rsplit_once(" | ").map_or(head, |(a, _)| a);
         return Ok(format!("{kept} | [recortado]"));
     }
@@ -668,8 +667,8 @@ pub fn find_result(wanted: &[Dict], resolved: &[Outcome], source: &Value) -> Res
 /// dijo ella.
 pub fn mode(asked: &Value, intent: &Intent) -> Result<(&'static str, &'static str), Error> {
     let asked = match asked {
-        v if !py::truthy(v) => String::new(),
-        Value::String(t) => text::lower(py::strip(t)),
+        v if !crate::value::truthy(v) => String::new(),
+        Value::String(t) => text::lower(t.trim()),
         other => return Err(Error::Attribute(type_name(other).into(), "strip")),
     };
     let asked = asked.as_str();
@@ -703,7 +702,7 @@ pub fn mode(asked: &Value, intent: &Intent) -> Result<(&'static str, &'static st
 /// El id de la canción de una fila, si la tiene.
 fn song_id(r: &Dict) -> Result<Option<i64>, Error> {
     let s = get(r, "song");
-    if !py::truthy(s) {
+    if !crate::value::truthy(s) {
         return Ok(None);
     }
     Ok(as_int(at(s, "id")?))
@@ -829,7 +828,7 @@ pub fn order_differs(rows: &[Value], final_: &[i64]) -> Result<bool, Error> {
     for r in rows {
         let s = at(r, "song")?;
         if addable(at(r, "status")?)
-            && py::truthy(s)
+            && crate::value::truthy(s)
             && let Some(id) = as_int(at(s, "id")?)
             && let Some(p) = pos(id)
             && seen.insert(id)
@@ -850,11 +849,11 @@ pub fn order_differs(rows: &[Value], final_: &[i64]) -> Result<bool, Error> {
 pub fn youtube_query(item: &Dict) -> String {
     let text = [get(item, "artist"), get(item, "title")]
         .into_iter()
-        .filter(|v| py::truthy(v))
-        .map(py::str_of)
+        .filter(|v| crate::value::truthy(v))
+        .map(crate::value::str_of)
         .collect::<Vec<_>>()
         .join(" ");
-    let mut form = py::head(&search_form(&text), 190).to_owned();
+    let mut form = crate::text::head(&search_form(&text), 190).to_owned();
     if !form.is_empty() && !yes(item, "artist") {
         form.push_str(" cancion");
     }
@@ -929,11 +928,11 @@ where
             continue;
         }
         let url = at_of(it, "url")?;
-        if status == "other_version" && !py::truthy(url) {
+        if status == "other_version" && !crate::value::truthy(url) {
             continue;
         }
-        let item = if py::truthy(url) {
-            py::str_of(url)
+        let item = if crate::value::truthy(url) {
+            crate::value::str_of(url)
         } else {
             youtube_query(it)
         };
@@ -945,9 +944,9 @@ where
         }
         items_.push(item.clone());
         let song = get(r, "song");
-        let note = if status == "probable" && py::truthy(song) {
+        let note = if status == "probable" && crate::value::truthy(song) {
             format!("¿ya la tienes? Se parece a «{}»", song_name(song)?)
-        } else if status == "other_version" && py::truthy(song) {
+        } else if status == "other_version" && crate::value::truthy(song) {
             format!("otra versión: ya tienes «{}»", song_name(song)?)
         } else {
             String::new()
@@ -1093,7 +1092,7 @@ fn check_line(
     let mut not_there = Vec::new();
     for r in found {
         let t = at(r, "title")?.clone();
-        if py::truthy(at(r, "in_list")?) {
+        if crate::value::truthy(at(r, "in_list")?) {
             there.push(t);
         } else {
             not_there.push(t);
@@ -1147,7 +1146,7 @@ fn done_lines(
     };
     let added = titles_of(at(ui, "added")?)?;
     let already = titles_of(at(ui, "already_in")?)?;
-    let exact = mode == "set" && py::truthy(at(ui, "applied")?);
+    let exact = mode == "set" && crate::value::truthy(at(ui, "applied")?);
     if exact {
         lines.push(format!(
             "Dejé «{pl}» solo con estas, en el orden de tu lista."
@@ -1265,7 +1264,7 @@ pub fn report(ui: &Value, confirm: bool) -> Result<String, Error> {
     let mut by_id: Vec<(&Value, &Value)> = Vec::new();
     for r in rows {
         let s = at(r, "song")?;
-        if py::truthy(s) {
+        if crate::value::truthy(s) {
             let id = at(s, "id")?;
             if !by_id.iter().any(|(k, _)| same(k, id)) {
                 by_id.push((id, r));
@@ -1273,17 +1272,17 @@ pub fn report(ui: &Value, confirm: bool) -> Result<String, Error> {
         }
     }
 
-    if py::truthy(at(ui, "truncated")?) {
+    if crate::value::truthy(at(ui, "truncated")?) {
         lines.push(format!(
             "Leí las primeras {} canciones de la lista.",
             rows.len()
         ));
     }
-    if py::truthy(get(dict_of(playlist)?, "created")) {
+    if crate::value::truthy(get(dict_of(playlist)?, "created")) {
         lines.push(format!("Creé la lista «{pl}»."));
     }
     let extras_in_list = items(at(ui, "extras_in_list")?);
-    let order = py::truthy(at(ui, "order_differs")?);
+    let order = crate::value::truthy(at(ui, "order_differs")?);
     if mode == "check" {
         lines.push(check_line(&pl, &found, &missing, extras_in_list)?);
         if order {
@@ -1311,14 +1310,14 @@ pub fn report(ui: &Value, confirm: bool) -> Result<String, Error> {
         lines.push("El orden de la lista no es el de la que pegaste.".into());
     }
     let ignored = at(ui, "ignored")?;
-    if py::truthy(ignored) {
+    if crate::value::truthy(ignored) {
         lines.push(format!(
             "No tomé por canción: {}.",
             names(items(ignored), SHOWN_NAMES)
         ));
     }
     let mode_note = get(dict_of(ui)?, "mode_note");
-    if py::truthy(mode_note)
+    if crate::value::truthy(mode_note)
         && mode == "add"
         && mode_note
             .as_str()
@@ -1358,7 +1357,10 @@ pub fn report_found(found_rows: &[Value]) -> Result<Option<String>, Error> {
         });
     }
     if names_.len() == 1 {
-        return Ok(Some(format!("Sí, la tienes: {}.", py::str_of(&names_[0]))));
+        return Ok(Some(format!(
+            "Sí, la tienes: {}.",
+            crate::value::str_of(&names_[0])
+        )));
     }
     Ok(Some(format!(
         "Sí, las tienes todas: {}.",

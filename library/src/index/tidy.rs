@@ -22,7 +22,10 @@
 //!
 //! Mover la canción (y escribir sus etiquetas) lo hace library/tidy.py.
 use super::{Dict, fetch_all, get_str};
-use crate::{names, py};
+use crate::names;
+use crate::paths;
+use crate::text;
+use crate::value;
 use rusqlite::Connection;
 use serde_json::Value;
 
@@ -45,12 +48,12 @@ fn sep() -> char {
 /// «Artista - Titulo» -> (artista, título); sin guion, (None, todo).
 fn split(stem: &str) -> (Option<String>, String) {
     if let Some((artist, title)) = stem.split_once(" - ") {
-        let (a, t) = (py::strip(artist), py::strip(title));
+        let (a, t) = (artist.trim(), title.trim());
         if !a.is_empty() && !t.is_empty() {
             return (Some(a.to_owned()), t.to_owned());
         }
     }
-    (None, py::strip(stem).to_owned())
+    (None, stem.trim().to_owned())
 }
 
 /// La carpeta de su tipo si el nombre lo dice sin duda (una Drum Cam, un
@@ -73,12 +76,12 @@ fn vocab_get(vocab: &[(String, String)], key: &str) -> Option<String> {
 /// biblioteca), "artist", "title", "why": [...], "sure"}. `library` es la
 /// carpeta de música de la casa; `vocab`, los artistas que ya tiene.
 pub fn propose(song: &Dict, vocab: &[(String, String)], library: &str) -> Option<Dict> {
-    let library = py::abspath(library);
-    if py::normcase(&py::abspath(get_str(song, "root"))) != py::normcase(&library) {
+    let library = paths::absolute(library);
+    if paths::comparable(&paths::absolute(get_str(song, "root"))) != paths::comparable(&library) {
         return None;
     }
     let path = get_str(song, "path");
-    let rel = py::relpath(path, &library)?;
+    let rel = paths::relative(path, &library)?;
     let parts: Vec<&str> = rel.split(sep()).collect();
     let loose = parts.len() == 1;
     let in_artists = parts.len() >= 3 && parts[0] == ARTISTS;
@@ -86,7 +89,7 @@ pub fn propose(song: &Dict, vocab: &[(String, String)], library: &str) -> Option
         return None;
     }
     let file = match get_str(song, "file") {
-        "" => py::basename(path),
+        "" => paths::file_name(path),
         f => f.to_owned(),
     };
     let (stem, ext) = names::splitext(&file);
@@ -96,7 +99,7 @@ pub fn propose(song: &Dict, vocab: &[(String, String)], library: &str) -> Option
     }
     // solo espacios o mayúsculas («#EternoLive» -> «#Eterno Live»): no es
     // ruido, y no merece mover nada
-    if py::casefold(&cleaned.replace(' ', "")) == py::casefold(&stem.replace(' ', "")) {
+    if text::casefold(&cleaned.replace(' ', "")) == text::casefold(&stem.replace(' ', "")) {
         stem.clone_into(&mut cleaned);
     }
     let (name_artist, title) = split(&cleaned);
@@ -112,10 +115,10 @@ pub fn propose(song: &Dict, vocab: &[(String, String)], library: &str) -> Option
         folder
     } else if let Some(name) = &name_artist {
         vocab_get(vocab, &names::flat(name)).unwrap_or_else(|| names::sanitize(name))
-    } else if py::truthy(song.get("artist").unwrap_or(&Value::Null)) {
+    } else if value::truthy(song.get("artist").unwrap_or(&Value::Null)) {
         // tal cual (solo lo que no vale en un nombre de archivo): `clean`
         // está hecho para nombres de archivo y partiría «YouTube»
-        let tagged = py::strip(get_str(song, "artist")).to_owned();
+        let tagged = get_str(song, "artist").trim().to_owned();
         why.push("el artista sale de sus etiquetas: revísalo".into());
         sure = false;
         vocab_get(vocab, &names::flat(&tagged)).unwrap_or_else(|| names::sanitize(&tagged))
@@ -136,7 +139,7 @@ pub fn propose(song: &Dict, vocab: &[(String, String)], library: &str) -> Option
         names::sanitize(&format!("{file_artist} - {title}")),
         ext.to_lowercase()
     );
-    let mut target_dir = py::join(ARTISTS, &artist_dir);
+    let mut target_dir = paths::join(ARTISTS, &artist_dir);
     // una Drum Cam, un tutorial, una secuencia: a su carpeta, con su nombre
     let kind_folder = category_folder(stem);
     if let Some(folder) = kind_folder {
@@ -145,11 +148,11 @@ pub fn propose(song: &Dict, vocab: &[(String, String)], library: &str) -> Option
         why = vec![format!("es de {folder}")];
         sure = false;
     }
-    let new_rel = py::join(&target_dir, &new_name);
+    let new_rel = paths::join(&target_dir, &new_name);
     if new_rel == rel {
         return None;
     }
-    let same_dir = py::dirname(&new_rel) == py::dirname(&rel);
+    let same_dir = paths::parent(&new_rel) == paths::parent(&rel);
     if same_dir && names::match_key(&new_name) == names::match_key(&file) && kind_folder.is_none() {
         return None; // solo mayúsculas o espacios: no merece mover nada
     }
@@ -191,10 +194,10 @@ pub fn proposals(
             get_str(p, "from").to_lowercase(),
         )
     });
-    let home = py::normcase(&py::abspath(library));
+    let home = paths::comparable(&paths::absolute(library));
     let looked = rows
         .iter()
-        .filter(|r| py::normcase(&py::abspath(get_str(r, "root"))) == home)
+        .filter(|r| paths::comparable(&paths::absolute(get_str(r, "root"))) == home)
         .count();
     let mut out = Dict::new();
     out.insert(
@@ -217,15 +220,15 @@ pub fn target_of(
     vocab: &[(String, String)],
 ) -> Result<String, String> {
     let (artist, title) = (
-        names::sanitize(py::strip(artist)),
-        names::sanitize(py::strip(title)),
+        names::sanitize(artist.trim()),
+        names::sanitize(title.trim()),
     );
     if artist.is_empty() || title.is_empty() {
         return Err("hace falta el artista y el título".into());
     }
     let folder = vocab_get(vocab, &names::flat(&artist)).unwrap_or_else(|| artist.clone());
-    Ok(py::join(
-        &py::join(ARTISTS, &folder),
+    Ok(paths::join(
+        &paths::join(ARTISTS, &folder),
         &format!("{artist} - {title}{}", ext.to_lowercase()),
     ))
 }

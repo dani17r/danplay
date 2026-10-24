@@ -16,7 +16,7 @@ use crate::validate::{Any, Bool, Fields, Float, Int, Kind, Str, error};
 use library::assistant::plan::Fault;
 use library::assistant::tools::{self as t, Io, NEEDS_CONFIRMATION};
 use library::index::Dict;
-use library::py;
+use library::value;
 use serde_json::{Value, json};
 use std::sync::LazyLock;
 
@@ -35,7 +35,7 @@ pub fn tools_for(recent: &[Dict], everything: bool, with_setlist: bool) -> Value
     let text: Vec<String> = recent
         .iter()
         .map(|m| match m.get("text") {
-            Some(v) if py::truthy(v) => py::str_of(v),
+            Some(v) if value::truthy(v) => value::str_of(v),
             _ => String::new(),
         })
         .collect();
@@ -69,7 +69,7 @@ impl Kind for LooseText {
     fn convert(&self, v: &Value, loc: &[Value], errors: &mut Vec<Value>) -> Option<Value> {
         match v {
             Value::Null | Value::String(_) => Some(v.clone()),
-            Value::Number(_) => Some(Value::String(py::str_of(v))),
+            Value::Number(_) => Some(Value::String(value::str_of(v))),
             _ => {
                 errors.push(error(
                     "string_type",
@@ -248,7 +248,7 @@ fn validate_args(
         .map(|e| {
             let loc = e["loc"]
                 .as_array()
-                .map(|l| l.iter().map(py::str_of).collect())
+                .map(|l| l.iter().map(value::str_of).collect())
                 .unwrap_or_default();
             (loc, e["type"].as_str().unwrap_or_default().to_owned())
         })
@@ -306,7 +306,7 @@ fn fault_text(e: &Fault<ApiError>) -> String {
 pub fn api_text(e: &ApiError) -> String {
     match e {
         ApiError::Internal(why) => why.clone(),
-        ApiError::Http { detail, .. } => py::str_of(detail),
+        ApiError::Http { detail, .. } => value::str_of(detail),
         ApiError::Validation(_) => e.to_string(),
     }
 }
@@ -355,15 +355,15 @@ pub fn confirm(app: &App, tool: &str, args: &Value) -> Value {
     if !NEEDS_CONFIRMATION.contains(&tool) {
         return json!({"ok": false, "error": "eso no necesita confirmacion"});
     }
-    let args = if py::truthy(args) {
+    let args = if value::truthy(args) {
         args.clone()
     } else {
         json!({})
     };
     let result = run_tool(app, tool, &args, &mut Turn::default());
-    let failed = result.get("error").filter(|e| py::truthy(e));
+    let failed = result.get("error").filter(|e| value::truthy(e));
     if let Some(e) = failed {
-        let text = py::str_of(e);
+        let text = value::str_of(e);
         return json!({"ok": false, "result": result, "text": text});
     }
     let text = match tool {
@@ -421,9 +421,9 @@ pub fn wanted_of(args: &Dict) -> youtube::Wanted {
             .get("quality")
             .and_then(Value::as_str)
             .map(str::to_owned),
-        file_it: args.get("file_it").is_none_or(py::truthy),
+        file_it: args.get("file_it").is_none_or(value::truthy),
         results: 1,
-        force: args.get("force").is_some_and(py::truthy),
+        force: args.get("force").is_some_and(value::truthy),
         source: "assistant".into(),
     }
 }
@@ -450,12 +450,8 @@ pub fn py_int(v: &Value) -> R<i64> {
             "int() argument must be a string, a bytes-like object or a real number, not '{}'",
             library::assistant::value::type_name(v)
         ))),
-        other => py::int_of(other).ok_or_else(|| {
-            ApiError::internal(format!(
-                "invalid literal for int() with base 10: {}",
-                py::repr(other)
-            ))
-        }),
+        other => value::int_of(other)
+            .ok_or_else(|| ApiError::internal(format!("{other} no es un número entero"))),
     }
 }
 
@@ -595,7 +591,7 @@ impl Io for ServerIo<'_> {
         let Some(lid) = lists::int_of(id) else {
             return Ok(Value::Null);
         };
-        let text = |v: &Value| (!v.is_null()).then(|| py::str_of(v));
+        let text = |v: &Value| (!v.is_null()).then(|| value::str_of(v));
         let (name, note) = (text(name), text(note));
         Ok(obj(playlists::edit(
             self.app,
@@ -618,12 +614,12 @@ impl Io for ServerIo<'_> {
     }
 
     fn favorite(&mut self, id: &Value, value: &Value) -> R<Value> {
-        let ok = songs::favorite(self.app, py_int(id)?, py::truthy(value))?;
+        let ok = songs::favorite(self.app, py_int(id)?, value::truthy(value))?;
         Ok(json!(ok))
     }
 
     fn export_sheet(&mut self, id: &Value, with_lyrics: &Value) -> R<Value> {
-        let path = playlists::export_sheet(self.app, py_int(id)?, py::truthy(with_lyrics))?;
+        let path = playlists::export_sheet(self.app, py_int(id)?, value::truthy(with_lyrics))?;
         Ok(json!(path))
     }
 
@@ -656,7 +652,10 @@ impl Io for ServerIo<'_> {
     }
 
     fn chord_sheet(&mut self, artist: &Value, title: &Value) -> R<Value> {
-        Ok(lookups::find_sheet(&py::str_of(artist), &py::str_of(title)))
+        Ok(lookups::find_sheet(
+            &value::str_of(artist),
+            &value::str_of(title),
+        ))
     }
 
     fn details(&mut self, song: &Value) -> R<(Value, Value)> {
@@ -664,12 +663,12 @@ impl Io for ServerIo<'_> {
     }
 
     fn enrich(&mut self, id: &Value, lyrics: &Value, cover: &Value) -> R<Value> {
-        lookups::enrich(self.app, id, py::truthy(lyrics), py::truthy(cover))
+        lookups::enrich(self.app, id, value::truthy(lyrics), value::truthy(cover))
     }
 
     fn transpose(&mut self, chords: &Value, from: &Value, to: &Value) -> R<Value> {
-        let (from, to) = (py::str_of(from), py::str_of(to));
-        let text = py::str_of(chords);
+        let (from, to) = (value::str_of(from), value::str_of(to));
+        let text = value::str_of(chords);
         if library::theory::distance(&from, &to).is_none() {
             return Ok(chords.clone());
         }
@@ -677,11 +676,11 @@ impl Io for ServerIo<'_> {
     }
 
     fn to_latin(&mut self, text: &Value) -> R<Value> {
-        Ok(json!(library::theory::to_latin(&py::str_of(text))))
+        Ok(json!(library::theory::to_latin(&value::str_of(text))))
     }
 
     fn capo(&mut self, key: &Value) -> R<Value> {
-        let key = py::str_of(key);
+        let key = value::str_of(key);
         if library::theory::index(&key).is_none() {
             return Ok(json!([]));
         }
@@ -692,8 +691,8 @@ impl Io for ServerIo<'_> {
     }
 
     fn related_keys(&mut self, key: &Value) -> R<Value> {
-        let key = if py::truthy(key) {
-            py::str_of(key)
+        let key = if value::truthy(key) {
+            value::str_of(key)
         } else {
             String::new()
         };
@@ -735,7 +734,7 @@ impl Io for ServerIo<'_> {
         let items: Vec<String> = plan
             .get("items")
             .and_then(Value::as_array)
-            .map(|a| a.iter().map(py::str_of).collect())
+            .map(|a| a.iter().map(value::str_of).collect())
             .unwrap_or_default();
         let wanted = wanted_of(plan);
         let done = youtube::run_many(self.app, &items, &wanted, false, None, None);

@@ -25,9 +25,11 @@ use analysis::align;
 use analysis::pulse::raw::Raw;
 use library::beatgrid as lb;
 use library::index::{Dict, fetch_all, get_str, scan};
-use library::py;
+use library::num;
+use library::paths;
 use library::reuse::{SMALL_LAG, close};
 use library::stems as ls;
+use library::value;
 use serde_json::{Value, json};
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
@@ -144,11 +146,12 @@ pub fn manifest_index(app: &App) -> Result<ManifestIndex, ApiError> {
             let Some(manifest) = ls::read_manifest(&folder.to_string_lossy()) else {
                 continue;
             };
-            let Some(Value::Object(src)) = manifest.get("source").filter(|v| py::truthy(v)) else {
+            let Some(Value::Object(src)) = manifest.get("source").filter(|v| value::truthy(v))
+            else {
                 continue;
             };
             let key = scan::ident(src);
-            let duration = src.get("duration").and_then(py::float_of).unwrap_or(0.0);
+            let duration = src.get("duration").and_then(value::float_of).unwrap_or(0.0);
             if !key.is_empty() && duration > 0.0 {
                 index.entry(key).or_default().push((duration, folder));
             }
@@ -200,8 +203,8 @@ fn stems_folder(app: &App, row: &Dict) -> Option<PathBuf> {
 /// fila (aunque el archivo ya no esté: su ruta, tamaño y fecha están en la
 /// fila).
 fn old_key(row: &Dict) -> Option<String> {
-    let size = u64::try_from(row.get("size").and_then(py::int_of)?).ok()?;
-    let mtime = row.get("mtime").and_then(py::float_of)?;
+    let size = u64::try_from(row.get("size").and_then(value::int_of)?).ok()?;
+    let mtime = row.get("mtime").and_then(value::float_of)?;
     let Some(Value::String(path)) = row.get("path") else {
         return None;
     };
@@ -230,7 +233,7 @@ fn worth(app: &App, row: &Dict) -> i64 {
     {
         worth += 2;
     }
-    if row.get("study").is_some_and(py::truthy) {
+    if row.get("study").is_some_and(value::truthy) {
         worth += 1;
     }
     worth
@@ -247,7 +250,7 @@ fn decode(app: &App, path: &Path, seconds: f64, rate: usize) -> Result<Option<Ve
     let mut cmd = library::processes::order(&ffmpeg, &["-v", "error", "-nostdin", "-i"]);
     cmd.arg(path).args([
         "-t",
-        &py::repr_float(seconds),
+        &seconds.to_string(),
         "-ac",
         "1",
         "-ar",
@@ -337,7 +340,7 @@ pub fn lag_from_lowband(
 /// `None` si no se puede correr (lo que no es un diccionario: el
 /// `TypeError` que Python se callaba).
 fn shift_study(study: &Value, lag: f64) -> Option<Value> {
-    if !py::truthy(study) || lag.abs() < SMALL_LAG {
+    if !value::truthy(study) || lag.abs() < SMALL_LAG {
         return Some(study.clone());
     }
     Some(Value::Object(library::reuse::shift_study(
@@ -402,7 +405,7 @@ fn encode_shifted(ffmpeg: &Path, src: &Path, dest: &Path, lag: f64) -> std::io::
 /// Un texto de la fila, o `default` si no lo tiene (`song.get(k) or ...`).
 fn or_value(song: &Dict, key: &str, default: Value) -> Value {
     song.get(key)
-        .filter(|v| py::truthy(v))
+        .filter(|v| value::truthy(v))
         .cloned()
         .unwrap_or(default)
 }
@@ -426,7 +429,7 @@ pub fn adopt_stems(
         return Ok(None);
     };
     let target = PathBuf::from(ls::target_for(song));
-    let resolved = |p: &Path| py::realpath(&p.to_string_lossy());
+    let resolved = |p: &Path| paths::real(&p.to_string_lossy());
     let same = resolved(&target) == resolved(source);
     if target.exists() && !same {
         return Ok(None); // ya tiene otra carpeta suya
@@ -462,8 +465,8 @@ pub fn adopt_stems(
             let mut tracks = Vec::new();
             for t in manifest
                 .get("tracks")
-                .filter(|v| py::truthy(v))
-                .map(py::list_of)
+                .filter(|v| value::truthy(v))
+                .map(value::list_of)
                 .unwrap_or_default()
             {
                 let Value::Object(mut t) = t else {
@@ -473,18 +476,18 @@ pub fn adopt_stems(
                 };
                 let file = t
                     .get("file")
-                    .filter(|v| py::truthy(v))
-                    .map(py::str_of)
+                    .filter(|v| value::truthy(v))
+                    .map(value::str_of)
                     .unwrap_or_default();
-                let flac = format!("{}.flac", py::path_stem(&file));
-                let from = t.get("file").map(py::str_of).unwrap_or_default();
+                let flac = format!("{}.flac", paths::stem(std::path::Path::new(&file)));
+                let from = t.get("file").map(value::str_of).unwrap_or_default();
                 encode_shifted(&ffmpeg, &source.join(from), &work.join(&flac), lag)?;
                 t.insert("file".into(), flac.into());
                 tracks.push(Value::Object(t));
             }
             manifest.insert("tracks".into(), Value::Array(tracks));
             if moving {
-                py::rmtree(source);
+                paths::remove_tree(source);
             }
         }
         let mut src = Dict::new();
@@ -499,9 +502,9 @@ pub fn adopt_stems(
         src.insert("title".into(), or_value(song, "title", "".into()));
         manifest.insert("source".into(), Value::Object(src));
         if lag.abs() >= SMALL_LAG {
-            manifest.insert("shifted".into(), py::round(lag, 4).into());
+            manifest.insert("shifted".into(), num::round_to(lag, 4).into());
         }
-        let text = py::dumps_indent(&Value::Object(manifest.clone()), 1) + "\n";
+        let text = value::pretty(&Value::Object(manifest.clone())) + "\n";
         std::fs::write(work.join(ls::MANIFEST), text)?;
         if work != target {
             std::fs::rename(&work, &target)?;
@@ -516,13 +519,13 @@ pub fn adopt_stems(
         Err(e) => {
             log::warn!("no pude adoptar las pistas de {}: {e}", source.display());
             if work != target {
-                py::rmtree(&work);
+                paths::remove_tree(&work);
             }
             return Ok(None);
         }
     };
     let target_text = target.to_string_lossy().into_owned();
-    let rel = py::relpath(&target_text, &songs::text(song, "root")).unwrap_or(target_text);
+    let rel = paths::relative(&target_text, &songs::text(song, "root")).unwrap_or(target_text);
     let mut data = Dict::new();
     data.insert("folder".into(), rel.into());
     data.insert(
@@ -592,7 +595,7 @@ fn adopt_grid(app: &App, path: &Path, twin: &Dict, lag: f64) -> Result<bool, Str
     let had_raw = raw.is_some();
     if let Some(mut raw) = raw {
         // lo que dijo la red, corrido: tramas de delante con silencio, o fuera
-        let at = |fps: f64| py::round_int(lag * fps);
+        let at = |fps: f64| (lag * fps).round_ties_even() as i64;
         raw.beat = shift_frames(&raw.beat, at(analysis::pulse::FPS), -10.0);
         raw.down = shift_frames(&raw.down, at(analysis::pulse::FPS), -10.0);
         raw.low = shift_frames(&raw.low, at(raw.low_fps), 0.0);
@@ -614,7 +617,7 @@ fn adopt_grid(app: &App, path: &Path, twin: &Dict, lag: f64) -> Result<bool, Str
     let Some(saved) = saved else {
         return Ok(had_raw);
     };
-    let Some(Value::Object(grid)) = saved.get("grid").filter(|g| py::truthy(g)) else {
+    let Some(Value::Object(grid)) = saved.get("grid").filter(|g| value::truthy(g)) else {
         // sin rejilla: con lo que dijo la red, se saca al momento
         return Ok(had_raw);
     };
@@ -627,7 +630,7 @@ fn adopt_grid(app: &App, path: &Path, twin: &Dict, lag: f64) -> Result<bool, Str
         None | Some(Value::Null) => Vec::new(),
         Some(Value::Array(items)) => items
             .iter()
-            .map(|t| t.as_f64().map(|t| py::round(t + lag, 4)))
+            .map(|t| t.as_f64().map(|t| num::round_to(t + lag, 4)))
             .collect::<Option<_>>()
             .ok_or("un pulso que no es un número")?,
         Some(_) => return Err("los pulsos no son una lista".into()),
@@ -668,8 +671,8 @@ fn adopt_grid(app: &App, path: &Path, twin: &Dict, lag: f64) -> Result<bool, Str
             let (Some(s), Some(t)) = (start.as_f64(), e.get("end").and_then(Value::as_f64)) else {
                 return Err("un tramo que no es de números".into());
             };
-            e.insert("start".into(), Value::from(py::round(s + lag, 3)));
-            e.insert("end".into(), Value::from(py::round(t + lag, 3)));
+            e.insert("start".into(), Value::from(num::round_to(s + lag, 3)));
+            e.insert("end".into(), Value::from(num::round_to(t + lag, 3)));
         }
         edits.push(Value::Object(e));
     }
@@ -745,16 +748,16 @@ pub fn settle(
         t
     };
     done.twin = twin.get("id").cloned().unwrap_or(Value::Null);
-    let folder = match twin.get("manifest_folder").filter(|v| py::truthy(v)) {
-        Some(f) => Some(PathBuf::from(py::str_of(f))),
+    let folder = match twin.get("manifest_folder").filter(|v| value::truthy(v)) {
+        Some(f) => Some(PathBuf::from(value::str_of(f))),
         None => stems_folder(app, &twin),
     };
     // cuánto está corrido el archivo nuevo: contra el de antes si sigue, sus
     // pistas sumadas, o lo que oyó la red
     let twin_path = twin
         .get("path")
-        .filter(|v| py::truthy(v))
-        .map(py::str_of)
+        .filter(|v| value::truthy(v))
+        .map(value::str_of)
         .unwrap_or_default();
     let measured =
         if !twin_path.is_empty() && Path::new(&twin_path).is_file() && twin_path != song_path {
@@ -764,11 +767,11 @@ pub fn settle(
             let manifest = ls::read_manifest(&folder.to_string_lossy()).unwrap_or_default();
             let paths: Vec<PathBuf> = manifest
                 .get("tracks")
-                .filter(|v| py::truthy(v))
-                .map(py::list_of)
+                .filter(|v| value::truthy(v))
+                .map(value::list_of)
                 .unwrap_or_default()
                 .iter()
-                .filter_map(|t| t.get("file").map(|f| folder.join(py::str_of(f))))
+                .filter_map(|t| t.get("file").map(|f| folder.join(value::str_of(f))))
                 .filter(|p| p.is_file())
                 .collect();
             if paths.is_empty() {
@@ -794,8 +797,8 @@ pub fn settle(
         };
     let file = songs::text(&song, "file");
     if let Some((lag, score)) = measured {
-        done.lag = py::round(lag, 4);
-        done.score = Some(py::round(score, 3));
+        done.lag = num::round_to(lag, 4);
+        done.score = Some(num::round_to(score, 3));
         if score < MIN_SCORE {
             log::info!("{file}: la gemela no suena igual ({score:.2}): no se aprovecha");
             if twin_of_missing.is_some() && has_stems && folder.is_none() {
@@ -814,15 +817,15 @@ pub fn settle(
     // las pistas
     if let Some(folder) = &folder {
         let here = stems::info(app, &song).is_some_and(|same| {
-            let mine = same.get("folder").map(py::str_of).unwrap_or_default();
-            py::realpath(&mine) == py::realpath(&folder.to_string_lossy())
+            let mine = same.get("folder").map(value::str_of).unwrap_or_default();
+            paths::real(&mine) == paths::real(&folder.to_string_lossy())
         });
         if here && lag == 0.0 {
             done.stems = true;
         } else {
-            let moving = twin.get("missing").is_some_and(py::truthy)
+            let moving = twin.get("missing").is_some_and(value::truthy)
                 || twin_of_missing.is_some()
-                || twin.get("manifest_folder").is_some_and(py::truthy);
+                || twin.get("manifest_folder").is_some_and(value::truthy);
             done.stems = adopt_stems(app, &song, folder, lag, moving)?.is_some();
         }
     }
@@ -835,7 +838,7 @@ pub fn settle(
     }
     // el estudio: el de la apartada ya es suyo (mismo id), pero corrido
     let parse = |row: &Dict| -> Option<Value> {
-        match row.get("study").filter(|v| py::truthy(v)) {
+        match row.get("study").filter(|v| value::truthy(v)) {
             None => Some(json!({})),
             Some(Value::String(s)) => serde_json::from_str(s).ok(),
             Some(_) => None,
@@ -848,9 +851,9 @@ pub fn settle(
             parse(&twin)
         };
         if let Some(theirs) = theirs {
-            let pick = if twin_of_missing.is_some() && py::truthy(&own) && lag != 0.0 {
+            let pick = if twin_of_missing.is_some() && value::truthy(&own) && lag != 0.0 {
                 Some(&own)
-            } else if !py::truthy(&own) && py::truthy(&theirs) {
+            } else if !value::truthy(&own) && value::truthy(&theirs) {
                 Some(&theirs)
             } else {
                 None
@@ -874,7 +877,7 @@ pub fn settle(
 pub fn merge_missing(app: &App, song_id: i64, twin: &Dict) -> Result<usize, ApiError> {
     let Some(old) = twin
         .get("id")
-        .filter(|v| py::truthy(v))
+        .filter(|v| value::truthy(v))
         .and_then(Value::as_i64)
     else {
         return Ok(0);
@@ -945,13 +948,13 @@ pub fn sweep(app: &App, progress: &mut dyn FnMut(usize, usize)) -> Result<Value,
         let candidates = twins(app, &song)?;
         for t in candidates
             .iter()
-            .filter(|t| t.get("missing").is_some_and(py::truthy))
+            .filter(|t| t.get("missing").is_some_and(value::truthy))
         {
             lists_n += merge_missing(app, *id, t)?;
         }
         let needs = stems::info(app, &song).is_none()
             || !beats::cached(app, Path::new(&path))
-            || !song.get("study").is_some_and(py::truthy);
+            || !song.get("study").is_some_and(value::truthy);
         if !needs || (candidates.is_empty() && manifest_twin(app, &song)?.is_none()) {
             continue;
         }
@@ -1020,14 +1023,17 @@ pub fn sweep_once_in_background(app: &App, delay: Duration) -> bool {
             log::info!("aprovechado de otras copias: {told}");
             let mut out = serde_json::Map::new();
             out.insert("version".into(), SWEEP_VERSION.into());
-            out.insert("at".into(), py::round_int(library::index::now()).into());
+            out.insert(
+                "at".into(),
+                (library::index::now().round_ties_even() as i64).into(),
+            );
             if let Value::Object(t) = told {
                 out.extend(t);
             }
             if let Some(parent) = marker.parent() {
                 let _ = std::fs::create_dir_all(parent);
             }
-            let _ = std::fs::write(&marker, py::dumps(&Value::Object(out)));
+            let _ = std::fs::write(&marker, Value::Object(out).to_string());
         })
         .is_ok()
 }

@@ -38,8 +38,8 @@ fn status(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let missing: Vec<Value> = folders
         .iter()
         .filter(|f| {
-            f.get("active").is_some_and(library::py::truthy)
-                && !f.get("exists").is_some_and(library::py::truthy)
+            f.get("active").is_some_and(library::value::truthy)
+                && !f.get("exists").is_some_and(library::value::truthy)
         })
         .map(|f| f.get("path").cloned().unwrap_or(Value::Null))
         .collect();
@@ -169,7 +169,7 @@ fn save_settings(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     ];
     for (value, env) in texts {
         let Some(v) = value else { continue };
-        let v = library::py::strip(&v).to_owned();
+        let v = v.trim().to_owned();
         if v.is_empty() {
             continue;
         }
@@ -182,7 +182,7 @@ fn save_settings(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let mut profile_patch = Dict::new();
     for (value, key) in [(&model, "model"), (&ai_key, "key")] {
         if let Some(v) = value {
-            let v = library::py::strip(v);
+            let v = v.trim();
             if !v.is_empty() {
                 profile_patch.insert(key.into(), v.into());
             }
@@ -190,14 +190,14 @@ fn save_settings(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     }
     // `fingerprint_key` va detrás de `model` y `ai_key` en el modelo
     if let Some(v) = &fingerprint_key {
-        let v = library::py::strip(v).to_owned();
+        let v = v.trim().to_owned();
         if !v.is_empty() {
             app.update_config(|c| c.acoustid_api_key.clone_from(&v));
             put(&mut save, "ACOUSTID_API_KEY", v);
         }
     }
     if let Some(v) = library.filter(|v| !v.is_empty()) {
-        let path = PathBuf::from(library::py::purepath(&library::py::expanduser(&v)));
+        let path = PathBuf::from(library::paths::clean(&library::paths::expand_home(&v)));
         if !path.is_dir() {
             return Err(ApiError::bad_request("esa carpeta no existe"));
         }

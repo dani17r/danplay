@@ -173,7 +173,7 @@ fn drums_of(app: &App, path: &Path) -> Option<PathBuf> {
     let id = brief.get("id").and_then(Value::as_i64)?;
     let song = songs::by_id(app, id).ok()??;
     let info = library::stems::info(&song, &app.config().library.to_string_lossy())?;
-    if !info.get("complete").is_some_and(library::py::truthy) {
+    if !info.get("complete").is_some_and(library::value::truthy) {
         return None;
     }
     info.get("tracks")?.as_array()?.iter().find_map(|t| {
@@ -288,9 +288,8 @@ fn merge(
     let report = json!({"region": [s.region.0, s.region.1], "joins": joins});
     let meter = base
         .get("meter")
-        .and_then(Value::as_f64)
-        .and_then(|m| [3, 4].into_iter().find(|&n| m == f64::from(n)));
-    let end = grid::finish(&s.beats, &f64s(&raw.down), meter.map(i64::from)).map_err(grid_error)?;
+        .and_then(|m| library::value::number_in(m, &[3, 4]));
+    let end = grid::finish(&s.beats, &f64s(&raw.down), meter).map_err(grid_error)?;
     let mut out = final_json(&end);
     out.insert("report".into(), report);
     Ok(Value::Object(out))
@@ -364,8 +363,8 @@ pub fn grid_of(app: &App, path: &Path) -> Result<Value, BeatsError> {
     let saved = saved(app, path);
     if let Some(s) = &saved
         && (s.get("version").and_then(Value::as_i64) == Some(VERSION)
-            || s.get("exact").is_some_and(library::py::truthy))
-        && let Some(g) = s.get("grid").filter(|g| library::py::truthy(g))
+            || s.get("exact").is_some_and(library::value::truthy))
+        && let Some(g) = s.get("grid").filter(|g| library::value::truthy(g))
     {
         return Ok(g.clone());
     }
@@ -421,8 +420,8 @@ pub fn reanalyze(
     if let (Some(s), Some(e)) = (start, end)
         && e > s
     {
-        edit.insert("start".into(), Value::from(library::py::round(s, 3)));
-        edit.insert("end".into(), Value::from(library::py::round(e, 3)));
+        edit.insert("start".into(), Value::from(library::num::round_to(s, 3)));
+        edit.insert("end".into(), Value::from(library::num::round_to(e, 3)));
     }
     if let Some(b) = bpm.filter(|b| *b != 0.0) {
         edit.insert("bpm".into(), Value::from(b));
@@ -577,7 +576,7 @@ fn run(
             if said.len() == 1
                 && let Some(p) = said.get("progress")
             {
-                if let Some(p) = library::py::float_of(p) {
+                if let Some(p) = library::value::float_of(p) {
                     let mut q = QUEUE.lock().unwrap_or_else(PoisonError::into_inner);
                     q.progress.insert(key.clone(), p);
                 }
@@ -614,7 +613,10 @@ fn network(app: &App, path: &Path) -> Result<Raw, BeatsError> {
         std::fs::create_dir_all(parent).map_err(|e| BeatsError::Other(e.to_string()))?;
     }
     let (answer, code, errors) = run(app, path, &raw_path)?;
-    if answer.get("ok").is_none_or(|ok| !library::py::truthy(ok)) {
+    if answer
+        .get("ok")
+        .is_none_or(|ok| !library::value::truthy(ok))
+    {
         let errors = errors.trim();
         if !errors.is_empty() {
             let tail: String = {
@@ -625,10 +627,10 @@ fn network(app: &App, path: &Path) -> Result<Raw, BeatsError> {
         }
         let why = answer
             .get("error")
-            .filter(|e| library::py::truthy(e))
+            .filter(|e| library::value::truthy(e))
             .map_or_else(
                 || format!("el detector se cerró sin terminar ({code})"),
-                library::py::str_of,
+                library::value::str_of,
             );
         return Err(beats_err(why));
     }
@@ -661,12 +663,8 @@ pub fn child_main(args: &[OsString]) -> i32 {
         let library = crate::services::onnx::library_in(None)
             .ok_or("falta ONNX Runtime en esta instalación de DanPlay")?;
         let (_grid, raw) = analysis::pulse::analyze(ffmpeg, path, &library, graph, &mut |part| {
-            let line = Value::from(library::py::round(part, 3));
-            let _ = writeln!(
-                std::io::stdout(),
-                "{{\"progress\": {}}}",
-                library::py::dumps(&line)
-            );
+            let line = Value::from(library::num::round_to(part, 3));
+            let _ = writeln!(std::io::stdout(), "{{\"progress\": {line}}}");
             let _ = std::io::stdout().flush();
         })
         .map_err(|e| e.to_string())?;
@@ -694,11 +692,7 @@ pub fn child_main(args: &[OsString]) -> i32 {
             } else {
                 e
             };
-            let _ = writeln!(
-                out,
-                "{}",
-                library::py::dumps(&serde_json::json!({ "error": why }))
-            );
+            let _ = writeln!(out, "{}", serde_json::json!({ "error": why }));
             1
         }
     }

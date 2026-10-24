@@ -283,7 +283,7 @@ fn place_keeps_songs_from_outside_the_library() {
     let external: Vec<bool> = songs(&app, lid, false, true)
         .expect("canciones")
         .iter()
-        .map(|s| s.get("external").is_some_and(library::py::truthy))
+        .map(|s| s.get("external").is_some_and(library::value::truthy))
         .collect();
     assert_eq!(external, [false, true, false, true]);
     assert_tidy(&app, lid);

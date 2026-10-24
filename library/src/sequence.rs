@@ -8,7 +8,11 @@
 //! de compás y los localizadores de cada parte —Intro, Verse 1, Chorus…— en
 //! pulsos).
 use crate::names::{self, Re};
-use crate::{patterns, py};
+use crate::num;
+use crate::paths;
+use crate::patterns;
+use crate::text;
+use crate::value;
 use quick_xml::events::Event;
 use serde_json::{Map, Value};
 use std::io::Read as _;
@@ -56,9 +60,13 @@ fn audio_in(folder: &str) -> Vec<String> {
         .flatten()
         .filter_map(|e| {
             let name = e.file_name().to_str()?.to_owned();
-            let path = py::join(folder, &name);
+            let path = paths::join(folder, &name);
             let ok = Path::new(&path).is_file()
-                && AUDIO.contains(&py::path_suffix(&name).to_lowercase().as_str())
+                && AUDIO.contains(
+                    &paths::suffix(std::path::Path::new(&name))
+                        .to_lowercase()
+                        .as_str(),
+                )
                 && !name.starts_with('.');
             ok.then_some(path)
         })
@@ -75,7 +83,7 @@ fn subdirs(folder: &str) -> Vec<String> {
         .flatten()
         .filter_map(|e| {
             let name = e.file_name().to_str()?.to_owned();
-            let path = py::join(folder, &name);
+            let path = paths::join(folder, &name);
             (Path::new(&path).is_dir() && !name.starts_with('.') && name != "Ableton Project Info")
                 .then_some(path)
         })
@@ -135,14 +143,14 @@ pub fn key_of(name: &str, taken: &mut Vec<String>) -> String {
         base.push('_');
     }
     let base = base.trim_matches('_');
-    let mut base = py::head(base, 20).to_owned();
+    let mut base = text::head(base, 20).to_owned();
     if !base.chars().next().is_some_and(|c| c.is_ascii_alphabetic()) {
         base = format!("p_{base}");
     }
     let mut key = base.clone();
     let mut n = 2;
     while taken.contains(&key) {
-        key = format!("{}_{n}", py::head(&base, 17));
+        key = format!("{}_{n}", text::head(&base, 17));
         n += 1;
     }
     taken.push(key.clone());
@@ -157,7 +165,7 @@ pub fn parse_name(name: &str) -> Map<String, Value> {
     let mut artist = String::new();
     let mut key = String::new();
     let mut bpm = 0.0;
-    let mut text = py::strip(name).to_owned();
+    let mut text = name.trim().to_owned();
     if let Some(groups) = patterns::search(&BPM, &text) {
         // `float(m[1].replace(",", "."))`: con las cifras de cualquier escritura
         let digits: String = names::group(&text, &groups, 1)
@@ -175,7 +183,7 @@ pub fn parse_name(name: &str) -> Map<String, Value> {
     }
     let mut parts: Vec<String> = names::split(&DASH, &text, 0)
         .iter()
-        .map(|p| py::strip(p).to_owned())
+        .map(|p| p.trim().to_owned())
         .filter(|p| !p.is_empty())
         .collect();
     if parts.last().is_some_and(|p| KEY.is_match(p)) {
@@ -351,7 +359,7 @@ pub fn read_als(path: &Path) -> Result<Project, SequenceError> {
         // `float(ev.get("Value") or 0)`: sin valor es 0 (y vale); uno que no
         // es un número no vale, y se mira el siguiente
         let value = ev.get("Value").filter(|v| !v.is_empty()).unwrap_or("0");
-        if let Some(t) = py::parse_float(value) {
+        if let Some(t) = value::parse_float(value) {
             tempo = t;
             break;
         }
@@ -359,17 +367,20 @@ pub fn read_als(path: &Path) -> Result<Project, SequenceError> {
     if tempo == 0.0
         && let Some(manual) = master.path(&["Tempo", "Manual"]).first()
     {
-        tempo = manual.get("Value").and_then(py::parse_float).unwrap_or(0.0);
+        tempo = manual
+            .get("Value")
+            .and_then(value::parse_float)
+            .unwrap_or(0.0);
     }
     let mut meters = Vec::new();
     for ev in master.path(&["TimeSignature", "ArrangerAutomation", "Events", "EnumEvent"]) {
         let beat = match ev.get("Time") {
             None | Some("") => Some(0.0),
-            Some(t) => py::parse_float(t),
+            Some(t) => value::parse_float(t),
         };
         let value = match ev.get("Value") {
             None | Some("") => Some(201),
-            Some(v) => py::int_of(&Value::String(v.to_owned())),
+            Some(v) => value::int_of(&Value::String(v.to_owned())),
         };
         if let (Some(beat), Some(value)) = (beat, value) {
             let (num, den) = meter(value);
@@ -383,11 +394,11 @@ pub fn read_als(path: &Path) -> Result<Project, SequenceError> {
             .child("Time")
             .and_then(|t| t.get("Value"))
             .unwrap_or("0");
-        let Some(time) = py::parse_float(time) else {
+        let Some(time) = value::parse_float(time) else {
             continue;
         };
         let name = loc.child("Name").and_then(|n| n.get("Value")).unwrap_or("");
-        locators.push((time, py::strip(name).to_owned()));
+        locators.push((time, name.trim().to_owned()));
     }
     locators.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     let mut clips: Vec<(String, f64, bool)> = Vec::new();
@@ -400,7 +411,8 @@ pub fn read_als(path: &Path) -> Result<Project, SequenceError> {
         if name.is_empty() {
             continue;
         }
-        let Some(beat) = py::parse_float(clip.get("Time").filter(|t| !t.is_empty()).unwrap_or("0"))
+        let Some(beat) =
+            value::parse_float(clip.get("Time").filter(|t| !t.is_empty()).unwrap_or("0"))
         else {
             continue;
         };
@@ -450,7 +462,7 @@ fn als_in(folder: &str) -> Vec<String> {
         .flatten()
         .filter_map(|e| {
             let name = e.file_name().to_str()?.to_owned();
-            py::fnmatch(&name, "*.als").then(|| py::join(folder, &name))
+            paths::glob_match(&name, "*.als").then(|| paths::join(folder, &name))
         })
         .collect();
     out.sort();
@@ -461,16 +473,16 @@ fn als_in(folder: &str) -> Vec<String> {
 /// con su papel, el proyecto, la portada y lo que dice el nombre. Un error si
 /// no lo parece.
 pub fn find(folder: &str) -> Result<Sequence, SequenceError> {
-    let mut folder = py::purepath(folder);
+    let mut folder = paths::clean(folder);
     if Path::new(&folder).is_file() {
-        folder = py::purepath(&py::dirname(&folder));
+        folder = paths::clean(&paths::parent(&folder));
     }
     if !Path::new(&folder).is_dir() {
         return fail("no encuentro esa carpeta");
     }
     let tracks = tracks_dir(&folder);
     // desde dentro de MultiTracks: la carpeta de la canción es la de arriba
-    let parent = py::purepath(&py::dirname(&folder));
+    let parent = paths::clean(&paths::parent(&folder));
     if tracks.as_deref() == Some(folder.as_str())
         && als_in(&folder).is_empty()
         && !als_in(&parent).is_empty()
@@ -495,11 +507,18 @@ pub fn find(folder: &str) -> Result<Sequence, SequenceError> {
         .unwrap_or_default();
     entries.sort();
     for name in entries {
-        let path = py::join(&folder, &name);
-        if [".jpg", ".jpeg", ".png"].contains(&py::path_suffix(&name).to_lowercase().as_str())
-            && Path::new(&path).is_file()
+        let path = paths::join(&folder, &name);
+        if [".jpg", ".jpeg", ".png"].contains(
+            &paths::suffix(std::path::Path::new(&name))
+                .to_lowercase()
+                .as_str(),
+        ) && Path::new(&path).is_file()
         {
-            if COVERS.contains(&py::path_stem(&name).to_lowercase().as_str()) {
+            if COVERS.contains(
+                &paths::stem(std::path::Path::new(&name))
+                    .to_lowercase()
+                    .as_str(),
+            ) {
                 cover = Some(path);
                 break;
             }
@@ -508,12 +527,12 @@ pub fn find(folder: &str) -> Result<Sequence, SequenceError> {
             }
         }
     }
-    let info = parse_name(&py::basename(&folder));
+    let info = parse_name(&paths::file_name(&folder));
     let mut taken = Vec::new();
     let mut found: Vec<Track> = audio_in(&tracks_dir)
         .into_iter()
         .map(|p| {
-            let name = py::strip(&py::path_stem(&p)).to_owned();
+            let name = paths::stem(std::path::Path::new(&p)).trim().to_owned();
             let key = key_of(&name, &mut taken);
             Track {
                 role: role_of(&name),
@@ -538,13 +557,13 @@ pub fn find(folder: &str) -> Result<Sequence, SequenceError> {
     let title = info["title"].as_str().unwrap_or("").to_owned();
     Ok(Sequence {
         title: if title.is_empty() {
-            py::basename(&folder)
+            paths::file_name(&folder)
         } else {
             title
         },
         artist: info["artist"].as_str().unwrap_or("").to_owned(),
         key: info["key"].as_str().unwrap_or("").to_owned(),
-        bpm: py::round(tempo, 3),
+        bpm: num::round_to(tempo, 3),
         project: als.unwrap_or_default(),
         cover: cover.unwrap_or_default(),
         tracks: found,
@@ -566,7 +585,7 @@ pub fn grid(tempo: f64, meters: &[(f64, i64, i64)], duration: f64) -> Map<String
     let period = 60.0 / tempo;
     let n = (duration / period) as i64 + 1;
     let beats: Vec<Value> = (0..n)
-        .map(|k| Value::from(py::round(k as f64 * period, 4)))
+        .map(|k| Value::from(num::round_to(k as f64 * period, 4)))
         .collect();
     let mut changes: Vec<(f64, i64, i64)> = meters.to_vec();
     changes.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
@@ -589,13 +608,13 @@ pub fn grid(tempo: f64, meters: &[(f64, i64, i64)], duration: f64) -> Map<String
         if let Some(nxt) = next
             && (k + step) as f64 > nxt
         {
-            step = py::round_int(nxt - k as f64).max(1);
+            step = ((nxt - k as f64).round_ties_even() as i64).max(1);
         }
         k += step;
     }
     let meter = changes[0].1;
     let mut out = Map::new();
-    out.insert("bpm".into(), Value::from(py::round(tempo, 3)));
+    out.insert("bpm".into(), Value::from(num::round_to(tempo, 3)));
     out.insert(
         "meter".into(),
         Value::from(if [2, 3, 4, 5, 6, 7, 8, 9, 12].contains(&meter) {
@@ -630,15 +649,18 @@ pub fn markers(sections: &[(f64, String)], tempo: f64, duration: f64) -> Vec<Val
         if *t >= duration {
             break;
         }
-        let label = py::head(name, 60);
+        let label = text::head(name, 60);
         let label = if label.is_empty() {
             format!("Parte {}", i + 1)
         } else {
             label.to_owned()
         };
         let mut m = Map::new();
-        m.insert("t".into(), Value::from(py::round(*t, 2)));
-        m.insert("end".into(), Value::from(py::round(end.min(duration), 2)));
+        m.insert("t".into(), Value::from(num::round_to(*t, 2)));
+        m.insert(
+            "end".into(),
+            Value::from(num::round_to(end.min(duration), 2)),
+        );
         m.insert("label".into(), label.into());
         out.push(Value::Object(m));
     }
@@ -658,7 +680,7 @@ pub fn offset_filter(seconds: f64) -> Vec<String> {
 
 /// El nombre con que queda la canción de la secuencia.
 pub fn target_name(artist: &str, title: &str) -> String {
-    let (artist, title) = (py::strip(artist), py::strip(title));
+    let (artist, title) = (artist.trim(), title.trim());
     let base = names::sanitize(&if artist.is_empty() {
         title.to_owned()
     } else {
@@ -669,7 +691,7 @@ pub fn target_name(artist: &str, title: &str) -> String {
     } else {
         base
     };
-    py::head(&base, 150).to_owned()
+    text::head(&base, 150).to_owned()
 }
 
 // ------------------------------------------------------------ la onda
@@ -742,7 +764,7 @@ pub fn waves_text(waves: &[(String, Vec<f64>, Vec<f64>)]) -> String {
     let scale = |v: &[f64]| {
         Value::Array(
             v.iter()
-                .map(|x| Value::from(py::round((x / top).min(1.0), 3)))
+                .map(|x| Value::from(num::round_to((x / top).min(1.0), 3)))
                 .collect(),
         )
     };
@@ -757,5 +779,5 @@ pub fn waves_text(waves: &[(String, Vec<f64>, Vec<f64>)]) -> String {
     out.insert("buckets".into(), Value::from(WAVE_BUCKETS));
     out.insert("tracks".into(), Value::Object(tracks));
     // `json.dumps` sin más: con «, » y «: », y lo que no es ASCII escapado
-    crate::stems::ascii_json(&py::dumps(&Value::Object(out)))
+    crate::stems::ascii_json(&Value::Object(out).to_string())
 }

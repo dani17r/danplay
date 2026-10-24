@@ -1,4 +1,5 @@
 use super::*;
+use crate::value;
 use std::collections::BTreeMap;
 
 /// Lo de fuera, de mentira: canciones y listas en memoria; lo demás, vacío.
@@ -94,7 +95,7 @@ impl Io for Fake {
         Ok(id.map_or(Value::Null, |id| self.list_value(id)))
     }
     fn playlist(&mut self, raw: &Value) -> R<Value> {
-        Ok(py::int_of(raw).map_or(Value::Null, |id| self.list_value(id)))
+        Ok(value::int_of(raw).map_or(Value::Null, |id| self.list_value(id)))
     }
     fn playlists(&mut self) -> R<Value> {
         Ok(Value::Array(
@@ -317,11 +318,7 @@ fn the_download_plan_cleans_and_dedupes() {
     let plan = download_plan(&a, &json!("high"));
     assert_eq!(
         plan["items"],
-        json!([
-            "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-            "Mi Gozo",
-            "None"
-        ])
+        json!(["https://www.youtube.com/watch?v=dQw4w9WgXcQ", "Mi Gozo"])
     );
     assert_eq!(
         (plan["quality"].clone(), plan["force"].clone()),

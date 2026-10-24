@@ -9,12 +9,12 @@ use std::path::Path;
 /// `_stamp`: el tamaño y la fecha del archivo, si se puede mirar.
 pub fn stamp(path: &Path) -> Option<(u64, f64)> {
     let meta = std::fs::metadata(path).ok()?;
-    Some((meta.len(), library::py::mtime(&meta)))
+    Some((meta.len(), library::paths::mtime(&meta)))
 }
 
 /// La clave de un archivo en la caché del pulso (`pulse.key_of`).
 pub fn pulse_key(path: &Path, (size, mtime): (u64, f64)) -> String {
-    let abs = library::py::abspath(&path.to_string_lossy());
+    let abs = library::paths::absolute(&path.to_string_lossy());
     analysis::pulse::key(&abs, size, mtime as i64)
 }
 
@@ -70,7 +70,7 @@ pub fn write_fields(app: &App, path: &Path, changes: &Changes) -> bool {
 pub fn join_list(items: &[String]) -> String {
     let items: Vec<&str> = items
         .iter()
-        .map(|s| library::py::strip(s))
+        .map(|s| s.trim())
         .filter(|s| !s.is_empty())
         .collect();
     let mut value = items.join("; ");

@@ -235,7 +235,7 @@ fn finish<T>(conn: &Connection, result: Result<T, ApiError>) -> Result<T, ApiErr
 
 /// `str(path)` de pathlib: sin barras repetidas ni al final.
 pub fn path_str(path: &Path) -> String {
-    library::py::purepath(&path.to_string_lossy())
+    library::paths::clean(&path.to_string_lossy())
 }
 
 /// Lo ha dicho la app empaquetada (`App::packaged`): el proyecto no cuenta.
@@ -255,7 +255,7 @@ pub fn frozen() -> bool {
 pub fn project_root() -> PathBuf {
     let dev = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
     if !frozen() && dev.join("Cargo.toml").is_file() {
-        return PathBuf::from(library::py::normpath(&dev.to_string_lossy()));
+        return PathBuf::from(library::paths::normalize(&dev.to_string_lossy()));
     }
     std::env::current_exe()
         .ok()

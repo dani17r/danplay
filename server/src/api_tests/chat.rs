@@ -202,7 +202,7 @@ fn the_assistant_rates_marks_favorites_and_edits() {
     tool(&app, "set_favorite", json!({"id": cid, "favorite": true}));
     let c = song(&app);
     assert_eq!(c["stars"], 4);
-    assert!(library::py::truthy(&c["favorite"]));
+    assert!(library::value::truthy(&c["favorite"]));
     // fuera de rango se recorta en vez de guardar cualquier cosa
     tool(&app, "set_stars", json!({"id": cid, "stars": 99}));
     assert_eq!(song(&app)["stars"], 5);
@@ -223,7 +223,7 @@ fn the_assistant_rates_marks_favorites_and_edits() {
     assert_eq!(changed, ["favorite", "genre", "stars"]);
     let c = song(&app);
     assert_eq!(c["stars"], 2);
-    assert!(!library::py::truthy(&c["favorite"]));
+    assert!(!library::value::truthy(&c["favorite"]));
     assert_eq!(c["genre"], "Pop");
     assert!(
         summarize("edit_song", &r).starts_with("2 estrellas; ya no es favorita; cambiado: genre"),

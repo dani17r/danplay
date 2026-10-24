@@ -96,7 +96,7 @@ pub fn convert_batch(
     let (mut done, mut failures, mut skipped) = (Vec::new(), Vec::new(), Vec::new());
     for (i, r) in paths.iter().enumerate() {
         if dry_run {
-            let target = library::parity::with_suffix(Path::new(r), ".mp3");
+            let target = library::paths::with_suffix(Path::new(r), ".mp3");
             done.push(json!({
                 "source_path": r,
                 "target": target.to_string_lossy(),
@@ -106,7 +106,7 @@ pub fn convert_batch(
             let res = convert_one(app, Path::new(r), quality, keep_original)?;
             if res["ok"] == true {
                 done.push(res);
-            } else if res.get("skipped").is_some_and(library::py::truthy) {
+            } else if res.get("skipped").is_some_and(library::value::truthy) {
                 skipped.push(res);
             } else {
                 failures.push(res);

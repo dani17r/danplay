@@ -20,7 +20,10 @@
 //! van en MP3.
 use crate::index::songs::own_cue_file;
 use crate::index::{Dict, get_str, now};
-use crate::{processes, py, stems};
+use crate::num;
+use crate::paths;
+use crate::value;
+use crate::{processes, stems};
 use serde_json::Value;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
@@ -87,7 +90,7 @@ fn encode(ffmpeg: &Path, source: &Path, target: &Path, args: &[&str]) -> Result<
     if !r.succeeded() || !target.is_file() {
         let why: String = {
             let text = r.stderr_text();
-            let text = py::strip(&text);
+            let text = text.trim();
             let n = text.chars().count();
             text.chars().skip(n.saturating_sub(200)).collect()
         };
@@ -127,13 +130,18 @@ pub fn manifest(
         .and_then(|t| serde_json::from_str::<Value>(&t).ok())
         .filter(Value::is_object)
         .unwrap_or(Value::Null);
-    let or = |k: &str, d: Value| song.get(k).filter(|v| py::truthy(v)).cloned().unwrap_or(d);
+    let or = |k: &str, d: Value| {
+        song.get(k)
+            .filter(|v| value::truthy(v))
+            .cloned()
+            .unwrap_or(d)
+    };
     let mut s = Dict::new();
     let title = or("title", Value::Null);
     s.insert(
         "title".into(),
         if title.is_null() {
-            py::path_stem(get_str(song, "file")).into()
+            paths::stem(std::path::Path::new(get_str(song, "file"))).into()
         } else {
             title
         },
@@ -169,12 +177,12 @@ pub fn manifest(
     out.insert("format".into(), "danpista".into());
     out.insert("version".into(), Value::from(VERSION));
     out.insert("app".into(), app.into());
-    out.insert("created".into(), Value::from(py::round(now(), 1)));
+    out.insert("created".into(), Value::from(num::round_to(now(), 1)));
     out.insert("song".into(), Value::Object(s));
     out.insert(
         "quality".into(),
         info.get("quality")
-            .filter(|v| py::truthy(v))
+            .filter(|v| value::truthy(v))
             .cloned()
             .unwrap_or_else(|| "".into()),
     );
@@ -204,12 +212,12 @@ pub fn guides_of(study: &Value, cues_dir: &str) -> (Value, Vec<(String, String)>
     let Some(obj) = study.as_object() else {
         return (study.clone(), Vec::new());
     };
-    let Some(cues) = obj.get("cues").filter(|v| py::truthy(v)) else {
+    let Some(cues) = obj.get("cues").filter(|v| value::truthy(v)) else {
         return (study.clone(), Vec::new());
     };
     let mut files: Vec<(String, String)> = Vec::new();
     let mut out: Vec<Value> = Vec::new();
-    for c in py::list_of(cues) {
+    for c in value::list_of(cues) {
         let Some(c) = c.as_object() else { continue };
         let Some(own) = own_cue_file(c.get("file"), cues_dir, false) else {
             continue;
@@ -217,7 +225,7 @@ pub fn guides_of(study: &Value, cues_dir: &str) -> (Value, Vec<(String, String)>
         if !Path::new(&own).is_file() {
             continue;
         }
-        let name = format!("{GUIDES}/{}", py::basename(&own));
+        let name = format!("{GUIDES}/{}", paths::file_name(&own));
         match files.iter_mut().find(|(n, _)| *n == name) {
             Some(slot) => slot.1.clone_from(&own),
             None => files.push((name.clone(), own)),
@@ -235,9 +243,12 @@ pub fn guides_of(study: &Value, cues_dir: &str) -> (Value, Vec<(String, String)>
 pub fn target_for(song: &Dict) -> String {
     let name = format!(
         "{}{EXTENSION}",
-        stems::safe_name(&py::path_stem(get_str(song, "file")))
+        stems::safe_name(&paths::stem(std::path::Path::new(get_str(song, "file"))))
     );
-    py::purepath(&py::join(&py::join(get_str(song, "root"), FOLDER), &name))
+    paths::clean(&paths::join(
+        &paths::join(get_str(song, "root"), FOLDER),
+        &name,
+    ))
 }
 
 /// Lo que se necesita para armar el paquete de una canción.
@@ -395,7 +406,7 @@ fn zip_up(
         let (when, attr) = match from {
             Some(path) => {
                 let meta = std::fs::metadata(path).map_err(|e| e.to_string())?;
-                (py::mtime(&meta), mode(&meta))
+                (paths::mtime(&meta), mode(&meta))
             }
             None => (now(), 0o600),
         };
@@ -408,7 +419,7 @@ fn zip_up(
     };
     put(
         MANIFEST,
-        py::dumps_compact(&Value::Object(data.clone())).as_bytes(),
+        Value::Object(data.clone()).to_string().as_bytes(),
         Deflated,
         None,
     )?;
@@ -443,7 +454,7 @@ pub fn write(package: &Bundle<'_>, done: &(dyn Fn() + Sync)) -> Result<Dict, Str
         .map_err(|e| e.to_string())?;
     let mut files = Dict::new();
     for t in &tracks {
-        let part = py::path_stem(get_str(t, "file"));
+        let part = paths::stem(std::path::Path::new(get_str(t, "file")));
         files.insert(
             get_str(t, "source").to_owned(),
             format!("{PARTS}/{part}{ext}").into(),
@@ -486,7 +497,7 @@ pub fn write(package: &Bundle<'_>, done: &(dyn Fn() + Sync)) -> Result<Dict, Str
     let target = PathBuf::from(package.target);
     let tmp = target.with_file_name(format!(
         ".{}.parte{EXTENSION}",
-        py::path_stem(package.target)
+        paths::stem(std::path::Path::new(package.target))
     ));
     let cover = match (package.cover, &cover_name) {
         (Some((bytes, _)), Some(name)) => Some((name.as_str(), bytes)),

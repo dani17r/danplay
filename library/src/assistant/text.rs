@@ -3,7 +3,7 @@
 //! `char_classes`), partir y juntar palabras como `split()`/`join`, cortar por
 //! caracteres y no por bytes, y comparar sin tildes.
 use super::char_classes;
-use crate::py;
+use crate::text;
 use std::collections::HashSet;
 use unicode_normalization::UnicodeNormalization;
 use unicode_properties::{GeneralCategory, UnicodeGeneralCategory};
@@ -77,7 +77,7 @@ pub fn islower(c: char) -> bool {
 
 /// `\s` de `re` y `str.isspace`.
 pub fn isspace(c: char) -> bool {
-    py::isspace(c)
+    char::is_whitespace(c)
 }
 
 /// `s.isdecimal()` (no vacío, todo cifras decimales).
@@ -130,23 +130,23 @@ pub fn lower(s: &str) -> String {
 
 /// `s.split()`.
 pub fn words(s: &str) -> Vec<&str> {
-    py::words(s).collect()
+    s.split_whitespace().collect()
 }
 
 /// `len(s.split(None, maxsplit))`: las palabras, contando el resto como una
 /// más si hay más de `maxsplit`.
 pub fn count_split(s: &str, maxsplit: usize) -> usize {
-    py::words(s).take(maxsplit + 1).count()
+    s.split_whitespace().take(maxsplit + 1).count()
 }
 
 /// `" ".join(s.split())`.
 pub fn squeeze(s: &str) -> String {
-    py::words(s).collect::<Vec<_>>().join(" ")
+    s.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 /// `s.strip()`.
 pub fn strip(s: &str) -> &str {
-    py::strip(s)
+    s.trim()
 }
 
 /// `s.strip(chars)`.
@@ -166,7 +166,7 @@ pub fn lstrip_chars<'a>(s: &'a str, chars: &str) -> &'a str {
 
 /// `s[:n]` (caracteres).
 pub fn head(s: &str, n: usize) -> &str {
-    py::head(s, n)
+    text::head(s, n)
 }
 
 /// `len(s)` (caracteres).

@@ -69,7 +69,7 @@ fn edit_playlist(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
         && let Some(other) = playlists::by_name(ctx.app, n)?
         && other.get("id").and_then(Value::as_i64) != Some(lid)
     {
-        let other_name = library::py::str_of(other.get("name").unwrap_or(&Value::Null));
+        let other_name = library::value::str_of(other.get("name").unwrap_or(&Value::Null));
         return Err(ApiError::conflict(format!(
             "ya hay una lista que se llama «{other_name}»"
         )));

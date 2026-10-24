@@ -651,7 +651,7 @@ fn info_with_timeout_is_a_light_query() {
             flag(&o, "--retries"),
             flag(&o, "--extractor-retries")
         ),
-        (Some("4.0"), Some("0"), Some("0")),
+        (Some("4"), Some("0"), Some("0")),
         "{o:?}"
     );
     assert!(has(&o, "--skip-download") && has(&o, "--flat-playlist") && has(&o, "--no-playlist"));

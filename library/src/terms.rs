@@ -8,7 +8,7 @@
 //! Sin aceptarlos, la interfaz no deja separar en pistas, usar el asistente
 //! de IA ni «Transformar».
 use crate::index::{Dict, now};
-use crate::py;
+use crate::value;
 use serde_json::Value;
 use std::path::Path;
 
@@ -65,12 +65,11 @@ pub fn accept(data_dir: &Path, version: &str, app: &str) -> Result<Dict, String>
     std::fs::create_dir_all(data_dir).map_err(|e| e.to_string())?;
     let mut data = Dict::new();
     data.insert("version".into(), version.into());
-    data.insert("at".into(), Value::from(py::round_int(now())));
+    data.insert("at".into(), Value::from(now().round_ties_even() as i64));
     data.insert("app".into(), app.into());
     let path = data_dir.join(FILE);
     let tmp = data_dir.join(format!("{FILE}.part"));
-    std::fs::write(&tmp, py::dumps_with(&Value::Object(data), Some(1), false))
-        .map_err(|e| e.to_string())?;
+    std::fs::write(&tmp, value::pretty(&Value::Object(data))).map_err(|e| e.to_string())?;
     std::fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
     Ok(status(data_dir))
 }

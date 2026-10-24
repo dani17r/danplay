@@ -19,7 +19,7 @@
 mod list;
 
 use crate::index::Dict;
-use crate::py;
+use crate::value;
 use crate::warnings::{self, Warnings};
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -130,7 +130,7 @@ fn text(d: &Dict, k: &str) -> String {
 /// `str(d.get(k) or "")`.
 fn str_or_empty(v: Option<&Value>) -> String {
     match v {
-        Some(x) if py::truthy(x) => py::str_of(x),
+        Some(x) if value::truthy(x) => value::str_of(x),
         _ => String::new(),
     }
 }
@@ -146,7 +146,7 @@ fn dict_or_empty(v: Option<&Value>) -> Dict {
 /// El proveedor de un perfil: el que dice, o el de su id, o «custom».
 fn provider_of(pid: &str, prof: &Dict) -> &'static Dict {
     let wanted = match prof.get("provider") {
-        Some(v) if py::truthy(v) => py::str_of(v),
+        Some(v) if value::truthy(v) => value::str_of(v),
         _ => pid.to_owned(),
     };
     by_id(&wanted).unwrap_or_else(custom)
@@ -216,44 +216,6 @@ struct Stored {
 
 static STORE: Mutex<Option<Stored>> = Mutex::new(None);
 
-/// Un ai.json con `Infinity` o `NaN` (los escribía `json.dumps` de Python,
-/// con un tope de gasto infinito): esos valores, como `null`, para no tomar
-/// por roto un archivo que Python sí leía.
-fn without_non_finite(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    let mut in_string = false;
-    let mut escaped = false;
-    let mut rest = text;
-    while let Some(c) = rest.chars().next() {
-        if in_string {
-            out.push(c);
-            if escaped {
-                escaped = false;
-            } else if c == '\\' {
-                escaped = true;
-            } else if c == '"' {
-                in_string = false;
-            }
-            rest = &rest[c.len_utf8()..];
-            continue;
-        }
-        if c == '"' {
-            in_string = true;
-        }
-        let word = ["-Infinity", "Infinity", "NaN"]
-            .into_iter()
-            .find(|w| rest.starts_with(w));
-        if let Some(w) = word {
-            out.push_str("null");
-            rest = &rest[w.len()..];
-            continue;
-        }
-        out.push(c);
-        rest = &rest[c.len_utf8()..];
-    }
-    out
-}
-
 /// La configuración de antes (solo DeepInfra, en danplay.env) pasa a un
 /// perfil. Nadie tiene que volver a pegar su clave al actualizar. `env` es
 /// `config.env` (con los nombres viejos de las variables).
@@ -287,9 +249,9 @@ fn read_file(path: &Path, env: &dyn Fn(&str, &str) -> String, out: &mut Warnings
     let mut data: Option<Value> = None;
     if path.is_file() {
         match std::fs::read_to_string(path) {
-            Ok(text) => match serde_json::from_str::<Value>(&without_non_finite(&text)) {
+            Ok(text) => match crate::lenient_json::parse(&text).ok_or(()) {
                 Ok(v) => data = Some(v),
-                Err(_) => keep_broken(path, out),
+                Err(()) => keep_broken(path, out),
             },
             Err(e) => warnings::warning(out, format!("no se pudo leer {}: {e}", path.display())),
         }
@@ -331,7 +293,7 @@ fn keep_broken(path: &Path, out: &mut Warnings) {
 
 /// Guarda los perfiles (llevan claves): atómico y solo para su dueño.
 fn write_file(path: &Path, data: &Dict) -> std::io::Result<()> {
-    crate::config::write_private(path, &py::dumps_indent(&Value::Object(data.clone()), 1))
+    crate::config::write_private(path, &value::pretty(&Value::Object(data.clone())))
 }
 
 /// Lo guardado en `path` (leído una vez y recordado). `env` es `config.env`.
@@ -432,7 +394,7 @@ pub fn public(pid: &str, prof: &Dict) -> Dict {
         })
         .collect();
     let name = match prof.get("name") {
-        Some(v) if py::truthy(v) => v.clone(),
+        Some(v) if value::truthy(v) => v.clone(),
         _ => p.get("name").cloned().unwrap_or(Value::Null),
     };
     out.insert("id".into(), pid.into());
@@ -443,7 +405,7 @@ pub fn public(pid: &str, prof: &Dict) -> Dict {
     out.insert("provider_name".into(), name);
     out.insert(
         "has_key".into(),
-        Value::Bool(prof.get("key").is_some_and(py::truthy)),
+        Value::Bool(prof.get("key").is_some_and(value::truthy)),
     );
     out.insert("key".into(), mask(&str_or_empty(prof.get("key"))).into());
     out.insert(
@@ -507,7 +469,7 @@ fn timeout_of(v: Option<&Value>) -> Value {
     match v {
         // uno que no es finito («inf», «nan» escritos en un borrador) tampoco:
         // no cabe en JSON, y esperar para siempre no es un tiempo límite
-        Some(x) if py::truthy(x) => py::float_of(x)
+        Some(x) if value::truthy(x) => value::float_of(x)
             .filter(|t| t.is_finite())
             .map_or_else(|| Value::from(DEFAULT_TIMEOUT), Value::from),
         _ => Value::from(DEFAULT_TIMEOUT as f64),
@@ -521,9 +483,9 @@ pub fn resolve(pid: &str, prof: &Dict) -> Option<Dict> {
     let p = provider_of(pid, prof);
     let fields: Dict = dict_or_empty(prof.get("fields"))
         .into_iter()
-        .map(|(k, v)| (k, Value::String(py::strip(&py::str_of(&v)).to_owned())))
+        .map(|(k, v)| (k, Value::String(value::str_of(&v).trim().to_owned())))
         .collect();
-    let mut base_url = py::strip(&str_or_empty(prof.get("base_url"))).to_owned();
+    let mut base_url = str_or_empty(prof.get("base_url")).trim().to_owned();
     if base_url.is_empty() {
         base_url = text(p, "base_url");
     }
@@ -537,17 +499,17 @@ pub fn resolve(pid: &str, prof: &Dict) -> Option<Dict> {
     }
     let mut headers = dict_or_empty(p.get("headers"));
     for (k, v) in dict_or_empty(prof.get("headers")) {
-        if !py::strip(&k).is_empty() {
-            headers.insert(k, Value::String(py::str_of(&v)));
+        if !k.trim().is_empty() {
+            headers.insert(k, Value::String(value::str_of(&v)));
         }
     }
     let suggest = dict_or_empty(p.get("suggest"));
-    let key = py::strip(&str_or_empty(prof.get("key"))).to_owned();
-    let mut model = py::strip(&str_or_empty(prof.get("model"))).to_owned();
+    let key = str_or_empty(prof.get("key")).trim().to_owned();
+    let mut model = str_or_empty(prof.get("model")).trim().to_owned();
     if model.is_empty() {
         model = text(&suggest, "fast");
     }
-    let mut chat_model = py::strip(&str_or_empty(prof.get("chat_model"))).to_owned();
+    let mut chat_model = str_or_empty(prof.get("chat_model")).trim().to_owned();
     if chat_model.is_empty() {
         chat_model = text(&suggest, "chat");
     }
@@ -560,7 +522,7 @@ pub fn resolve(pid: &str, prof: &Dict) -> Option<Dict> {
     let name = [prof.get("name"), fields.get("name")]
         .into_iter()
         .flatten()
-        .find(|v| py::truthy(v))
+        .find(|v| value::truthy(v))
         .cloned()
         .unwrap_or_else(|| p.get("name").cloned().unwrap_or(Value::Null));
     let mut out = Dict::new();
@@ -612,7 +574,7 @@ pub fn usable(prof: Option<&Dict>) -> (bool, String) {
             false,
             format!(
                 "falta la clave de {}",
-                py::str_of(prof.get("name").unwrap_or(&Value::Null))
+                value::str_of(prof.get("name").unwrap_or(&Value::Null))
             ),
         );
     }
@@ -715,15 +677,15 @@ pub fn save_profile(
 ) -> Result<String, EditError> {
     edit(path, env, out, |store| {
         let mut profiles = profiles_of(store);
-        let provider = py::strip(&str_or_empty(data.get("provider"))).to_owned();
-        let mut pid = py::strip(&str_or_empty(data.get("id"))).to_owned();
+        let provider = str_or_empty(data.get("provider")).trim().to_owned();
+        let mut pid = str_or_empty(data.get("id")).trim().to_owned();
         if by_id(&provider).is_none() && !profiles.contains_key(&pid) {
             return Err("proveedor desconocido".into());
         }
         if pid.is_empty() {
             pid = if provider == "custom" {
                 let name = match data.get("name") {
-                    Some(v) if py::truthy(v) => py::str_of(v),
+                    Some(v) if value::truthy(v) => value::str_of(v),
                     _ => str_or_empty(dict_or_empty(data.get("fields")).get("name")),
                 };
                 new_custom_id(&name, &profiles)
@@ -734,7 +696,7 @@ pub fn save_profile(
         let mut prof = dict_or_empty(profiles.get(&pid));
         let provider_value = if provider.is_empty() {
             match prof.get("provider") {
-                Some(v) if py::truthy(v) => v.clone(),
+                Some(v) if value::truthy(v) => v.clone(),
                 _ => Value::String(pid.clone()),
             }
         } else {
@@ -747,8 +709,8 @@ pub fn save_profile(
             };
             let value = match k {
                 "key" => {
-                    let key = py::str_of(v).replace(['\r', '\n'], "");
-                    let key = py::strip(&key);
+                    let key = value::str_of(v).replace(['\r', '\n'], "");
+                    let key = key.trim();
                     if key.is_empty() {
                         continue;
                     }
@@ -757,7 +719,7 @@ pub fn save_profile(
                 "fields" | "headers" | "extra" => {
                     let clean: Dict = dict_or_empty(Some(v))
                         .into_iter()
-                        .filter(|(a, _)| !py::strip(a).is_empty())
+                        .filter(|(a, _)| !a.trim().is_empty())
                         .collect();
                     let clean = Value::Object(clean);
                     if k == "fields" {
@@ -768,25 +730,27 @@ pub fn save_profile(
                     }
                 }
                 "timeout" => {
-                    let Some(x) = py::float_of(v) else { continue };
+                    let Some(x) = value::float_of(v) else {
+                        continue;
+                    };
                     Value::from(clamp_py(x, 5.0, 600.0))
                 }
-                _ => Value::String(py::strip(&py::str_of(v)).to_owned()),
+                _ => Value::String(value::str_of(v).trim().to_owned()),
             };
             prof.insert(k.into(), value);
         }
         if prof.get("provider").and_then(Value::as_str) == Some("custom")
-            && !prof.get("name").is_some_and(py::truthy)
+            && !prof.get("name").is_some_and(value::truthy)
         {
             let name = match dict_or_empty(prof.get("fields")).get("name") {
-                Some(v) if py::truthy(v) => v.clone(),
+                Some(v) if value::truthy(v) => v.clone(),
                 _ => Value::String("Servidor propio".into()),
             };
             prof.insert("name".into(), name);
         }
         profiles.insert(pid.clone(), Value::Object(prof));
         store.insert("profiles".into(), Value::Object(profiles));
-        if activate || !store.get("active").is_some_and(py::truthy) {
+        if activate || !store.get("active").is_some_and(value::truthy) {
             store.insert("active".into(), Value::String(pid.clone()));
         }
         Ok(pid)
@@ -834,7 +798,7 @@ pub fn activate(
 
 /// Si, cuando el activo falla, se prueba con los demás configurados.
 pub fn fallback_enabled(data: &Dict) -> bool {
-    data.get("fallback").is_none_or(py::truthy)
+    data.get("fallback").is_none_or(value::truthy)
 }
 
 pub fn set_fallback(
@@ -853,7 +817,9 @@ pub fn set_fallback(
 /// corta sola, que a mitad de un ensayo sería peor.
 pub fn budget(data: &Dict) -> f64 {
     match data.get("budget") {
-        Some(v) if py::truthy(v) => py::float_of(v).map_or(0.0, |x| if x > 0.0 { x } else { 0.0 }),
+        Some(v) if value::truthy(v) => {
+            value::float_of(v).map_or(0.0, |x| if x > 0.0 { x } else { 0.0 })
+        }
         _ => 0.0,
     }
 }
@@ -866,8 +832,8 @@ pub fn set_budget(
     out: &mut Warnings,
     value: &Value,
 ) -> Result<(), EditError> {
-    let x = if py::truthy(value) {
-        py::float_of(value)
+    let x = if value::truthy(value) {
+        value::float_of(value)
     } else {
         Some(0.0)
     };
@@ -890,7 +856,7 @@ pub fn fallbacks(data: &Dict, active_id: &str) -> Vec<Dict> {
             continue;
         }
         let mut prof = dict_or_empty(Some(prof));
-        if !prof.get("provider").is_some_and(py::truthy) {
+        if !prof.get("provider").is_some_and(value::truthy) {
             prof.insert("provider".into(), Value::String(pid.clone()));
         }
         if let Some(r) = resolve(pid, &prof)
@@ -913,8 +879,8 @@ pub fn with_saved_key(data: &Dict, draft: &Dict) -> Dict {
     let pid = [d.get("id"), d.get("provider")]
         .into_iter()
         .flatten()
-        .find(|v| py::truthy(v))
-        .map(py::str_of)
+        .find(|v| value::truthy(v))
+        .map(value::str_of)
         .unwrap_or_default();
     let Some(Value::Object(saved)) = profiles_ref(data).get(&pid).cloned() else {
         return d;
@@ -923,14 +889,14 @@ pub fn with_saved_key(data: &Dict, draft: &Dict) -> Dict {
         return d;
     }
     let saved_provider = match saved.get("provider") {
-        Some(v) if py::truthy(v) => v.clone(),
+        Some(v) if value::truthy(v) => v.clone(),
         _ => Value::String(pid.clone()),
     };
     let mut kept_prof = saved.clone();
     kept_prof.insert("provider".into(), saved_provider.clone());
     let mut asked_prof = d.clone();
     let asked_provider = match d.get("provider") {
-        Some(v) if py::truthy(v) => v.clone(),
+        Some(v) if value::truthy(v) => v.clone(),
         _ => saved_provider,
     };
     asked_prof.insert("provider".into(), asked_provider);
@@ -942,8 +908,7 @@ pub fn with_saved_key(data: &Dict, draft: &Dict) -> Dict {
     {
         return d;
     }
-    if py::strip(&str_or_empty(d.get("key"))).is_empty() && saved.get("key").is_some_and(py::truthy)
-    {
+    if str_or_empty(d.get("key")).trim().is_empty() && saved.get("key").is_some_and(value::truthy) {
         d.insert("key".into(), saved["key"].clone());
     }
     for field in ["headers", "extra"] {

@@ -35,7 +35,9 @@
 use super::links;
 use super::text as tx;
 use crate::index::{Dict, fetch_all, get_str as field, markers, open};
-use crate::{names, py};
+use crate::names;
+use crate::num;
+use crate::value;
 use rusqlite::Connection;
 use serde_json::Value;
 use std::cell::OnceCell;
@@ -789,23 +791,23 @@ fn light(row: &Dict) -> Dict {
     d.insert("album".into(), text("album"));
     d.insert(
         "duration".into(),
-        Value::from(py::round_int(num("duration"))),
+        Value::from(num("duration").round_ties_even() as i64),
     );
     d.insert("key".into(), text("key"));
     let bpm = row
         .get("bpm")
-        .filter(|v| py::truthy(v))
-        .map_or(0, |_| py::round_int(num("bpm")));
+        .filter(|v| value::truthy(v))
+        .map_or(0, |_| num("bpm").round_ties_even() as i64);
     d.insert("bpm".into(), Value::from(bpm));
     let stars = row
         .get("stars")
-        .filter(|v| py::truthy(v))
+        .filter(|v| value::truthy(v))
         .cloned()
         .unwrap_or(Value::from(0));
     d.insert("stars".into(), stars);
     d.insert(
         "favorite".into(),
-        Value::Bool(row.get("favorite").is_some_and(py::truthy)),
+        Value::Bool(row.get("favorite").is_some_and(value::truthy)),
     );
     d
 }
@@ -862,7 +864,7 @@ fn entry(row: &Dict) -> Entry {
     Entry {
         sid: row.get("id").and_then(Value::as_i64).unwrap_or(0),
         stars: song.get("stars").and_then(Value::as_f64).unwrap_or(0.0),
-        favorite: song.get("favorite").is_some_and(py::truthy),
+        favorite: song.get("favorite").is_some_and(value::truthy),
         song,
         forms,
         path: field(row, "path").to_owned(),
@@ -1497,8 +1499,8 @@ impl Index {
         );
         let Ok(rows) = rows else { return Ok(None) }; // sin historial: se sigue por el título
         for row in rows {
-            let ok =
-                row.get("ok").is_some_and(py::truthy) || row.get("already").is_some_and(py::truthy);
+            let ok = row.get("ok").is_some_and(value::truthy)
+                || row.get("already").is_some_and(value::truthy);
             let song_id = row
                 .get("song_id")
                 .and_then(Value::as_i64)
@@ -1519,7 +1521,7 @@ impl Index {
             }
             // «ya la tenías»: no hay archivo nuevo; se comprueba por la clave de nombre
             let title = field(&row, "title");
-            if row.get("already").is_some_and(py::truthy)
+            if row.get("already").is_some_and(value::truthy)
                 && field(&row, "target").is_empty()
                 && !title.is_empty()
                 && !e.match_key.is_empty()
@@ -1756,7 +1758,7 @@ fn light_candidates(ranked: &[Scored], limit: usize, floor: f64) -> Vec<Candidat
         .filter(|(s, _, _)| *s >= floor)
         .map(|(s, w, e)| Candidate {
             song: e.song.clone(),
-            score: py::round(s.min(1.0), 3),
+            score: num::round_to(s.min(1.0), 3),
             why: w,
         })
         .collect()

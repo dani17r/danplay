@@ -29,7 +29,10 @@
 //! aviso a la interfaz y reescribir las listas exportadas siguen en
 //! danplay/journal.py, que usa esto.
 use crate::index::{Dict, begin, fetch_all, fetch_one, get_str, next_song_id, now, scan};
-use crate::{playlists, py};
+use crate::num;
+use crate::paths;
+use crate::playlists;
+use crate::value;
 use rusqlite::Connection;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
@@ -62,9 +65,9 @@ pub fn uid(conn: &Connection) -> rusqlite::Result<String> {
     if let Some(v) = row
         .as_ref()
         .and_then(|r| r.get("value"))
-        .filter(|v| py::truthy(v))
+        .filter(|v| value::truthy(v))
     {
-        return Ok(py::str_of(v));
+        return Ok(value::str_of(v));
     }
     let uid = random_hex();
     begin(conn)?;
@@ -116,7 +119,7 @@ fn getrandom(buf: &mut [u8]) -> std::io::Result<()> {
 
 /// La ruta dentro de su carpeta de música, con «/» en todos los sistemas.
 fn rel(path: &str, root: &str) -> String {
-    py::relpath(path, root)
+    paths::relative(path, root)
         .unwrap_or_default()
         .replace(std::path::MAIN_SEPARATOR, "/")
 }
@@ -136,7 +139,7 @@ fn root_of<'a>(path: &str, roots: &'a [String]) -> &'a str {
 }
 
 fn basename_of_root(root: &str) -> String {
-    py::basename(root.trim_end_matches(sep()))
+    paths::file_name(root.trim_end_matches(sep()))
 }
 
 /// `x not in (None, "", 0, 0.0)` de Python: lo que cuenta como «algo puesto».
@@ -249,10 +252,10 @@ pub fn snapshot(
         );
         let duration = r
             .get("duration")
-            .filter(|v| py::truthy(v))
-            .and_then(py::float_of)
+            .filter(|v| value::truthy(v))
+            .and_then(value::float_of)
             .unwrap_or(0.0);
-        e.insert("duration".into(), Value::from(py::round(duration, 2)));
+        e.insert("duration".into(), Value::from(num::round_to(duration, 2)));
         for (f, v) in mine {
             e.insert(f.into(), v.clone());
         }
@@ -271,7 +274,7 @@ pub fn snapshot(
             let id = p.get("id").and_then(Value::as_i64).unwrap_or(0);
             let or_empty = |k: &str| {
                 p.get(k)
-                    .filter(|v| py::truthy(v))
+                    .filter(|v| value::truthy(v))
                     .cloned()
                     .unwrap_or_else(|| "".into())
             };
@@ -295,23 +298,22 @@ pub fn snapshot(
     out.insert("version".into(), Value::from(VERSION));
     out.insert("app".into(), app.into());
     out.insert("library".into(), library_uid.into());
-    out.insert("updated".into(), Value::from(py::round(now(), 1)));
+    out.insert("updated".into(), Value::from(num::round_to(now(), 1)));
     out.insert("songs".into(), Value::Array(songs));
     out.insert("playlists".into(), Value::Array(playlists));
     Ok(out)
 }
 
-/// Lo que se compara para saber si el diario cambió: todo menos la hora,
-/// con las claves en orden (`json.dumps(..., sort_keys=True)`).
+/// Lo que se compara para saber si el diario cambió: todo menos la hora.
 pub fn body(data: &Dict) -> String {
     let mut d = data.clone();
     d.shift_remove("updated");
-    py::dumps_with(&Value::Object(d), None, true)
+    Value::Object(d).to_string()
 }
 
-/// El diario como se escribe (`json.dumps(data, indent=1)`).
+/// El diario como se escribe.
 pub fn text(data: &Dict) -> String {
-    py::dumps_with(&Value::Object(data.clone()), Some(1), false)
+    value::pretty(&Value::Object(data.clone()))
 }
 
 /// Dónde va el diario: en los datos de DanPlay y en cada carpeta de música.
@@ -372,7 +374,7 @@ pub fn load(path: &Path) -> Option<Dict> {
 pub fn latest(targets: &[PathBuf]) -> Option<Dict> {
     let updated = |d: &Dict| {
         d.get("updated")
-            .filter(|v| py::truthy(v))
+            .filter(|v| value::truthy(v))
             .and_then(Value::as_f64)
             .unwrap_or(0.0)
     };
@@ -402,11 +404,11 @@ struct Index<'a> {
 }
 
 fn file_key(file: Option<&Value>, size: Option<&Value>) -> (String, String) {
-    let f = file.map_or_else(|| "None".to_owned(), py::repr);
-    let s = size.map_or_else(
-        || "None".to_owned(),
-        |v| v.as_f64().map_or_else(|| py::repr(v), py::repr_float),
-    );
+    // el tamaño como número: 1234 y 1234.0 son el mismo
+    let f = file.map_or_else(String::new, Value::to_string);
+    let s = size.map_or_else(String::new, |v| {
+        v.as_f64().map_or_else(|| v.to_string(), |f| f.to_string())
+    });
     (f, s)
 }
 
@@ -440,7 +442,7 @@ fn index<'a>(rows: &'a [Dict], roots: &[String]) -> Index<'a> {
 /// `reuse._close`: dos duraciones que son la misma canción.
 fn close(a: Option<&Value>, b: Option<&Value>) -> bool {
     let f = |v: Option<&Value>| match v {
-        Some(x) if py::truthy(x) => py::float_of(x),
+        Some(x) if value::truthy(x) => value::float_of(x),
         _ => Some(0.0),
     };
     match (f(a), f(b)) {
@@ -458,9 +460,9 @@ fn find<'a>(entry: &Dict, ix: &Index<'a>) -> Option<&'a Dict> {
     {
         return Some(r);
     }
-    let root = entry.get("root").map_or_else(String::new, py::str_of);
+    let root = entry.get("root").map_or_else(String::new, value::str_of);
     let rel_path = match entry.get("rel") {
-        Some(v) if py::truthy(v) => py::str_of(v),
+        Some(v) if value::truthy(v) => value::str_of(v),
         _ => String::new(),
     }
     .replace('\\', "/");
@@ -500,8 +502,8 @@ pub fn find_in(entry: &Dict, rows: &[Dict], roots: &[String]) -> Option<usize> {
 /// La ficha de una canción que no está, para no ponerla dos veces.
 fn sign(card: &Dict) -> String {
     let part = |k: &str| match card.get(k) {
-        Some(v) if py::truthy(v) => py::repr(v),
-        _ => "''".to_owned(),
+        Some(v) if value::truthy(v) => v.to_string(),
+        _ => String::new(),
     };
     format!("{}|{}|{}", part("file"), part("artist"), part("title"))
 }
@@ -565,7 +567,7 @@ pub fn reconcile(
     }
     let entry = |id: i64| entries.iter().find(|(k, _)| *k == id).map(|(_, e)| e);
     for (old, e) in &entries {
-        if e.get("gone").is_some_and(py::truthy) {
+        if e.get("gone").is_some_and(value::truthy) {
             continue;
         }
         let Some(cur) = find(e, &ix) else { continue };
@@ -598,7 +600,7 @@ pub fn reconcile(
                     && v.as_str() != Some("")
                     && !(v.is_number() && v.as_f64() == Some(0.0))
                     && *v != Value::Bool(false);
-                let missing = !cur.get(*f).is_some_and(py::truthy);
+                let missing = !cur.get(*f).is_some_and(value::truthy);
                 (given && missing).then_some((*f, v))
             })
             .collect();
@@ -634,7 +636,7 @@ pub fn reconcile(
     for pl in pls {
         let Value::Object(pl) = pl else { continue };
         let name = match pl.get("name") {
-            Some(v) if py::truthy(v) => py::strip(&py::str_of(v)).to_owned(),
+            Some(v) if value::truthy(v) => value::str_of(v).trim().to_owned(),
             _ => String::new(),
         };
         if name.is_empty() {
@@ -644,7 +646,7 @@ pub fn reconcile(
         let or_empty = |k: &str| {
             crate::index::sql(
                 &pl.get(k)
-                    .filter(|v| py::truthy(v))
+                    .filter(|v| value::truthy(v))
                     .cloned()
                     .unwrap_or_else(|| "".into()),
             )
@@ -669,7 +671,7 @@ pub fn reconcile(
             }
             let created_at = pl
                 .get("created")
-                .filter(|v| py::truthy(v))
+                .filter(|v| value::truthy(v))
                 .cloned()
                 .unwrap_or_else(|| Value::from(now()));
             begin(conn)?;
@@ -769,7 +771,7 @@ pub fn reconcile(
                     "INSERT OR REPLACE INTO meta (key, value) VALUES ('song_id_hwm', ?)",
                     [gid],
                 )?;
-                let get = |k: &str| e.get(k).filter(|v| py::truthy(v)).cloned();
+                let get = |k: &str| e.get(k).filter(|v| value::truthy(v)).cloned();
                 conn.execute(
                     "INSERT OR REPLACE INTO song_cards (song_id, artist, title, duration, file, path, gone_at) \
                      VALUES (?,?,?,?,?,?,?)",

@@ -158,32 +158,32 @@ pub trait Outside {
     fn progress(&mut self, done: usize, total: usize, name: &str);
 
     /// El paso de las etiquetas.
-    fn from_tags(&mut self, path: &Path) -> Step
+    fn by_tags(&mut self, path: &Path) -> Step
     where
         Self: Sized,
     {
-        Ok(from_tags(self, path))
+        Ok(by_tags(self, path))
     }
     /// El paso de la huella acústica.
-    fn from_fingerprint(&mut self, path: &Path) -> Step
+    fn by_fingerprint(&mut self, path: &Path) -> Step
     where
         Self: Sized,
     {
-        from_fingerprint(self, path)
+        by_fingerprint(self, path)
     }
     /// El paso del nombre del archivo.
-    fn from_heuristic(&mut self, path: &Path, vocab: &Vocab) -> Step
+    fn by_name(&mut self, path: &Path, vocab: &Vocab) -> Step
     where
         Self: Sized,
     {
-        Ok(from_heuristic(path, vocab))
+        Ok(by_name(path, vocab))
     }
     /// El paso de la IA.
-    fn from_ai(&mut self, path: &Path, vocab: &Vocab) -> Step
+    fn by_ai(&mut self, path: &Path, vocab: &Vocab) -> Step
     where
         Self: Sized,
     {
-        from_ai(self, path, vocab)
+        by_ai(self, path, vocab)
     }
 }
 
@@ -247,7 +247,7 @@ fn category_folder(category: &str) -> Option<&'static str> {
 // ------------------------------------------------------------------ la cascada
 
 /// Las etiquetas que ya trae, si dicen artista y título.
-pub fn from_tags<O: Outside>(o: &mut O, path: &Path) -> Option<Identity> {
+pub fn by_tags<O: Outside>(o: &mut O, path: &Path) -> Option<Identity> {
     let tags = o.read_tags(path);
     let text = |key: &str| tags.get(key).and_then(Value::as_str).unwrap_or("");
     let (artist, title) = (text("artist"), text("title"));
@@ -255,7 +255,7 @@ pub fn from_tags<O: Outside>(o: &mut O, path: &Path) -> Option<Identity> {
 }
 
 /// La huella acústica (AcoustID -> MusicBrainz).
-pub fn from_fingerprint<O: Outside>(o: &mut O, path: &Path) -> Step {
+pub fn by_fingerprint<O: Outside>(o: &mut O, path: &Path) -> Step {
     let Some(r) = o.identify(path)? else {
         return Ok(None);
     };
@@ -270,7 +270,7 @@ pub fn from_fingerprint<O: Outside>(o: &mut O, path: &Path) -> Step {
 }
 
 /// Lo que dice el nombre del archivo, contra los artistas que ya hay.
-pub fn from_heuristic(path: &Path, vocab: &Vocab) -> Option<Identity> {
+pub fn by_name(path: &Path, vocab: &Vocab) -> Option<Identity> {
     let d = names::detect_artist(&file_name(path), &vocab.0);
     if d.artist.is_empty() || d.confidence < HEURISTIC_THRESHOLD {
         return None;
@@ -282,7 +282,7 @@ pub fn from_heuristic(path: &Path, vocab: &Vocab) -> Option<Identity> {
 
 /// La IA, con la duración de pista: lo que diga si lo sabe con algo de
 /// confianza. Si la IA no pudo contestar, el porqué es el error del paso.
-pub fn from_ai<O: Outside>(o: &mut O, path: &Path, vocab: &Vocab) -> Step {
+pub fn by_ai<O: Outside>(o: &mut O, path: &Path, vocab: &Vocab) -> Step {
     let seconds = o.duration(path);
     let hint = if seconds > 0.0 {
         format!("Duracion: {}\n", duration_text(seconds))
@@ -292,7 +292,7 @@ pub fn from_ai<O: Outside>(o: &mut O, path: &Path, vocab: &Vocab) -> Step {
     let Some(r) = o.ai_resolve(&file_name(path), vocab, &hint) else {
         return Ok(None);
     };
-    if let Some(why) = r.get("error").filter(|e| crate::py::truthy(e)) {
+    if let Some(why) = r.get("error").filter(|e| crate::value::truthy(e)) {
         return Err(why.as_str().map_or_else(|| why.to_string(), str::to_owned));
     }
     let found = Identity::from_dict(&r, "ai");
@@ -303,16 +303,16 @@ pub fn from_ai<O: Outside>(o: &mut O, path: &Path, vocab: &Vocab) -> Step {
 /// no la tumba entera: decide el siguiente (pasó de verdad: AcoustID
 /// devolvía un error de servicio y nada se podía importar).
 pub fn resolve<O: Outside>(o: &mut O, path: &Path, vocab: &Vocab) -> Identity {
-    if let Ok(Some(d)) = o.from_tags(path) {
+    if let Ok(Some(d)) = o.by_tags(path) {
         return d;
     }
-    if let Ok(Some(d)) = o.from_fingerprint(path) {
+    if let Ok(Some(d)) = o.by_fingerprint(path) {
         return d;
     }
-    if let Ok(Some(d)) = o.from_heuristic(path, vocab) {
+    if let Ok(Some(d)) = o.by_name(path, vocab) {
         return d;
     }
-    let source = match o.from_ai(path, vocab) {
+    let source = match o.by_ai(path, vocab) {
         Ok(Some(d)) => return d,
         Ok(None) => "none".to_owned(),
         Err(why) => why,
@@ -411,7 +411,7 @@ pub fn process<O: Outside>(
     } else if !artist.is_empty() {
         // la carpeta que ya hay, si hay una equivalente
         if let Some(real) = vocab.get(&names::flat(&artist)) {
-            artist = real.to_owned();
+            real.clone_into(&mut artist);
         }
         let name = names::final_name(&artist, &title, &d.feat, &d.extra, &ext);
         (folders.artists.join(names::sanitize(&artist)), name)

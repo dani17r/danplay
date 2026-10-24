@@ -96,7 +96,7 @@ impl Response {
             status,
             content_type: Some("application/json".into()),
             headers: Vec::new(),
-            body: Body::Bytes(library::py::dumps_compact(value).into_bytes()),
+            body: Body::Bytes(value.to_string().into_bytes()),
         }
     }
 

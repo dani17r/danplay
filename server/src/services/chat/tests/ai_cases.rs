@@ -3,6 +3,7 @@
 //! local que contesta según lo que le piden) y las herramientas con sus
 //! argumentos. Lo que es de `library::ai` va en library/src/ai/*/tests.rs.
 use super::*;
+use library::value;
 use std::net::TcpListener;
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -280,7 +281,7 @@ fn tool_call_written_as_text_still_runs() {
         .map(|t| &t["name"])
         .collect();
     assert_eq!(names, [&json!("search_songs")]);
-    assert!(!r.get("narrated").is_some_and(py::truthy));
+    assert!(!r.get("narrated").is_some_and(value::truthy));
     // y el historial del turno siguiente lleva la llamada como hecha de verdad
     let second = requests(&seen)[1]["messages"]
         .as_array()
@@ -714,7 +715,7 @@ fn the_loop_reports_who_answered_and_why() {
         let (_, fallback, pseen, _) =
             primary_and_fallback(&app, "bucle", no_credit, json!({}), json!({}));
         let r = reply_to(&app, "hola");
-        assert!(r.get("error").is_none() && py::truthy(&r["text"]), "{r}");
+        assert!(r.get("error").is_none() && value::truthy(&r["text"]), "{r}");
         assert!(
             r["via"]["fallback"] == json!(true)
                 && r["via"]["id"] == json!(fallback)

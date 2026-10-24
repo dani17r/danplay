@@ -1,7 +1,7 @@
 //! Buscar en el índice: texto completo (FTS5), filtros, orden, y las filas
 //! ligeras que dan las listas de la API.
 use super::{Dict, fetch_all, fetch_one, song_columns};
-use crate::py;
+use crate::value;
 use rusqlite::Connection;
 use rusqlite::types::Value as Sql;
 use serde_json::Value;
@@ -181,11 +181,11 @@ pub fn light(song: &Dict) -> Dict {
             .get(flag)
             .or_else(|| song.get(col))
             .unwrap_or(&Value::Null);
-        out.insert(flag.into(), Value::Bool(py::truthy(v)));
+        out.insert(flag.into(), Value::Bool(value::truthy(v)));
     }
     let stems_best = song
         .get("stems_best")
-        .map_or_else(|| best(song.get("stems")), py::truthy);
+        .map_or_else(|| best(song.get("stems")), value::truthy);
     out.insert("stems_best".into(), Value::Bool(stems_best));
     out
 }
@@ -205,7 +205,7 @@ pub fn search_where(b: &Search) -> (String, Vec<Sql>) {
     let mut filters = b.filters.clone();
     let mut words: Vec<&str> = Vec::new();
     let mut comparisons: Vec<(&str, &str, &str)> = Vec::new();
-    'tokens: for tok in py::words(&b.query) {
+    'tokens: for tok in b.query.split_whitespace() {
         if let Some((c, v)) = tok.split_once(':')
             && let Some(field) = lookup(&FILTER_FIELDS, &c.to_lowercase())
             && !v.is_empty()
@@ -227,7 +227,7 @@ pub fn search_where(b: &Search) -> (String, Vec<Sql>) {
         // Un guion suelto («Barak - Mi Gozo»), un «&» o una barra no son
         // palabras: en FTS iban como término y no casaban con nada, así que
         // la búsqueda más natural del mundo devolvía cero.
-        if !tok.chars().any(py::isalnum) {
+        if !tok.chars().any(char::is_alphanumeric) {
             continue;
         }
         words.push(tok);
@@ -249,13 +249,13 @@ pub fn search_where(b: &Search) -> (String, Vec<Sql>) {
     // los nombres de columna salen de listas blancas (FILTER_FIELDS y
     // NUMERIC_FIELDS), nunca de lo que escribe el usuario
     for (field, value) in &filters {
-        if FILTER_FIELDS.iter().any(|(_, f)| f == field) && py::truthy(value) {
+        if FILTER_FIELDS.iter().any(|(_, f)| f == field) && value::truthy(value) {
             clauses.push(format!("c.{field} LIKE ?"));
-            params.push(Sql::Text(format!("%{}%", py::str_of(value))));
+            params.push(Sql::Text(format!("%{}%", value::str_of(value))));
         }
     }
     for (field, op, value) in comparisons {
-        if let Some(x) = py::parse_float(value) {
+        if let Some(x) = value::parse_float(value) {
             params.push(Sql::Real(x));
             clauses.push(format!("c.{field} {op} ?"));
         }
@@ -315,7 +315,7 @@ pub fn search(
 fn flags_as_bool(row: &mut Dict) {
     for flag in LIGHT_FLAGS.iter().map(|(_, f)| *f).chain(["stems_best"]) {
         if let Some(v) = row.get_mut(flag) {
-            *v = Value::Bool(py::truthy(v));
+            *v = Value::Bool(value::truthy(v));
         }
     }
 }

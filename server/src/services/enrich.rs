@@ -163,7 +163,7 @@ pub fn find_sheet(artist: &str, title: &str) -> Value {
     let sources: [c::Source<'_, Value, c::Error<library::net::NetError>>; 2] =
         [("Ultimate Guitar", &ug), ("LaCuerda", &lc)];
     let found = c::find(artist, title, &sources, |s: &Value| {
-        s.get("key").is_some_and(library::py::truthy)
+        s.get("key").is_some_and(library::value::truthy)
     });
     for (name, why) in &found.failed {
         log::info!("acordes: {name} no respondio ({why})");

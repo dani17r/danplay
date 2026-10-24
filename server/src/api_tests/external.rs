@@ -88,7 +88,7 @@ fn a_library_song_opened_from_outside_stays_the_library_one() {
         song["id"], inside["id"],
         "tendría que ser la de la biblioteca, con su id"
     );
-    assert!(!library::py::truthy(&song["external"]));
+    assert!(!library::value::truthy(&song["external"]));
     let ids: Vec<Value> = get(&app, "/api/external")["songs"]
         .as_array()
         .expect("canciones")

@@ -100,7 +100,7 @@ fn read_youtube_in(ctx: &mut Ctx<'_>) -> Result<YoutubeIn, ApiError> {
 /// Qué se bajaría, sin bajar nada todavía.
 fn youtube_info(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let body = read_youtube_in(ctx)?;
-    let query = library::py::strip(&body.query);
+    let query = body.query.trim();
     if query.is_empty() {
         return Err(ApiError::bad_request(
             "hace falta una URL o algo que buscar",
@@ -115,7 +115,7 @@ fn youtube_info(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
 /// `youtube::claim`, que comprueba y reserva bajo un mismo cerrojo.
 fn youtube_download(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let body = read_youtube_in(ctx)?;
-    let query = library::py::strip(&body.query).to_owned();
+    let query = body.query.trim().to_owned();
     if query.is_empty() {
         return Err(ApiError::bad_request(
             "hace falta una URL o algo que buscar",
@@ -127,7 +127,7 @@ fn youtube_download(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     }
     if !youtube::folder(app)?
         .get("ready")
-        .is_some_and(library::py::truthy)
+        .is_some_and(library::value::truthy)
     {
         return Err(ApiError::conflict(youtube::NO_FOLDER));
     }

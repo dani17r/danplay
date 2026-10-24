@@ -1,4 +1,5 @@
 use super::*;
+use crate::value;
 use std::collections::VecDeque;
 
 /// Un turno de mentira: el modelo contesta lo del guion, las herramientas
@@ -96,7 +97,7 @@ impl Chat for Fake {
         _: &Value,
         pending: Option<&Value>,
     ) -> Result<(Value, Option<Value>), String> {
-        self.asked.push(py::str_of(name));
+        self.asked.push(value::str_of(name));
         if pending.is_some() {
             return Ok((json!({"error": "ya hay otra"}), None));
         }
@@ -106,7 +107,7 @@ impl Chat for Fake {
         ))
     }
     fn run_tool(&mut self, name: &Value, _: &Value) -> Result<Value, String> {
-        let name = py::str_of(name);
+        let name = value::str_of(name);
         self.ran.push(name.clone());
         Ok(self
             .results
@@ -131,7 +132,7 @@ impl Chat for Fake {
         Ok(json!({"name": name, "summary": summary}))
     }
     fn summarize(&mut self, name: &Value, _: &Value) -> Result<String, String> {
-        Ok(format!("hecho {}", py::str_of(name)))
+        Ok(format!("hecho {}", value::str_of(name)))
     }
     fn toon(&mut self, res: &Value) -> Result<String, String> {
         Ok(res.to_string())

@@ -394,7 +394,7 @@ fn writing_a_tag_keeps_what_was_worked_out_from_the_sound() {
     let waves = app.config().data_dir.join("waveforms");
     std::fs::create_dir_all(&waves).expect("carpeta");
     let wave = library::waveform::cache_file(&waves, gozo.as_os_str());
-    let mtime_of = |p: &Path| library::py::mtime(&std::fs::metadata(p).expect("fecha"));
+    let mtime_of = |p: &Path| library::paths::mtime(&std::fs::metadata(p).expect("fecha"));
     let saved_wave =
         json!({"path": text_of(&gozo), "mtime": mtime_of(&gozo), "peaks": [1], "rms": [1]});
     std::fs::write(&wave, saved_wave.to_string()).expect("onda");

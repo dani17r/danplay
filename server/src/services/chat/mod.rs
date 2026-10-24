@@ -31,8 +31,11 @@ use library::assistant::conversation::{
 use library::assistant::narration::{self, Tools};
 use library::assistant::{context, intake};
 use library::index::Dict;
-use library::py;
+use library::num;
+use library::paths;
 use library::safe::datum;
+use library::text;
+use library::value;
 use serde_json::{Value, json};
 use setlist::Turn;
 use std::sync::LazyLock;
@@ -55,13 +58,13 @@ fn pseudo_tools() -> &'static Tools {
 
 fn text_of(m: &Dict, k: &str) -> String {
     match m.get(k) {
-        Some(v) if py::truthy(v) => py::str_of(v),
+        Some(v) if value::truthy(v) => value::str_of(v),
         _ => String::new(),
     }
 }
 
 fn yes(m: &Dict, k: &str) -> bool {
-    m.get(k).is_some_and(py::truthy)
+    m.get(k).is_some_and(value::truthy)
 }
 
 /// `_window(messages)`: los últimos mensajes que caben, empezando por uno del
@@ -104,7 +107,7 @@ fn last_setlist(messages: &[Dict]) -> Option<intake::SetlistParse> {
             break;
         }
         if let Some(Value::String(t)) = m.get("text")
-            && !py::strip(t).is_empty()
+            && !t.trim().is_empty()
         {
             let parsed = intake::parse_setlist(t);
             if parsed.is_setlist {
@@ -140,7 +143,7 @@ pub fn turn_for(recent: &[Dict], chat_id: Option<i64>) -> Turn {
     // mensaje: lo pedido va con la lista
     if turn.fresh && mine.len() > 1 {
         let before = text_of(mine[mine.len() - 2], "text");
-        let before = before.trim_end_matches(py::isspace);
+        let before = before.trim_end_matches(char::is_whitespace);
         if before.ends_with(':') {
             said = format!("{before}\n{last}");
         }
@@ -182,7 +185,7 @@ fn setlist_note(turn: &Turn) -> Option<String> {
 pub(crate) fn still_there(app: &App, h: &Dict) -> bool {
     let Some(sid) = h
         .get("song_id")
-        .filter(|v| py::truthy(v))
+        .filter(|v| value::truthy(v))
         .and_then(lists::int_of)
     else {
         return false;
@@ -192,7 +195,7 @@ pub(crate) fn still_there(app: &App, h: &Dict) -> bool {
     };
     let target = text_of(h, "target");
     let path = text_of(&song, "path");
-    target.is_empty() || path == target || py::basename(&path) == py::basename(&target)
+    target.is_empty() || path == target || paths::file_name(&path) == paths::file_name(&target)
 }
 
 /// `_context_note(messages, context)`: el estado real de la app para el
@@ -353,8 +356,8 @@ impl Chat for ServerChat<'_, '_> {
         };
         let content = format!(
             "¿Este mensaje de un asistente AFIRMA que YA ha hecho, esta haciendo ahora o va a hacer ahora mismo una accion en la aplicacion (descargar, crear o cambiar una lista, añadir o quitar canciones, borrar, puntuar, poner musica)? Preguntar u ofrecer hacerlo NO cuenta. Informar de un dato o responder conocimiento musical NO cuenta.{extra}\n\nPeticion del usuario:\n{}\n\nMensaje del asistente:\n{}",
-            py::head(user_text, 400),
-            py::head(&plain, 1500)
+            text::head(user_text, 400),
+            text::head(&plain, 1500)
         );
         let messages = json!([
             {"role": "system", "content": "Eres un clasificador. Contesta solo SI o NO."},
@@ -370,7 +373,7 @@ impl Chat for ServerChat<'_, '_> {
         let Ok(r) = self.call(&messages, req) else {
             return Ok(false);
         };
-        let answer = py::strip(&call::message_text(&r.message)).to_uppercase();
+        let answer = call::message_text(&r.message).trim().to_uppercase();
         let answer = answer.trim_end_matches(['.', '!']);
         Ok(answer == "SI" || answer == "SÍ")
     }
@@ -419,13 +422,13 @@ impl Chat for ServerChat<'_, '_> {
         args: &Value,
         pending: Option<&Value>,
     ) -> Result<(Value, Option<Value>), ApiError> {
-        let name = py::str_of(name);
+        let name = value::str_of(name);
         Ok(ask(self.app, &name, args, pending, &mut self.turn))
     }
 
     fn run_tool(&mut self, name: &Value, args: &Value) -> Result<Value, ApiError> {
-        let name = if py::truthy(name) {
-            py::str_of(name)
+        let name = if value::truthy(name) {
+            value::str_of(name)
         } else {
             String::new()
         };
@@ -462,7 +465,7 @@ impl Chat for ServerChat<'_, '_> {
         // lo que devolvió, en corto: al turno siguiente el modelo sigue
         // sabiendo qué ids y nombres enseñó
         let detail = if model_res.is_object() {
-            context::brief(&py::str_of(name), model_res, 10).map_err(ApiError::internal)?
+            context::brief(&value::str_of(name), model_res, 10).map_err(ApiError::internal)?
         } else {
             String::new()
         };
@@ -470,7 +473,7 @@ impl Chat for ServerChat<'_, '_> {
     }
 
     fn summarize(&mut self, name: &Value, model_res: &Value) -> Result<String, ApiError> {
-        library::assistant::tools::summarize(&py::str_of(name), model_res)
+        library::assistant::tools::summarize(&value::str_of(name), model_res)
             .map_err(ApiError::internal)
     }
 
@@ -521,7 +524,7 @@ fn finish(app: &App, out: Value, state: &State<Value>) -> Value {
     if let Some(turn) = call::turn_summary() {
         if turn.calls != 0 {
             let cost = if turn.priced {
-                Value::from(py::round(turn.cost, 6))
+                Value::from(num::round_to(turn.cost, 6))
             } else {
                 Value::Null
             };
@@ -544,10 +547,10 @@ fn finish(app: &App, out: Value, state: &State<Value>) -> Value {
             .and_then(|m| m.get("cost"))
             .cloned()
             .unwrap_or(json!(0));
-        let month = py::float_of(&cost).unwrap_or(0.0);
+        let month = value::float_of(&cost).unwrap_or(0.0);
         // `round(month, 4)`: un entero (sin nada con precio) sigue siendo entero
         let shown = if cost.is_f64() {
-            json!(py::round(month, 4))
+            json!(num::round_to(month, 4))
         } else {
             cost
         };
@@ -572,7 +575,7 @@ pub fn ask(
     turn: &mut Turn,
 ) -> (Value, Option<Value>) {
     // si ya hay una esperando, la segunda NO se pide
-    if pending.is_some_and(py::truthy) {
+    if pending.is_some_and(value::truthy) {
         return (
             json!({"error": "ya hay otra accion esperando el visto bueno del usuario; esta NO se ha pedido. Dilo, y pidela en el siguiente turno."}),
             None,
@@ -592,7 +595,7 @@ pub fn ask(
                 .cloned()
                 .unwrap_or_default();
             let items = checked.get("items").cloned().unwrap_or(json!([]));
-            if !py::truthy(&items) {
+            if !value::truthy(&items) {
                 return Err(plan::RegisterError::Value(String::new()));
             }
             let clean = json!({
@@ -613,21 +616,21 @@ pub fn ask(
                 "trimmed": checked.get("dropped").cloned().unwrap_or(json!(0)),
             });
             let mut asked = plan::register(app, name, &clean, &spec, &Value::Null, turn.chat_id)?;
-            let summary = asked.get("summary").map(py::str_of).unwrap_or_default();
+            let summary = asked.get("summary").map(value::str_of).unwrap_or_default();
             // compatibilidad: una interfaz de antes confirma con {tool, args}
             asked.insert("args".into(), clean);
             Ok((asked, summary))
         } else {
             let mut asked =
                 plan::register(app, name, args, &Value::Null, &Value::Null, turn.chat_id)?;
-            let summary = asked.get("summary").map(py::str_of).unwrap_or_default();
+            let summary = asked.get("summary").map(value::str_of).unwrap_or_default();
             asked.insert("args".into(), args.clone());
             Ok((asked, summary))
         }
     })();
     let brief_of = |a: &Value| {
         json!({
-            "item": py::head(&a.get("item").map(py::str_of).unwrap_or_default(), 80),
+            "item": text::head(&a.get("item").map(value::str_of).unwrap_or_default(), 80),
             "song": tools::song_brief(a.get("song").unwrap_or(&Value::Null)),
         })
     };

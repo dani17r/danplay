@@ -7,7 +7,7 @@ use crate::startup;
 use crate::validate::{Kind, error};
 use library::ai::{call, catalog, providers};
 use library::index::Dict;
-use library::py;
+use library::value;
 use serde_json::{Value, json};
 
 pub const ROUTES: &[Route] = &[
@@ -180,7 +180,9 @@ fn edit_failed(e: providers::EditError) -> ApiError {
 fn ai_save_profile(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let mut data = profile_body(ctx)?;
     data.shift_remove("recheck");
-    let activate = data.shift_remove("activate").is_none_or(|v| py::truthy(&v));
+    let activate = data
+        .shift_remove("activate")
+        .is_none_or(|v| value::truthy(&v));
     let pid = ai::save_profile(ctx.app, &data, activate).map_err(edit_failed)?;
     ai::reset_client(ctx.app);
     let mut out = overview(ctx.app);
@@ -229,7 +231,7 @@ fn usage(app: &crate::App) -> Result<Value, ApiError> {
     let month = out
         .get("month")
         .and_then(|m| m.get("cost"))
-        .and_then(py::float_of)
+        .and_then(value::float_of)
         .unwrap_or(0.0);
     out.insert("budget".into(), Value::from(budget));
     out.insert(
@@ -291,11 +293,11 @@ fn ai_check(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
 /// uno), y el catálogo para cuando aún no hay clave.
 fn ai_models(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let mut draft = profile_body(ctx)?;
-    let provider = draft.get("provider").map(py::str_of).unwrap_or_default();
+    let provider = draft.get("provider").map(value::str_of).unwrap_or_default();
     draft.shift_remove("activate");
     let recheck = draft
         .shift_remove("recheck")
-        .is_some_and(|v| py::truthy(&v));
+        .is_some_and(|v| value::truthy(&v));
     let app = ctx.app;
     let mut live = ai::with_context(app, |c| call::list_models(c, Some(&draft), recheck));
     let p = providers::by_id(&provider)
@@ -307,7 +309,7 @@ fn ai_models(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let data = catalog::load(&cache, &snapshot, &mut warnings);
     ai::log_warnings("danplay.model_catalog", warnings);
     let known: Vec<Dict> = match p.get("models_dev") {
-        Some(v) if py::truthy(v) => catalog::models_for(&data, &py::str_of(v)),
+        Some(v) if value::truthy(v) => catalog::models_for(&data, &value::str_of(v)),
         _ => Vec::new(),
     };
     live.insert(
@@ -316,7 +318,7 @@ fn ai_models(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     );
     // con la lista del proveedor, se recomienda de lo que contesta: el
     // catálogo puede sugerir uno que esta clave no puede usar
-    let usable: Option<Vec<Dict>> = if live.get("ok").is_some_and(py::truthy) {
+    let usable: Option<Vec<Dict>> = if live.get("ok").is_some_and(value::truthy) {
         Some(
             live.get("models")
                 .and_then(Value::as_array)
@@ -344,7 +346,7 @@ fn ai_models(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
         _ => &known,
     };
     for (k, v) in catalog::recommend(pool, library::index::now()) {
-        if py::truthy(&v) {
+        if value::truthy(&v) {
             suggest.insert(k, v);
         }
     }

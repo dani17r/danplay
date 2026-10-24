@@ -9,7 +9,7 @@ use crate::services::{ai, youtube};
 use crate::validate::{Dict as DictKind, Fields, Int, Kind, List, error};
 use library::ai::call;
 use library::index::Dict;
-use library::py;
+use library::value;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -325,7 +325,7 @@ fn chats_create(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
 fn chats_search(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let q = ctx.query().str("q").max_len(200).or("");
     ctx.check()?;
-    let hits = if py::words(&q).next().is_none() {
+    let hits = if q.split_whitespace().next().is_none() {
         Vec::new()
     } else {
         ctx.app.db(|c| library::chats::search(c, &q, 40))?
@@ -355,8 +355,8 @@ fn chats_append(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     // lo que falle deshace lo ya escrito (como el `with conn:` de Python)
     let n = ctx.app.db(|c| {
         library::chats::append(c, id, &messages).map_err(|e| match e {
-            library::chats::Error::Val(why) => ApiError::not_found(why),
-            library::chats::Error::Type(why) => ApiError::internal(why),
+            library::chats::Error::Missing => ApiError::not_found("no existe esa conversacion"),
+            library::chats::Error::Invalid(why) => ApiError::http(422, why),
             library::chats::Error::Sqlite(e) => e.into(),
         })
     })?;
@@ -379,7 +379,7 @@ fn local_time(at: f64) -> String {
 /// La conversación como texto, para llevársela a otro sitio.
 fn export_markdown(c: &Dict) -> String {
     let title = match c.get("title") {
-        Some(v) if py::truthy(v) => py::str_of(v),
+        Some(v) if value::truthy(v) => value::str_of(v),
         _ => "Conversacion".into(),
     };
     let mut lines = vec![format!("# {title}"), String::new()];
@@ -390,27 +390,27 @@ fn export_markdown(c: &Dict) -> String {
         .flatten()
     {
         let Value::Object(m) = m else { continue };
-        if m.get("hidden").is_some_and(py::truthy) {
+        if m.get("hidden").is_some_and(value::truthy) {
             continue;
         }
         let at = m
             .get("at")
-            .filter(|v| py::truthy(v))
-            .and_then(py::float_of)
+            .filter(|v| value::truthy(v))
+            .and_then(value::float_of)
             .unwrap_or(0.0);
         let who = if m.get("role") == Some(&json!("me")) {
             "Tu"
-        } else if m.get("app").is_some_and(py::truthy) {
+        } else if m.get("app").is_some_and(value::truthy) {
             "DanPlay"
         } else {
             "Asistente"
         };
         lines.push(format!("**{who}** · {}", local_time(at)));
         lines.push(String::new());
-        lines.push(m.get("text").map(py::str_of).unwrap_or_default());
+        lines.push(m.get("text").map(value::str_of).unwrap_or_default());
         let tools = m
             .get("tools")
-            .filter(|v| py::truthy(v))
+            .filter(|v| value::truthy(v))
             .cloned()
             .unwrap_or(json!([]));
         if let Value::Array(tools) = &tools
@@ -419,8 +419,10 @@ fn export_markdown(c: &Dict) -> String {
             let parts: Vec<String> = tools
                 .iter()
                 .map(|t| {
-                    let name = t.get("name").map_or_else(|| "None".to_owned(), py::str_of);
-                    let summary = t.get("summary").map_or_else(String::new, py::str_of);
+                    let name = t
+                        .get("name")
+                        .map_or_else(|| "None".to_owned(), value::str_of);
+                    let summary = t.get("summary").map_or_else(String::new, value::str_of);
                     format!("{name}: {summary}")
                 })
                 .collect();
@@ -429,7 +431,7 @@ fn export_markdown(c: &Dict) -> String {
         }
         lines.push(String::new());
     }
-    format!("{}\n", py::strip(&lines.join("\n")))
+    format!("{}\n", lines.join("\n").trim())
 }
 
 fn chats_export(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
@@ -518,7 +520,7 @@ fn confirm_tool(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     if tool == "download_music" {
         let wanted = tools::download_plan(app, &args);
         let items = wanted.get("items").cloned().unwrap_or(json!([]));
-        if !py::truthy(&items) {
+        if !value::truthy(&items) {
             return Err(ApiError::bad_request("hace falta algo que descargar"));
         }
         if !youtube::available(app) {
@@ -533,7 +535,7 @@ fn confirm_tool(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
         }
         let list: Vec<String> = items
             .as_array()
-            .map(|a| a.iter().map(py::str_of).collect())
+            .map(|a| a.iter().map(value::str_of).collect())
             .unwrap_or_default();
         youtube::start_many(app, list.clone(), tools::wanted_of(&wanted), job, None);
         let n = list.len();
@@ -558,7 +560,9 @@ fn int_ge0() -> Int {
 }
 
 fn folder_ready(app: &App) -> Result<bool, ApiError> {
-    Ok(youtube::folder(app)?.get("ready").is_some_and(py::truthy))
+    Ok(youtube::folder(app)?
+        .get("ready")
+        .is_some_and(value::truthy))
 }
 
 fn downloading_text(n: usize) -> String {
@@ -613,7 +617,7 @@ fn confirm_registered(
         .args
         .get("items")
         .and_then(Value::as_array)
-        .map(|a| a.iter().map(py::str_of).collect())
+        .map(|a| a.iter().map(value::str_of).collect())
         .unwrap_or_default();
     let after = entry.after.clone();
     // lo de completar la lista sale del registro, nunca del cliente
@@ -637,8 +641,8 @@ fn confirm_registered(
     let n = items.len();
     let mut text = downloading_text(n);
     let target = after.as_ref().and_then(|a| a.get("playlist")).cloned();
-    if let Some(t) = target.as_ref().filter(|t| py::truthy(t)) {
-        let name = t.get("name").map(py::str_of).unwrap_or_default();
+    if let Some(t) = target.as_ref().filter(|t| value::truthy(t)) {
+        let name = t.get("name").map(value::str_of).unwrap_or_default();
         let _ = write!(
             text,
             " Al terminar {} añado a «{name}».",
@@ -657,7 +661,7 @@ fn confirm_registered(
             "id": entry.id,
             "job": token,
             "items": items,
-            "force": entry.args.get("force").is_some_and(py::truthy),
+            "force": entry.args.get("force").is_some_and(value::truthy),
             "trimmed": entry.trimmed > 0,
             "playlist": target,
             "skipped": skipped,

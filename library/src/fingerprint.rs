@@ -5,7 +5,7 @@
 //! el binario `fpcalc` (paquete libchromaprint-tools) y una clave de API
 //! gratuita: quien llama dice dónde está fpcalc y cuál es la clave (en Python,
 //! `convert.tool("fpcalc")` y `config.ACOUSTID_API_KEY`).
-use crate::parity::round_to;
+use crate::num::round_to;
 use crate::processes::{self, Error};
 use serde_json::Value;
 use std::ffi::OsString;

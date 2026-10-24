@@ -7,7 +7,7 @@ use crate::router::{Ctx, Reply, Route};
 use crate::services::{beats, enrich, media, songs};
 use crate::validate::{self, Fields, Float, Int, Kind, List};
 use library::index::Dict;
-use library::py;
+use library::value;
 use serde_json::{Map, Value, json};
 use std::path::{Path, PathBuf};
 
@@ -124,7 +124,7 @@ fn delete_song(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     ctx.check()?;
     let r = songs::trash(ctx.app, cid, from_lists)?;
     if r.get("ok") != Some(&Value::Bool(true)) {
-        let error = r.get("error").map(py::str_of).unwrap_or_default();
+        let error = r.get("error").map(value::str_of).unwrap_or_default();
         let status = if error.contains("no existe") {
             404
         } else {
@@ -217,7 +217,7 @@ fn song_beats_reanalyze(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
         beats::reanalyze(ctx.app, &path_of(&c), &mode, start, end, bpm).map_err(beats_error)?;
     let report = grid
         .get("report")
-        .filter(|r| py::truthy(r))
+        .filter(|r| value::truthy(r))
         .cloned()
         .unwrap_or_else(|| json!({}));
     Ok(merged(grid.clone(), vec![("grid", grid), ("report", report)]).into())
@@ -267,7 +267,7 @@ fn song_waveform(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     };
     let n = peaks.len();
     // `json.dumps(...)`, con sus espacios: es un `Response` hecho a mano
-    let body = py::dumps(&json!({"peaks": peaks, "rms": rms, "buckets": n}));
+    let body = json!({"peaks": peaks, "rms": rms, "buckets": n}).to_string();
     Ok(Response::bytes(200, "application/json", body.into_bytes())
         .with_header("cache-control", "private, max-age=3600")
         .into())
@@ -429,7 +429,7 @@ fn set_cover(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let Some(c) = songs::by_id(app, cid)? else {
         return Err(ApiError::not_found("no existe"));
     };
-    let src = py::strip(&src).to_owned();
+    let src = src.trim().to_owned();
     if src.is_empty() || !Path::new(&src).is_file() {
         return Err(ApiError::bad_request("esa imagen no existe"));
     }

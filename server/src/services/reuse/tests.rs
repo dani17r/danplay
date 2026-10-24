@@ -6,6 +6,9 @@
 use super::*;
 use crate::services::library as lib;
 use crate::tests::{app, scratch, wav};
+use library::num;
+use library::paths;
+use library::value;
 
 const SR: usize = 22_050;
 
@@ -104,7 +107,7 @@ const FLAC: &[&str] = &["flac"];
 /// La fila entera de esa ruta (la de verdad: el índice guarda las carpetas
 /// resueltas, y en el Mac la carpeta temporal es un enlace).
 fn row(app: &App, path: &Path) -> Dict {
-    let brief = songs::by_path(app, &py::realpath(&path.to_string_lossy())).expect("base");
+    let brief = songs::by_path(app, &paths::real(&path.to_string_lossy())).expect("base");
     let id = brief
         .and_then(|b| id_of(&b))
         .unwrap_or_else(|| panic!("no está en el índice: {}", path.display()));
@@ -134,9 +137,10 @@ fn fake_stems(app: &App, song: &Dict, folder: &Path, kick: &[f32], hats: &[f32])
             {"source": "other", "file": "Otros.flac", "name": "Otros"},
         ],
     });
-    std::fs::write(folder.join(ls::MANIFEST), py::dumps(&manifest)).expect("manifiesto");
-    let rel = py::relpath(&folder.to_string_lossy(), &songs::text(song, "root")).expect("relativa");
-    let column = py::dumps(&json!({"folder": rel, "model": "prueba"}));
+    std::fs::write(folder.join(ls::MANIFEST), manifest.to_string()).expect("manifiesto");
+    let rel =
+        paths::relative(&folder.to_string_lossy(), &songs::text(song, "root")).expect("relativa");
+    let column = json!({"folder": rel, "model": "prueba"}).to_string();
     songs::update_one(app, id_of(song).expect("id"), "stems", column.into()).expect("columna");
 }
 
@@ -230,9 +234,9 @@ fn moving_the_music_and_downloading_again_keeps_everything() {
     );
     let data = stems::info(&app, &back).expect("sus pistas, sin separar otra vez");
     assert_eq!(data["complete"], true);
-    let folder = py::str_of(&data["folder"]);
+    let folder = value::str_of(&data["folder"]);
     assert!(
-        folder.starts_with(&py::realpath(&new_lib.to_string_lossy())),
+        folder.starts_with(&paths::real(&new_lib.to_string_lossy())),
         "{folder}"
     );
     let manifest = ls::read_manifest(&folder).expect("manifiesto");
@@ -249,7 +253,7 @@ fn moving_the_music_and_downloading_again_keeps_everything() {
         .as_array()
         .expect("pistas")
         .iter()
-        .map(|t| PathBuf::from(py::str_of(&t["path"])))
+        .map(|t| PathBuf::from(value::str_of(&t["path"])))
         .collect();
     let (lag, score) = lag_between(&app, &again, &tracks)
         .expect("ffmpeg")
@@ -283,7 +287,7 @@ fn a_second_copy_takes_the_click_and_the_study_but_not_another_song() {
     )
     .expect("estudio");
     let beats_list: Vec<Value> = (0..50)
-        .map(|k| json!(py::round(0.5 + 0.5 * f64::from(k), 4)))
+        .map(|k| json!(num::round_to(0.5 + 0.5 * f64::from(k), 4)))
         .collect();
     let grid = json!({
         "bpm": 120.0,
@@ -334,7 +338,7 @@ fn a_second_copy_takes_the_click_and_the_study_but_not_another_song() {
     assert!(near(&study_of(&copy)["markers"][0]["t"], 11.9, 0.003));
     let other = row(&app, &impostor);
     assert!(
-        !other.get("study").is_some_and(py::truthy),
+        !other.get("study").is_some_and(value::truthy),
         "otra versión: nada"
     );
     assert!(!beats::cached(&app, &impostor), "otra versión: nada");
@@ -529,7 +533,7 @@ fn the_grid_and_what_the_network_said_move_with_the_offset() {
         "grid": {"bpm": 120.0, "meter": 4, "beats": [0.2, 0.7, 1.2, 1.7], "first_downbeat": 0, "bars": [0, 2], "confidence": 0.9},
         "edits": [{"mode": "steady", "start": 1.0, "end": 2.0}, {"mode": "repair"}],
     });
-    std::fs::write(folder.join(format!("{key}.json")), py::dumps(&saved)).expect("rejilla");
+    std::fs::write(folder.join(format!("{key}.json")), saved.to_string()).expect("rejilla");
     let beat: Vec<f64> = (0..100)
         .map(|i| f64::from(i % 25 == 0) * 12.0 - 6.0)
         .collect();

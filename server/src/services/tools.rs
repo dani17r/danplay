@@ -83,7 +83,7 @@ fn identify_with(
         .map(std::path::PathBuf::from)
         .or_else(|| app.tool("fpcalc"))
         .unwrap_or_else(|| "fpcalc".into());
-    let abs = library::py::abspath(&library::py::expanduser(&path.to_string_lossy()));
+    let abs = library::paths::absolute(&library::paths::expand_home(&path.to_string_lossy()));
     let key = app.config().acoustid_api_key.clone();
     let results = match lookup(&key, &fpcalc, std::path::Path::new(&abs)) {
         Ok(r) => r,

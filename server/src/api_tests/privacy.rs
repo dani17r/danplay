@@ -54,7 +54,7 @@ fn the_tests_do_not_touch_the_real_data() {
         .to_path_buf();
     assert!(
         // resuelto, como el de las pruebas (en Windows, con su nombre largo)
-        sandbox.starts_with(library::py::realpath(
+        sandbox.starts_with(library::paths::real(
             &std::env::temp_dir().to_string_lossy()
         )),
         "{}",

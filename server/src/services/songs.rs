@@ -7,8 +7,9 @@ use crate::app::App;
 use crate::error::ApiError;
 use crate::services::{folders, media, tags, trash};
 use library::index::{self, Dict, songs, tidy, touch};
-use library::py;
+use library::paths;
 use library::tags::Changes;
+use library::value;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 
@@ -28,14 +29,14 @@ pub fn resolve(app: &App, cid: i64) -> Result<Option<Dict>, ApiError> {
 
 /// Un texto de la fila (`c["path"]`), o vacío.
 pub fn text(song: &Dict, key: &str) -> String {
-    song.get(key).map(py::str_of).unwrap_or_default()
+    song.get(key).map(value::str_of).unwrap_or_default()
 }
 
 /// `song.get(key) or ""` (lo que es falso, vacío).
 pub fn text_or_empty(song: &Dict, key: &str) -> String {
     song.get(key)
-        .filter(|v| py::truthy(v))
-        .map(py::str_of)
+        .filter(|v| value::truthy(v))
+        .map(value::str_of)
         .unwrap_or_default()
 }
 
@@ -78,8 +79,8 @@ fn field_or(fields: &Dict, song: &Dict, key: &str, as_str: bool) -> Option<Strin
         .or_else(|| song.get(key))
         .cloned()
         .unwrap_or(Value::Null);
-    let s = if as_str || py::truthy(&v) {
-        py::str_of(&v)
+    let s = if as_str || value::truthy(&v) {
+        value::str_of(&v)
     } else {
         String::new()
     };
@@ -126,8 +127,8 @@ pub fn edit(app: &App, cid: i64, fields: &Dict) -> Result<Option<Dict>, ApiError
         }
         // la letra vive en el USLT del propio archivo, no solo en el índice
         if let Some(lyrics) = fields.get("lyrics") {
-            let text = if py::truthy(lyrics) {
-                py::str_of(lyrics)
+            let text = if value::truthy(lyrics) {
+                value::str_of(lyrics)
             } else {
                 String::new()
             };
@@ -145,11 +146,11 @@ pub fn edit(app: &App, cid: i64, fields: &Dict) -> Result<Option<Dict>, ApiError
 /// `true` sin tocar el archivo.
 pub fn write_analysis(app: &App, path: &Path, key: &Value, bpm: &Value) -> bool {
     let mut changes = Changes::default();
-    if py::truthy(key) {
-        changes.key = Some(py::str_of(key));
+    if value::truthy(key) {
+        changes.key = Some(value::str_of(key));
     }
-    if py::truthy(bpm) {
-        changes.bpm = py::float_of(bpm);
+    if value::truthy(bpm) {
+        changes.bpm = value::float_of(bpm);
     }
     if changes.key.is_none() && changes.bpm.is_none() {
         return true;
@@ -199,7 +200,7 @@ pub fn set_study(app: &App, cid: i64, study: &Value) -> Result<Option<Dict>, Api
     let Some(c) = by_id(app, cid)? else {
         return Ok(None);
     };
-    let study = if py::truthy(study) {
+    let study = if value::truthy(study) {
         study.clone()
     } else {
         json!({})
@@ -275,7 +276,7 @@ pub fn trash(app: &App, cid: i64, from_lists: bool) -> Result<Value, ApiError> {
     }
     // sus pistas separadas se van con ella, también a la papelera
     let mut stems_gone = false;
-    if c.get("stems").is_some_and(py::truthy) {
+    if c.get("stems").is_some_and(value::truthy) {
         // y sale de la cola de separar, si esperaba (`stems.forget`)
         stems_gone = crate::services::stems::forget(app, &c)?.get("ok") == Some(&Value::Bool(true));
     }
@@ -293,7 +294,7 @@ pub fn trash(app: &App, cid: i64, from_lists: bool) -> Result<Value, ApiError> {
         "trashed": true,
         "lists": lists,
         "path": path,
-        "name": py::basename(&path),
+        "name": paths::file_name(&path),
         "artist": c.get("artist").cloned().unwrap_or(Value::Null),
         "title": c.get("title").cloned().unwrap_or(Value::Null),
         "stems_trashed": stems_gone,
@@ -376,7 +377,7 @@ pub fn relocate(app: &App, cid: i64, folder: &Path, name: Option<&str>) -> Resul
                 "su archivo ya no esta donde decia el indice".into(),
             ));
         }
-        let dest_dir = py::abspath(&folder.to_string_lossy());
+        let dest_dir = paths::absolute(&folder.to_string_lossy());
         let root = text(&c, "root");
         let roots = folders::roots(app)?;
         if !index::folders::inside(&dest_dir, &root) || !roots.contains(&root) {
@@ -386,37 +387,38 @@ pub fn relocate(app: &App, cid: i64, folder: &Path, name: Option<&str>) -> Resul
         }
         let name = match name {
             Some(n) if !n.is_empty() => library::names::sanitize(n),
-            _ => py::basename(&src),
+            _ => paths::file_name(&src),
         };
         if name.is_empty() || name.starts_with('.') {
             return Err(MoveError::Invalid("ese nombre de archivo no vale".into()));
         }
-        let wanted = py::join(&dest_dir, &name);
+        let wanted = paths::join(&dest_dir, &name);
         if wanted == src {
             return Ok(c);
         }
         std::fs::create_dir_all(&dest_dir).map_err(MoveError::Disk)?;
         // solo cambian mayúsculas: en un disco que no las distingue «ya
         // existe» (es ella misma) y saldría « - r»
-        let same_file = py::normcase(&wanted) == py::normcase(&src)
-            || (Path::new(&wanted).exists() && py::samefile(Path::new(&wanted), Path::new(&src)));
+        let same_file = paths::comparable(&wanted) == paths::comparable(&src)
+            || (Path::new(&wanted).exists()
+                && paths::same_file(Path::new(&wanted), Path::new(&src)));
         let dest = if same_file {
             wanted
         } else {
-            py::join(
+            paths::join(
                 &dest_dir,
                 &library::names::free_name(Path::new(&dest_dir), &name),
             )
         };
         let before = tags::stamp(Path::new(&src));
         move_file(Path::new(&src), Path::new(&dest)).map_err(MoveError::Disk)?;
-        let file = py::basename(&dest);
+        let file = paths::file_name(&dest);
         let saved = app.db(|conn| {
             conn.execute(
                 "UPDATE songs SET path=?, folder=?, file=?, match_key=? WHERE id=?",
                 library::rusqlite::params![
                     dest,
-                    py::relpath(&dest_dir, &root).unwrap_or_else(|| dest_dir.clone()),
+                    paths::relative(&dest_dir, &root).unwrap_or_else(|| dest_dir.clone()),
                     file,
                     library::names::match_key(&file),
                     cid
@@ -437,7 +439,7 @@ pub fn relocate(app: &App, cid: i64, folder: &Path, name: Option<&str>) -> Resul
     media::forget_thumbnails(app, &src);
     // la carpeta de la que sale, si se queda vacía (la de un artista, la de
     // un disco): no se deja. Artistas/ misma, nunca
-    let parent = py::dirname(&src);
+    let parent = paths::parent(&src);
     let artists = app.config().artists_dir.to_string_lossy().into_owned();
     if index::folders::inside(&parent, &artists) && !index::folders::inside(&artists, &parent) {
         let _ = std::fs::remove_dir(&parent);
@@ -470,15 +472,15 @@ pub fn tidy_apply(
     let Some(song) = by_id(app, cid)? else {
         return Err(MoveError::Invalid("no existe esa cancion".into()));
     };
-    let library = py::abspath(&app.config().library.to_string_lossy());
+    let library = paths::absolute(&app.config().library.to_string_lossy());
     let file = text(&song, "file");
     let ext = library::names::splitext(&file).1.to_owned();
     let artist = artist.filter(|a| !a.is_empty());
     let title = title.filter(|t| !t.is_empty());
     let rel = match (to.filter(|t| !t.is_empty()), artist, title) {
         (Some(to), _, _) => {
-            let rel = py::normpath(to);
-            if py::isabs(&rel) || rel.starts_with("..") {
+            let rel = paths::normalize(to);
+            if Path::new(&rel).is_absolute() || rel.starts_with("..") {
                 return Err(MoveError::Invalid(
                     "esa ruta esta fuera de tu musica".into(),
                 ));
@@ -495,28 +497,28 @@ pub fn tidy_apply(
         }
     };
     let src = text(&song, "path");
-    let dest = py::join(&library, &rel);
+    let dest = paths::join(&library, &rel);
     let mut moved = relocate(
         app,
         cid,
-        Path::new(&py::dirname(&dest)),
-        Some(&py::basename(&dest)),
+        Path::new(&paths::parent(&dest)),
+        Some(&paths::file_name(&dest)),
     )?;
     let mut fields = Dict::new();
     let current = |k: &str| {
         song.get(k)
-            .filter(|v| py::truthy(v))
-            .map(py::str_of)
+            .filter(|v| value::truthy(v))
+            .map(value::str_of)
             .unwrap_or_default()
     };
     if write_tags && let Some(a) = artist {
-        let a = py::strip(a);
+        let a = a.trim();
         if a != current("artist") {
             fields.insert("artist".into(), a.into());
         }
     }
     if write_tags && let Some(t) = title {
-        let t = py::strip(t);
+        let t = t.trim();
         if t != current("title") {
             fields.insert("title".into(), t.into());
         }

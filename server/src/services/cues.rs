@@ -9,7 +9,9 @@ use analysis::cues::{self as g, ReadOutcome, Unexpected};
 use analysis::voices::{Piper, Supertonic};
 use library::cues::{self as lc, Catalog, DownloadProgress};
 use library::index::Dict;
-use library::py;
+use library::num;
+use library::paths;
+use library::value;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::ffi::OsString;
@@ -183,13 +185,13 @@ struct VoiceFile {
 
 fn files_of(v: &Dict) -> Vec<VoiceFile> {
     v.get("files")
-        .map(py::list_of)
+        .map(value::list_of)
         .unwrap_or_default()
         .iter()
         .map(|f| VoiceFile {
-            dest: PathBuf::from(f.get("dest").map(py::str_of).unwrap_or_default()),
-            url: f.get("url").map(py::str_of).unwrap_or_default(),
-            sha256: f.get("sha256").map(py::str_of).unwrap_or_default(),
+            dest: PathBuf::from(f.get("dest").map(value::str_of).unwrap_or_default()),
+            url: f.get("url").map(value::str_of).unwrap_or_default(),
+            sha256: f.get("sha256").map(value::str_of).unwrap_or_default(),
             bytes: f.get("bytes").and_then(Value::as_i64).unwrap_or(0),
         })
         .collect()
@@ -277,7 +279,7 @@ pub fn install(app: &App, voice_id: &str) -> Result<Value> {
     if missing.is_empty() {
         return Ok(json!({"installed": true}));
     }
-    let pack = v.get("pack").map(py::str_of).unwrap_or_default();
+    let pack = v.get("pack").map(value::str_of).unwrap_or_default();
     let running = {
         let mut installs = lock(&app.cues.installs);
         let running = installs.get(&pack).is_some_and(|s| s.error.is_empty());
@@ -329,7 +331,7 @@ pub fn install(app: &App, voice_id: &str) -> Result<Value> {
     if !state.error.is_empty() {
         return Err(cue(state.error.clone()));
     }
-    let progress = py::round(state.got as f64 / state.total.max(1) as f64, 3);
+    let progress = num::round_to(state.got as f64 / state.total.max(1) as f64, 3);
     Ok(json!({"installed": false, "progress": progress}))
 }
 
@@ -379,13 +381,13 @@ fn say_with(
     lang: &str,
 ) -> std::result::Result<(Vec<f32>, u32), String> {
     let ort = onnx::library(app).ok_or("falta ONNX Runtime en esta instalación de DanPlay")?;
-    let engine = v.get("engine").map(py::str_of).unwrap_or_default();
+    let engine = v.get("engine").map(value::str_of).unwrap_or_default();
     let key = if engine == "supertonic" {
         "supertonic".to_owned()
     } else {
         format!(
             "piper-{}",
-            v.get("model").map(py::str_of).unwrap_or_default()
+            v.get("model").map(value::str_of).unwrap_or_default()
         )
     };
     if loaded.key != key || loaded.engine.is_none() {
@@ -396,7 +398,7 @@ fn say_with(
                 &voices_dir(app).join("supertonic-3"),
             )?)
         } else {
-            let model = v.get("model").map(py::str_of).unwrap_or_default();
+            let model = v.get("model").map(value::str_of).unwrap_or_default();
             let path = voices_dir(app)
                 .join("piper")
                 .join(&model)
@@ -408,7 +410,7 @@ fn say_with(
     loaded.used = Some(Instant::now());
     match loaded.engine.as_mut() {
         Some(Engine::Supertonic(s)) => {
-            let style = v.get("style").map(py::str_of).unwrap_or_default();
+            let style = v.get("style").map(value::str_of).unwrap_or_default();
             let wav = s.say(spoken, &style, lang)?;
             Ok((wav, s.sample_rate() as u32))
         }
@@ -445,7 +447,7 @@ fn say(app: &App, text: &str, voice_id: &str) -> Result<(Vec<f32>, u32)> {
     }
     let lang = if v
         .get("lang")
-        .map_or_else(|| "es".to_owned(), py::str_of)
+        .map_or_else(|| "es".to_owned(), value::str_of)
         .starts_with("en")
     {
         "en"
@@ -525,7 +527,7 @@ fn decode(app: &App, path: &Path, longest: f64, too_long: &str) -> Result<(Vec<f
         .map(Into::into)
         .collect();
     args.push(path.as_os_str().to_owned());
-    let max_duration = py::repr_float(longest * 2.0);
+    let max_duration = (longest * 2.0).to_string();
     for a in [
         "-t",
         &max_duration,
@@ -591,7 +593,7 @@ pub fn make(app: &App, text: &str, voice_id: &str, preview: bool) -> Result<Valu
 
 /// `os.path.realpath` y `normcase`, para comparar carpetas.
 fn real(p: &Path) -> String {
-    py::normcase(&py::realpath(&p.to_string_lossy()))
+    paths::comparable(&paths::real(&p.to_string_lossy()))
 }
 
 /// Una guía grabada (lo que dejó la app al grabar, o un audio del equipo) a
@@ -602,9 +604,7 @@ pub fn import_recording(app: &App, path: &str, longest: Option<f64>) -> Result<V
     let meta = std::fs::metadata(&path)
         .ok()
         .filter(std::fs::Metadata::is_file);
-    let suffix = library::parity::suffix(&path)
-        .to_string_lossy()
-        .to_lowercase();
+    let suffix = library::paths::suffix(&path).to_lowercase();
     let Some(meta) = meta.filter(|_| AUDIO_EXTS.contains(&suffix.as_str())) else {
         return Err(cue("no encuentro ese audio"));
     };
@@ -812,14 +812,14 @@ mod tests {
         let all: HashMap<String, Dict> = voices(&app)
             .expect("catálogo")
             .into_iter()
-            .map(|v| (py::str_of(&v["id"]), v))
+            .map(|v| (value::str_of(&v["id"]), v))
             .collect();
         assert_eq!(
             all.values().filter(|v| v["engine"] == "supertonic").count(),
             10
         );
         assert_eq!(all["piper-es_AR-daniela-high"]["lang"], "Argentina");
-        assert!(!all.values().any(|v| py::truthy(&v["installed"])));
+        assert!(!all.values().any(|v| value::truthy(&v["installed"])));
         let size = all["st-F1"]["size"].as_f64().expect("tamaño");
         assert!(390e6 < size && size < 410e6, "{size}");
         // cada archivo con su sha256 y su revisión fijada
@@ -915,7 +915,7 @@ mod tests {
                 .into_iter()
                 .find(|v| v["id"] == voice)
                 .expect("la voz");
-            let error = item.get("error").map(py::str_of).unwrap_or_default();
+            let error = item.get("error").map(value::str_of).unwrap_or_default();
             if !error.is_empty() || installed(app, voice) {
                 return error;
             }

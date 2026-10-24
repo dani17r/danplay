@@ -8,7 +8,8 @@
 //! Dónde está ffmpeg y qué carpetas no se convierten lo dice quien llama
 //! (en Python, `config.find_tool` y `config.NEVER_CONVERT`).
 use crate::names::py_trim;
-use crate::parity::{round_to, suffix, with_suffix};
+use crate::num::round_to;
+use crate::paths::{suffix, with_suffix};
 use crate::processes::{self, Error};
 use crate::warnings::{self, Warnings};
 use std::ffi::OsString;
@@ -61,7 +62,7 @@ pub fn in_protected_folder(path: &Path, never_convert: &[String]) -> bool {
 /// Si el archivo se pasaría a mp3: es de un formato de los de origen y no
 /// está en una carpeta protegida.
 pub fn needs_convert(path: &Path, never_convert: &[String]) -> bool {
-    let ext = suffix(path).to_string_lossy().to_lowercase();
+    let ext = suffix(path).to_lowercase();
     SOURCE_FORMATS.contains(&ext.as_str()) && !in_protected_folder(path, never_convert)
 }
 
@@ -116,7 +117,7 @@ pub fn convert(
     if in_protected_folder(path, never_convert) {
         return Ok(ConvertOutcome::Skipped("carpeta protegida"));
     }
-    if suffix(path).to_string_lossy().to_lowercase() == ".mp3" {
+    if suffix(path).to_lowercase() == ".mp3" {
         return Ok(ConvertOutcome::Skipped("ya es mp3"));
     }
     let out = free_target(dest.map_or_else(|| with_suffix(path, ".mp3"), Path::to_path_buf));
@@ -354,11 +355,7 @@ fn jpeg(file: &mut File) -> Result<(i64, i64), String> {
 
 /// El tipo de una imagen por su extensión: png, webp, y si no, jpeg.
 fn mime_of(path: &Path) -> &'static str {
-    match suffix(path)
-        .to_string_lossy()
-        .to_lowercase()
-        .trim_start_matches('.')
-    {
+    match suffix(path).to_lowercase().trim_start_matches('.') {
         "png" => "image/png",
         "webp" => "image/webp",
         _ => "image/jpeg",

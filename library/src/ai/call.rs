@@ -16,7 +16,8 @@
 use super::client::{Client, HttpError, StreamError};
 use super::{catalog, failures, providers, request};
 use crate::index::Dict;
-use crate::py;
+use crate::text;
+use crate::value;
 use crate::warnings::Warnings;
 use serde_json::{Value, json};
 use std::cell::RefCell;
@@ -265,7 +266,7 @@ fn forget_problem(pid: &str) {
     e.problems.remove(pid);
     if e.last_chat_via
         .as_ref()
-        .is_some_and(|v| v.get("fallback").is_some_and(py::truthy))
+        .is_some_and(|v| v.get("fallback").is_some_and(value::truthy))
     {
         e.last_chat_via = None;
     }
@@ -413,12 +414,12 @@ fn account(ctx: &Context<'_>, p: &Dict, model: &str, purpose: &str, usage: Optio
     };
     let int = |k: &str| {
         u.get(k)
-            .filter(|v| py::truthy(v))
-            .and_then(py::int_of)
+            .filter(|v| value::truthy(v))
+            .and_then(value::int_of)
             .unwrap_or(0)
     };
     let (prompt, completion) = (int("prompt_tokens"), int("completion_tokens"));
-    let local = p.get("local").is_some_and(py::truthy);
+    let local = p.get("local").is_some_and(value::truthy);
     let cost = request::price_of(local, ctx.info(p, model).as_ref(), prompt, completion);
     TURN.with(|t| {
         if let Some(t) = t.borrow_mut().as_mut() {
@@ -462,7 +463,7 @@ fn collect_stream(
             canceled = true;
             return false;
         }
-        if let Some(u) = chunk.get("usage").filter(|u| py::truthy(u)) {
+        if let Some(u) = chunk.get("usage").filter(|u| value::truthy(u)) {
             usage = Some(u.clone());
         }
         let Some(delta) = chunk
@@ -498,8 +499,8 @@ fn collect_stream(
         {
             let index = tc
                 .get("index")
-                .filter(|v| py::truthy(v))
-                .and_then(py::int_of)
+                .filter(|v| value::truthy(v))
+                .and_then(value::int_of)
                 .unwrap_or(0);
             let slot = calls.entry(index).or_default();
             if let Some(id) = tc
@@ -578,14 +579,14 @@ fn complete_with(
     let mut kwargs = Dict::new();
     kwargs.insert("model".into(), model.into());
     kwargs.insert("messages".into(), messages.clone());
-    let tools = call_request.tools.clone().filter(py::truthy);
+    let tools = call_request.tools.clone().filter(value::truthy);
     if let Some(t) = &tools {
         kwargs.insert("tools".into(), t.clone());
-        if let Some(tc) = call_request.tool_choice.clone().filter(py::truthy) {
+        if let Some(tc) = call_request.tool_choice.clone().filter(value::truthy) {
             kwargs.insert("tool_choice".into(), tc);
         }
     }
-    if let Some(rf) = call_request.response_format.clone().filter(py::truthy) {
+    if let Some(rf) = call_request.response_format.clone().filter(value::truthy) {
         kwargs.insert("response_format".into(), rf);
     }
     if let Some(t) = call_request.temperature {
@@ -597,7 +598,7 @@ fn complete_with(
     if let Some(t) = call_request.timeout.filter(|t| *t != 0.0) {
         kwargs.insert("timeout".into(), Value::from(t));
     }
-    if let Some(extra) = p.get("extra").filter(|e| py::truthy(e)) {
+    if let Some(extra) = p.get("extra").filter(|e| value::truthy(e)) {
         kwargs.insert("extra_body".into(), extra.clone());
     }
     let streaming_asked = call_request.on_text.is_some();
@@ -676,7 +677,7 @@ fn complete_with(
                 (ctx.log)(&format!(
                     "{} corto el flujo con {model} ({}); se repite sin trozos",
                     key.0,
-                    py::head(&ctx.sanitize(&e.message, Some(p)), 80)
+                    text::head(&ctx.sanitize(&e.message, Some(p)), 80)
                 ));
                 if n >= STREAM_FAILURES_MAX {
                     mark_unsupported(p, model, "stream");
@@ -796,7 +797,7 @@ pub fn complete(
                 (ctx.log)(&format!(
                     "{} no responde ({kind}: {}); se prueba el respaldo",
                     text(p, "name"),
-                    py::head(&ctx.sanitize(&e.message, Some(p)), 80)
+                    text::head(&ctx.sanitize(&e.message, Some(p)), 80)
                 ));
                 errors.push(AiError::Http(e));
             }
@@ -887,7 +888,7 @@ fn probe_tools(ctx: &Context<'_>, client: &Client, model: &str, p: &Dict) -> (bo
                     .and_then(|c| c.get(0))
                     .and_then(|c| c.get("message"))
                     .and_then(|m| m.get("tool_calls"));
-                if calls.is_some_and(py::truthy) {
+                if calls.is_some_and(value::truthy) {
                     return (true, String::new());
                 }
                 return (false, "responde sin llamar a la herramienta: el asistente puede fallar con este modelo".into());
@@ -937,8 +938,8 @@ fn draft_profile(ctx: &Context<'_>, draft: Option<&Dict>) -> Option<Dict> {
     let pid = [d.get("id"), d.get("provider")]
         .into_iter()
         .flatten()
-        .find(|v| py::truthy(v))
-        .map(py::str_of)
+        .find(|v| value::truthy(v))
+        .map(value::str_of)
         .unwrap_or_default();
     providers::resolve(&pid, &d)
 }
@@ -1021,7 +1022,7 @@ fn save_verified(path: &Path, known: Dict, now: f64) {
     let _ = path
         .parent()
         .map_or(Ok(()), std::fs::create_dir_all)
-        .and_then(|()| std::fs::write(&tmp, py::dumps(&Value::Object(fresh))))
+        .and_then(|()| std::fs::write(&tmp, Value::Object(fresh).to_string()))
         .and_then(|()| std::fs::rename(&tmp, path));
 }
 
@@ -1041,7 +1042,7 @@ fn usable_models(
     recheck: bool,
 ) -> (Vec<Dict>, Vec<Dict>, bool) {
     if models.is_empty()
-        || p.get("local").is_some_and(py::truthy)
+        || p.get("local").is_some_and(value::truthy)
         || text(p, "key").is_empty()
         || models.len() > VERIFY_MAX
     {
@@ -1216,7 +1217,11 @@ pub fn list_models(ctx: &Context<'_>, draft: Option<&Dict>, recheck: bool) -> Di
     let mut seen: HashSet<String> = HashSet::new();
     for m in raw {
         let Some(extra) = m.as_object() else { continue };
-        let Some(mut mid) = extra.get("id").filter(|v| py::truthy(v)).map(py::str_of) else {
+        let Some(mut mid) = extra
+            .get("id")
+            .filter(|v| value::truthy(v))
+            .map(value::str_of)
+        else {
             continue;
         };
         if !prefix.is_empty()
@@ -1234,8 +1239,8 @@ pub fn list_models(ctx: &Context<'_>, draft: Option<&Dict>, recheck: bool) -> Di
         }
         let name = extra
             .get("name")
-            .filter(|v| py::truthy(v))
-            .map(py::str_of)
+            .filter(|v| value::truthy(v))
+            .map(value::str_of)
             .unwrap_or_default();
         if !catalog::is_chat(&mid, &name) {
             continue;
@@ -1287,11 +1292,11 @@ fn try_free_at(
             draft.insert("base_url".into(), url.into());
         }
         let r = check(ctx, Some(&draft));
-        let ok = r.get("ok").is_some_and(py::truthy);
+        let ok = r.get("ok").is_some_and(value::truthy);
         let reason = [r.get("reason"), r.get("tools_reason")]
             .into_iter()
             .flatten()
-            .find(|v| py::truthy(v))
+            .find(|v| value::truthy(v))
             .cloned()
             .unwrap_or(json!(""));
         tried.push(json!({"id": pid, "name": entry["name"], "ok": ok, "reason": reason, "tools_ok": r.get("tools_ok").cloned().unwrap_or(Value::Null)}));
@@ -1334,7 +1339,7 @@ pub fn available(ctx: &Context<'_>) -> bool {
 
 /// El `response_format` más fuerte que admite el modelo activo.
 pub fn json_format(ctx: &Context<'_>, schema: Option<&Value>) -> Dict {
-    let info = match (schema.filter(|s| py::truthy(s)), ctx.profile()) {
+    let info = match (schema.filter(|s| value::truthy(s)), ctx.profile()) {
         (Some(_), Some(p)) => ctx.info(&p, &text(&p, "model")),
         _ => None,
     };

@@ -231,7 +231,7 @@ fn the_download_plan_sanitizes_and_the_dialog_says_what_and_warns() {
     let many: Vec<String> = (0..max + 5).map(|i| i.to_string()).collect();
     let long = download_plan(&app, &json!({"items": many}));
     assert_eq!(long["items"].as_array().map(Vec::len), Some(max));
-    assert!(library::py::truthy(&long["trimmed"]));
+    assert!(library::value::truthy(&long["trimmed"]));
     assert_eq!(download_plan(&app, &json!({}))["items"], json!([]));
     assert_eq!(
         download_plan(&app, &json!({"items": "solo una"}))["items"],
@@ -453,7 +453,7 @@ fn fixing_removing_and_renaming_a_playlist() {
         .expect("Nueva")
         .clone();
     assert_eq!(nueva["note"], "para el domingo");
-    assert!(library::py::truthy(
+    assert!(library::value::truthy(
         &tool(&app, "rename_playlist", json!({"name": "Nueva"}))["error"]
     ));
     // y por la API: el nombre de otra lista no se pisa, ni se deja vacío

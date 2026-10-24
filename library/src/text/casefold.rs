@@ -1,7 +1,7 @@
-//! Los caracteres en los que `str.casefold()` de Python no es `lower()`
-//! (generado desde Python 3.13: `c.casefold() != c.lower()`).
+//! Los caracteres cuyo plegado de Unicode (CaseFolding.txt, el completo de
+//! Unicode 15.1) no es su minúscula: lo demás se pliega con `to_lowercase`.
 
-/// (carácter, lo que da `casefold`), ordenado por carácter.
+/// (carácter, su plegado), ordenado por carácter.
 pub const CASEFOLD: [(char, &str); 297] = [
     ('\u{b5}', "\u{3bc}"),
     ('\u{df}', "\u{73}\u{73}"),

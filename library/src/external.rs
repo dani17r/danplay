@@ -26,8 +26,9 @@
 use crate::index::scan::read_tags;
 use crate::index::search::{self, light, light_columns};
 use crate::index::{Dict, begin, fetch_all, fetch_one, markers, now};
+use crate::names;
+use crate::paths;
 use crate::tags;
-use crate::{names, py};
 use rusqlite::Connection;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -114,7 +115,7 @@ pub fn register(conn: &Connection, path: &str) -> rusqlite::Result<i64> {
     // Las etiquetas se leen UNA vez, la primera. Esto se llama en cada
     // play, y abrir el archivo cada vez sería pagar disco por nada.
     let (tag, _) = read_tags(path);
-    let file = py::basename(path);
+    let file = paths::file_name(path);
     let name = names::splitext(&file).0.to_owned();
     let title = if tag.title.is_empty() {
         name

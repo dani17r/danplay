@@ -510,7 +510,7 @@ fn the_thumbnail_cache_has_a_cap() {
     assert!(library::thumbnails::trim(&folder, 5000, &mut warnings) >= 5);
     let mut left: Vec<String> = files_in(&folder)
         .iter()
-        .map(|p| library::py::basename(&text(p)))
+        .map(|p| library::paths::file_name(&text(p)))
         .collect();
     left.sort();
     assert!(left.len() <= 4, "{left:?}");

@@ -7,10 +7,10 @@ use crate::jobs::{JobError, Progress};
 use crate::services::{cues, stems};
 use analysis::structure::{self as st, Chunk, Matrix};
 use library::index::Dict;
-use library::py;
 use serde_json::{Map, Value, json};
 use std::ffi::OsString;
 
+use library::value;
 use std::time::Duration;
 
 pub const AUTO_JOB: &str = "auto-cue";
@@ -24,7 +24,7 @@ fn decode(app: &App, path: &str, rate: u32, longest: f64) -> Result<Vec<f32>, Jo
     let Some(ffmpeg) = app.tool("ffmpeg") else {
         return Err(expected("hace falta ffmpeg para escuchar la canción"));
     };
-    let longest = py::repr_float(longest);
+    let longest = longest.to_string();
     let rate = rate.to_string();
     let mut args: Vec<OsString> = ["-v", "error", "-nostdin", "-i"]
         .iter()
@@ -81,19 +81,19 @@ type Levels = (Option<Vec<f64>>, Vec<(String, Vec<f64>)>);
 /// Lo fuerte de la voz y de cada instrumento en cada unidad, si la canción
 /// tiene sus pistas separadas enteras.
 fn stem_levels(app: &App, song: &Dict, units: &[(f64, f64)]) -> Option<Levels> {
-    if !song.get("stems").is_some_and(py::truthy) {
+    if !song.get("stems").is_some_and(value::truthy) {
         return None;
     }
-    let data = stems::info(app, song).filter(|d| d.get("complete").is_some_and(py::truthy))?;
+    let data = stems::info(app, song).filter(|d| d.get("complete").is_some_and(value::truthy))?;
     let mut levels: Vec<(String, Vec<f64>)> = Vec::new();
-    for t in data.get("tracks").map(py::list_of).unwrap_or_default() {
-        let source = t.get("source").map(py::str_of).unwrap_or_default();
+    for t in data.get("tracks").map(value::list_of).unwrap_or_default() {
+        let source = t.get("source").map(value::str_of).unwrap_or_default();
         if !library::stems::SOURCES.iter().any(|(k, _, _)| *k == source)
-            || t.get("role").is_some_and(py::truthy)
+            || t.get("role").is_some_and(value::truthy)
         {
             continue;
         }
-        let path = t.get("path").map(py::str_of).unwrap_or_default();
+        let path = t.get("path").map(value::str_of).unwrap_or_default();
         let Ok(x) = decode(app, &path, st::STEM_RATE, st::MAX_SECONDS) else {
             log::warn!("no se pudo leer la pista {path}");
             return None;
@@ -110,7 +110,7 @@ fn stem_levels(app: &App, song: &Dict, units: &[(f64, f64)]) -> Option<Levels> {
         .filter_map(|k| levels.iter().find(|(s, _)| s == k).map(|(_, v)| v))
         .collect();
     let vocals = if singing.is_empty() {
-        let dropped = data.get("dropped").map(py::list_of).unwrap_or_default();
+        let dropped = data.get("dropped").map(value::list_of).unwrap_or_default();
         if dropped
             .iter()
             .any(|k| k.as_str().is_some_and(|k| st::VOCALS.contains(&k)))
@@ -151,7 +151,7 @@ fn analyse(
     p: &Progress,
 ) -> Result<Vec<st::Section>, JobError> {
     p.message("Escuchando la canción…");
-    let path = song.get("path").map(py::str_of).unwrap_or_default();
+    let path = song.get("path").map(value::str_of).unwrap_or_default();
     let x = decode(app, &path, st::RATE, st::MAX_SECONDS)?;
     let duration = x.len() as f64 / f64::from(st::RATE);
     if duration < 4.0 * st::WINDOW_UNIT {
@@ -206,15 +206,18 @@ pub fn auto_guide(
 ) -> Result<Value, JobError> {
     let found = match req.sections.as_ref().filter(|s| !s.is_empty()) {
         Some(sections) => {
-            let mut duration = song.get("duration").and_then(py::float_of).unwrap_or(0.0);
+            let mut duration = song
+                .get("duration")
+                .and_then(value::float_of)
+                .unwrap_or(0.0);
             if duration == 0.0 {
-                let path = song.get("path").map(py::str_of).unwrap_or_default();
+                let path = song.get("path").map(value::str_of).unwrap_or_default();
                 duration = decode(app, &path, st::RATE, st::MAX_SECONDS)?.len() as f64
                     / f64::from(st::RATE);
             }
             let given: Vec<(f64, String)> = sections
                 .iter()
-                .map(|(s, l)| (*s, py::strip(l).chars().take(80).collect()))
+                .map(|(s, l)| (*s, l.trim().chars().take(80).collect()))
                 .collect();
             st::given(&given, duration)
         }

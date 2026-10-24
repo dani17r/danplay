@@ -1,5 +1,4 @@
-//! Las conversaciones con el asistente, guardadas en la base (lo que hacía
-//! danplay/chats.py).
+//! Las conversaciones con el asistente, guardadas en la base.
 //!
 //! Antes el historial vivía en el `localStorage` del WebView: una sola
 //! conversación, sesenta mensajes como mucho, sin búsqueda y atada a esa
@@ -10,7 +9,8 @@
 //! Como las descargas, es cosa del programa y no del mp3: el escaneo no la
 //! toca (solo vacía `songs`).
 use crate::index::{Dict, begin, fetch_all, fetch_one, now};
-use crate::py;
+use crate::text;
+use crate::value;
 use rusqlite::Connection;
 use serde_json::Value;
 
@@ -26,13 +26,13 @@ pub const KEEP: [&str; 13] = [
     "setlist", "ref", "filled",
 ];
 
-/// Lo que puede salir mal al guardar (en Python, una excepción).
+/// Lo que puede salir mal al guardar.
 #[derive(Debug)]
 pub enum Error {
-    /// `ValueError` con su texto
-    Val(String),
-    /// `TypeError` con su texto
-    Type(String),
+    /// No existe esa conversación.
+    Missing,
+    /// Un mensaje con algo que no vale (su hora no es un número).
+    Invalid(String),
     Sqlite(rusqlite::Error),
 }
 
@@ -46,9 +46,9 @@ impl From<rusqlite::Error> for Error {
 /// línea con texto y sin marcas. Con la lista del domingo pegada, el título
 /// era «agrégame esto…: *Domingo*✅ *1.- Mi…», con todo el formato.
 pub fn title_from(text: &str) -> String {
-    let first = py::splitlines(text)
+    let first = text::lines(text)
         .into_iter()
-        .find(|line| !py::strip(line).is_empty())
+        .find(|line| !line.trim().is_empty())
         .unwrap_or("");
     // Las marcas de markdown y de WhatsApp (*negrita*, _cursiva_, ~tachado~, #):
     // en un título solo estorban.
@@ -56,9 +56,9 @@ pub fn title_from(text: &str) -> String {
         .chars()
         .filter(|c| !matches!(c, '*' | '_' | '~' | '`' | '#' | '>'))
         .collect();
-    let t = py::words(&bare).collect::<Vec<_>>().join(" ");
+    let t = bare.split_whitespace().collect::<Vec<_>>().join(" ");
     if t.chars().count() > TITLE_LENGTH {
-        format!("{}…", py::head(&t, TITLE_LENGTH - 1))
+        format!("{}…", text::head(&t, TITLE_LENGTH - 1))
     } else if t.is_empty() {
         "Conversacion".into()
     } else {
@@ -78,7 +78,7 @@ pub fn list_all(conn: &Connection, limit: i64) -> rusqlite::Result<Vec<Dict>> {
 
 pub fn create(conn: &Connection, title: &str) -> rusqlite::Result<Dict> {
     let now = now();
-    let title = py::strip(title);
+    let title = title.trim();
     begin(conn)?;
     conn.execute(
         "INSERT INTO chats (title, created, updated) VALUES (?,?,?)",
@@ -106,7 +106,7 @@ pub fn get(conn: &Connection, chat_id: i64) -> rusqlite::Result<Option<Dict>> {
     for r in rows {
         let payload = r
             .get("payload")
-            .filter(|v| py::truthy(v))
+            .filter(|v| value::truthy(v))
             .and_then(Value::as_str)
             .unwrap_or("{}");
         let extra = match serde_json::from_str::<Value>(payload) {
@@ -140,33 +140,11 @@ fn is_blank(v: &Value) -> bool {
     }
 }
 
-/// `float(v)` de Python, con su error si no se puede.
-fn float_or_error(v: &Value) -> Result<f64, Error> {
-    if let Some(f) = py::float_of(v) {
-        return Ok(f);
-    }
-    match v {
-        Value::String(s) => Err(Error::Val(format!(
-            "could not convert string to float: {}",
-            py::repr_str(s)
-        ))),
-        Value::Array(_) => Err(Error::Type(
-            "float() argument must be a string or a real number, not 'list'".into(),
-        )),
-        Value::Object(_) => Err(Error::Type(
-            "float() argument must be a string or a real number, not 'dict'".into(),
-        )),
-        _ => Err(Error::Type(
-            "float() argument must be a string or a real number".into(),
-        )),
-    }
-}
-
 /// Añade mensajes al final. El título sale del primero del usuario si la
 /// conversación aún no tiene. Lo que no es un diccionario se salta.
 pub fn append(conn: &Connection, chat_id: i64, messages: &[Value]) -> Result<usize, Error> {
     let Some(row) = fetch_one(conn, "SELECT title FROM chats WHERE id=?", [chat_id])? else {
-        return Err(Error::Val("no existe esa conversacion".into()));
+        return Err(Error::Missing);
     };
     let now = now();
     let mut title = row.get("title").cloned().unwrap_or(Value::Null);
@@ -175,8 +153,8 @@ pub fn append(conn: &Connection, chat_id: i64, messages: &[Value]) -> Result<usi
         let Value::Object(m) = m else { continue };
         let text_of = |k: &str| {
             m.get(k)
-                .filter(|v| py::truthy(v))
-                .map(py::str_of)
+                .filter(|v| value::truthy(v))
+                .map(value::str_of)
                 .unwrap_or_default()
         };
         let role = text_of("role");
@@ -189,18 +167,20 @@ pub fn append(conn: &Connection, chat_id: i64, messages: &[Value]) -> Result<usi
                     .map(|v| ((*k).to_owned(), v.clone()))
             })
             .collect();
-        let at = match m.get("at").filter(|v| py::truthy(v)) {
-            Some(v) => float_or_error(v)?,
+        let at = match m.get("at").filter(|v| value::truthy(v)) {
+            Some(v) => value::float_of(v).ok_or_else(|| {
+                Error::Invalid(format!("la hora de un mensaje no es un número: {v}"))
+            })?,
             None => now,
         };
         begin(conn)?;
         conn.execute(
             "INSERT INTO chat_messages (chat_id, at, role, text, payload) VALUES (?,?,?,?,?)",
-            rusqlite::params![chat_id, at, role, text, py::dumps(&Value::Object(extra))],
+            rusqlite::params![chat_id, at, role, text, Value::Object(extra).to_string()],
         )?;
         n += 1;
-        let hidden = m.get("hidden").is_some_and(py::truthy);
-        if !py::truthy(&title) && role == "me" && !hidden && !py::strip(&text).is_empty() {
+        let hidden = m.get("hidden").is_some_and(value::truthy);
+        if !value::truthy(&title) && role == "me" && !hidden && !text.trim().is_empty() {
             title = Value::String(title_from(&text));
         }
     }
@@ -216,7 +196,7 @@ pub fn rename(conn: &Connection, chat_id: i64, title: &str) -> rusqlite::Result<
     begin(conn)?;
     Ok(conn.execute(
         "UPDATE chats SET title=? WHERE id=?",
-        rusqlite::params![py::strip(title), chat_id],
+        rusqlite::params![title.trim(), chat_id],
     )? > 0)
 }
 
@@ -229,7 +209,7 @@ pub fn delete(conn: &Connection, chat_id: i64) -> rusqlite::Result<bool> {
 /// Mensajes que contienen ese texto, con su conversación. Sin distinguir
 /// mayúsculas; es un LIKE, que para unos miles de mensajes sobra.
 pub fn search(conn: &Connection, query: &str, limit: i64) -> rusqlite::Result<Vec<Dict>> {
-    let q = py::words(query).collect::<Vec<_>>().join(" ");
+    let q = query.split_whitespace().collect::<Vec<_>>().join(" ");
     if q.is_empty() {
         return Ok(Vec::new());
     }
@@ -315,26 +295,6 @@ mod tests {
             "uno",
             "U+2028 también corta línea"
         );
-    }
-
-    #[test]
-    fn payload_is_saved_as_python_wrote_it() {
-        let v = json!({"tools": [{"name": "t", "summary": "ñ"}], "usage": 2.0, "x": "a\"b\n\u{1}", "n": null});
-        assert_eq!(
-            py::dumps(&v),
-            r#"{"tools": [{"name": "t", "summary": "ñ"}], "usage": 2.0, "x": "a\"b\n\u0001", "n": null}"#
-        );
-        assert_eq!(py::dumps(&json!({})), "{}");
-        assert_eq!(py::dumps(&json!([1e-5, true])), "[1e-05, true]");
-    }
-
-    #[test]
-    fn splitlines_like_python() {
-        assert_eq!(py::splitlines("a\r\nb\rc\nd"), ["a", "b", "c", "d"]);
-        assert_eq!(py::splitlines("a\n"), ["a"]);
-        assert_eq!(py::splitlines("\n"), [""]);
-        assert!(py::splitlines("").is_empty());
-        assert_eq!(py::splitlines("a\x0cb\u{85}c"), ["a", "b", "c"]);
     }
 
     #[test]

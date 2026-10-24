@@ -53,7 +53,7 @@ impl Outside for Fake {
     fn progress(&mut self, done: usize, total: usize, name: &str) {
         self.calls.push(format!("avance:{done}/{total}:{name}"));
     }
-    fn from_fingerprint(&mut self, _: &Path) -> Step {
+    fn by_fingerprint(&mut self, _: &Path) -> Step {
         self.calls.push("huella".into());
         Err("AcoustID caído".into())
     }

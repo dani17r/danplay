@@ -39,7 +39,8 @@
 use crate::app::App;
 use crate::services::{folders, journal, library as lib};
 use library::index::Dict;
-use library::py;
+use library::paths;
+use library::value;
 use notify::event::{AccessKind, AccessMode, CreateKind, ModifyKind, RemoveKind};
 use notify::{EventKind, RecursiveMode, Watcher as _};
 use serde_json::Value;
@@ -84,7 +85,7 @@ pub fn rescan_every(app: &App) -> f64 {
     let minutes = if raw.is_empty() {
         Some(0.0)
     } else {
-        py::parse_float(&raw)
+        value::parse_float(&raw)
     };
     match minutes {
         // `max(0.0, x)`: un NaN se queda en 0
@@ -279,7 +280,7 @@ impl Watcher {
                 return None;
             }
         };
-        if r.get("changed").is_some_and(py::truthy) {
+        if r.get("changed").is_some_and(value::truthy) {
             let n = |k: &str| r.get(k).and_then(Value::as_i64).unwrap_or(0);
             log::info!(
                 "biblioteca al dia ({why}): {} nuevas, {} vuelven, {} apartadas, {} releidas",
@@ -516,7 +517,7 @@ impl Watcher {
 
 /// Si la ruta es de un archivo de audio (por su extensión).
 fn is_audio(path: &str) -> bool {
-    let suffix = py::path_suffix(path).to_lowercase();
+    let suffix = paths::suffix(std::path::Path::new(path)).to_lowercase();
     library::config::EXTENSIONS.contains(&suffix.as_str())
 }
 
@@ -537,7 +538,7 @@ fn root_of<'a>(roots: &'a [String], path: &str) -> Option<&'a str> {
 /// `_excluded`: si la ruta cae en una carpeta excluida (ella misma, si es
 /// una carpeta).
 fn excluded(path: &str, root: &str, is_dir: bool, exclusions: &[Dict]) -> bool {
-    let Some(rel) = py::relpath(path, root) else {
+    let Some(rel) = paths::relative(path, root) else {
         return false;
     };
     let parts: Vec<String> = PathBuf::from(rel)
@@ -558,7 +559,7 @@ fn excluded(path: &str, root: &str, is_dir: bool, exclusions: &[Dict]) -> bool {
         if library::index::folders::excluded(&folder, name, exclusions) {
             return true;
         }
-        folder = py::join(&folder, name);
+        folder = paths::join(&folder, name);
     }
     false
 }

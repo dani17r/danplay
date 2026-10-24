@@ -6,7 +6,7 @@ use crate::app::{App, VERSION};
 use crate::jobs::{JobError, Progress};
 use crate::services::{beats, clock, cues, folders, songs, stems};
 use library::index::Dict;
-use library::py;
+use library::value;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 
@@ -107,7 +107,7 @@ pub(crate) fn export(
     let song = songs::by_id(app, cid)?
         .ok_or_else(|| bundle_error("esa canción ya no está en la biblioteca"))?;
     let info = stems::info(app, &song)
-        .filter(|i| i.get("complete").is_some_and(py::truthy))
+        .filter(|i| i.get("complete").is_some_and(value::truthy))
         .ok_or_else(|| bundle_error("no tiene sus pistas separadas completas"))?;
     let ffmpeg = app
         .tool("ffmpeg")
@@ -123,7 +123,7 @@ pub(crate) fn export(
     }
     let tracks = info
         .get("tracks")
-        .map(py::list_of)
+        .map(value::list_of)
         .unwrap_or_default()
         .len();
     let total = tracks + 1;

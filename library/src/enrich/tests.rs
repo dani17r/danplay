@@ -11,6 +11,10 @@ fn obj(v: Value) -> Dict {
 /// Lo de fuera, de mentira: lo que contesta cada URL, la IA, el índice y lo
 /// que se escribió.
 #[derive(Default)]
+#[allow(
+    clippy::option_option,
+    reason = "sin nada, el paso de verdad; con algo, lo que contesta, que puede ser nada"
+)]
 struct Fake {
     pages: HashMap<String, Value>,
     images: HashMap<String, Vec<u8>>,

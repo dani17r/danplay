@@ -9,7 +9,11 @@
 //! (`STATE`), los hilos, archivar con `ingest` y lo que toca la base.
 use crate::assistant::links::{self, hostname, urlsplit};
 use crate::index::folders;
-use crate::{names, py};
+use crate::names;
+use crate::num;
+use crate::paths;
+use crate::text;
+use crate::value;
 use serde_json::{Map, Value, json};
 use std::collections::VecDeque;
 use std::path::Path;
@@ -67,7 +71,7 @@ pub enum Target {
 /// dirección de otro sitio: no se le pasa a yt-dlp, cuyo extractor genérico
 /// descarga de cualquier sitio, incluidas direcciones de la red local.
 pub fn normalize(text: &str) -> Result<Target, String> {
-    let e = py::strip(text);
+    let e = text.trim();
     if is_url(e) {
         return Ok(Target::Url(e.to_owned()));
     }
@@ -232,7 +236,7 @@ pub fn download_options(outtmpl: &str, kbps: &str) -> (Options, Options) {
 
 /// `str(Path(tmp) / "%(id)s.%(ext)s")`: dónde deja yt-dlp lo que baja.
 pub fn outtmpl(tmp: &str) -> String {
-    py::purepath(&py::join(tmp, "%(id)s.%(ext)s"))
+    paths::clean(&paths::join(tmp, "%(id)s.%(ext)s"))
 }
 
 // ------------------------------------------- lo que contesta yt-dlp
@@ -263,14 +267,14 @@ pub fn type_name(v: &Value) -> &'static str {
 
 /// `a or b`.
 fn or<'a>(a: &'a Value, b: &'a Value) -> &'a Value {
-    if py::truthy(a) { a } else { b }
+    if value::truthy(a) { a } else { b }
 }
 
 /// `(v or "").strip()`.
 fn stripped(v: &Value) -> Result<Value, FieldError> {
     match v {
-        v if !py::truthy(v) => Ok(json!("")),
-        Value::String(s) => Ok(json!(py::strip(s))),
+        v if !value::truthy(v) => Ok(json!("")),
+        Value::String(s) => Ok(json!(s.trim())),
         other => Err(FieldError::Attribute(format!(
             "'{}' object has no attribute 'strip'",
             type_name(other)
@@ -281,18 +285,15 @@ fn stripped(v: &Value) -> Result<Value, FieldError> {
 /// `float(v or 0)`.
 fn float_or_zero(v: &Value) -> Result<f64, FieldError> {
     match v {
-        v if !py::truthy(v) => Ok(0.0),
-        Value::String(s) => py::parse_float(s).ok_or_else(|| {
-            FieldError::Value(format!(
-                "could not convert string to float: {}",
-                py::repr_str(s)
-            ))
-        }),
+        v if !value::truthy(v) => Ok(0.0),
+        Value::String(s) => {
+            value::parse_float(s).ok_or_else(|| FieldError::Value(format!("«{s}» no es un número")))
+        }
         Value::Array(_) | Value::Object(_) => Err(FieldError::Type(format!(
             "float() argument must be a string or a real number, not '{}'",
             type_name(v)
         ))),
-        other => Ok(py::float_of(other).unwrap_or(0.0)),
+        other => Ok(value::float_of(other).unwrap_or(0.0)),
     }
 }
 
@@ -320,12 +321,12 @@ pub fn pick_fields(mut get: impl FnMut(&str) -> Value) -> Result<Map<String, Val
 /// del principio.
 pub fn plain(message: &str) -> String {
     let clean = uncolored(message);
-    let text = py::words(&clean).collect::<Vec<_>>().join(" ");
+    let text = clean.split_whitespace().collect::<Vec<_>>().join(" ");
     match text
         .strip_prefix("ERROR:")
         .or_else(|| text.strip_prefix("WARNING:"))
     {
-        Some(rest) => rest.trim_start_matches(py::isspace).to_owned(),
+        Some(rest) => rest.trim_start_matches(char::is_whitespace).to_owned(),
         None => text,
     }
 }
@@ -425,13 +426,13 @@ impl Seen {
     /// El último error; si no hubo, el último aviso que sea de bloqueo o de red.
     pub fn reason(&self) -> String {
         if let Some(e) = self.errors.back() {
-            return py::head(e, 200).to_owned();
+            return text::head(e, 200).to_owned();
         }
         self.warnings
             .iter()
             .rev()
             .find(|w| !failure_kind(w).is_empty())
-            .map(|w| py::head(w, 200).to_owned())
+            .map(|w| text::head(w, 200).to_owned())
             .unwrap_or_default()
     }
 }
@@ -453,7 +454,7 @@ pub fn query_raised(plain_text: &str, seen: &Seen, exception: &str) -> Map<Strin
         .into_iter()
         .find(|s| !s.is_empty())
         .unwrap_or("");
-    failed(py::head(reason, 200))
+    failed(text::head(reason, 200))
 }
 
 /// La consulta que no trajo nada: por qué, si yt-dlp lo dijo.
@@ -510,7 +511,7 @@ pub fn percent(done: Bytes, total: Bytes) -> Value {
         Bytes::Int(i) => (i128::from(i) * 100) as f64,
         Bytes::Float(f) => 100.0 * f,
     };
-    let p = py::round(hundred / total.f64(), 1);
+    let p = num::round_to(hundred / total.f64(), 1);
     serde_json::Number::from_f64(p).map_or(Value::Null, Value::Number)
 }
 
@@ -520,7 +521,7 @@ pub fn downloading(percent: Value, filename: &str) -> Map<String, Value> {
     let mut out = Map::new();
     out.insert("phase".into(), json!("downloading"));
     out.insert("percent".into(), percent);
-    out.insert("name".into(), json!(py::path_name(filename)));
+    out.insert("name".into(), json!(paths::file_name(filename)));
     out
 }
 
@@ -537,7 +538,7 @@ pub fn converting() -> Map<String, Value> {
 
 /// `str(v)` de un campo, como lo pasaba Python a `names`.
 fn text_of(v: &Value) -> String {
-    py::str_of(v)
+    value::str_of(v)
 }
 
 /// `_provisional_name`: el nombre de archivo ya sin el ruido típico de
@@ -547,10 +548,10 @@ pub fn provisional_name(title: &Value, id: &Value) -> Result<String, FieldError>
     let base = names::clean(&text_of(or(title, or(id, &fallback))));
     let clean = names::sanitize(&base);
     if !clean.is_empty() {
-        return Ok(py::head(&clean, 120).to_owned());
+        return Ok(text::head(&clean, 120).to_owned());
     }
     match or(id, &fallback) {
-        Value::String(s) => Ok(py::head(s, 120).to_owned()),
+        Value::String(s) => Ok(text::head(s, 120).to_owned()),
         other => Err(FieldError::Type(format!(
             "'{}' object is not subscriptable",
             type_name(other)
@@ -561,7 +562,7 @@ pub fn provisional_name(title: &Value, id: &Value) -> Result<String, FieldError>
 /// `\s*-\s*topic\s*$` sin mirar mayúsculas (con las de Python: la «ı» y la
 /// «İ» también son una «i»): dónde empieza, si acaba así.
 fn topic_suffix(s: &str) -> Option<usize> {
-    let end = s.trim_end_matches(py::isspace);
+    let end = s.trim_end_matches(char::is_whitespace);
     let mut chars = end.char_indices().rev();
     for want in ['c', 'i', 'p', 'o', 't'] {
         let (_, c) = chars.next()?;
@@ -574,9 +575,9 @@ fn topic_suffix(s: &str) -> Option<usize> {
         }
     }
     let before_topic = chars.next().map_or(0, |(i, c)| i + c.len_utf8());
-    let rest = end[..before_topic].trim_end_matches(py::isspace);
+    let rest = end[..before_topic].trim_end_matches(char::is_whitespace);
     let dash = rest.strip_suffix('-')?;
-    Some(dash.trim_end_matches(py::isspace).len())
+    Some(dash.trim_end_matches(char::is_whitespace).len())
 }
 
 /// Las etiquetas que se escriben solo si YouTube dio datos de música de
@@ -591,7 +592,7 @@ pub fn trusted_tags(artist: &str, track: &str, album: &str) -> Option<(String, S
         Some(i) => &artist[..i],
         None => artist,
     };
-    let artist = py::strip(artist);
+    let artist = artist.trim();
     if artist.is_empty() {
         return None;
     }
@@ -642,7 +643,7 @@ pub fn folder<E>(
     let field = |f: &Map<String, Value>, k: &str| f.get(k).cloned().unwrap_or(Value::Null);
     let managed: Vec<&Map<String, Value>> = folders
         .iter()
-        .filter(|f| py::truthy(&field(f, "active")) && py::truthy(&field(f, "exists")))
+        .filter(|f| value::truthy(&field(f, "active")) && value::truthy(&field(f, "exists")))
         .collect();
     let is_dir = Path::new(path).is_dir();
     let reason = if !chosen {
@@ -669,8 +670,8 @@ pub fn folder<E>(
         let mut best: Option<(&Map<String, Value>, f64)> = None;
         for f in &ours {
             let n = field(f, "n");
-            let n = if py::truthy(&n) {
-                py::float_of(&n).unwrap_or(0.0)
+            let n = if value::truthy(&n) {
+                value::float_of(&n).unwrap_or(0.0)
             } else {
                 0.0
             };
@@ -719,10 +720,10 @@ pub fn history_entry(
     quality: Value,
 ) -> Map<String, Value> {
     let (mut song_id, mut target) = (e.id.clone(), e.target.clone());
-    if song_id.is_null() && py::truthy(&e.already_there) {
+    if song_id.is_null() && value::truthy(&e.already_there) {
         let (id, path) = e.first_match.clone().unwrap_or((Value::Null, json!("")));
         song_id = id;
-        if !py::truthy(&target) {
+        if !value::truthy(&target) {
             target = path;
         }
     }
@@ -750,13 +751,13 @@ pub fn history_entry(
 /// El motivo de un fallo en una línea corta (para enseñarlo, no para
 /// depurar): su texto o, si no tiene, el nombre de la excepción.
 pub fn short(text: &str, exception: &str) -> String {
-    let joined = py::words(text).collect::<Vec<_>>().join(" ");
+    let joined = text.split_whitespace().collect::<Vec<_>>().join(" ");
     let s = if joined.is_empty() {
         exception
     } else {
         &joined
     };
-    py::head(s, 200).to_owned()
+    text::head(s, 200).to_owned()
 }
 
 #[cfg(test)]

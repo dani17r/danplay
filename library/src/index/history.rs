@@ -1,7 +1,8 @@
 //! Lo que no es de ninguna canción pero se guarda en la base: el historial de
 //! descargas y lo que gasta la IA. El escaneo no lo toca (solo vacía `songs`).
 use super::{Dict, begin, fetch_all, markers, now, sql};
-use crate::py;
+use crate::num;
+use crate::value;
 use rusqlite::Connection;
 use serde_json::Value;
 
@@ -24,18 +25,18 @@ pub fn log_download(conn: &Connection, entry: &Dict) -> rusqlite::Result<()> {
     for k in DOWNLOAD_FIELDS {
         row.insert(k.into(), get(k));
     }
-    if !py::truthy(&row["at"]) {
+    if !value::truthy(&row["at"]) {
         row.insert("at".into(), Value::from(now()));
     }
     for k in ["ok", "already"] {
-        let on = py::truthy(&row[k]);
+        let on = value::truthy(&row[k]);
         row.insert(k.into(), Value::from(i64::from(on)));
     }
     for k in TEXT_FIELDS {
         // `str(row[k] or "")`
         let v = &row[k];
-        let text = if py::truthy(v) {
-            py::str_of(v)
+        let text = if value::truthy(v) {
+            value::str_of(v)
         } else {
             String::new()
         };
@@ -102,7 +103,7 @@ fn part(conn: &Connection, since: f64) -> rusqlite::Result<Dict> {
     .next()
     .unwrap_or_default();
     let or_zero = |k: &str| match f.get(k) {
-        Some(v) if py::truthy(v) => v.clone(),
+        Some(v) if value::truthy(v) => v.clone(),
         _ => Value::from(0),
     };
     let mut out = Dict::new();
@@ -112,8 +113,8 @@ fn part(conn: &Connection, since: f64) -> rusqlite::Result<Dict> {
     let cost = f.get("cost").and_then(Value::as_f64).unwrap_or(0.0);
     // `round(f["cost"] or 0, 6)`: un entero 0 sigue siendo 0
     let cost = match f.get("cost") {
-        Some(v) if py::truthy(v) && v.is_f64() => Value::from(py::round(cost, 6)),
-        Some(v) if py::truthy(v) => v.clone(),
+        Some(v) if value::truthy(v) && v.is_f64() => Value::from(num::round_to(cost, 6)),
+        Some(v) if value::truthy(v) => v.clone(),
         _ => Value::from(0),
     };
     out.insert("cost".into(), cost);

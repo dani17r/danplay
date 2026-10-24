@@ -14,7 +14,8 @@
 use crate::index::Dict;
 use crate::names::{Re, rx, sub, sub_with};
 use crate::patterns::search;
-use crate::py;
+use crate::text;
+use crate::value;
 use serde_json::Value;
 use std::sync::LazyLock;
 
@@ -56,7 +57,7 @@ fn limit_zero(low: &str) -> bool {
     let digit = |c: Option<char>| c.is_some_and(|c| crate::patterns::decimal(c).is_some());
     let mut rest = low;
     while let Some(i) = rest.find("limit:") {
-        let after = rest[i + "limit:".len()..].trim_start_matches(py::isspace);
+        let after = rest[i + "limit:".len()..].trim_start_matches(char::is_whitespace);
         if let Some(tail) = after.strip_prefix('0') {
             let mut chars = tail.chars();
             let next = chars.next();
@@ -304,7 +305,7 @@ pub fn known_secrets(profiles: &[&Dict]) -> Vec<String> {
 /// (`sk-…`, `AIza…`), `Bearer …`, `key=value` y `Authorization: …`; y deja
 /// cada URL en su servidor, sin `usuario:key@`, ruta ni parámetros.
 pub fn sanitize(text: &str, secrets: &[String]) -> String {
-    let mut s = py::head(text, SCAN_MAX).to_owned();
+    let mut s = text::head(text, SCAN_MAX).to_owned();
     for secret in secrets {
         s = s.replace(secret.as_str(), "***");
     }
@@ -330,12 +331,12 @@ pub fn sanitize(text: &str, secrets: &[String]) -> String {
         .filter(|c| !is_invisible(*c))
         .map(|c| if is_control(c) { ' ' } else { c })
         .collect();
-    let s = py::words(&cleaned).collect::<Vec<_>>().join(" ");
+    let s = cleaned.split_whitespace().collect::<Vec<_>>().join(" ");
     if s.chars().count() <= MAX_PROVIDER_MESSAGE {
         return s;
     }
     let cut: String = s.chars().take(MAX_PROVIDER_MESSAGE - 1).collect();
-    format!("{}…", cut.trim_end_matches(py::isspace))
+    format!("{}…", cut.trim_end_matches(char::is_whitespace))
 }
 
 /// Lo que hace falta del perfil para contar un fallo.
@@ -351,13 +352,13 @@ impl Who {
         let Some(p) = p else { return Self::default() };
         let name = p
             .get("name")
-            .filter(|v| py::truthy(v))
-            .map(py::str_of)
+            .filter(|v| value::truthy(v))
+            .map(value::str_of)
             .unwrap_or_default();
         Self {
             name,
-            local: p.get("local").is_some_and(py::truthy),
-            base_url: p.get("base_url").map(py::str_of).unwrap_or_default(),
+            local: p.get("local").is_some_and(value::truthy),
+            base_url: p.get("base_url").map(value::str_of).unwrap_or_default(),
         }
     }
 }
@@ -526,7 +527,7 @@ pub fn gone_reason(text: &str, secrets: &[String]) -> String {
         None => sub(&ERROR_CODE, text, ""),
     };
     let first = t.split(". ").next().unwrap_or("");
-    py::head(&sanitize(first, secrets), 140).to_owned()
+    text::head(&sanitize(first, secrets), 140).to_owned()
 }
 
 #[cfg(test)]

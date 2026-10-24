@@ -9,7 +9,7 @@ use crate::services::cues::{self, CueError, Edit};
 use crate::services::songs;
 use crate::services::structure::{self, AutoGuide};
 use library::index::Dict;
-use library::py;
+use library::value;
 use serde_json::{Value, json};
 use std::path::Path;
 
@@ -149,7 +149,7 @@ fn cue_import(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let longest = limit.filter(|l| *l != 0.0).map(|l| {
         let duration = song
             .get("duration")
-            .and_then(py::float_of)
+            .and_then(value::float_of)
             .filter(|d| *d != 0.0)
             .unwrap_or(l);
         l.min(duration + 0.5)

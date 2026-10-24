@@ -16,7 +16,7 @@ struct Reader<'a> {
 
 fn is_inline_space(c: char) -> bool {
     // `[^\S\r\n]`: espacio de Python (`\s`), salvo los saltos de línea
-    crate::py::isspace(c) && c != '\r' && c != '\n'
+    char::is_whitespace(c) && c != '\r' && c != '\n'
 }
 
 impl<'a> Reader<'a> {
@@ -108,7 +108,7 @@ fn decode(value: &str, double: bool) -> String {
 /// la salta).
 fn binding(r: &mut Reader<'_>) -> Option<(String, Option<String>)> {
     let result = (|| {
-        r.skip_while(crate::py::isspace);
+        r.skip_while(char::is_whitespace);
         if r.rest().is_empty() {
             return Err(true);
         }
@@ -125,7 +125,7 @@ fn binding(r: &mut Reader<'_>) -> Option<(String, Option<String>)> {
                 Some(rest[1..=end].to_owned())
             }
             _ => {
-                let key = r.skip_while(|c| c != '=' && c != '#' && !crate::py::isspace(c));
+                let key = r.skip_while(|c| c != '=' && c != '#' && !char::is_whitespace(c));
                 if key.is_empty() {
                     return Err(false);
                 }
@@ -149,13 +149,13 @@ fn binding(r: &mut Reader<'_>) -> Option<(String, Option<String>)> {
                         let cut = part
                             .char_indices()
                             .find(|&(i, c)| {
-                                crate::py::isspace(c) && {
-                                    let after = part[i..].trim_start_matches(crate::py::isspace);
+                                char::is_whitespace(c) && {
+                                    let after = part[i..].trim_start_matches(char::is_whitespace);
                                     after.starts_with('#')
                                 }
                             })
                             .map_or(part, |(i, _)| &part[..i]);
-                        cut.trim_end_matches(crate::py::isspace).to_owned()
+                        cut.trim_end_matches(char::is_whitespace).to_owned()
                     }
                 })
             }

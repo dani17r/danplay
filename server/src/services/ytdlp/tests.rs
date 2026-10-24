@@ -23,7 +23,7 @@ fn runtime(name: &str, path: &str) -> Runtime {
 }
 
 #[test]
-fn the_python_options_as_arguments() {
+fn the_options_as_arguments() {
     let base = base_args(None, true);
     assert_eq!(
         base,
@@ -65,7 +65,7 @@ fn the_python_options_as_arguments() {
     assert!(q.windows(6).any(|w| w
         == [
             "--socket-timeout",
-            "8.0",
+            "8",
             "--retries",
             "0",
             "--extractor-retries",

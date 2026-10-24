@@ -2,7 +2,7 @@
 //! herramienta) y cómo lo leía el Python: `d.get(k)`, `str(x or "")`, `int(x)`
 //! y las excepciones que lanzaba cuando algo no era lo que esperaba.
 use crate::index::Dict;
-use crate::py;
+use crate::value;
 use serde_json::Value;
 
 pub static NULL: Value = Value::Null;
@@ -15,19 +15,19 @@ pub fn get<'a>(d: &'a Dict, k: &str) -> &'a Value {
 /// `f"{d.get(k)}"`: el texto de un valor como lo escribe Python («None» si no
 /// está).
 pub fn s(d: &Dict, k: &str) -> String {
-    py::str_of(get(d, k))
+    value::str_of(get(d, k))
 }
 
 /// `f"{d.get(k, '')}"`: como `s`, pero vacío si la clave no está (si está y
 /// es None, «None»).
 pub fn s_or_empty(d: &Dict, k: &str) -> String {
-    d.get(k).map_or_else(String::new, py::str_of)
+    d.get(k).map_or_else(String::new, value::str_of)
 }
 
 /// `str(x or "")`
 pub fn or_empty(v: &Value) -> String {
-    if py::truthy(v) {
-        py::str_of(v)
+    if value::truthy(v) {
+        value::str_of(v)
     } else {
         String::new()
     }
@@ -35,7 +35,7 @@ pub fn or_empty(v: &Value) -> String {
 
 /// `d.get(k)` es verdadero.
 pub fn yes(d: &Dict, k: &str) -> bool {
-    py::truthy(get(d, k))
+    value::truthy(get(d, k))
 }
 
 /// `x or []`, como lista (lo que no es lista, nada).
@@ -86,7 +86,7 @@ impl std::fmt::Display for Error {
             Self::Integer(v) => write!(f, "invalid literal for int() with base 10: {v}"),
             Self::Val(m) | Self::TypeText(m) => write!(f, "{m}"),
             Self::Attribute(t, a) => write!(f, "'{t}' object has no attribute '{a}'"),
-            Self::Key(k) => write!(f, "{}", py::repr_str(k)),
+            Self::Key(k) => write!(f, "{k:?}"),
             Self::Type(t) => write!(f, "'{t}' object is not subscriptable"),
             Self::NoIterable(t) => write!(f, "'{t}' object is not iterable"),
         }
@@ -110,7 +110,7 @@ pub fn type_name(v: &Value) -> &'static str {
 
 /// `int(v)` de Python.
 pub fn int(v: &Value) -> Result<i64, Error> {
-    py::int_of(v).ok_or_else(|| Error::Integer(py::repr(v)))
+    value::int_of(v).ok_or_else(|| Error::Integer(v.to_string()))
 }
 
 /// `c.get(...)`: `c` tiene que ser un diccionario.
@@ -150,7 +150,7 @@ pub fn same(a: &Value, b: &Value) -> bool {
 /// Python si es un número.
 pub fn iter_of(v: &Value) -> Result<Vec<Value>, Error> {
     Ok(match v {
-        _ if !py::truthy(v) => Vec::new(),
+        _ if !value::truthy(v) => Vec::new(),
         Value::Array(a) => a.clone(),
         Value::String(t) => t.chars().map(|c| Value::String(c.into())).collect(),
         Value::Object(o) => o.keys().map(|k| Value::String(k.clone())).collect(),
@@ -171,12 +171,12 @@ pub fn at_of<'a>(d: &'a Dict, k: &str) -> Result<&'a Value, Error> {
 
 /// `str(d[k])`
 pub fn key(v: &Value, k: &str) -> Result<String, Error> {
-    at(v, k).map(py::str_of)
+    at(v, k).map(value::str_of)
 }
 
 /// `str(d[k])` de un diccionario.
 pub fn key_of(d: &Dict, k: &str) -> Result<String, Error> {
-    at_of(d, k).map(py::str_of)
+    at_of(d, k).map(value::str_of)
 }
 
 /// Un diccionario hecho a mano, en el orden en que se escriben las claves.

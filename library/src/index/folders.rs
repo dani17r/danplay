@@ -1,7 +1,7 @@
 //! Las carpetas que DanPlay gestiona, lo que se excluye de ellas y qué archivos
 //! de audio hay dentro. También una carpeta que se movió entera y vuelve.
 use super::{Dict, begin, fetch_all, get_str, insert_row, markers, now, song_columns, to_missing};
-use crate::py;
+use crate::paths;
 use rusqlite::Connection;
 use serde_json::Value;
 use std::path::Path;
@@ -15,19 +15,19 @@ use std::path::Path;
 /// apunte fuera no cuentan como «dentro», y en Windows tampoco importa si
 /// la unidad viene en mayúscula o minúscula.
 pub fn inside(path: &str, root: &str) -> bool {
-    let (p, r) = (py::realpath(path), py::realpath(root));
-    py::commonpath(&[&p, &r]).is_some_and(|c| c == r)
+    let (p, r) = (paths::real(path), paths::real(root));
+    paths::common(&[&p, &r]).is_some_and(|c| c == r)
 }
 
 /// Como `inside` pero puramente textual: para patrones ya normalizados.
 fn same_or_under(path: &str, folder: &str) -> bool {
-    py::commonpath(&[path, folder]).is_some_and(|c| c == py::normpath(folder))
+    paths::common(&[path, folder]).is_some_and(|c| c == paths::normalize(folder))
 }
 
 /// `str(Path(path).expanduser().resolve())`: la ruta de verdad de lo que
 /// eligió el usuario.
 pub fn resolve(path: &str) -> String {
-    py::realpath(&py::expanduser(path))
+    paths::real(&paths::expand_home(path))
 }
 
 /// Las carpetas gestionadas activas.
@@ -110,7 +110,7 @@ pub fn check_overlap(
     let mut sample: Vec<(String, u64)> = Vec::new();
     for r in &found.paths {
         if let Ok(meta) = std::fs::metadata(r) {
-            let name = py::basename(r);
+            let name = paths::file_name(r);
             // como un dict: el mismo nombre en dos carpetas cuenta una vez, con
             // el tamaño del último
             match sample.iter_mut().find(|(n, _)| *n == name) {
@@ -156,7 +156,7 @@ pub fn check_overlap(
     else {
         return Ok(None);
     };
-    let percent = py::round_int(100.0 * *matches as f64 / sample.len() as f64);
+    let percent = (100.0 * *matches as f64 / sample.len() as f64).round_ties_even() as i64;
     if percent >= 60 {
         let mut d = overlap(
             "copy",
@@ -185,7 +185,7 @@ pub fn add_folder(
         return Ok(false);
     }
     let label = if label.is_empty() {
-        py::basename(&path)
+        paths::file_name(&path)
     } else {
         label.to_owned()
     };
@@ -274,7 +274,7 @@ fn songs_of_root(
 /// «volver a importar» sin perder nada: quien la elige en la bienvenida no
 /// tiene por qué saber que es otra cosa que añadir una carpeta.
 pub fn relocation_for(conn: &Connection, path: &str) -> rusqlite::Result<Option<String>> {
-    let new = py::realpath(&py::expanduser(path));
+    let new = paths::real(&paths::expand_home(path));
     if !Path::new(&new).is_dir() {
         return Ok(None);
     }
@@ -286,7 +286,8 @@ pub fn relocation_for(conn: &Connection, path: &str) -> rusqlite::Result<Option<
         let hits = sample
             .iter()
             .filter(|p| {
-                py::relpath(p, &old).is_some_and(|rel| Path::new(&py::join(&new, &rel)).is_file())
+                paths::relative(p, &old)
+                    .is_some_and(|rel| Path::new(&paths::join(&new, &rel)).is_file())
             })
             .count();
         if hits * 2 >= sample.len() {
@@ -317,8 +318,8 @@ impl From<rusqlite::Error> for MoveError {
 /// cambió por el camino, se marca para que el siguiente escaneo lo relea.
 /// Lo que no aparezca sigue apartado, por si vuelve.
 pub fn relocate_folder(conn: &Connection, old: &str, new: &str) -> Result<Dict, MoveError> {
-    let old = py::normpath(old);
-    let new = py::realpath(&py::expanduser(new));
+    let old = paths::normalize(old);
+    let new = paths::real(&paths::expand_home(new));
     if !Path::new(&new).is_dir() {
         return Err(MoveError::Invalid("esa carpeta no existe".into()));
     }
@@ -339,16 +340,16 @@ pub fn relocate_folder(conn: &Connection, old: &str, new: &str) -> Result<Dict, 
     } else {
         conn.execute(
             "UPDATE folders SET path=?, label=CASE WHEN label=? THEN ? ELSE label END WHERE path=?",
-            rusqlite::params![new, py::basename(&old), py::basename(&new), old],
+            rusqlite::params![new, paths::file_name(&old), paths::file_name(&new), old],
         )?;
     }
     let columns = song_columns(conn)?;
     let mut back = 0;
     for r in fetch_all(conn, "SELECT * FROM songs_missing WHERE root=?", [&old])? {
-        let Some(rel) = py::relpath(get_str(&r, "path"), &old) else {
+        let Some(rel) = paths::relative(get_str(&r, "path"), &old) else {
             continue;
         };
-        let target = py::join(&new, &rel);
+        let target = paths::join(&new, &rel);
         let Ok(st) = std::fs::metadata(&target) else {
             continue;
         };
@@ -364,13 +365,13 @@ pub fn relocate_folder(conn: &Connection, old: &str, new: &str) -> Result<Dict, 
         let Ok(Value::Object(mut data)) = serde_json::from_str::<Value>(get_str(&r, "data")) else {
             continue;
         };
-        let folder = py::relpath(&py::dirname(&target), &new).unwrap_or_default();
+        let folder = paths::relative(&paths::parent(&target), &new).unwrap_or_default();
         data.insert("path".into(), target.clone().into());
         data.insert("root".into(), new.clone().into());
         data.insert("folder".into(), folder.into());
         let size = data.get("size").and_then(Value::as_f64);
         let mtime = data.get("mtime").and_then(Value::as_f64);
-        if size != Some(st.len() as f64) || mtime != Some(py::mtime(&st)) {
+        if size != Some(st.len() as f64) || mtime != Some(paths::mtime(&st)) {
             data.insert("mtime".into(), Value::from(-1)); // cambió por el camino: que se relea
         }
         insert_row(conn, &data, &columns)?;
@@ -437,10 +438,10 @@ pub fn list_exclusions(conn: &Connection) -> rusqlite::Result<Vec<Dict>> {
 /// Los patrones NO distinguen mayúsculas: escribir «secuencias» tiene que
 /// funcionar aunque la carpeta se llame «Secuencias».
 pub fn excluded(dir_path: &str, dir_name: &str, exclusions: &[Dict]) -> bool {
-    let full_path = py::join(dir_path, dir_name);
+    let full_path = paths::join(dir_path, dir_name);
     let (name_lc, full_lc) = (dir_name.to_lowercase(), full_path.to_lowercase());
     for pat in DEFAULT_EXCLUDES {
-        if py::fnmatch(dir_name, pat) || py::fnmatch(&name_lc, &pat.to_lowercase()) {
+        if paths::glob_match(dir_name, pat) || paths::glob_match(&name_lc, &pat.to_lowercase()) {
             return true;
         }
     }
@@ -453,9 +454,9 @@ pub fn excluded(dir_path: &str, dir_name: &str, exclusions: &[Dict]) -> bool {
             if same_or_under(&full_lc, &p) {
                 return true;
             }
-        } else if py::fnmatch(&name_lc, &p)
-            || py::fnmatch(&full_lc, &p)
-            || py::fnmatch(&full_lc, &format!("*/{}/*", p.trim_matches(['*', '/'])))
+        } else if paths::glob_match(&name_lc, &p)
+            || paths::glob_match(&full_lc, &p)
+            || paths::glob_match(&full_lc, &format!("*/{}/*", p.trim_matches(['*', '/'])))
         {
             return true;
         }
@@ -544,7 +545,7 @@ fn walk(
             let lossy = name.to_string_lossy().into_owned();
             let is_dir = entry.file_type().is_ok_and(|t| t.is_dir());
             if !is_dir && extensions.contains(&suffix_lower(&lossy)) {
-                found.unstorable.push(py::join(dir, &lossy));
+                found.unstorable.push(paths::join(dir, &lossy));
             }
             continue;
         };
@@ -573,7 +574,7 @@ fn walk(
         if excluded(dir, &name, exclusions) {
             continue;
         }
-        let path = py::join(dir, &name);
+        let path = paths::join(dir, &name);
         if stems_folder(&path, found) || is_link {
             continue;
         }
@@ -581,7 +582,7 @@ fn walk(
     }
     for name in &files {
         if extensions.contains(&suffix_lower(name)) {
-            found.paths.push(py::join(dir, name));
+            found.paths.push(paths::join(dir, name));
             if limit.is_some_and(|n| found.paths.len() >= n) {
                 return false;
             }

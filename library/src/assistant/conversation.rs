@@ -17,7 +17,6 @@ use super::text;
 use super::tools::{ACTING_TOOLS, MAX_TOOL_CALLS, NEEDS_CONFIRMATION};
 use super::value::{Error, get, yes};
 use crate::index::Dict;
-use crate::py;
 use serde_json::{Value, json};
 
 mod prompt;
@@ -79,7 +78,7 @@ pub fn clip(text: &str, limit: usize) -> String {
     }
     format!(
         "{}\n[recortado]",
-        py::head(text, limit).trim_end_matches(py::isspace)
+        crate::text::head(text, limit).trim_end_matches(char::is_whitespace)
     )
 }
 
@@ -91,8 +90,8 @@ pub fn pseudo_ok(name: &str, args: &Value) -> bool {
     if name == "fill_playlist" {
         let a = args.as_object();
         let mode = a.map_or(String::new(), |a| {
-            text::lower(&if py::truthy(get(a, "mode")) {
-                py::str_of(get(a, "mode"))
+            text::lower(&if crate::value::truthy(get(a, "mode")) {
+                crate::value::str_of(get(a, "mode"))
             } else {
                 String::new()
             })
@@ -347,8 +346,8 @@ pub struct Start {
 
 fn text_of(d: &Dict, k: &str) -> String {
     let v = get(d, k);
-    if py::truthy(v) {
-        py::str_of(v)
+    if crate::value::truthy(v) {
+        crate::value::str_of(v)
     } else {
         String::new()
     }
@@ -358,7 +357,7 @@ fn text_of(d: &Dict, k: &str) -> String {
 fn name_text<C: Chat>(chat: &C, name: &C::Obj) -> Result<String, C::Error> {
     Ok(match chat.view(name)? {
         Value::String(s) => s,
-        other => py::str_of(&other),
+        other => crate::value::str_of(&other),
     })
 }
 
@@ -370,8 +369,8 @@ fn history<C: Chat>(chat: &mut C, start: &Start) -> Result<(), Fault<C::Error>> 
         .map_err(Fault::Raise)?;
     for m in &start.recent {
         let raw = m.get("text").map_or_else(String::new, |t| {
-            if py::truthy(t) {
-                py::str_of(t)
+            if crate::value::truthy(t) {
+                crate::value::str_of(t)
             } else {
                 String::new()
             }
@@ -534,7 +533,7 @@ pub fn reply<C: Chat>(chat: &mut C, start: &Start) -> Result<C::Obj, Fault<C::Er
                 chat.note_pseudo_call(&name);
                 let id = format!("escrita_{pseudo_fixed}");
                 calls = vec![
-                    chat.call(&id, &name, &py::dumps(&args))
+                    chat.call(&id, &name, &args.to_string())
                         .map_err(Fault::Raise)?,
                 ];
                 text_now = String::new();
@@ -568,7 +567,7 @@ pub fn reply<C: Chat>(chat: &mut C, start: &Start) -> Result<C::Obj, Fault<C::Er
                 chat.on_text("").map_err(Fault::Raise)?;
                 continue;
             }
-            if text.trim_matches(py::isspace).is_empty() {
+            if text.trim_matches(char::is_whitespace).is_empty() {
                 // Algún modelo contesta vacío tras usar herramientas: se dice
                 // lo que se hizo (o que no hubo respuesta), nunca nada.
                 let done = done_summaries(&state, "; ");
@@ -655,7 +654,7 @@ pub fn reply<C: Chat>(chat: &mut C, start: &Start) -> Result<C::Obj, Fault<C::Er
             let content = chat.toon(&model_res).map_err(Fault::Raise)?;
             let id = chat.view(&c.id).map_err(Fault::Raise)?;
             chat.say(
-                json!({"role": "tool", "tool_call_id": id, "content": py::head(&content, 12000)}),
+                json!({"role": "tool", "tool_call_id": id, "content": crate::text::head(&content, 12000)}),
             )
             .map_err(Fault::Raise)?;
         }
@@ -689,14 +688,14 @@ fn look<C: Chat>(
         chat.item(res, "action").map_err(raise)?;
         return Ok(());
     };
-    if py::truthy(get(r, "action"))
+    if crate::value::truthy(get(r, "action"))
         && let Some(action) = chat.item(res, "action").map_err(raise)?
     {
         state.actions.push(action);
     }
     let ui_view = get(r, "_ui");
     let errored = yes(r, "error");
-    if !py::truthy(ui_view) || errored {
+    if !crate::value::truthy(ui_view) || errored {
         if ACTING_TOOLS.contains(&name) && !errored {
             *did_something = true;
         }
@@ -717,14 +716,15 @@ fn look<C: Chat>(
         };
         let sheet_obj = chat.copy(&sheet_obj).map_err(raise)?;
         let confirm_view = sub("confirm");
-        if py::truthy(&confirm_view) && state.pending.is_none() {
+        if crate::value::truthy(&confirm_view) && state.pending.is_none() {
             state.pending = chat.item(&ui, "confirm").map_err(raise)?;
         }
-        if yes(r, "applied") || py::truthy(&confirm_view) {
+        if yes(r, "applied") || crate::value::truthy(&confirm_view) {
             *did_something = true;
         }
         round_texts.push(
-            setlist::report(&sub("setlist"), py::truthy(&confirm_view)).map_err(Fault::Data)?,
+            setlist::report(&sub("setlist"), crate::value::truthy(&confirm_view))
+                .map_err(Fault::Data)?,
         );
         state.sheet = Some(sheet_obj);
     } else if name == "find_songs" {
@@ -748,7 +748,9 @@ fn done_names<C: Chat>(chat: &C, state: &State<C::Obj>) -> Result<String, Fault<
             continue;
         }
         let entry = chat.view(&u.entry).map_err(Fault::Raise)?;
-        let name = entry.get("name").map_or_else(String::new, py::str_of);
+        let name = entry
+            .get("name")
+            .map_or_else(String::new, crate::value::str_of);
         parts.push(format!("{name} ({})", u.summary));
     }
     Ok(parts.join("; "))

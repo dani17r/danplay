@@ -156,7 +156,7 @@ fn a_deleted_song_leaves_the_views_and_stays_in_its_lists_as_missing() {
     assert_eq!(listed(&app, sunday, false).len(), 2);
     let ghosts: Vec<String> = listed(&app, sunday, true)
         .iter()
-        .filter(|s| s.get("ghost").is_some_and(library::py::truthy))
+        .filter(|s| s.get("ghost").is_some_and(library::value::truthy))
         .map(|s| songs::text(s, "file"))
         .collect();
     assert_eq!(ghosts, ["Barak - Sera Llena La Tierra.mp3"]);
@@ -188,7 +188,7 @@ fn a_song_that_comes_back_returns_to_its_place_in_the_list() {
     assert_eq!(ids_of(&listed(&app, sunday, false)), [order[0], order[2]]);
     let flags: Vec<bool> = listed(&app, sunday, true)
         .iter()
-        .map(|s| s.get("ghost").is_some_and(library::py::truthy))
+        .map(|s| s.get("ghost").is_some_and(library::value::truthy))
         .collect();
     assert_eq!(flags, [false, true, false]);
     std::fs::rename(&keep, &files["gozo"]).expect("devolver");

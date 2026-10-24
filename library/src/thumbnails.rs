@@ -16,7 +16,7 @@
 //! La carpeta la dice quien llama (en Python, `DATA_DIR/covers`, solo para su
 //! dueño); la carátula original también (`tags.cached_cover`).
 use crate::convert::shrink_bytes;
-use crate::parity::{bytes_python, mtime, mtime_ns, suffix, with_suffix};
+use crate::paths::{mtime, mtime_ns, suffix, with_suffix};
 use crate::warnings::{self, Warnings};
 use sha1::{Digest, Sha1};
 use std::collections::{HashMap, HashSet};
@@ -57,7 +57,7 @@ fn sha1_hex(data: &[u8], len: usize) -> String {
 /// La parte del nombre que dice de qué canción es (sha1 solo para dar nombre
 /// a los archivos, no para proteger nada).
 pub fn key(path: &Path) -> String {
-    sha1_hex(&bytes_python(path.as_os_str()), 24)
+    sha1_hex(path.as_os_str().as_encoded_bytes(), 24)
 }
 
 /// La versión del archivo: su fecha y su tamaño. Si cambia la carátula

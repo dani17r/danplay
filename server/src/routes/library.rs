@@ -56,7 +56,7 @@ fn list_folders(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
 }
 
 fn is_dir(path: &str) -> bool {
-    Path::new(&library::py::expanduser(path)).is_dir()
+    Path::new(&library::paths::expand_home(path)).is_dir()
 }
 
 /// El vigilante de carpetas (si está en marcha): que vuelva a mirar cuáles
@@ -122,7 +122,7 @@ fn add_folder(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     if kind == "contains"
         && let Some(n) = &notice
     {
-        let other = library::py::str_of(n.get("other").unwrap_or(&Value::Null));
+        let other = library::value::str_of(n.get("other").unwrap_or(&Value::Null));
         folders::remove_folder(ctx.app, &other)?;
         folders::add_folder(ctx.app, &path, &label)?;
         folders_changed(ctx);
@@ -355,7 +355,7 @@ fn convertible_files(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let files: Vec<String> = c
         .iter()
         .take(200)
-        .map(|x| library::py::relpath(x, &library_root).unwrap_or_else(|| x.clone()))
+        .map(|x| library::paths::relative(x, &library_root).unwrap_or_else(|| x.clone()))
         .collect();
     Ok(json!({
         "total": c.len(),

@@ -1,4 +1,5 @@
 use super::*;
+use crate::value;
 use std::fmt::Write as _;
 use std::io::{Read, Write};
 use std::net::TcpListener;
@@ -854,8 +855,8 @@ fn only_models_the_key_can_use_are_shown() {
         .iter()
         .map(|m| (m["id"].as_str().unwrap_or("").to_owned(), m.clone()))
         .collect();
-    assert!(py::truthy(&by_id["gemini-3.8-flash"]["note"]));
-    assert!(py::truthy(&by_id["gemini-3.6-flash"]["note"]));
+    assert!(value::truthy(&by_id["gemini-3.8-flash"]["note"]));
+    assert!(value::truthy(&by_id["gemini-3.6-flash"]["note"]));
     assert!(by_id["gemini-3.5-flash"].get("note").is_none());
     let hidden: HashMap<String, String> = r["hidden"]
         .as_array()

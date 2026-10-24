@@ -8,7 +8,8 @@ use crate::router::{Ctx, Reply, Route};
 use crate::services::stems::{self, Mix, MixClick, MixCue, MixTrack, StemsError};
 use crate::services::{bundle, sequence, songs};
 use crate::validate::{Bool, Fields, List};
-use library::py;
+use library::num;
+use library::value;
 use serde_json::{Value, json};
 
 pub const ROUTES: &[Route] = &[
@@ -92,7 +93,7 @@ fn song_stems(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     if let Some(data) = stems::info(app, &song) {
         return Ok(Value::Object(data).into());
     }
-    if song.get("stems").is_some_and(py::truthy) {
+    if song.get("stems").is_some_and(value::truthy) {
         // la carpeta ya no está (se borró a mano): se olvida
         songs::update_one(app, cid, "stems", serde_json::Value::from(""))?;
     }
@@ -267,8 +268,9 @@ fn export_mix(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let (snap, already) =
         app.jobs
             .start(stems::MIX_JOB, "no se pudo guardar la mezcla", move |p| {
-                let progress =
-                    |done: f64, total: f64| p.count(py::round(done, 1), py::round(total, 1));
+                let progress = |done: f64, total: f64| {
+                    p.count(num::round_to(done, 1), num::round_to(total, 1));
+                };
                 let r = stems::export_mix(&me, cid, &mix, &progress).map_err(JobError::from)?;
                 p.message(&format!("Guardada «{}»", r["name"].as_str().unwrap_or("")));
                 Ok(r)

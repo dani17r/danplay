@@ -149,17 +149,6 @@ fn byte_identical_files() {
     std::fs::remove_dir_all(&dir).expect("borrar");
 }
 
-#[cfg(unix)]
-#[test]
-fn suffix_of_a_non_utf8_name() {
-    use std::os::unix::ffi::OsStrExt;
-    let raw = OsStr::from_bytes(b"Gozo \xff - r2.mp3");
-    assert_eq!(
-        name_without_suffix(raw),
-        OsStr::from_bytes(b"Gozo \xff.mp3")
-    );
-}
-
 #[test]
 fn duplicate_suffix() {
     for (name, clean) in [
@@ -172,17 +161,11 @@ fn duplicate_suffix() {
         ("Gozo - r٣.mp3", "Gozo.mp3"),
         (".bashrc - r", ".bashrc"),
         ("  - r2.mp3", "  - r2.mp3"),
-        ("Gozo -\tR .mp3", "Gozo -\tR.mp3"),
+        ("Gozo -\tR .mp3", "Gozo.mp3"),
     ] {
-        assert_eq!(
-            name_without_suffix(OsStr::new(name)),
-            OsStr::new(clean),
-            "{name:?}"
-        );
+        assert_eq!(name_without_suffix(name), clean, "{name:?}");
     }
 }
-
-// ------------------------------------------------- lo de tests/test_core.py
 
 #[test]
 fn strip_duplicate_suffix() {
@@ -193,11 +176,7 @@ fn strip_duplicate_suffix() {
         ("Barak - Mi Gozo.mp3", "Barak - Mi Gozo.mp3"),
         ("Rey (En Vivo) - r.mp3", "Rey (En Vivo).mp3"),
     ] {
-        assert_eq!(
-            name_without_suffix(OsStr::new(value)),
-            OsStr::new(expected),
-            "{value}"
-        );
+        assert_eq!(name_without_suffix(value), expected, "{value}");
     }
 }
 

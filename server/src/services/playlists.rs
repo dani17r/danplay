@@ -179,7 +179,7 @@ pub fn stamp_into_files(app: &App, song_ids: &[i64]) -> Result<(), ApiError> {
         let names: Vec<String> = lists
             .iter()
             .find(|(i, _)| i == cid)
-            .map(|(_, n)| n.iter().map(library::py::str_of).collect())
+            .map(|(_, n)| n.iter().map(library::value::str_of).collect())
             .unwrap_or_default();
         let path = Path::new(path);
         if path.exists() && !tags::set_playlists(app, path, &names) {
@@ -198,7 +198,7 @@ pub fn export_folder(app: &App) -> PathBuf {
 
 /// El nombre de la lista como nombre de archivo, o el motivo de que no sirva.
 fn safe_name(name: &Value) -> Result<String, ApiError> {
-    let text = library::py::str_of(name).replace(['/', '\\'], " ");
+    let text = library::value::str_of(name).replace(['/', '\\'], " ");
     let safe = library::names::sanitize(&text);
     if safe.is_empty() || safe == "." || safe == ".." || safe.split_whitespace().any(|w| w == "..")
     {
@@ -246,16 +246,16 @@ pub fn export_m3u(app: &App, lid: i64, target: Option<&Path>) -> Result<String, 
     for c in songs(app, lid, false, true)? {
         let duration = c
             .get("duration")
-            .and_then(library::py::float_of)
+            .and_then(library::value::float_of)
             .unwrap_or(0.0);
         lines.push(format!(
             "#EXTINF:{},{} - {}",
             duration.trunc() as i64,
-            library::py::str_of(c.get("artist").unwrap_or(&Value::Null)),
-            library::py::str_of(c.get("title").unwrap_or(&Value::Null)),
+            library::value::str_of(c.get("artist").unwrap_or(&Value::Null)),
+            library::value::str_of(c.get("title").unwrap_or(&Value::Null)),
         ));
-        let path = library::py::str_of(c.get("path").unwrap_or(&Value::Null));
-        lines.push(library::py::relpath(&path, &base).unwrap_or(path));
+        let path = library::value::str_of(c.get("path").unwrap_or(&Value::Null));
+        lines.push(library::paths::relative(&path, &base).unwrap_or(path));
     }
     std::fs::write(&target, lines.join("\n") + "\n")?;
     Ok(crate::app::path_str(&target))
@@ -329,19 +329,19 @@ pub fn export_sheet(app: &App, lid: i64, with_lyrics: bool) -> Result<String, Ap
     let folder = export_folder(app);
     let target = folder.join(format!("{}.html", safe_name(&name)?));
     ensure_export_folder(app, &folder)?;
-    let title = library::py::str_of(&name);
+    let title = library::value::str_of(&name);
     let rows = songs(app, lid, false, true)?;
     let e = |s: &str| escape(s);
     let s = |c: &Dict, k: &str| match c.get(k) {
         None | Some(Value::Null) => String::new(),
-        Some(v) if !library::py::truthy(v) => String::new(),
-        Some(v) => library::py::str_of(v),
+        Some(v) if !library::value::truthy(v) => String::new(),
+        Some(v) => library::value::str_of(v),
     };
     let total: f64 = rows
         .iter()
         .map(|c| {
             c.get("duration")
-                .and_then(library::py::float_of)
+                .and_then(library::value::float_of)
                 .unwrap_or(0.0)
         })
         .sum();
@@ -360,15 +360,15 @@ pub fn export_sheet(app: &App, lid: i64, with_lyrics: bool) -> Result<String, Ap
     ];
     for c in &rows {
         let sheet = sheet_chords(c);
-        let mut key = library::py::strip(&s(c, "key")).to_owned();
+        let mut key = s(c, "key").trim().to_owned();
         if key.is_empty()
             && let Some(sh) = &sheet
         {
-            let capo = sh.get("capo").and_then(library::py::int_of).unwrap_or(0) != 0;
+            let capo = sh.get("capo").and_then(library::value::int_of).unwrap_or(0) != 0;
             let k = sh
                 .get("key")
-                .map(library::py::str_of)
-                .filter(|_| sh.get("key").is_some_and(library::py::truthy))
+                .map(library::value::str_of)
+                .filter(|_| sh.get("key").is_some_and(library::value::truthy))
                 .unwrap_or_default();
             library::chord_sheets::sheet_key(capo, &k).clone_into(&mut key);
         }
@@ -388,14 +388,14 @@ pub fn export_sheet(app: &App, lid: i64, with_lyrics: bool) -> Result<String, Ap
         let mut sub = Vec::new();
         if let Some(bpm) = c
             .get("bpm")
-            .filter(|v| library::py::truthy(v))
-            .and_then(library::py::float_of)
+            .filter(|v| library::value::truthy(v))
+            .and_then(library::value::float_of)
         {
-            sub.push(format!("{} bpm", library::py::round_int(bpm)));
+            sub.push(format!("{} bpm", (bpm.round_ties_even() as i64)));
         }
         sub.push(mmss(
             c.get("duration")
-                .and_then(library::py::float_of)
+                .and_then(library::value::float_of)
                 .unwrap_or(0.0),
         ));
         let capo = if key.is_empty() {
@@ -416,16 +416,17 @@ pub fn export_sheet(app: &App, lid: i64, with_lyrics: bool) -> Result<String, Ap
         if let Some(sh) = &sheet {
             if let Some(Value::Array(sections)) = sh.get("sections") {
                 for sec in sections {
-                    let Some(chords) = sec.get("chords").filter(|v| library::py::truthy(v)) else {
+                    let Some(chords) = sec.get("chords").filter(|v| library::value::truthy(v))
+                    else {
                         continue;
                     };
                     let name = sec
                         .get("name")
-                        .filter(|v| library::py::truthy(v))
-                        .map(library::py::str_of);
-                    let joined: Vec<String> = library::py::list_of(chords)
+                        .filter(|v| library::value::truthy(v))
+                        .map(library::value::str_of);
+                    let joined: Vec<String> = library::value::list_of(chords)
                         .iter()
-                        .map(library::py::str_of)
+                        .map(library::value::str_of)
                         .collect();
                     lines.push(format!(
                         "{}{}",
@@ -437,7 +438,7 @@ pub fn export_sheet(app: &App, lid: i64, with_lyrics: bool) -> Result<String, Ap
             if !lines.is_empty() {
                 lines.push(format!(
                     "(de {})",
-                    library::py::str_of(sh.get("source").unwrap_or(&Value::Null))
+                    library::value::str_of(sh.get("source").unwrap_or(&Value::Null))
                 ));
             }
         }

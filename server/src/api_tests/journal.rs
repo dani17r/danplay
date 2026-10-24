@@ -47,7 +47,7 @@ fn titles(app: &App, pid: i64) -> Vec<(String, bool)> {
         .map(|s| {
             (
                 songs::text(s, "title"),
-                s.get("ghost").is_some_and(library::py::truthy),
+                s.get("ghost").is_some_and(library::value::truthy),
             )
         })
         .collect()
@@ -98,7 +98,7 @@ fn a_song_that_goes_stays_in_its_list_as_missing() {
     scan(&app);
     assert_eq!(missing_count(&app), 0);
     let ghost = listed(&app, pl).remove(1);
-    assert!(ghost.get("ghost").is_some_and(library::py::truthy));
+    assert!(ghost.get("ghost").is_some_and(library::value::truthy));
     assert_eq!(
         (songs::text(&ghost, "artist"), songs::text(&ghost, "file")),
         ("Barak".into(), "Barak - Sera Llena La Tierra.mp3".into())
@@ -146,7 +146,7 @@ fn it_comes_back_in_another_file_to_its_place() {
     assert_eq!(names, ["Mi Gozo", "Sera Llena La Tierra", "Shekinah"]);
     assert!(
         !got.iter()
-            .any(|s| s.get("ghost").is_some_and(library::py::truthy))
+            .any(|s| s.get("ghost").is_some_and(library::value::truthy))
     );
     assert_ne!(got[1]["id"], b);
     assert_eq!(songs::text(&got[1], "path"), text(&again));
@@ -324,7 +324,7 @@ fn a_diary_written_on_windows_is_understood_anywhere() {
     };
     let all = rows(&app);
     let gozo = id(&app, "Barak - Mi Gozo.mp3");
-    let root = library::py::basename(&text(&app.config().library));
+    let root = library::paths::file_name(&text(&app.config().library));
     let entry = json!({
         "path": "C:\\Musica\\Artistas\\Barak\\Barak - Mi Gozo.mp3",
         "root": root,
