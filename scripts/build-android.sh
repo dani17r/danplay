@@ -39,7 +39,7 @@ command -v vp >/dev/null 2>&1 || die "falta Vite+ (vp): curl -fsSL https://vite.
 command -v bun >/dev/null 2>&1 || die "falta Bun: curl -fsSL https://bun.sh/install | bash"
 [ -d desktop/node_modules ] || die "faltan las dependencias de la interfaz: cd desktop && vp install"
 
-VERSION=$(sed -n 's/^__version__ = "\([^"]*\)"/\1/p' danplay/__init__.py)
+VERSION=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -1)
 OUTPUT="dist/installers/DanPlay-$VERSION-android.apk"
 APKS=mobile/gen/android/app/build/outputs/apk/universal
 
