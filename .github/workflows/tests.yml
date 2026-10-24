@@ -75,6 +75,33 @@ jobs:
       - name: pruebas
         run: cargo test --release --no-fail-fast -p danplay-library -p danplay-analysis -p danplay-server
 
+  # El núcleo, en macOS (Apple Silicon): la papelera, FSEvents en el
+  # vigilante y un sistema de archivos que no distingue mayúsculas, que en
+  # Linux tampoco se ejecutan.
+  core-macos:
+    name: núcleo en macOS
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+          prefix-key: v1-rust
+      # ffmpeg y fpcalc fijos, los mismos que viajan en el paquete de macOS,
+      # en una caché: la segunda vez no se baja nada
+      - uses: actions/cache@v6
+        with:
+          path: ~/.cache/danplay-macos
+          key: tools-macos-${{ hashFiles('scripts/tools-macos.sh') }}
+      - name: programas del sistema
+        run: |
+          ./scripts/tools-macos.sh
+          echo "$PWD/desktop/src-tauri/tools" >> "$GITHUB_PATH"
+      # todas, aunque falle una: así se ven todas las de macOS de una vez
+      - name: pruebas
+        run: cargo test --release --no-fail-fast -p danplay-library -p danplay-analysis -p danplay-server
+
   frontend:
     name: interfaz
     runs-on: ubuntu-latest

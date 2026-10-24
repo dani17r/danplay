@@ -1293,6 +1293,10 @@ notas. `N` = `library/src/names/tests.rs` (`mod properties`), `T` =
 
 ### tests/test_compat.py (13)
 
+> Desde la fase 6 ya no están: las reglas de Python que comparaban se
+> quitaron del código ([MIGRATION.md](MIGRATION.md), «La fase 6»). Lo de
+> abajo cuenta cómo eran.
+
 En Python, cada regla de `library::py` se comparaba en vivo con la de verdad
 (a través de `danplay_core._compat`) sobre casos de Hypothesis. Sin Python,
 lo que respondían `posixpath`, `ntpath`, `fnmatch`, `round`, `repr`,

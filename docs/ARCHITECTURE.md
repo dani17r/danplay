@@ -58,9 +58,10 @@ pasó primero a `library/`:
   datos de fuera como dato, la guía hablada, la búsqueda en la web;
 - la conversión, la forma de onda, las miniaturas, la huella y los
   duplicados;
-- la configuración (`config.rs`) y las reglas de Python que todo eso daba
-  por hechas (`py.rs`: `os.path`, `fnmatch`, `round`, `json.dumps`...), para
-  que lo guardado siga saliendo igual.
+- la configuración (`config.rs`) y lo que todo eso comparte: leer lo que
+  llega en un JSON (`value.rs`), los textos (`text.rs`), redondear
+  (`num.rs`), las rutas guardadas como texto (`paths.rs`) y leer el JSON que
+  dejaron las versiones de antes (`lenient_json.rs`).
 
 Mientras tanto Python llamaba al crate con la misma API de antes, y sus
 pruebas eran el testigo de que nada cambiaba; además, cada módulo se comparó

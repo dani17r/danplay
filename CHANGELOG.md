@@ -3,6 +3,21 @@
 Lo que cambia en cada versión que se entrega. El detalle de por qué está
 hecho así, en [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
+## Sin publicar
+
+- **Por dentro, Rust de verdad**: el núcleo ya no copia cómo hacía Python
+  cada cosa (sus rutas, su JSON, sus errores, sus tablas de caracteres);
+  usa las reglas de Rust, que en Windows y macOS son las del sistema. Unas
+  9.000 líneas menos. Lo guardado se sigue leyendo igual (ver
+  [docs/MIGRATION.md](docs/MIGRATION.md), «La fase 6»).
+- **Mensajes en castellano**: lo que fallaba al leer una respuesta de la IA,
+  de yt-dlp o un cifrado salía con el texto de Python en inglés
+  («invalid literal for int()…»); ahora dice qué pasó.
+- **El asistente** ya no ve «None» donde falta un dato (el artista de lo que
+  suena, una búsqueda vacía).
+- **Arreglado**: lanzar yt-dlp justo después de ponerlo al día podía fallar
+  con «text file busy»; ahora se reintenta.
+
 ## 1.40.0 — 2026-10-23
 
 El núcleo, en Rust y dentro de la app: lo que hacía en Python, ahora en

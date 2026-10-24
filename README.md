@@ -563,7 +563,7 @@ primera y que al cerrarla no queda ningún proceso suyo.
 
 Además, en cada push: estilo y formato (ESLint, stylelint, Oxfmt, rustfmt,
 clippy sin avisos), tipos (vue-tsc), cobertura mínima de la interfaz (84 %
-de las líneas), las pruebas del núcleo también en Windows, que el código
+de las líneas), las pruebas del núcleo también en Windows y en macOS, que el código
 solo-Windows de la app compila, que `src/icons.js` sigue siendo lo que
 genera `vp run icons` y los avisos de seguridad de las dependencias (`cargo
 audit` y `bun audit`).

@@ -8,7 +8,9 @@ el celular), así que no se sumaba ninguno.
 
 La migración acabó en la 1.40.0: la app no lleva Python desde la fase 4, y
 desde la fase 5 tampoco el repositorio (abajo, «La fase 5: fuera Python»).
-Lo que sigue cuenta cómo se hizo.
+La fase 6 quitó del código de Rust lo que imitaba a Python para poder
+compararse con él (abajo, «La fase 6: Rust de verdad»). Lo que sigue cuenta
+cómo se hizo.
 
 ## Cómo se hizo: de dentro afuera
 
@@ -32,10 +34,11 @@ Lo que hizo posible ir módulo a módulo:
   `os.path` de POSIX y de Windows, `fnmatch`, `round`, `repr`, `float()`,
   `int()`, `str()`, `json.dumps` (con `indent` y `sort_keys`), `casefold`,
   la fecha de `os.stat`... `tests/test_compat.py` las comparaba con las de
-  verdad; hoy lo hace `library/src/py/tests/compat.rs`, con los casos que
-  dio Python guardados. Sin esto, un `round(2.675, 2)` o una fecha con el
-  último bit distinto bastaban para que el escaneo releyera toda la
-  biblioteca. Siguen ahí: lo guardado tiene que salir igual que antes.
+  verdad. Sin esto, un `round(2.675, 2)` o una fecha con el último bit
+  distinto bastaban para que el escaneo releyera toda la biblioteca. La fase
+  6 las quitó: de lo que importaba para lo guardado se quedó la regla, con
+  nombre propio (`num::round_to`, `paths::mtime`); lo demás pasó a las
+  reglas de Rust.
 - **Lo que tocaba fuera se quedó en Python mientras hizo falta**: la red
   (las pruebas la cortaban y la sustituían en Python), los hilos, los
   cerrojos y lo que aún no estaba en Rust. Rust recibía la función que pide
@@ -313,3 +316,49 @@ Las pruebas, el día que se fue Python:
 | `danplay-mobile` | 16 |
 | La interfaz (Vitest) | 1.288 |
 | De punta a punta (Playwright, contra `danplay-server`) | 26 |
+
+## La fase 6: Rust de verdad
+
+Para compararse con Python, el código de Rust había copiado sus reglas: las
+rutas de `os.path` (las de POSIX y las de Windows, escritas a mano), el
+`json.dumps` con sus espacios, `repr`, `float()`, `int()`, `str()` (que
+daba «None» y «True»), las clases de caracteres de `str` (2.905 líneas de
+tablas) y hasta sus excepciones (`ValueError`, `KeyError`, `TypeError`...,
+con sus mensajes en inglés). Sin Python, eso ya no protegía nada y
+estorbaba: el código decía lo que hacía Python en vez de lo que hacía él, y
+las rutas de Windows salían de una copia de `ntpath` en vez de las de Rust.
+La fase 6 lo quitó (en la rama `fase-6/native-rust`):
+
+1. **Enriquecer e importar**, que llevaban un JSON propio con textos como
+   puntos de código, pasan a `serde_json`, `String` y `PathBuf`, y a errores
+   de Rust. Fuera `py/json.rs`, `py/value.rs`, `py/text.rs` y
+   `services/pyjson.rs`.
+2. **Fuera `py` y `parity`**. En su lugar, módulos propios con las reglas de
+   Rust: `value` (leer lo que llega en un JSON), `text` (los primeros
+   caracteres, el plegado de mayúsculas de Unicode, las líneas), `num`
+   (redondear a decimales) y `paths` (las rutas con `std::path`:
+   normalizar, absoluta, la de verdad con `canonicalize`, relativa...). El
+   JSON se escribe con `serde_json`.
+3. **Lo que se guarda se sigue leyendo**. Lo que dejaron las versiones de
+   antes puede llevar `NaN` (el tempo de una rejilla de un solo pulso) o un
+   nombre que no era UTF-8 (`\udcff`): `lenient_json` lo lee. Lo que se
+   compara con lo guardado mantiene su cuenta (la fecha de modificación,
+   el nombre de la caché de la forma de onda y de las guías editadas), para
+   no releer ni recalcular nada.
+4. **El asistente**, sin las tablas de caracteres de Python (las categorías
+   de Unicode) y con un error de tres casos en castellano en vez de las
+   excepciones de Python. El análisis, la rejilla del clic, YouTube y el
+   lector de pesos, igual.
+5. **Lo que ya no se usaba**, fuera: la rueda de PyPI de yt-dlp
+   (`wheel_zip`, desde la fase 4 viaja el ejecutable oficial), el filtro de
+   duración en Rust (lo hace el `--match-filter` de yt-dlp).
+6. **Los comentarios** ya no hablan de Python: dicen lo que hace el código y,
+   donde importa, por qué (compatibilidad con lo guardado, las cuentas con
+   las que se exportaron los modelos).
+
+Por fuera casi nada cambia: el JSON guardado va sin espacios, lo que se le
+cuenta a la IA ya no lleva «None», y los mensajes de error que antes
+salían en inglés de Python salen en castellano. Al hacerlo salió un fallo de
+verdad que hacía fallar a veces las pruebas de YouTube: lanzar un programa
+recién escrito podía dar «text file busy»; ahora se reintenta
+(`processes::spawn`), lo que también vale para yt-dlp recién puesto al día.
