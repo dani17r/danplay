@@ -326,11 +326,12 @@ mod tests {
             Some(json!({"file": file, "start": 0.2, "end": 1.0, "fade_in": 0.1})),
         );
         assert_eq!(st, 200, "{e}");
-        assert!(
-            e["file"]
-                .as_str()
-                .is_some_and(|f| f.contains("/cues/editada-"))
-        );
+        assert!(e["file"].as_str().is_some_and(|f| {
+            std::path::Path::new(f)
+                .parent()
+                .is_some_and(|d| d.ends_with("cues"))
+                && f.contains("editada-")
+        }));
         assert_eq!(
             call(
                 &app,

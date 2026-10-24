@@ -97,7 +97,18 @@ fn it_proposes_only_what_is_out_of_place_and_never_your_own_folders() {
     let Some((app, _, ids)) = music_library() else {
         return;
     };
-    let found = items(&app);
+    // las rutas, con «/» (en Windows llegan con «\\», como las daba Python)
+    let found: Vec<Value> = items(&app)
+        .into_iter()
+        .map(|mut p| {
+            for k in ["from", "to"] {
+                if let Some(t) = p[k].as_str().map(|t| t.replace('\\', "/")) {
+                    p[k] = Value::from(t);
+                }
+            }
+            p
+        })
+        .collect();
     let by_from: HashMap<&str, &Value> = found
         .iter()
         .map(|p| (p["from"].as_str().expect("de"), p))
