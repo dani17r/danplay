@@ -53,7 +53,10 @@ fn the_tests_do_not_touch_the_real_data() {
         .expect("la carpeta de la prueba")
         .to_path_buf();
     assert!(
-        sandbox.starts_with(std::env::temp_dir()),
+        // resuelto, como el de las pruebas (en Windows, con su nombre largo)
+        sandbox.starts_with(library::py::realpath(
+            &std::env::temp_dir().to_string_lossy()
+        )),
         "{}",
         sandbox.display()
     );

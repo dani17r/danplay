@@ -300,7 +300,13 @@ mod tests {
         );
         assert_eq!(st, 200, "{v}");
         let file = v["file"].as_str().expect("archivo").to_owned();
-        assert!(file.contains("/cues/grabada-"), "{file}");
+        assert!(
+            std::path::Path::new(&file)
+                .parent()
+                .is_some_and(|d| d.ends_with("cues"))
+                && file.contains("grabada-"),
+            "{file}"
+        );
         assert!(
             v["seconds"].as_f64().is_some_and(|s| s > 1.5 && s < 2.1),
             "{v}"

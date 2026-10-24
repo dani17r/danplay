@@ -147,7 +147,14 @@ fn synthetic_template() -> Option<&'static Path> {
         ffmpeg()?;
         let dir = crate::tests::scratch("plantilla-sintetica");
         for (_, rel, artist, title, album) in SYNTHETIC {
-            mp3(&dir.join(rel), artist, title, album, 1.0, None);
+            mp3(
+                &dir.join(crate::tests::native(rel)),
+                artist,
+                title,
+                album,
+                1.0,
+                None,
+            );
         }
         Some(dir)
     })
@@ -167,9 +174,9 @@ pub fn configured_library() -> Option<(App, Songs)> {
     }
     let mut songs = Songs::new();
     for (key, rel, ..) in SYNTHETIC {
-        let dest = lib.join(rel);
+        let dest = lib.join(crate::tests::native(rel));
         std::fs::create_dir_all(dest.parent().expect("carpeta")).expect("carpeta");
-        std::fs::copy(template.join(rel), &dest).expect("copiar");
+        std::fs::copy(template.join(crate::tests::native(rel)), &dest).expect("copiar");
         songs.insert(key, dest);
     }
     Some((app, songs))

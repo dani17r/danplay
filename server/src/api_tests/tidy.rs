@@ -53,7 +53,7 @@ fn music_library() -> Option<Cases> {
     ];
     let mut files = HashMap::new();
     for (key, rel, artist, title) in made {
-        let path = root.join(rel);
+        let path = root.join(crate::tests::native(rel));
         mp3(&path, artist, title, "", 1.0, None);
         files.insert(key, path);
     }

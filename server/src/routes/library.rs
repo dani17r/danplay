@@ -303,7 +303,8 @@ fn relative(app: &crate::App, path: &str) -> String {
     let p = library::py::purepath(path);
     match p.strip_prefix(&base) {
         Some("") => ".".into(),
-        Some(rest) if rest.starts_with('/') => rest[1..].to_owned(),
+        // con el separador del sistema: en Windows, `purepath` deja «\\»
+        Some(rest) if rest.starts_with(std::path::MAIN_SEPARATOR) => rest[1..].to_owned(),
         _ => p,
     }
 }
