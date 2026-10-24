@@ -331,7 +331,8 @@ fn the_inbox_in_order_with_its_progress() {
 
 /// Un nombre que no es UTF-8 (un disco que viene de Windows o de un FAT
 /// viejo) se importa igual: la ruta llega entera y el título, con «�».
-#[cfg(unix)]
+/// En macOS no hay archivos así: APFS no deja crearlos.
+#[cfg(all(unix, not(target_os = "macos")))]
 #[test]
 fn a_name_that_is_not_utf8_is_imported_too() {
     use std::os::unix::ffi::OsStrExt;

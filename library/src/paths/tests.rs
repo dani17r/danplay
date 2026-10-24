@@ -23,12 +23,14 @@ fn normalized_without_the_disk() {
 
 #[test]
 fn joined_split_and_named() {
-    assert_eq!(join("/a", "b"), native("/a/b"));
-    assert_eq!(join("/a", "/b"), native("/b"));
+    // unir y subir no tocan los separadores que ya hay: añaden el del sistema
+    let sep = std::path::MAIN_SEPARATOR;
+    assert_eq!(join("/a", "b"), format!("/a{sep}b"));
+    assert_eq!(join("/a", "/b"), "/b");
     assert_eq!(file_name("/a/b.mp3"), "b.mp3");
     assert_eq!(file_name("/"), "");
-    assert_eq!(parent("/a/b.mp3"), native("/a"));
-    assert_eq!(parent("/a"), native("/"));
+    assert_eq!(parent("/a/b.mp3"), "/a");
+    assert_eq!(parent("/a"), "/");
     assert_eq!(parent("b.mp3"), "");
     assert_eq!(parent("/"), "/");
     assert_eq!(stem(Path::new("a/Mi Gozo.mp3")), "Mi Gozo");

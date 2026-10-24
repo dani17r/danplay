@@ -178,7 +178,8 @@ fn saved_read_relocated_and_pruned() {
     std::fs::remove_dir_all(&dir).expect("borrar");
 }
 
-#[cfg(unix)]
+/// (En macOS no hay archivos así: APFS no deja crearlos.)
+#[cfg(all(unix, not(target_os = "macos")))]
 #[test]
 fn a_path_that_is_not_utf8_has_its_own_cache() {
     use std::os::unix::ffi::OsStrExt;
