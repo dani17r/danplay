@@ -1,9 +1,12 @@
 # Las pruebas de Python, pasadas a Rust
 
-La fase 5 quita Python del todo. Lo que queda (`danplay/` y `tests/`) solo
-sirve de testigo: antes de borrarlo, sus pruebas pasan a Rust, con las mismas
-comprobaciones y los mismos valores esperados. Aquí, prueba a prueba, dónde
-está cada una ahora:
+La fase 5 quitó Python del todo ([MIGRATION.md](MIGRATION.md)). Antes de
+borrarlo, sus 944 pruebas (359 de la parte del servidor A, 137 de la B y 448
+de la biblioteca) pasaron a Rust, con las mismas comprobaciones y los mismos
+valores esperados. Ya no hay Python que ejecutar: los archivos de Python que
+se nombran aquí (`tests/*.py`, `danplay/`) se fueron en a0e9317 y quedan en
+el historial (`git show a0e9317^:tests/test_api.py`). Aquí, prueba a
+prueba, dónde está cada una ahora:
 
 - una ruta y un nombre: la prueba de Rust que la sustituye;
 - «ya estaba en …»: Rust ya comprobaba lo mismo (no se duplica);

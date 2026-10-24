@@ -1,7 +1,7 @@
-//! `danplay-server`: la API de Rust por un socket, con los mismos argumentos
-//! que el núcleo empaquetado de Python de hasta la 1.30. La app no lo usa
-//! (lleva el núcleo dentro): es para las pruebas de la interfaz y los
-//! diferenciales con el de Python.
+//! `danplay-server`: la API del núcleo por un socket, con los mismos
+//! argumentos que el núcleo empaquetado de Python de hasta la 1.30. La app no
+//! lo usa (lleva el núcleo dentro): es para las pruebas de la interfaz (las
+//! e2e) y para desarrollarla con `vp dev`.
 //!
 //! ```text
 //! danplay-server --uds RUTA          socket Unix (Linux y macOS)

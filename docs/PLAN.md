@@ -8,6 +8,12 @@ Todo lo que se afirma aquí se comprobó en el repositorio, en las dependencias
 descargadas en `~/.cargo`, en tu sesión de escritorio o en la documentación
 oficial (las fuentes van al final).
 
+> **Es la foto de entonces.** En septiembre el núcleo era Python. Desde la
+> 1.40 todo es Rust y no queda Python en el repositorio: lo que aquí se
+> nombra de él (`danplay/`, `core/`, `pyo3`, `requirements.txt`, uvicorn…)
+> ya no está, y queda en el historial. Cómo se llegó, en
+> [la migración](MIGRATION.md).
+
 ---
 
 ## Qué se hizo (8 de septiembre)

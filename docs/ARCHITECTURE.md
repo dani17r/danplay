@@ -21,8 +21,8 @@ Hasta la 1.30 el núcleo era Python, un programa aparte (empaquetado con
 PyInstaller) al que la app hablaba por un socket Unix `0600`, con el crate
 PyO3 debajo para lo que Python hacía lento. Desde la fase 4 de
 [la migración](MIGRATION.md) la app lleva el de Rust dentro y no hay Python
-en ningún paquete; el de Python sigue en el repositorio, con la misma API,
-para sus pruebas y para comparar el de Rust con él.
+en ningún paquete; desde la fase 5 (la 1.40), tampoco en el repositorio:
+sus pruebas pasaron a Rust y el núcleo de Python se fue.
 
 El contrato exacto entre capas —qué comandos hay, qué eventos se emiten y qué
 nombres usa cada campo— está en [INTERNAL-CONTRACT.md](INTERNAL-CONTRACT.md).
@@ -42,36 +42,33 @@ separa en pistas) son la propia app con un argumento.
 
 **El núcleo** es Rust: la API y sus trabajos (`server/`), la cascada de
 identificación, el índice SQLite, las etiquetas, la IA y el asistente
-(`library/`), y lo numérico y las redes (`analysis/`). El de Python
-(`danplay/`) se puede seguir usando solo, sin interfaz, desde la línea de
-comandos.
+(`library/`), y lo numérico y las redes (`analysis/`).
 
-**Rust (PyO3)** fue el camino, de dentro afuera: el núcleo de Python fue
-pasando a Rust módulo a módulo con la misma API. Lo que hace Rust
-(`library/`, sin nada de Python; `core/` es el puente para el de Python):
+**El camino fue de dentro afuera**: el núcleo de Python pasó a Rust módulo
+a módulo con la misma API, con un crate PyO3 (`core/`) de puente. Lo que
+pasó primero a `library/`:
 
-- el índice: la conexión a SQLite (`indice.rs`, que Python usa como si fuera
-  `sqlite3`, con sus transacciones), el esquema y sus migraciones, buscar,
-  las carpetas y sus exclusiones, el escaneo, cada canción y su modo
-  estudio, «Transformar», el historial;
+- el índice: la conexión a SQLite (`index.rs`, que Python usaba como si
+  fuera `sqlite3`, con sus transacciones), el esquema y sus migraciones,
+  buscar, las carpetas y sus exclusiones, el escaneo, cada canción y su
+  modo estudio, «Transformar», el historial;
 - las listas (con sus «No está»), lo abierto desde fuera, las
   conversaciones y el diario;
 - las etiquetas (lofty), los nombres, la teoría y los cifrados, TOON, los
   datos de fuera como dato, la guía hablada, la búsqueda en la web;
 - la conversión, la forma de onda, las miniaturas, la huella y los
   duplicados;
-- la configuración (`config.rs`, que de momento solo se compara con la de
-  Python) y las reglas de Python que todo eso daba por hechas (`py.rs`:
-  `os.path`, `fnmatch`, `round`, `json.dumps`...).
+- la configuración (`config.rs`) y las reglas de Python que todo eso daba
+  por hechas (`py.rs`: `os.path`, `fnmatch`, `round`, `json.dumps`...), para
+  que lo guardado siga saliendo igual.
 
-Python llama al crate (`danplay_core`) con la misma API de antes, y sus
-pruebas son el testigo de que nada cambia; además, cada módulo se comparó
-con su versión anterior en miles de casos. Lo que toca la red, los hilos,
-los cerrojos y lo que aún no está en Rust sigue orquestado desde Python. El
-crate es obligatorio: `uv sync` lo compila, y lo que ya está en Rust no tiene
-versión en Python (quedan algunas viejas, como las etiquetas con mutagen en
-`tags_mutagen.py`, GPL: por eso no viaja en los paquetes). `library/` no
-sabe nada de Python, y la app lo usará directamente.
+Mientras tanto Python llamaba al crate con la misma API de antes, y sus
+pruebas eran el testigo de que nada cambiaba; además, cada módulo se comparó
+con su versión anterior en miles de casos. Después vinieron la API
+(`server/`) y la app con el núcleo dentro (fase 4), y por último sus pruebas,
+pasadas a Rust una a una (fase 5: [TESTS-PORT.md](TESTS-PORT.md)). Con eso
+se fueron el núcleo de Python, `core/` y la versión vieja de las
+etiquetas, la de mutagen (GPL).
 
 ## Por qué la cola vive en Rust
 
@@ -134,8 +131,8 @@ Hasta la 1.30, con el núcleo de Python aparte, la app le hablaba por
 `chmod 0666` al socket que creaba él, así que se creaba fuera con los
 permisos buenos). Ahora no hay ni eso.
 
-Para desarrollo y las pruebas de la interfaz (`danplay-server`, o `danplay
-serve` del de Python, sin `--uds`) sí hay puerto TCP, y ahí se
+Para desarrollo y las pruebas de la interfaz (`danplay-server` sin
+`--uds`) sí hay puerto TCP, y ahí se
 aplican tres protecciones de navegador: CORS restringido a los orígenes de
 Vite, validación de la cabecera `Host` contra el reenlace de DNS, y una
 cabecera propia (`X-DanPlay: 1`) en **todas** las peticiones a `/api/`,
@@ -289,14 +286,15 @@ los lee nadie más en el equipo.
 
 Lo que pasa por fuera de la app —mover la carpeta de música, mover o borrar
 una canción desde el gestor de archivos, un disco que se desmonta— se refleja
-solo, sin pulsar «Analizar». Lo lleva `watcher.py`, un hilo del núcleo:
+solo, sin pulsar «Analizar». Lo lleva el vigilante (`services::watcher`),
+un hilo del núcleo:
 
 - **Al arrancar**, antes de contestar la primera petición, las carpetas que
   ya no existen apartan sus canciones (solo mira si cada carpeta existe: es
   instantáneo). Así la interfaz nunca enseña canciones de una carpeta que se
   movió. Después, en segundo plano, un escaneo incremental pone al día el
   resto.
-- **Mientras corre**, `watchdog` (inotify en Linux) avisa de cada cambio
+- **Mientras corre**, `notify` (inotify en Linux) avisa de cada cambio
   dentro de las carpetas. Cuando deja de haber movimiento un par de segundos
   —copiar una carpeta son cientos de avisos— se escanea. Abrir o leer un
   archivo no cuenta: el propio reproductor lo hace con cada canción.
@@ -349,7 +347,8 @@ las canciones que no están donde creía (`POST /api/songs/locate`); la que se
 movió sigue con su ruta nueva y la que se fue sale. La que está sonando se
 deja terminar: el sistema sigue leyendo un archivo abierto aunque se mueva.
 
-**Lo hecho sigue a la canción** (`danplay/reuse.py`, desde 1.28). Pasaba:
+**Lo hecho sigue a la canción** (`services::reuse` y `library/src/reuse.rs`,
+desde 1.28). Pasaba:
 se cambiaba la carpeta de música de sitio, o se volvía a bajar una canción
 que ya estaba, y DanPlay la trataba como nueva: separar otra vez, el clic
 otra vez, sin marcadores ni listas. Ahora, al entrar una canción, se busca su
@@ -363,8 +362,7 @@ corridos, sus pistas (`adelay`/`atrim` a FLAC), su clic y lo del estudio. Si
 no suenan igual (otra versión con el mismo nombre), no se adopta nada. Las
 canciones que solo cambiaron de sitio se llevan su clic sin medir nada
 (`beatgrid.moved`). Lo que ya se había perdido antes se recupera con una
-pasada por toda la biblioteca, una vez, al arrancar (`reuse.sweep`, o
-`danplay reuse`).
+pasada por toda la biblioteca, una vez, al arrancar (`reuse::sweep`).
 
 ### Las listas no se rompen: las «No está» y el diario
 
@@ -372,14 +370,14 @@ En cualquier reproductor, una lista guarda rutas o ids: si la canción se
 mueve, se renombra, se vuelve a bajar o la base se pierde, la lista se rompe.
 Aquí no, por dos piezas:
 
-**Las «No está»** (`playlists.py`). Una fila de una lista cuya canción ya no
-está en `songs` no se esconde: `playlists.songs()` la devuelve en su sitio
-con `ghost: true` y su ficha (de `songs_missing` o, pasado el mes, de
-`song_cards`), y el resumen de cada lista cuenta cuántas faltan (`missing`).
-La interfaz las pinta apagadas con la etiqueta «No está», nunca entran en la
-cola, y su menú ofrece buscarla en la biblioteca, buscarla para bajarla
-(Descargas, con «artista título» ya puesto) o quitarla. Reordenar la lista
-las respeta (`set_songs` acepta los ids de sus filas). Cuando entra una
+**Las «No está»** (`library/src/playlists.rs`). Una fila de una lista cuya
+canción ya no está en `songs` no se esconde: `playlists.songs()` la devuelve
+en su sitio con `ghost: true` y su ficha (de `songs_missing` o, pasado el mes,
+de `song_cards`), y el resumen de cada lista cuenta cuántas faltan
+(`missing`). La interfaz las pinta apagadas con la etiqueta «No está», nunca
+entran en la cola, y su menú ofrece buscarla en la biblioteca, buscarla para
+bajarla (Descargas, con «artista título» ya puesto) o quitarla. Reordenar la
+lista las respeta (`set_songs` acepta los ids de sus filas). Cuando entra una
 canción nueva, el escaneo mira si es una «No está» que vuelve en otro archivo
 (`relink_ghosts`: la misma identidad que las gemelas de `reuse`, artista y
 título o nombre, y la misma duración ±2 s) y la pone en su sitio, aunque las
@@ -390,15 +388,15 @@ sale también de sus listas (`DELETE /api/song/{id}?from_lists=true`,
 `playlists.take_out_everywhere`). Si sí, no queda ninguna «No está»: se
 quería fuera.
 
-**El diario** (`journal.py`). La base es desechable, pero no todo lo que el
-usuario hace cabe en las etiquetas del archivo: el orden de las listas, sus
-notas y colores, el estudio, los cifrados. Unos segundos después de cada
-cambio (un hilo que mira `library.revision()`), se escribe
+**El diario** (`library/src/journal.rs`). La base es desechable, pero no todo
+lo que el usuario hace cabe en las etiquetas del archivo: el orden de las
+listas, sus notas y colores, el estudio, los cifrados. Unos segundos después
+de cada cambio (un hilo que mira `library.revision()`), se escribe
 `.danplay/journal.json` dentro de cada carpeta de música (viaja con ella a
 otro disco) y otra copia en los datos de DanPlay. Lleva las listas por ids y
 la ficha de cada canción con algo del usuario o en una lista: ruta, carpeta
-raíz y ruta relativa, nombre, tamaño, artista, título y duración, y sus
-campos (`FIELDS`).
+raíz y ruta relativa, nombre, tamaño, artista, título y duración, y sus campos
+(`FIELDS`).
 
 Al arrancar y tras cada escaneo con altas, bajas o vueltas, `reconcile`
 compara el diario más reciente con lo que hay. Cada canción del diario se
@@ -437,10 +435,10 @@ servicio, decide el siguiente. Esto pasó de verdad y dejó la importación
 completamente bloqueada, de ahí el envoltorio `_safe`.
 
 La cascada, el nombre y la carpeta de cada archivo y la Entrada entera van en
-Rust (`library/src/ingest.rs`). `ingest.py` es la puerta: Rust busca en el
-módulo, al usarlo, cada escalón (`_from_tags`, `_from_ai`...), las
-etiquetas, la huella, la IA, convertir y mover el archivo (`shutil.move`),
-así que lo que se cambia desde fuera (las pruebas, las descargas) se usa.
+Rust (`library/src/ingest.rs`). Lo de fuera (las etiquetas, la huella, la
+IA, convertir y mover el archivo) se lo da quien llama
+(`library::ingest::Outside`): el núcleo, en `services::ingest`, o una prueba
+con el suyo. Hasta la 1.40 se lo daba `ingest.py`, el módulo de Python.
 
 **Por qué no se usa el postprocesador de metadatos de yt-dlp.** Rellena el
 artista con el nombre del canal («Fulanito Music», «… - Topic»). Como las
@@ -455,7 +453,7 @@ Todos los servicios de IA hablan hoy el mismo protocolo (el *chat
 completions* de OpenAI), así que hay **un solo cliente** y lo que cambia es
 la URL, si pide clave y qué parámetros tolera. Tres piezas:
 
-- `providers.py`: el catálogo (sesenta y pico servicios en seis grupos:
+- `library::ai::providers`: el catálogo (sesenta y pico servicios en seis grupos:
   laboratorios, plataformas tipo DeepInfra, nubes corporativas, Asia, en tu
   equipo, otro) y los **perfiles guardados** en `~/.config/danplay/ai.json`
   (0600), uno por proveedor configurado, con uno activo. Se recuerdan todos
@@ -467,7 +465,7 @@ la URL, si pide clave y qué parámetros tolera. Tres piezas:
   claves. Una clave guardada solo viaja a **la URL con la que se guardó**:
   «Probar» con otra dirección en el formulario no la manda a ese servidor. Y
   las cabeceras y campos extra salen enmascarados, como la clave.
-- `model_catalog.py`: **qué modelos existen**, sin escribirlos en el código.
+- `library::ai::catalog`: **qué modelos existen**, sin escribirlos en el código.
   Los nombres caducan en meses (OpenAI cambió toda su nomenclatura, Mistral
   retiró los alias `-latest`), así que se consulta
   [models.dev](https://models.dev/api.json), una base de datos abierta con
@@ -491,18 +489,18 @@ la URL, si pide clave y qué parámetros tolera. Tres piezas:
   sirven a anónimos. No se incrusta ninguna clave «de cortesía» en la app:
   sería extraíble, compartiría el límite entre todos los usuarios y va
   contra las condiciones de los proveedores.
-- `ai.py`: el cliente, que **tolera**. Anthropic ignora `response_format`,
-  muchos servidores locales rechazan `tool_choice="required"`, los
-  razonadores de OpenAI no admiten `temperature` y quieren
-  `max_completion_tokens`. En vez de fallar en seco, `complete()` quita lo
-  que el servidor rechaza, reintenta y se acuerda por (proveedor, modelo);
-  lo que el catálogo ya dice que no se admite ni se manda. Si el modelo no
-  sabe usar herramientas, el asistente lo cuenta en castellano en vez de dar
-  un error genérico. Siguen siendo dos modelos con papeles distintos: el
-  **rápido** (identificar nombres sucios, rellenar fichas, letras, el juez
-  de narración) y el de **conversación** (el asistente, que necesita
-  herramientas). «Probar» hace la llamada más barata posible con cada uno y
-  una tercera con una herramienta de prueba.
+- `library::ai::call`: el cliente, que **tolera**. Anthropic ignora
+  `response_format`, muchos servidores locales rechazan
+  `tool_choice="required"`, los razonadores de OpenAI no admiten `temperature`
+  y quieren `max_completion_tokens`. En vez de fallar en seco, `complete()`
+  quita lo que el servidor rechaza, reintenta y se acuerda por (proveedor,
+  modelo); lo que el catálogo ya dice que no se admite ni se manda. Si el
+  modelo no sabe usar herramientas, el asistente lo cuenta en castellano en
+  vez de dar un error genérico. Siguen siendo dos modelos con papeles
+  distintos: el **rápido** (identificar nombres sucios, rellenar fichas,
+  letras, el juez de narración) y el de **conversación** (el asistente, que
+  necesita herramientas). «Probar» hace la llamada más barata posible con cada
+  uno y una tercera con una herramienta de prueba.
 
 ## Modo estudio
 
@@ -582,15 +580,16 @@ tono no hay nombre de tonalidad y se dice de cuál se parte, «G +¼».
 **Metrónomo.** Un clic sintetizado en un sink aparte del mezclador de rodio
 (`metronome.rs`): tiene su volumen y su play/pausa, independientes de la
 canción. El pulso y el «1» los saca **Beat This!** (CPJKU, 2024, MIT) en el
-núcleo (`pulse.py`, `beatgrid.py`): una red que mira el espectrograma y dice,
+núcleo (`analysis/src/pulse.rs`, `analysis/src/beatgrid.rs`): una red que
+mira el espectrograma y dice,
 cada 50 avos de segundo, lo probable que es un pulso y que sea el «1». Va
 en ONNX Runtime como Demucs, sin PyTorch: el grafo con sus pesos en float16
 viaja con la app (42 MB), y el espectrograma, los trozos de 30 s y los
-máximos se hacen igual que su código (`export-pulse.py` lo comprueba: los
-mismos pulsos). Desde la fase 2 todo eso está en Rust (`analysis/src/pulse`):
-la red corre en el ONNX Runtime de la biblioteca que trae el paquete
-`onnxruntime`, cargada desde Rust con `ort`, y la rejilla es la de numpy
-cuenta a cuenta (sale lo mismo, bit a bit, en las 283 canciones con lo que
+máximos se hacen igual que su código (`export-pulse.py`, el guion que
+exportó la red, lo comprobaba: los mismos pulsos). Desde la fase 2 todo eso
+está en Rust (`analysis/src/pulse`): la red corre en ONNX Runtime, cargado
+desde Rust con `ort`, y la rejilla es la que se hacía con numpy, cuenta a
+cuenta (sale lo mismo, bit a bit, en las 283 canciones con lo que
 oyó la red guardado). La primera vez tarda (15-20 s por canción en
 un portátil: casi todo es la red), en un proceso aparte con prioridad baja
 y cuatro hilos; se guarda en `DATA_DIR/beats/` y luego sale al momento. La
@@ -609,9 +608,10 @@ un tempo para todas, que sigue igual al pasar de canción. Y lo guardado no
 se pierde: se reconocía por la fecha del archivo, y DanPlay la cambiaba él
 mismo al escribir cualquier etiqueta (el estudio guarda a menudo): ahora,
 al reescribir una etiqueta o mover el archivo, la rejilla y la onda pasan a
-la clave nueva (`tags._retagged`, `library.relocate`).
+la clave nueva (`services::tags::retagged`, `services::songs::relocate`).
 
-Medido con `scripts/evaluate-pulse.py` en 300 fragmentos de GTZAN (diez
+Medido con `scripts/evaluate-pulse.py` (un guion de Python que queda en el
+historial, en `a0e9317^`) en 300 fragmentos de GTZAN (diez
 estilos, pulso y compás anotados a mano, y que Beat This! no vio al
 entrenar), la F del MIREX (un pulso cuenta si cae a menos de 70 ms del
 anotado):
@@ -626,7 +626,8 @@ El «1» casi se duplica.
 
 **La rejilla que suena** (`pulse.grid`, desde 1.22) no es lo que dice la red
 tal cual. Pasando la red canción por canción por una biblioteca de alabanza
-de verdad (`scripts/check-metronome.py`), en tres de cada cuatro canciones
+de verdad (`scripts/check-metronome.py`, también en el historial), en tres
+de cada cuatro canciones
 la red oye el pulso **a otro nivel durante unos compases** (el «y» de cada
 tiempo, o la mitad) y deja golpes sueltos de más o de menos; la rejilla de
 antes los llevaba tal cual, rellenaba los huecos con el tempo de toda la
@@ -714,7 +715,7 @@ play.
 se cuela entre platos) y cencerro (se oye aunque la banda suene fuerte).
 Cada uno son unos pocos parciales con su caída (`metronome.rs`, `Sound`), y
 el «1» va más fuerte. La misma tabla (la del motor, `engine/src/click.rs`)
-la usa `danplay/click.py` a través del crate, que pone el clic en la
+la usa `analysis/src/click.rs`, que pone el clic en la
 **mezcla que se guarda** «como suena»: los golpes de la
 rejilla tal como suena (o del tempo a mano), pasados al tiempo de la mezcla
 y sumados después de la velocidad y el tono (que si no lo estirarían). Las
@@ -763,8 +764,9 @@ para separar las pistas, Beat This! entró igual, sin PyTorch, y medido.
 
 La onda la
 calcula el núcleo en Rust recorriendo el archivo por bloques —no hace falta
-tener la canción entera en memoria—, con pico y RMS por columna; sin el
-núcleo compilado (Windows) la saca ffmpeg a PCM crudo y la resume Python. Se
+tener la canción entera en memoria—, con pico y RMS por columna; lo que
+symphonia no lee (opus, wma) lo saca ffmpeg a PCM crudo y lo resume el
+núcleo. Se
 guarda en disco: la segunda vez es gratis. Para pintarla, el RMS se estira a
 su propio máximo y se le da una curva suave, porque en un mp3 de hoy los
 picos van todos a tope y el RMS ronda el tercio: tal cual, no se
@@ -817,10 +819,12 @@ Lo que dijo la red se guarda (`DATA_DIR/beats/<clave>.npz`, float16, unos
 (`POST /api/song/{id}/beats/reanalyze`: arreglar, tempo fijo, rellenar, con la
 batería; de toda la canción o de un tramo, cosido a lo de los lados) tarda
 milisegundos. Lo re-analizado a mano se guarda y se vuelve a aplicar si
-cambia la versión. `danplay pulse` pasa el análisis por toda la biblioteca.
-Todo eso va en Rust (`analysis/src/beatgrid.rs`, y lo guardado en
-`library/src/beatgrid.rs`, leído y escrito como el `json` de Python, byte a
-byte); en Python quedan la cola, su hilo y el proceso del detector.
+cambia la versión. (Hasta la 1.40, `danplay pulse`, la línea de órdenes
+del núcleo de Python, pasaba el análisis por toda la biblioteca.) Todo eso
+va en Rust (`analysis/src/beatgrid.rs`, y lo guardado en
+`library/src/beatgrid.rs`, leído y escrito byte a byte como lo escribía el
+`json` de Python), y también la cola, su hilo y el proceso del detector
+(`services::beats`).
 
 ## Separar en pistas
 
@@ -833,9 +837,10 @@ velocidad, el tono y el metrónomo de siempre encima.
 
 **El motor es Demucs v4 (HTDemucs) sin PyTorch.** PyTorch pesa cientos de
 megas instalado y no cabe en el paquete; ONNX Runtime pesa 17. La red se
-exporta a ONNX (`scripts/export-separator.py`) y todo lo que Demucs hace
-alrededor de ella con PyTorch se hace en Rust (`analysis/src/separate.rs`,
-por `separation.py`; antes, con numpy, cuenta a cuenta igual): el
+exportó a ONNX (con `scripts/export-separator.py`, un guion de Python que
+queda en el historial, en `a0e9317^`) y todo lo que Demucs hace alrededor de
+ella con PyTorch se hace en Rust (`analysis/src/separate.rs`, lo que era
+`separation.py`, con numpy, cuenta a cuenta igual): el
 espectrograma y su inversa (las mismas ventanas, los mismos rellenos, los
 dos marcos que se tiran de cada borde), y la canción en trozos de 7,8 s que
 se solapan un cuarto y se funden con un peso en triángulo. Sin los
@@ -857,10 +862,11 @@ sha256 y se le dan a ONNX Runtime al cargar (`add_external_initializers`),
 pasados a float32, que es exacto. Así la app no reparte pesos que no todos
 usarán, y el repositorio no carga con ellos.
 
-**Qué redes, medido.** `scripts/evaluate-separator.py` separa con las mismas
-piezas que la app las 50 canciones de prueba de MUSDB18 (sus muestras de 7
-segundos, que ningún modelo de Demucs vio al entrenar; solo para medir, la
-app no las lleva) y da el SDR de cada fuente: lo que se parece la pista a
+**Qué redes, medido.** `scripts/evaluate-separator.py` (en el historial,
+como los otros guiones de Python) separaba con las mismas piezas que la app
+las 50 canciones de prueba de MUSDB18 (sus muestras de 7 segundos, que
+ningún modelo de Demucs vio al entrenar; solo para medir, la app no las
+lleva) y daba el SDR de cada fuente: lo que se parece la pista a
 la de verdad, en dB. Y el de la canción «sin batería», que es lo que oye un
 baterista al callarla. En este portátil:
 
@@ -920,8 +926,7 @@ mismo. Con eso y sin el plan de memoria de ORT (reserva de golpe todo lo que
 la red tendrá vivo en algún momento), el pico baja de casi 5 GB a menos de 3.
 
 **En un proceso aparte, con prioridad baja** (la propia app con
-`--separate`, o `danplay-server --separate`; en el núcleo de Python, `python
--m danplay.separation`). La red usa todos los núcleos
+`--separate`, o `danplay-server --separate`). La red usa todos los núcleos
 durante un par de minutos: así la música y la interfaz no lo notan, la
 memoria se devuelve al acabar, y parar es matar el proceso. Si el núcleo se
 muere, el proceso se da cuenta (cambia de padre) y se va. Cuenta cómo va
@@ -973,8 +978,8 @@ cae dentro de una carpeta de pistas, entra en la biblioteca como una más.
 Una tercera pasada opcional, lenta, sobre las pistas buenas: el **Mega53**
 («MVSep Mega 53 Stems», BS-RoFormer de ZFTurbo, MIT) oye 53 instrumentos con
 un cuerpo común y una cabeza por instrumento; DanPlay exporta el cuerpo y 15
-cabezas (`scripts/export-mega53.py`) y reparte con máscaras suaves
-(`analysis/src/mega.rs`, por `danplay/mega.py`):
+cabezas (con `scripts/export-mega53.py`, en el historial) y reparte con
+máscaras suaves (`analysis/src/mega.rs`, lo que era `danplay/mega.py`):
 
 - la **batería** (de los especialistas) en el kit y la **percusión** de
   aparte (congas, pandereta, shakers): kit y percusión suman exactamente la
@@ -995,18 +1000,17 @@ cabezas (`scripts/export-mega53.py`) y reparte con máscaras suaves
 Solo sale lo que suena (`presence`), y «Otros» sigue siendo la canción menos
 todo lo demás. Los pesos son el checkpoint original del autor (1,4 GB, con su
 sha256), leído **sin PyTorch** por un lector propio que no ejecuta el pickle
-(`analysis/src/weights.rs`, por `danplay/torchzip.py`: una máquina de pickle
-propia que solo reconstruye tensores, y no deja que uno se salga de su
-almacén). Trozos de 5 s que se
-solapan un cuarto; la red no reserva memoria de más (sin la *arena* de ORT) y
-antes de empezar se mira que haya memoria libre. Medido en un portátil
-(Ryzen 7 5825U, 14 GB): con trozos de 10 s y 20 cabezas llegaba a 8 GB y el
-sistema mató el proceso; con 5 s y 15 cabezas, 4,5 GB de pico y 14 s por
-trozo (unos 15 minutos para una canción de 4).
+(`analysis/src/weights.rs`, lo que era `danplay/torchzip.py`: una máquina de
+pickle propia que solo reconstruye tensores, y no deja que uno se salga de su
+almacén). Trozos de 5 s que se solapan un cuarto; la red no reserva memoria de
+más (sin la *arena* de ORT) y antes de empezar se mira que haya memoria libre.
+Medido en un portátil (Ryzen 7 5825U, 14 GB): con trozos de 10 s y 20 cabezas
+llegaba a 8 GB y el sistema mató el proceso; con 5 s y 15 cabezas, 4,5 GB de
+pico y 14 s por trozo (unos 15 minutos para una canción de 4).
 
 ## Secuencias descargadas
 
-`danplay/sequence.py` abre la carpeta de una secuencia (MultiTracks, Loop
+`library/src/sequence.rs` abre la carpeta de una secuencia (MultiTracks, Loop
 Community): las pistas (`MultiTracks/*.wav`), el «Click Track», la «Guide» y
 el proyecto de Ableton (`.als`: XML comprimido, leído sin DTD). Del proyecto
 salen el tempo, los cambios de compás (Ableton guarda el compás como
@@ -1056,17 +1060,17 @@ Personal.mp3») pero no trae etiquetas ni cuelga de `Artistas/` entra en el
 índice con ese artista. No es inventar: es lo que dice su nombre. El archivo
 no se toca.
 
-**«Transformar»** (`library/tidy.py`) aplica estas reglas a lo que ya está
-en la biblioteca, de una en una y solo cuando se pide. Se midió primero en
-una biblioteca de verdad (281 canciones): con el artista y el título de las
-etiquetas, 118 «no seguían la regla», pero renombrarlas así las dejaba peor
-muchas veces (canales de YouTube como artista, webs pegadas al título, el
-«(ft. X)» perdido). Así que el nombre que ya tiene la forma «Artista -
-Título» manda, una canción de `Artistas/<X>/` es de X, lo que solo dicen las
-etiquetas va para revisar, y solo se mira lo suelto en la raíz y
-`Artistas/` (las carpetas propias, nunca). Salen 19, todas con sentido. Es
-la misma canción (`library.relocate`: mismo id, con todo lo suyo) y, si es
-la que suena, sigue sonando: la cola le dice al reproductor su ruta nueva.
+**«Transformar»** (`library/src/index/tidy.rs`) aplica estas reglas a lo que
+ya está en la biblioteca, de una en una y solo cuando se pide. Se midió
+primero en una biblioteca de verdad (281 canciones): con el artista y el
+título de las etiquetas, 118 «no seguían la regla», pero renombrarlas así las
+dejaba peor muchas veces (canales de YouTube como artista, webs pegadas al
+título, el «(ft. X)» perdido). Así que el nombre que ya tiene la forma
+«Artista - Título» manda, una canción de `Artistas/<X>/` es de X, lo que solo
+dicen las etiquetas va para revisar, y solo se mira lo suelto en la raíz y
+`Artistas/` (las carpetas propias, nunca). Salen 19, todas con sentido. Es la
+misma canción (`services::songs::relocate`: mismo id, con todo lo suyo) y, si
+es la que suena, sigue sonando: la cola le dice al reproductor su ruta nueva.
 
 ## Detección de duplicados
 
@@ -1228,23 +1232,25 @@ artistas, buscaba con todas las palabras obligatorias (y no encontraba lo que
 había), bajaba canciones que ya estaban y reescribía la lista cuando solo se le
 pedía verificarla. Ahora:
 
-- `chat/intake.py` lee la lista pegada por código (`parse_setlist`): título,
-  número, enlace de un vídeo en forma canónica, las personas aparte (nunca son
-  el artista) y lo que no es una canción («Banda:», «Ensayo:»), para poder
-  decirlo. `read_intent` lee lo que la persona pide con sus palabras: verificar,
-  no descargar, dejarla exacta, una lista nueva, esa versión.
-- `chat/resolve.py` empareja cada canción con la biblioteca en la forma de
-  buscar de la casa (`names.search_form`, en los dos lados), por cobertura de
-  palabras, con erratas, ñ≈n como segunda pasada y el artista solo sumando.
-  Un enlace ya bajado manda si la canción sigue siendo esa; entre varias
-  versiones gana la que ya está en alguna lista.
-- `chat/setlist.py` es lo que hay detrás de `fill_playlist` y `find_songs`:
-  mete lo encontrado de una vez y en el orden de la lista pegada
-  (`playlists.place`, bajo el cerrojo de las listas), y lo que falta lo propone
-  en **una** tarjeta de permiso que sabe meter cada descarga en su sitio al
-  terminar. Las guardas son de las palabras de la persona, no del modelo:
-  «verifica» nunca cambia nada; dejar la lista exacta solo si lo dijo (y con lo
-  de antes para «Deshacer»); una lista nueva solo si la pidió.
+- `library::assistant::intake` lee la lista pegada por código
+  (`parse_setlist`): título, número, enlace de un vídeo en forma canónica, las
+  personas aparte (nunca son el artista) y lo que no es una canción («Banda:»,
+  «Ensayo:»), para poder decirlo. `read_intent` lee lo que la persona pide con
+  sus palabras: verificar, no descargar, dejarla exacta, una lista nueva, esa
+  versión.
+- `library::assistant::matching` empareja cada canción con la biblioteca en la
+  forma de buscar de la casa (`names.search_form`, en los dos lados), por
+  cobertura de palabras, con erratas, ñ≈n como segunda pasada y el artista
+  solo sumando. Un enlace ya bajado manda si la canción sigue siendo esa;
+  entre varias versiones gana la que ya está en alguna lista.
+- `library::assistant::setlist` (con `services::chat::setlist`) es lo que hay
+  detrás de `fill_playlist` y `find_songs`: mete lo encontrado de una vez y en
+  el orden de la lista pegada (`playlists.place`, bajo el cerrojo de las
+  listas), y lo que falta lo propone en **una** tarjeta de permiso que sabe
+  meter cada descarga en su sitio al terminar. Las guardas son de las palabras
+  de la persona, no del modelo: «verifica» nunca cambia nada; dejar la lista
+  exacta solo si lo dijo (y con lo de antes para «Deshacer»); una lista nueva
+  solo si la pidió.
 - Si en una vuelta todo fue meter o comprobar listas y salió bien, **el informe
   lo escribe la app** (en pasado, con nombres, y prometiendo solo la tarjeta
   que de verdad hay): una lista pegada cuesta una llamada al modelo y 1–2 s.
@@ -1278,7 +1284,7 @@ núcleo devuelve lo que *iba* a hacer y la interfaz lo pregunta. El texto del
 sistema ya pedía consultar antes, pero un texto no es una barrera: por la
 búsqueda web, por los títulos de YouTube y por las letras entra contenido que
 escribe cualquiera, y bastaría una línea bien puesta para disparar un borrado.
-La propuesta se **registra en el servidor** (`chat/plan.py`) con un id que
+La propuesta se **registra en el servidor** (`services::chat::plan`) con un id que
 genera él; la interfaz solo puede decir que sí a ese id, y lo que se ejecuta
 sale del registro, no de lo que mande el cliente ni de lo que escriba el
 modelo. Una llamada escrita como texto en vez de hecha («búsqueda:
@@ -1364,29 +1370,28 @@ arreglaría.
 (proveedor, modelo, tokens y el coste según el precio del catálogo); cada
 respuesta enseña sus tokens y su coste, y Ajustes lo de hoy y lo del mes.
 
-**Las conversaciones se guardan en la base** (`chats.py`): varias, con
+**Las conversaciones se guardan en la base** (`library/src/chats.rs`): varias, con
 título, y se busca en todas. Lo que había en el `localStorage` de versiones
 anteriores pasa a la base una vez.
 
-**Cada token se paga, y el prompt viaja en cada llamada.** El texto del sistema
-se escribe una regla por fallo real y sin adornos (unos 1.250 tokens; era
-2.077),
-las herramientas se declaran con una fábrica que no repite el andamiaje y
-describe cada una en una frase; las que hacían lo mismo se fusionaron
-(`edit_song` puntúa y marca favorito; `get_lyrics` vale por id o por nombre;
-`play` pone una canción o un repertorio; los nombres viejos siguen valiendo
-como alias), y las de descargar, las de músico y la de letra+carátula solo se
-declaran cuando la conversación habla de eso (un turno normal lleva 17
+**Cada token se paga, y el prompt viaja en cada llamada.** El texto del
+sistema se escribe una regla por fallo real y sin adornos (unos 1.250 tokens;
+era 2.077), las herramientas se declaran con una fábrica que no repite el
+andamiaje y describe cada una en una frase; las que hacían lo mismo se
+fusionaron (`edit_song` puntúa y marca favorito; `get_lyrics` vale por id o
+por nombre; `play` pone una canción o un repertorio; los nombres viejos siguen
+valiendo como alias), y las de descargar, las de músico y la de letra+carátula
+solo se declaran cuando la conversación habla de eso (un turno normal lleva 17
 herramientas, unos 1.700 tokens; eran 2.764), y **los resultados de las
-herramientas van en TOON** (`toon.py`), no en JSON: una lista de canciones se
-manda como tabla, con las claves una sola vez en la cabecera y una fila por
-canción. Medido sobre resultados reales, la mitad de tokens en una búsqueda
-(54 %) y un 47 % en conjunto. El modelo recibe una explicación de dos líneas del
-formato; lo que él devuelve sigue siendo JSON, que es lo que garantizan los
-modos JSON de los proveedores. Y una ficha de IA guardada con confianza baja
-(la dio un modelo que no conocía la canción) no se reutiliza: se vuelve a
-preguntar, que con otro modelo puede salir. El tono y los acordes no se le
-preguntan a la IA (§ Acordes y tono, de un cifrado publicado).
+herramientas van en TOON** (`library/src/toon.rs`), no en JSON: una lista de
+canciones se manda como tabla, con las claves una sola vez en la cabecera y
+una fila por canción. Medido sobre resultados reales, la mitad de tokens en
+una búsqueda (54 %) y un 47 % en conjunto. El modelo recibe una explicación de
+dos líneas del formato; lo que él devuelve sigue siendo JSON, que es lo que
+garantizan los modos JSON de los proveedores. Y una ficha de IA guardada con
+confianza baja (la dio un modelo que no conocía la canción) no se reutiliza:
+se vuelve a preguntar, que con otro modelo puede salir. El tono y los acordes
+no se le preguntan a la IA (§ Acordes y tono, de un cifrado publicado).
 
 **Descargar se pide, no se espera.** Antes de pedir permiso, el núcleo mira
 la biblioteca: lo que ya está no se propone, se dice dónde está. La tarjeta
@@ -1404,8 +1409,9 @@ repite la petición con `force`.
 ## Acordes y tono, de un cifrado publicado
 
 Hasta 1.20 la IA daba el tono y los acordes de memoria, como «aproximación».
-Desde 1.21 salen de cifrados que alguien publicó (`chord_sheets.py`), y si no se
-encuentran no hay. La IA no escribe ni un acorde.
+Desde 1.21 salen de cifrados que alguien publicó
+(`library/src/chord_sheets.rs`), y si no se encuentran no hay. La IA no
+escribe ni un acorde.
 
 **Las fuentes, cada una con su buscador.** Los buscadores generales gratuitos
 cortan si se les pregunta seguido (DuckDuckGo devolvía 0 resultados a la
@@ -1442,8 +1448,9 @@ Una versión de otro («(cover)»), una drum cam o un popurrí no se buscan: no 
 sabe de quién es la original, y el mismo título de otro artista suele ser otra
 canción.
 
-**Medido** con `scripts/evaluate-chords.py` sobre 80 canciones al azar de una
-biblioteca de alabanza (solo lectura, un segundo entre una y otra):
+**Medido** con `scripts/evaluate-chords.py` (en el historial, en
+`a0e9317^`) sobre 80 canciones al azar de una biblioteca de alabanza (solo
+lectura, un segundo entre una y otra):
 
 | | |
 | --- | --- |
@@ -1463,9 +1470,9 @@ lo escrito no es lo que suena.
 
 Guardarlo, pasarlo a otro tono y rellenar la ficha van en Rust
 (`library/src/enrich.rs`), con la letra de LRCLIB, la carátula de iTunes o
-Cover Art Archive y la ficha de la IA. `enrich.py` es la puerta: Rust busca
-en el módulo, al usarlo, lo de fuera (la red, la IA, el índice, las
-etiquetas) y cada paso, como hacía Python con sus globales.
+Cover Art Archive y la ficha de la IA. Lo de fuera (la red, la IA, el
+índice, las etiquetas) se lo da `services::enrich` (`library::enrich::Outside`);
+hasta la 1.40 se lo daba `enrich.py`, como hacía Python con sus globales.
 
 ## Laya, medido y descartado
 
@@ -1476,11 +1483,12 @@ juicios pequeños que hoy hacen reglas o una llamada a la IA: el juez de
 narración (§ El asistente), el «sí» a una oferta, marcar órdenes escondidas
 en textos de fuera, el tipo de vídeo de una descarga. Se midió
 `laya-multilingual` (mmBERT, 322 M de parámetros, 644 MB; unos 100 ms por
-pregunta en la CPU) tal como sale, con `scripts/evaluate-laya.py`:
+pregunta en la CPU) tal como sale, con `scripts/evaluate-laya.py` (en el
+historial, en `a0e9317^`):
 
 | Juicio | Lo de hoy | Laya |
 | --- | --- | --- |
-| Narración (`tests/narration.json`, 327 frases) | reglas + la IA | AUC 0,49–0,65 en cinco formas de preguntarlo |
+| Narración (`library/src/assistant/narration/corpus.json`, 327 frases) | reglas + la IA | AUC 0,49–0,65 en cinco formas de preguntarlo |
 | Tipo de vídeo (288 títulos) | `names.video_kind`: 97,9 % | 87,2 %; 0 de 19 secuencias |
 | «Sí» a una oferta (40 respuestas) | `_YES`: 87,5 % | AUC 0,63 |
 | Órdenes escondidas (40 textos) | nada | AUC 0,93 |
@@ -1491,13 +1499,13 @@ señal con las órdenes escondidas, y ahí los 40 ejemplos los escribió quien
 medía: no basta para fiarse, y lo que protege de verdad ya está (lo que no
 tiene vuelta atrás lo confirma la persona). No compensa bajar 680 MB y
 tener 1 GB de memoria ocupado para eso. Afinarlo pediría ejemplos
-etiquetados que no hay. Si sale otra versión, el script dice en unos
-minutos si ya gana.
+etiquetados que no hay. Si sale otra versión, el guion del historial diría
+en unos minutos si ya gana.
 
 ## La interfaz se entera de todo
 
 Nada de lo que se enseña puede quedarse congelado porque el cambio lo hiciera
-otro: el asistente, una descarga que termina, la línea de órdenes. El núcleo
+otro: el asistente, una descarga que termina, el vigilante de carpetas. El núcleo
 lleva un contador (`revision`) que sube con cada cambio del índice, de las
 listas o de las estrellas; Rust, que ya consulta `/api/status` cada dos
 segundos para vigilar que el núcleo vive, emite `danplay://changed` cuando
@@ -1520,12 +1528,13 @@ número (`2/3`) mientras algo baja. Y la entrada de la que salió lo que suena
 
 Escanear, importar, convertir y buscar duplicados pueden tardar minutos, y el
 puente de Rust corta una petición al minuto: antes la interfaz daba error
-mientras el trabajo seguía (y una conversión seguía borrando originales). Ahora
-arrancan en un hilo (`api/jobs.py`) y la petición contesta al momento (`202`)
-con el trabajo; la interfaz consulta `GET /api/jobs/{nombre}` cada medio
-segundo y enseña cuánto lleva (`done`/`total`/`message`) hasta tener el
-resultado. Pedir otra vez uno que ya está en marcha no arranca otro: devuelve
-el que corre. Una conversión de prueba (`dry_run`) sigue siendo inmediata.
+mientras el trabajo seguía (y una conversión seguía borrando originales).
+Ahora arrancan en un hilo (`server/src/jobs.rs`) y la petición contesta al
+momento (`202`) con el trabajo; la interfaz consulta `GET /api/jobs/{nombre}`
+cada medio segundo y enseña cuánto lleva (`done`/`total`/`message`) hasta
+tener el resultado. Pedir otra vez uno que ya está en marcha no arranca otro:
+devuelve el que corre. Una conversión de prueba (`dry_run`) sigue siendo
+inmediata.
 
 ## yt-dlp al día
 
@@ -1619,16 +1628,17 @@ Un punto de la canción dice «Coro» o «Puente, cuatro tiempos»: escrito, y l
 dice una voz, o grabado con el micrófono (`engine/src/record.rs`, cpal de
 entrada, un WAV temporal que el núcleo recorta y nivela).
 
-Las voces (`danplay/cues.py`) corren en el equipo con ONNX Runtime, sin
-PyTorch y sin internet salvo para bajarlas, con sha256 y revisión fijados
-(`danplay/data/voices.json`): **Supertonic 3** (diez voces, OpenRAIL-M, lee el
-texto tal cual) y voces **Piper** de España, México y Argentina, que se
-entrenaron con los fonemas de espeak-ng. espeak es GPL y no viaja: sus reglas
-para el castellano están reescritas en `danplay/speech.py` (coincide palabra
-por palabra en un 96-97 % de un corpus normal). Los números y las abreviaturas
-se dicen en palabras antes («x2» es «dos veces»). La misma frase con la misma
-voz es el mismo archivo. Las guías se guardan con el estudio; solo se aceptan
-archivos de la carpeta de guías de DanPlay.
+Las voces (`analysis/src/voices.rs`, con `services::cues`) corren en el equipo
+con ONNX Runtime, sin PyTorch y sin internet salvo para bajarlas, con sha256 y
+revisión fijados (`data/voices.json`): **Supertonic 3** (diez voces,
+OpenRAIL-M, lee el texto tal cual) y voces **Piper** de España, México y
+Argentina, que se entrenaron con los fonemas de espeak-ng. espeak es GPL y no
+viaja: sus reglas para el castellano están reescritas en
+`library/src/speech.rs` (coincide palabra por palabra en un 96-97 % de un
+corpus normal). Los números y las abreviaturas se dicen en palabras antes
+(«x2» es «dos veces»). La misma frase con la misma voz es el mismo archivo.
+Las guías se guardan con el estudio; solo se aceptan archivos de la carpeta de
+guías de DanPlay.
 
 **Los carriles de guías** (1.28.1): hasta seis (`cueLanes` en el estudio:
 clave, nombre, volumen, callado, solo), y cada guía dice el suyo (`lane`; sin
@@ -1696,8 +1706,9 @@ derecha) al núcleo, que monta la matriz de cada pista como el motor:
 primero su balance y, por un lado o en mono, sus dos canales juntos a la
 mitad (`stems.matrix`). Las guías y el clic van en su lado del WAV aparte.
 
-**La guía automática** (`danplay/structure.py`, tarea `guia-automatica`)
-encuentra las partes de la canción con numpy y ffmpeg, sin modelos: por
+**La guía automática** (`analysis/src/structure.rs`, tarea `guia-automatica`)
+encuentra las partes de la canción con ffmpeg y sus propias cuentas, sin
+modelos: por
 compás (los «1» que manda la interfaz; sin ellos, ventanas de 2 s), un
 cromagrama y un timbre (bandas log y una DCT), su autosemejanza, la
 novedad con un núcleo de tablero de ajedrez y los picos (mejor si caen cada
@@ -1736,7 +1747,7 @@ pidió y para su banda. Android primero; iOS, después (ver abajo).
 
 La carpeta de `Separadas/` no basta: ahí solo están las partes. El pulso del
 clic (Beat This!, en la caché de la PC), lo guardado del estudio, la letra y
-el cifrado viven en la base. «Llevar al celular» (`danplay/bundle.py`) arma un
+el cifrado viven en la base. «Llevar al celular» (`library/src/bundle.rs`) arma un
 ZIP con todo, en `Celular/` junto a `Separadas/`:
 
 ```text
@@ -1832,15 +1843,16 @@ escritorio:
   celular no hay canción entera: «la canción» son todas sus partes a 1 (la
   suma es la canción: «Otros» es lo que queda) y «las pistas», con la mezcla
   del estudio;
-- el puente **`api`**, que en la PC lleva a Python, lo contesta Rust
-  (`mobile/src/api.rs`) con las pistas importadas, con la misma forma que el
-  núcleo; lo que en el celular no existe contesta 404 con el motivo;
+- el puente **`api`**, que en la PC lleva al núcleo, lo contesta la app del
+  celular (`mobile/src/api.rs`) con las pistas importadas, con la misma forma
+  que el núcleo; lo que en el celular no existe contesta 404 con el motivo;
 - las **listas** (`mobile/src/playlists.rs`): `.listas.json` junto a las pistas,
   cada lista con las carpetas de sus canciones (estables: una pista que se
   quita y se vuelve a traer vuelve a su sitio) y las mismas rutas y campos
   que el núcleo (`n`, `seconds`);
-- el **cambio de tono de los acordes** (`theory.rs`, el de `theory.py` y
-  `enrich.transpose_sheet` con las mismas pruebas);
+- el **cambio de tono de los acordes** (`theory.rs`, el mismo que el de la
+  PC, que era `theory.py` y `enrich.transpose_sheet`, con las mismas
+  pruebas);
 - el **pulso**: el de Beat This! que trae el `.danpista`; sin él, el análisis
   de Rust de la PC sobre la suma de las partes.
 
@@ -1933,7 +1945,7 @@ cada versión del CHANGELOG desde la 1.20.0 está, con su fecha).
 **Los términos** salen solos la primera vez (y otra vez si sube
 `TERMS_VERSION`). La casilla no se puede marcar hasta bajar al final del
 texto, y «Aceptar» pide la casilla. Lo aceptado lo guarda el núcleo
-(`terms.py`: `terms.json` en sus datos; `GET /api/terms`, `POST
+(`library/src/terms.rs`: `terms.json` en sus datos; `GET /api/terms`, `POST
 /api/terms/accept`), no el WebView. Sin aceptarlos se puede escuchar y
 ordenar la música, pero `requireTerms()` (`useTerms.js`) para tres cosas:
 separar en pistas (`useSeparation.request`), el asistente (`useChat.send`) y
@@ -1947,56 +1959,41 @@ un aviso lo cuenta al arrancar.
 ## Estructura del proyecto
 
 ```text
-danplay/        núcleo Python (índice, IA, etiquetas, descargas)
-  api/            la API: app, guardia y arranque; routes/ (un router por
-                  dominio), models.py (los cuerpos), jobs.py (tareas largas)
-  library/        el índice: db (conexión, esquema y migraciones), scan,
-                  search, songs, folders (carpetas, las que se mueven), history,
-                  tidy («Transformar»: cada canción en su sitio, una a una)
-  chat/           el asistente: tools (una por herramienta), loop, context,
-                  narration (el detector de acciones narradas)
-  providers.py    catálogo de proveedores de IA y perfiles guardados
-  watcher.py      vigila las carpetas y mantiene el índice al día solo
-  ytdlp.py        yt-dlp: el motor de JavaScript y la actualización en caliente
-  stems.py        separar en pistas: la cola, las carpetas, la mezcla
-  bundle.py       llevar una canción separada al celular (.danpista)
-  separation.py   el separador por dentro (Demucs y ONNX Runtime, en Rust),
-                  en un proceso aparte; run_max, la máxima calidad
-  mega.py         la máxima calidad: el Mega53 y el reparto por máscaras (en Rust)
-  torchzip.py     leer un checkpoint de PyTorch sin PyTorch ni pickle (en Rust)
-  data/separator/ los grafos del separador, sin pesos (también el Mega53)
-  reuse.py        lo hecho para otro archivo de la misma canción: gemelas,
-                  desfase, adoptar pistas, clic, estudio y listas
-  sequence.py     abrir una secuencia descargada (MultiTracks + Ableton)
-  journal.py       el diario junto a la música: escribirlo y, al abrir,
-                  recuperar listas, estrellas y estudio de lo que se movió
-  terms.py        si se aceptaron los términos (el texto, en la interfaz)
-  cues.py         las guías habladas: voces, bajarlas, decir, grabaciones
-  speech.py        el texto de una guía: números en palabras y fonemas (G2P)
-  data/voices.json el catálogo de voces, con sha256 y revisión fijados
-  beatgrid.py     el pulso y el «1» del metrónomo: la cola y el proceso
-                  aparte (lo guardado y re-analizar, en Rust)
-  pulse.py        Beat This! por dentro (en Rust: espectrograma, la red y la rejilla)
-  data/pulse/     el grafo de Beat This!, con sus pesos
-  click.py        el clic del metrónomo en la mezcla que se guarda (el del motor)
-  thumbnails.py   las miniaturas de las carátulas, con tope y poda
-  logs.py         el registro (a un archivo rotativo al servir)
-  toon.py         resultados de herramientas en TOON: la mitad de tokens que JSON
-  chats.py        las conversaciones con el asistente, guardadas y buscables
-  model_catalog.py  el catálogo de modelos (models.dev), siempre al día
-  data/           la foto del catálogo que viaja con la app
-analysis/       crate Rust: el pulso (Beat This!), el separador (Demucs y el
-                Mega53), las redes en ONNX Runtime (ort), el clic de la mezcla
-                y los pesos de PyTorch y safetensors, sin nada de Python
-library/     crate Rust: las etiquetas (lofty), sin nada de Python
-core/           crate Rust (PyO3): etiquetas (de library/), hashes en
-                paralelo y forma de onda
+server/         crate Rust (danplay-server): la API del núcleo, en el mismo
+                proceso que la app o por un socket (el binario, main.rs)
+  src/
+    router.rs     qué función contesta cada ruta; routes/ (un módulo por
+                  dominio), validate.rs (lo que llega), jobs.rs (tareas
+                  largas), guard.rs (la guardia de cada petición)
+    services/     lo que hace el núcleo alrededor de library y analysis: el
+                  escaneo, el vigilante (watcher), las descargas (youtube,
+                  ytdlp), separar en pistas (stems, separation), el pulso y
+                  su cola (beats), las guías habladas (cues), lo hecho para
+                  otra copia (reuse), las secuencias, el celular (bundle),
+                  el asistente (chat/), la papelera (trash)…
+    api_tests/    las pruebas de la API, sobre bibliotecas temporales
+  tests/          la de integración: el núcleo por un socket (serve.rs)
+library/        crate Rust (danplay-library): el índice (index/: esquema y
+                migraciones, escaneo, búsqueda, canciones, carpetas,
+                historial, «Transformar»), las etiquetas (lofty), los
+                nombres, las listas, el diario, la IA (ai/: proveedores,
+                catálogo de modelos, cliente) y el asistente (assistant/:
+                leer listas pegadas, emparejar, el plan, las herramientas, la
+                narración), los cifrados, la teoría, TOON, la configuración
+analysis/       crate Rust (danplay-analysis): el pulso (Beat This!), el
+                separador (Demucs y el Mega53), las redes en ONNX Runtime
+                (ort), el clic de la mezcla, la guía automática, las voces y
+                los pesos de PyTorch y safetensors (sin PyTorch)
+data/           lo que viaja con la app: el grafo de Beat This! con sus
+                pesos (pulse/), los del separador sin pesos (separator/,
+                también el Mega53), el catálogo de voces (voices.json) y la
+                foto del catálogo de modelos
 engine/          el motor de audio de la PC y del celular (decode, feeder,
                 render, stretch, output, engine, bundle, record: grabar del
                 micrófono, spec: salidas y guías como las manda la interfaz)
                 y beats (el pulso), metro, queue y click; cpp/ Signalsmith
 mobile/          la app del celular (Tauri): el reproductor con el contrato de
-                la PC, el puente api sin Python, la biblioteca de pistas, la
+                la PC, el puente api con sus pistas, la biblioteca de pistas, la
                 música del teléfono (music.rs); gen/android el proyecto de
                 Android
 desktop/        interfaz Vue 3 + envoltorio Tauri (también la del celular:
@@ -2040,7 +2037,8 @@ desktop/        interfaz Vue 3 + envoltorio Tauri (también la del celular:
     lazy_window.rs  la ventanita y la proyección, creadas al abrirlas
     media.rs      MPRIS / SMTC
   src-tauri/permissions/  qué comandos puede invocar cada ventana
-tests/          pruebas de Python, de las rutas de medios y de humo
+tests/          las rutas de medios (test_frontend.mjs) y las de humo
+                (smoke.sh)
 packaging/      lo del escritorio de Linux (danplay.desktop, deb/) y el
                 instalador de Windows desde Linux (windows/installer.nsi)
 scripts/        build.sh, data.sh, tools-*.sh, test.sh e icons.mjs
@@ -2076,7 +2074,7 @@ cada paquete (en Linux y macOS los ponen `scripts/tools-linux.sh` y
 `tools-macos.sh`, con versiones y sha256 fijados; en Windows, su CI). La app
 se la da al núcleo, que la mira antes que el sistema.
 
-**Los datos, en `data/`.** Lo de `danplay/data` (el grafo y los pesos de
+**Los datos, en `data/`.** Lo de `data/` del repositorio (el grafo y los pesos de
 Beat This!, los grafos del separador, el catálogo de voces y la foto del
 catálogo de modelos) y ONNX Runtime, la biblioteca oficial de Microsoft (la
 1.31.0; en los Mac con Intel, la 1.23.2, la última que hay para ellos: `ort`
@@ -2087,13 +2085,15 @@ núcleo (`App::packaged`), y el núcleo busca ahí ONNX Runtime
 `Contents/Resources/data` en macOS y junto al ejecutable en Windows
 (`tools::bundled`).
 
-Los dos crates de Rust son un **workspace** (`Cargo.toml` de la raíz): un solo
-`Cargo.lock`, una sola carpeta `target/` y la versión de DanPlay en un solo
-sitio, que heredan los dos y que Tauri y maturin leen de ahí.
+Los crates de Rust (`analysis`, `engine`, `library`, `server`, la app de
+escritorio y la del celular) son un **workspace** (`Cargo.toml` de la raíz):
+un solo `Cargo.lock`, una sola carpeta `target/` y la versión de DanPlay en
+un solo sitio, que heredan todos y que Tauri lee de ahí.
 
 Para desarrollar no hace falta nada de eso: `./scripts/dev.sh` abre la app
 entera con la interfaz en caliente y el núcleo compilado del código, con los
-datos de `danplay/data` (ver [Contribuir](CONTRIBUTING.md)).
+datos de `data/` y el ONNX Runtime que deja `scripts/data.sh` en
+`desktop/src-tauri/data/` (ver [Contribuir](CONTRIBUTING.md)).
 
 ## El tono y el tempo
 

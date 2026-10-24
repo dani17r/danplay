@@ -1,7 +1,7 @@
 # Contratos internos entre capas
 
 Referencia para quien toque una capa sin ver las otras. Cada apartado dice
-quién lo implementa (Rust, Python o Vue) y quién lo consume. Lo que no está
+quién lo implementa (Rust o Vue) y quién lo consume. Lo que no está
 aquí no es contrato: se puede cambiar libremente dentro de su capa.
 
 ## 1. Reproducción y cola (Rust → Vue)
@@ -10,11 +10,11 @@ La cola de reproducción vive en Rust (`desktop/src-tauri/src/queue.rs`). La
 interfaz manda la lista y las órdenes; Rust decide qué suena y lo cuenta por
 un evento. No hay sondeo desde JS.
 
-La app del celular (`mobile/src/player.rs`) cumple este mismo contrato sobre el
-motor de pistas, y contesta el puente `api` (§2) con las pistas importadas en
-vez de con Python (`mobile/src/api.rs`): así la misma interfaz funciona en los
-dos sitios sin cambios. Los tipos (`Track`, `PlaybackState`, el metrónomo)
-viven en `engine/` y los usan las dos apps.
+La app del celular (`mobile/src/player.rs`) cumple este mismo contrato sobre
+el motor de pistas, y contesta el puente `api` (§2) con las pistas importadas
+en vez de con el núcleo de la PC (`mobile/src/api.rs`): así la misma interfaz
+funciona en los dos sitios sin cambios. Los tipos (`Track`, `PlaybackState`,
+el metrónomo) viven en `engine/` y los usan las dos apps.
 
 ### Tipos
 
@@ -131,7 +131,8 @@ en silencio. Sin núcleo no se quita nada.
 
 Evento `danplay://mini-visible` con `{ visible: boolean }` cuando el popup
 se muestra u oculta. Evento `danplay://core` con `{ ready: boolean, message }`
-cuando el núcleo Python arranca, muere o se reinicia.
+cuando el núcleo empieza a contestar o deja de hacerlo (la app lo mira cada
+pocos segundos en `/api/status`).
 
 La ventana `mini` se declara en `tauri.conf.json` (label `mini`, url
 `index.html?mini=1`, `"create": false`) y tiene su propia *capability*
@@ -166,8 +167,8 @@ Ya no existen: `play`, `audio_state`, `set_now_playing`, `now_playing`,
   mismo proceso y `core::request_within` le pasa cada petición
   (`server::handle`): sin socket, sin puerto y sin token. Hasta la 1.30 el
   núcleo era el de Python, aparte, y lo de abajo era su transporte.
-- **Por un socket** (`danplay-server`, o `danplay serve` del de Python; para
-  las pruebas de la interfaz y los diferenciales): Unix `0600` con
+- **Por un socket** (`danplay-server`, para las pruebas de la interfaz y el
+  modo navegador): Unix `0600` con
   `--uds RUTA`, o TCP con `--host 127.0.0.1 --port N` y, si se quiere, un
   secreto en la variable de entorno `DANPLAY_TOKEN`. Con esa variable
   presente, el núcleo exige `Authorization: Bearer <token>` en **todas** las
@@ -184,7 +185,7 @@ Ya no existen: `play`, `audio_state`, `set_now_playing`, `now_playing`,
   `DANPLAY_PARENT_PID=<su pid>` se apaga en cuanto ese proceso ya no existe.
   En la app no hace falta: es el mismo proceso.
 
-Rutas nuevas o cambiadas (Python):
+Rutas nuevas o cambiadas (el núcleo):
 
 - `GET /api/song/{id}/cover?size=N` → miniatura JPEG de N px (96, 192 o 320),
   generada con ffmpeg y cacheada en disco en `DATA_DIR/covers/`. Sin `size`,
@@ -270,13 +271,13 @@ Rutas nuevas o cambiadas (Python):
   la lista no existe.
 - `POST /api/chat` → ver §3.
 
-## 3. Asistente: confirmaciones (Python ↔ Vue)
+## 3. Asistente: confirmaciones (núcleo ↔ Vue)
 
 Las herramientas destructivas (`delete_song`, `delete_playlist`,
 `download_music`) **nunca se ejecutan dentro de la conversación**. Cuando el
 modelo las llama (o `fill_playlist` propone bajar lo que falta de una lista),
-el núcleo **registra la propuesta** (`danplay/chat/plan.py`) y la respuesta
-HTTP lleva:
+el núcleo **registra la propuesta** (`server/src/services/chat/plan.rs`) y la
+respuesta HTTP lleva:
 
 ```json
 { "text": "...", "tools": [...], "actions": [...],
@@ -463,7 +464,7 @@ convierten en `<a>`: se enseñan como texto con la dirección al lado.
   mezclador (su volumen y su marcha, independientes de la canción); sonando
   con la canción se reengancha a su rejilla en cada play, salto, cambio de
   velocidad y vuelta del bucle, y sigue la velocidad del estudio. `sound`:
-  `clasico | madera | baqueta | cencerro` (el mismo que `danplay/click.py`
+  `clasico | madera | baqueta | cencerro` (el mismo que `analysis/src/click.rs`
   pone en la mezcla). `count_in` 0..2: con la canción en pausa, play cuenta
   esos compases al tempo y en el compás de la rejilla y la canción entra
   donde caería el golpe siguiente (su próximo pulso); pausa en plena cuenta
@@ -480,11 +481,12 @@ convierten en `<a>`: se enseñan como texto con la dirección al lado.
   suenan las pistas separadas y, de cada una, lo que no está como viene
   (`gain` 0..2, `pan` −1..1).
 
-### Pistas separadas (Python ↔ Vue, Rust)
+### Pistas separadas (núcleo ↔ Vue, Rust)
 
 - `GET /api/separate` → `{ ok, reason, bytes, pending, installed, folder,
   format, opus, current, queue, events }`: si se puede separar aquí
-  (`reason` dice por qué no: sin numpy u onnxruntime, sin ffmpeg), lo que
+  (`reason` dice por qué no: sin ONNX Runtime, sin ffmpeg o sin los grafos
+  del separador), lo que
   pesa el separador entero y lo que falta por bajar (`pending`), en qué se
   guardan las pistas (`format`: `flac | opus`; `opus`, si este ffmpeg sabe
   hacerlo), y la cola: la que va (`current: { id, title, stage, done,
@@ -549,7 +551,7 @@ convierten en `<a>`: se enseñan como texto con la dirección al lado.
   preview? }` → una guía nueva. Desde 1.30, `POST /api/song/{id}/cues/auto
   { voice, bars?, beat?, sections? }` → la tarea `auto-cue`, con
   `result: { sections: [{ start, end, label }], cues: [{ t, text, voice,
-  file, seconds }] }` (`danplay/structure.py`); 409 si la voz no está
+  file, seconds }] }` (`server/src/services/structure.rs`); 409 si la voz no está
   bajada (se empieza a bajar).
 - Rust: `set_stems(song, tracks | null)`, con `tracks: [{ path, gain, pan,
   on }]`: que suenen esas pistas en vez de la canción `song` (su ruta: si
@@ -562,7 +564,7 @@ convierten en `<a>`: se enseñan como texto con la dirección al lado.
   estado trae `stems` (si suenan). Sin ffmpeg, o si no se pueden abrir,
   `error` lo dice y sigue sonando la canción.
 
-## 4. Ajustes (Python ↔ Vue), nombres correctos
+## 4. Ajustes (núcleo ↔ Vue), nombres correctos
 
 - `/api/status`: `ai` (no `ia`). `missing_folders`: rutas de las carpetas
   gestionadas que ya no están donde estaban (sus canciones están apartadas).
@@ -589,7 +591,7 @@ convierten en `<a>`: se enseñan como texto con la dirección al lado.
   canciones volvieron). `400` si `from` sigue existiendo o `to` no existe.
 - Calidad: `high | medium | variable`.
 
-## 5. Proveedor de IA (Python ↔ Vue)
+## 5. Proveedor de IA (núcleo ↔ Vue)
 
 Una clave guardada solo se reutiliza hacia **la URL con la que se guardó**:
 probar un perfil con otra `base_url` sin escribir la clave no manda la

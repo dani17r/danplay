@@ -1,105 +1,42 @@
 # Dependencias y sus licencias
 
 DanPlay usa código de otra gente. Cada pieza mantiene su propia licencia, que
-**no cambia** por usarse aquí. Este documento las lista y señala las dos que
-merecen atención.
+**no cambia** por usarse aquí. Este documento las lista y señala lo que
+merece atención.
 
 ---
 
 ## `mutagen`: ya no va en los paquetes
 
 `mutagen` es la librería que leía y escribía las etiquetas, y está bajo
-**GPL-2.0-or-later**: la única dependencia con copyleft fuerte del proyecto.
-Mientras iba dentro del núcleo empaquetado, el `.deb`, el `.AppImage` y los
-instaladores llevaban código GPL, y la GPL no permite añadir restricciones a
-la obra combinada («solo uso no comercial», «no se puede modificar»), que es
-justo lo que dice la licencia de DanPlay.
+**GPL-2.0-or-later**: era la única dependencia con copyleft fuerte del
+proyecto. Mientras iba dentro del núcleo empaquetado, el `.deb`, el
+`.AppImage` y los instaladores llevaban código GPL, y la GPL no permite
+añadir restricciones a la obra combinada («solo uso no comercial», «no se
+puede modificar»), que es justo lo que dice la licencia de DanPlay.
 
-Desde la versión que trae este cambio, **las etiquetas las lee y las escribe
-el núcleo de Rust** (con [lofty](https://github.com/Serial-ATA/lofty-rs), MIT
-o Apache-2.0: ver `library/src/tags.rs`), y desde la fase 4 de la migración
-la app no lleva Python en absoluto: ni mutagen ni nada de la tabla de abajo.
-En el núcleo de Python del repositorio se sigue instalando, porque lo pide
-`yt-dlp[default]`
-(yt-dlp solo lo usaría para meter la carátula en un m4a, un ogg o un opus, y
-DanPlay baja siempre mp3, cosa que hace con ffmpeg), y lo usan las pruebas,
-de testigo: comparan lo que leen y escriben las dos.
-`danplay/tags_mutagen.py` es la versión de antes, para cuando no está el
-crate (en desarrollo o en las pruebas sin Rust).
+Desde entonces **las etiquetas las lee y las escribe el núcleo de Rust**
+(con [lofty](https://github.com/Serial-ATA/lofty-rs), MIT o Apache-2.0: ver
+`library/src/tags.rs`). Desde la fase 4 de la migración la app no lleva
+Python, y desde la 1.40 tampoco el repositorio: el núcleo de Python, que
+aún instalaba mutagen (lo pedía `yt-dlp[default]`) y lo usaba en sus
+pruebas de testigo, se fue (ver [la migración](MIGRATION.md)). Lo que esas
+pruebas comparaban con mutagen quedó guardado como casos fijos junto a las
+de Rust (`library/src/tags/mutagen/`).
+
+mutagen solo sigue dentro del ejecutable oficial de yt-dlp, que va como
+programa aparte, igual que ffmpeg (abajo, en «Herramientas externas»).
 
 **Esto no es asesoramiento legal.** Es para que la decisión se tome a
 sabiendas.
 
-## `certifi` (MPL-2.0)
+## Lo que era de Python
 
-Copyleft por archivo, no por proyecto. Mientras no se modifiquen sus archivos,
-se puede combinar con código propietario sin problema. No requiere ninguna
-acción.
-
-## El núcleo de Python (ya no viaja en la app)
-
-Lo que necesita el núcleo de Python del repositorio, el de sus pruebas y los
-diferenciales con el de Rust (`requirements.txt`, que sale de `uv.lock` con
-todas las versiones fijadas). La app no lleva nada de esto desde la fase 4
-(ver [la migración](MIGRATION.md)). Algunos solo se instalan en otros
-sistemas o intérpretes (`cffi`, `brotlicffi`, `pycparser`, `httpx2-jsfetch`).
-
-| Paquete | Licencia |
-| --- | --- |
-| `annotated-doc` | MIT |
-| `annotated-types` | MIT |
-| `anyio` | MIT |
-| `audioop-lts` | PSF-2.0 |
-| `audioread` | MIT |
-| `brotli` | ? |
-| `brotlicffi` | MIT |
-| `certifi` | Mozilla Public License 2.0 (MPL 2.0) |
-| `cffi` | MIT-0 |
-| `charset-normalizer` | ? |
-| `click` | BSD-3-Clause |
-| `fastapi` | MIT |
-| `flatbuffers` (lo pide ONNX Runtime) | Apache-2.0 |
-| `h11` | MIT License |
-| `httpcore2` | BSD-3-Clause |
-| `httpx2` | BSD-3-Clause |
-| `httpx2-jsfetch` | BSD-3-Clause |
-| `idna` | BSD-3-Clause |
-| `jiter` | MIT |
-| `mutagen` (solo en el núcleo de Python y sus pruebas) | GPL-2.0-or-later |
-| `numpy` (el separador de pistas) | BSD-3-Clause (lleva OpenBLAS, BSD-3-Clause) |
-| `onnxruntime` (el separador de pistas) | MIT |
-| `openai` | Apache-2.0 |
-| `packaging` (lo pide ONNX Runtime) | Apache-2.0 OR BSD-2-Clause |
-| `platformdirs` | MIT |
-| `protobuf` (lo pide ONNX Runtime) | BSD-3-Clause |
-| `pyacoustid` | MIT |
-| `pycparser` | BSD-3-Clause |
-| `pycryptodomex` | BSD License |
-| `pydantic` | MIT |
-| `pydantic-core` | MIT |
-| `python-dotenv` | ? |
-| `rapidfuzz` | MIT |
-| `requests` | Apache Software License |
-| `send2trash` | BSD-3-Clause |
-| `sniffio` | MIT License |
-| `standard-aifc` | Python Software Foundation License |
-| `standard-chunk` | Python Software Foundation License |
-| `standard-sunau` | Python Software Foundation License |
-| `starlette` | BSD-3-Clause |
-| `truststore` | MIT |
-| `typing-extensions` | PSF-2.0 |
-| `typing-inspection` | MIT |
-| `urllib3` | MIT |
-| `uvicorn` | BSD-3-Clause |
-| `watchdog` | Apache Software License |
-| `websockets` | BSD-3-Clause |
-| `yt-dlp` | Unlicense |
-| `yt-dlp-ejs` | Unlicense AND MIT AND ISC |
-
-Para desarrollar, además: `pytest`, `pytest-cov`, `hypothesis` y `httpx`
-(pruebas; MIT/BSD/MPL-2.0), `ruff` (MIT), `basedpyright` (MIT) y `maturin`
-(MIT OR Apache-2.0). PyInstaller, que empaquetaba el núcleo de Python hasta
-la 1.30, ya no se usa.
+Hasta la 1.40 el núcleo de Python tenía sus propias dependencias (FastAPI,
+uvicorn, pydantic, openai, watchdog, mutagen, numpy, onnxruntime…) y las de
+desarrollo (pytest, ruff, basedpyright, maturin; PyInstaller, hasta la
+1.30). Se fueron con él: hoy no hay ninguna. Su tabla de licencias queda en
+el historial de este archivo.
 
 ## Rust
 
@@ -116,9 +53,8 @@ afecta mientras no se modifiquen sus archivos.
 | `rtrb` (el anillo del audio que decodifica ffmpeg) | MIT OR Apache-2.0 |
 | `rand` | MIT OR Apache-2.0 |
 | `winreg` (solo Windows) | MIT |
-| `rodio` | MIT OR Apache-2.0 |
+| `cpal` (la salida de audio) | Apache-2.0 |
 | `symphonia` | MPL-2.0 |
-| `pyo3` | MIT OR Apache-2.0 |
 | `lofty` (las etiquetas de cada canción) | MIT OR Apache-2.0 |
 | `rayon` | MIT OR Apache-2.0 |
 | `rustfft` (el pulso del metrónomo, en la app) | MIT OR Apache-2.0 |
@@ -128,7 +64,7 @@ afecta mientras no se modifiquen sus archivos.
 | `tokio` | MIT |
 | `libc` | MIT OR Apache-2.0 |
 | `rusqlite`, `libsqlite3-sys` (el índice; SQLite va dentro, y es de dominio público) | MIT |
-| `fancy-regex`, `regex` (las expresiones de los nombres, con la semántica de Python) | MIT / MIT OR Apache-2.0 |
+| `fancy-regex`, `regex` (las expresiones de los nombres, con la semántica del `re` de Python, de donde vienen) | MIT / MIT OR Apache-2.0 |
 | `unicode-normalization`, `unicode-properties`, `unicode-ident` | (MIT OR Apache-2.0) AND Unicode-3.0 |
 | `ort`, `ort-sys` (ONNX Runtime desde Rust: el pulso, separar y las voces; carga la biblioteca oficial que viaja con la app, ver abajo) | MIT OR Apache-2.0 |
 | `realfft` (los espectrogramas del pulso y del separador) | MIT |
@@ -170,7 +106,7 @@ y fpcalc).
 | QuickJS-NG (`qjs`) | MIT | el motor de JavaScript que YouTube exige a yt-dlp (o Deno, Node, Bun, si están en el sistema) |
 | `yt-dlp` | Unlicense | descargar de YouTube. Es su ejecutable oficial: un PyInstaller con su propio Python y sus dependencias dentro (entre ellas `mutagen`, GPL, y `yt-dlp-ejs`), que va como programa aparte, igual que ffmpeg |
 | ONNX Runtime (`libonnxruntime`, `onnxruntime.dll`) | MIT (viaja con su licencia y sus avisos de terceros, `ThirdPartyNotices`) | mover las redes: el pulso, separar en pistas y las voces de las guías |
-| `gio` (GLib) | LGPL-2.1+ | papelera de respaldo en Linux, si `send2trash` no puede |
+| `gio` (GLib) | LGPL-2.1+ | papelera de respaldo en Linux, si no se puede usar directamente la de freedesktop.org |
 
 > Repartir el ffmpeg GPL dentro del instalador obliga a ofrecer su código
 > fuente (el de esa versión está en la publicación de Gyan y en el repositorio
@@ -183,13 +119,13 @@ y fpcalc).
 
 Separar una canción en pistas usa **Demucs v4** (HTDemucs, de Meta; autor
 Alexandre Défossez), **MIT**. Viajan con la app los grafos de la red
-exportados a ONNX (`danplay/data/separator/`, generados con
-`scripts/export-separator.py` a partir del código de Demucs), **sin los
-pesos**: esos se bajan del repositorio del autor en HuggingFace
-(`adefossez/HTDemucs-6s`, y los especialistas de batería y bajo de
-`adefossez/HTDemucs-ft`) la primera vez que se separa algo, y se comprueba
-su SHA-256. PyTorch y el paquete `demucs` solo hacen falta para regenerar
-los grafos, no para usar la app.
+exportados a ONNX (`data/separator/`, generados a partir del código de Demucs
+con `scripts/export-separator.py`, un guion de Python que queda en el
+historial, en `a0e9317^`), **sin los pesos**: esos se bajan del repositorio
+del autor en HuggingFace (`adefossez/HTDemucs-6s`, y los especialistas de
+batería y bajo de `adefossez/HTDemucs-ft`) la primera vez que se separa algo,
+y se comprueba su SHA-256. PyTorch y el paquete `demucs` solo harían falta
+para regenerar los grafos, no para usar la app.
 
 ## La separación de máxima calidad: Mega53
 
@@ -198,17 +134,18 @@ eléctrica y acústica, piano, órgano, teclados, cuerdas, metales y vientos)
 usa el **MVSep Mega 53 Stems** (un BS-RoFormer) de **ZFTurbo**, publicado en
 [Music-Source-Separation-Training](https://github.com/ZFTurbo/Music-Source-Separation-Training)
 (release v1.0.21), **MIT** el código y los pesos. Viaja con la app el grafo
-exportado a ONNX con solo las cabezas que usa (`danplay/data/separator/mega53.onnx`,
-generado con `scripts/export-mega53.py`), **sin los pesos**: el checkpoint
+exportado a ONNX con solo las cabezas que usa (`data/separator/mega53.onnx`,
+generado con `scripts/export-mega53.py`, en el historial como el de
+Demucs), **sin los pesos**: el checkpoint
 original (1,4 GB) se baja de esa release la primera vez y se comprueba su
 SHA-256; los pesos se leen de él sin ejecutar nada de su interior
-(`danplay/torchzip.py`).
+(`analysis/src/weights.rs`).
 
 ## Las voces de las guías habladas
 
 Las guías escritas las dice una voz sintética que funciona en tu equipo. Se
 bajan una vez, cada una cuando se elige, desde una revisión fija de su
-repositorio y con su SHA-256 (`danplay/data/voices.json`):
+repositorio y con su SHA-256 (`data/voices.json`):
 
 | Voz | De | Licencia |
 | --- | --- | --- |
@@ -231,28 +168,30 @@ guarda junto a ella.
 El pulso y el «1» del metrónomo los saca **Beat This!** (Foscarin, Schlüter
 y Widmer, CPJKU, Universidad Johannes Kepler de Linz, 2024), **MIT** el
 código y los pesos. Viaja con la app el modelo `final0` exportado a ONNX
-(`danplay/data/pulse/beat_this.onnx`, generado con
-`scripts/export-pulse.py`), **con sus pesos** en float16 (42 MB): la
+(`data/pulse/beat_this.onnx`, generado con `scripts/export-pulse.py`, en
+el historial como los otros), **con sus pesos** en float16 (42 MB): la
 licencia lo permite, y así funciona sin internet desde el primer día. El
 original está en `cloud.cp.jku.at` (el sha256 del checkpoint del que sale va
-en `beat_this.json`). PyTorch, torchaudio y el paquete `beat_this` solo hacen
-falta para regenerarlo.
+en `beat_this.json`). PyTorch, torchaudio y el paquete `beat_this` solo
+harían falta para regenerarlo.
 
-Para medir qué detector acierta más, `scripts/evaluate-pulse.py` usa **GTZAN**
-(Tzanetakis y Cook, 2002; lo baja de HuggingFace) con las anotaciones de
-pulso y compás de **GTZAN-Rhythm** (Marchand y Peeters, 2015). Solo para
-medir: la app no los lleva ni los usa.
+Para medir qué detector acertaba más, `scripts/evaluate-pulse.py` usaba
+**GTZAN** (Tzanetakis y Cook, 2002; lo bajaba de HuggingFace) con las
+anotaciones de pulso y compás de **GTZAN-Rhythm** (Marchand y Peeters,
+2015). Solo para medir: la app no los lleva ni los usa.
 
-Para medir qué redes separan mejor, `scripts/evaluate-separator.py` usa las
-muestras de 7 segundos de **MUSDB18** (Rafii et al., SigSep), que baja el
-paquete `musdb` la primera vez. Solo sirven para medir en la máquina de
+Para medir qué redes separaban mejor, `scripts/evaluate-separator.py` usaba
+las muestras de 7 segundos de **MUSDB18** (Rafii et al., SigSep), que bajaba
+el paquete `musdb` la primera vez. Solo servían para medir en la máquina de
 quien desarrolla: la app no las lleva ni las usa.
 
 Para medir si **Laya** (`convaiinnovations/laya-multilingual`, Convai, 2026,
-**Apache-2.0**) decide mejor que las reglas de la app,
-`scripts/evaluate-laya.py` usa el paquete `laya` con PyTorch. No mejoró nada
-(ver docs/ARCHITECTURE.md, «Laya, medido y descartado»): la app no lo lleva
-ni lo baja.
+**Apache-2.0**) decidía mejor que las reglas de la app,
+`scripts/evaluate-laya.py` usaba el paquete `laya` con PyTorch. No mejoró
+nada (ver docs/ARCHITECTURE.md, «Laya, medido y descartado»): la app no lo
+lleva ni lo baja.
+
+Los tres eran guiones de Python: quedan en el historial, en `a0e9317^`.
 
 ## Servicios que se consultan
 
@@ -267,22 +206,8 @@ Ninguno es obligatorio; la app funciona sin todos ellos.
 | LRCLIB | letras | no |
 | iTunes Search / Cover Art Archive | carátulas | no |
 | DuckDuckGo (HTML) | comprobar datos en la web | no |
-| PyPI | «Actualizar yt-dlp»: la última versión, comprobada con su `sha256` | no |
+| GitHub (las publicaciones de yt-dlp) | «Actualizar yt-dlp»: el ejecutable de la última versión, comprobado con su `SHA2-256SUMS` | no |
 | HuggingFace (el repositorio del autor de Demucs) | los pesos del separador de pistas, una sola vez y comprobados con su `sha256` | no |
 | GitHub (la release de ZFTurbo) | los pesos de la separación de máxima calidad, una sola vez y comprobados con su `sha256` | no |
 | HuggingFace (Supertone y Rhasspy) | las voces de las guías habladas, cada una cuando se elige y comprobadas con su `sha256` | no |
 
----
-
-Cómo regenerar la tabla de Python (la de todo el `.venv`, desarrollo
-incluido):
-
-```bash
-uv pip list --format=freeze | cut -d= -f1 | while read p; do
-  printf '%-24s %s\n' "$p" "$(.venv/bin/python -c "
-import importlib.metadata as m,sys
-d=m.metadata('$p')
-print(d.get('License-Expression') or next((c.split('::')[-1].strip()
-  for c in d.get_all('Classifier') or [] if c.startswith('License')), '?'))" 2>/dev/null)"
-done
-```

@@ -1,41 +1,47 @@
 # El núcleo, de Python a Rust
 
-Por qué, en una frase: el núcleo Python (35.000 líneas) se arrastra en cada
-paquete (PyInstaller, unos 150 MB en Windows) y en cada compilación, y lo
-lento de verdad (leer etiquetas, recorrer carpetas, buscar) va más rápido en
-Rust. Rust ya era el segundo lenguaje (la app, el motor de audio, el
-celular), así que no se suma ninguno.
+Por qué, en una frase: el núcleo Python (35.000 líneas) se arrastraba en
+cada paquete (PyInstaller, unos 150 MB en Windows) y en cada compilación, y
+lo lento de verdad (leer etiquetas, recorrer carpetas, buscar) iba más
+rápido en Rust. Rust ya era el segundo lenguaje (la app, el motor de audio,
+el celular), así que no se sumaba ninguno.
 
-## Cómo se hace: de dentro afuera
+La migración acabó en la 1.40.0: la app no lleva Python desde la fase 4, y
+desde la fase 5 tampoco el repositorio (abajo, «La fase 5: fuera Python»).
+Lo que sigue cuenta cómo se hizo.
 
-La lógica pasa al crate `library/` (Rust puro, sin saber nada de Python)
-o a `analysis/` (lo numérico y ONNX), y el módulo de Python se queda como
-una puerta fina con **la misma API**: llama a `danplay_core` (el crate
-PyO3 de `core/`). Así las pruebas de Python (unas 1.700) siguen siendo el
-testigo de que nada cambia, y además cada módulo se compara con su versión
+## Cómo se hizo: de dentro afuera
+
+La lógica pasaba al crate `library/` (Rust puro, sin saber nada de Python)
+o a `analysis/` (lo numérico y ONNX), y el módulo de Python se quedaba como
+una puerta fina con **la misma API**: llamaba a `danplay_core` (el crate
+PyO3 de `core/`). Así las pruebas de Python (unas 1.700) seguían siendo el
+testigo de que nada cambiaba, y además cada módulo se comparó con su versión
 anterior (`git show <commit>:danplay/<módulo>.py`) en miles de casos, con
 datos de verdad en solo lectura.
 
-Lo que hace posible ir módulo a módulo:
+Lo que hizo posible ir módulo a módulo:
 
-- **Una sola conexión al índice.** `library.connect()` devuelve la
-  conexión de Rust (`core/src/db.rs`), que imita lo que se usaba de
+- **Una sola conexión al índice.** `library.connect()` devolvía la
+  conexión de Rust (`core/src/db.rs`), que imitaba lo que se usaba de
   `sqlite3` (filas por nombre, `with`, las transacciones implícitas, las
-  mismas excepciones). Lo de Python y lo de Rust escriben en la misma
+  mismas excepciones). Lo de Python y lo de Rust escribían en la misma
   transacción: `library::index::begin` antes de escribir, como hacía
   `sqlite3`.
 - **Las reglas de Python, escritas en Rust** (`library/src/py.rs`):
   `os.path` de POSIX y de Windows, `fnmatch`, `round`, `repr`, `float()`,
   `int()`, `str()`, `json.dumps` (con `indent` y `sort_keys`), `casefold`,
-  la fecha de `os.stat`... `tests/test_compat.py` las compara con las de
-  verdad. Sin esto, un `round(2.675, 2)` o una fecha con el último bit
-  distinto bastaban para que el escaneo releyera toda la biblioteca.
-- **Lo que toca fuera se queda en Python mientras haga falta**: la red (las
-  pruebas la cortan y la sustituyen en Python), los hilos, los cerrojos y lo
-  que aún no está en Rust. Rust recibe la función que pide una página, o
-  Python orquesta alrededor de la llamada.
+  la fecha de `os.stat`... `tests/test_compat.py` las comparaba con las de
+  verdad; hoy lo hace `library/src/py/tests/compat.rs`, con los casos que
+  dio Python guardados. Sin esto, un `round(2.675, 2)` o una fecha con el
+  último bit distinto bastaban para que el escaneo releyera toda la
+  biblioteca. Siguen ahí: lo guardado tiene que salir igual que antes.
+- **Lo que tocaba fuera se quedó en Python mientras hizo falta**: la red
+  (las pruebas la cortaban y la sustituían en Python), los hilos, los
+  cerrojos y lo que aún no estaba en Rust. Rust recibía la función que pide
+  una página, o Python orquestaba alrededor de la llamada.
 
-## Dónde va (22 de octubre de 2026)
+## Dónde iba (22 de octubre de 2026)
 
 En Rust (con su puerta de Python):
 
@@ -46,9 +52,9 @@ En Rust (con su puerta de Python):
 | 2 | pulso (Beat This! con `ort`), clic, pesos de PyTorch, separar en pistas (Demucs y el Mega53), las pistas separadas, el paquete del celular, las secuencias, la estructura y la guía automática, las guías habladas y sus voces (Supertonic y Piper), la rejilla del clic (lo guardado, leído y escrito como el `json` de Python, y re-analizar) |
 | 3 | teoría, cifrados, TOON, los datos de fuera (`chat/safe`), la guía hablada, la web, los proveedores de IA, su catálogo y su cliente, leer listas pegadas, emparejar con la biblioteca, la narración, lo que se le cuenta al modelo en cada turno, la lista contra un repertorio, las confirmaciones con su plan de descarga, las herramientas del asistente y su conversación (el turno entero); de YouTube y yt-dlp, lo que se le pide, lo que contesta, lo bajado, las versiones, el motor de JavaScript y descomprimir la rueda; enriquecer una canción (la letra de LRCLIB, la carátula, la ficha de la IA, su cifrado, transponerlo y rellenar la ficha) e importar la Entrada (la cascada, el nombre, la carpeta y archivar) |
 
-Dentro del núcleo de Python (que desde la fase 4 ya no viaja en la app:
-sigue en el repositorio para sus pruebas y los diferenciales), siguen en
-Python: la API (`api/`) y sus trabajos en segundo plano, la
+Ese día, dentro del núcleo de Python (que desde la fase 4 ya no viajaba en
+la app: seguía en el repositorio para sus pruebas y los diferenciales), aún
+eran de Python: la API (`api/`) y sus trabajos en segundo plano, la
 cola de la rejilla del clic (`beatgrid.py`: su hilo, el proceso del detector
 y la batería separada de cada canción), lo del asistente que orquesta
 alrededor de Rust: el registro de las confirmaciones (`chat/plan.py`: su
@@ -75,9 +81,9 @@ del clic, el modelo `secuencia`), los estados del plan del asistente, los
 identificadores de las apps (`local.danplay.app`, `local.danplay.pistas`) y
 el canal de notificaciones de Android.
 
-## La fase 4: sin Python
+## La fase 4: la app sin Python
 
-Cuando todo lo de arriba esté en Rust:
+El plan, para cuando todo lo de arriba estuviera en Rust:
 
 1. **Un enrutador en Rust** que conteste lo mismo que la API de FastAPI
    (las mismas rutas, los mismos cuerpos, los errores con `detail` y los 422
@@ -94,22 +100,23 @@ Cuando todo lo de arriba esté en Rust:
    fronteras sean inyectables también desde Rust. Ya son rasgos las del
    asistente (`plan::Index`, `tools::Io`, `conversation::Chat`) y las de
    enriquecer e importar (`library::enrich::Outside`,
-   `library::ingest::Outside`): hoy las da Python; falta la versión de Rust
-   de cada uno.
+   `library::ingest::Outside`): entonces las daba Python; faltaba la
+   versión de Rust de cada uno.
 4. **Los paquetes sin Python**: fuera PyInstaller y el núcleo empaquetado;
-   la app lleva `libonnxruntime` (hoy sale del paquete `onnxruntime`) y
+   la app lleva `libonnxruntime` (entonces salía del paquete `onnxruntime`) y
    yt-dlp como su ejecutable oficial, como ffmpeg y QuickJS. Los procesos
    aparte (pulso, separar) pasan a ser la propia app con un argumento.
 5. **La CI**: los paquetes sin `uv` ni pruebas de Python; las pruebas de
    Python, solo en `tests.yml`.
 
-### Cómo va (23 de octubre de 2026)
+### Cómo fue (23 de octubre de 2026)
 
 El enrutador ya existe: el crate `server/` (`danplay-server`). Contesta en
 el mismo proceso (`server::handle(&app, &request)`, lo que hace la app) o
 por un socket Unix o loopback con hyper (el binario `danplay-server`, con
 `--uds` o `--host` y `--port`, como el núcleo empaquetado de Python de
-hasta la 1.30: para las pruebas de la interfaz y los diferenciales). Cómo se escribe una ruta, cómo se
+hasta la 1.30: para las pruebas de la interfaz y, mientras hubo Python, los
+diferenciales). Cómo se escribe una ruta, cómo se
 comprueba lo que llega (lo de pydantic y su 422), los errores, los trabajos
 y el estado: en el comentario de `server/src/lib.rs`.
 
@@ -133,38 +140,40 @@ y el estado: en el comentario de `server/src/lib.rs`.
   hyperlocal, libc, win32job). La vigilancia que queda solo mira
   `/api/status` para los avisos de la interfaz (`danplay://core` y
   `danplay://changed`), y al arrancar deja en el registro dónde encontró
-  sus datos, ONNX Runtime y cada programa. La app no lanza el núcleo de
-  Python nunca: sigue en el repositorio (`python -m danplay.cli serve`) para
-  sus pruebas y los diferenciales. Las pruebas de la interfaz contra el de
-  Rust: `DANPLAY_E2E_CORE=<ruta de danplay-server> npm run e2e`.
+  sus datos, ONNX Runtime y cada programa. La app ya no lanzaba nunca el
+  núcleo de Python, que siguió en el repositorio hasta la fase 5 para sus
+  pruebas y los diferenciales. Las pruebas de la interfaz, contra el de
+  Rust: `vp run e2e` en `desktop/`, con el `danplay-server` de `target/` (o
+  el que diga `DANPLAY_E2E_CORE`).
 - **Los paquetes, sin Python** (los puntos 4 y 5): en vez de `core/` (el
-  núcleo de PyInstaller), un recurso `data/` con lo de `danplay/data` (el
-  pulso, el separador, las voces, la foto del catálogo) y ONNX Runtime, la
-  biblioteca oficial de github.com/microsoft/onnxruntime (la 1.31.0; en los
-  Mac con Intel, la 1.23.2, la última que hay para ellos: `ort` pide la API
-  23), con su sha256 fijado y en la caché `~/.cache/danplay-<sistema>/`
-  (`scripts/data.sh`; en Windows, PowerShell en `build-windows.ps1` y
-  `windows.yml`). yt-dlp, su ejecutable oficial (2026.08.19), en `tools/`
-  con ffmpeg, fpcalc y QuickJS. `services::onnx` la encuentra donde la deja
-  cada paquete (`usr/lib/DanPlay/data` en el .deb y el AppImage,
-  `Contents/Resources/data` en macOS, junto al ejecutable en Windows), con
-  su prueba. La foto del catálogo de modelos la saca la propia app recién
-  compilada (`--models-snapshot SALIDA`, sobre `library::ai::catalog`; sin
-  red viaja la del repositorio): por eso la app se compila sin empaquetar
-  (`tauri build --no-bundle`) y se empaqueta después (`tauri bundle`).
-  Fuera PyInstaller (del grupo dev de pyproject.toml, con `uv.lock` y
-  `requirements-dev.txt` al día), `packaging/core.spec`,
-  `packaging/core_entry.py`, el lanzador del Python embebido de Windows
-  (`packaging/launcher.c`) y `scripts/update-models.py`. Los flujos de
-  Linux, Windows y macOS, sin `setup-python`, uv, pip ni pruebas de Python
-  (solo en `tests.yml`): compilan, sacan la foto, prueban el pulso de una
-  canción con la propia app (`--pulse`, con su ONNX Runtime y su ffmpeg) y
-  empaquetan; el de Linux comprueba además que el .deb no lleva Python.
-  Probado en Linux: `scripts/build.sh --package` y `tests/smoke.sh` contra
-  el .deb extraído y contra el AppImage (18 de 18 cada uno, en su caja de
-  arena: el núcleo contesta dentro, sin núcleo aparte, socket ni puerto,
-  encuentra ONNX Runtime y ffmpeg, saca el pulso, la instancia única y nada
-  vivo al cerrarla). Windows y macOS, solo los scripts: salen de GitHub.
+  núcleo de PyInstaller), un recurso `data/` con lo de `danplay/data` (desde
+  la fase 5, `data/` en la raíz: el pulso, el separador, las voces, la foto
+  del catálogo) y ONNX Runtime, la biblioteca oficial de
+  github.com/microsoft/onnxruntime (la 1.31.0; en los Mac con Intel, la
+  1.23.2, la última que hay para ellos: `ort` pide la API 23), con su sha256
+  fijado y en la caché `~/.cache/danplay-<sistema>/` (`scripts/data.sh`; en
+  Windows, PowerShell en `build-windows.ps1` y `windows.yml`). yt-dlp, su
+  ejecutable oficial (2026.08.19), en `tools/` con ffmpeg, fpcalc y QuickJS.
+  `services::onnx` la encuentra donde la deja cada paquete
+  (`usr/lib/DanPlay/data` en el .deb y el AppImage, `Contents/Resources/data`
+  en macOS, junto al ejecutable en Windows), con su prueba. La foto del
+  catálogo de modelos la saca la propia app recién compilada
+  (`--models-snapshot SALIDA`, sobre `library::ai::catalog`; sin red viaja la
+  del repositorio): por eso la app se compila sin empaquetar (`tauri build
+  --no-bundle`) y se empaqueta después (`tauri bundle`). Fuera PyInstaller
+  (del grupo dev de pyproject.toml, con `uv.lock` y `requirements-dev.txt` al
+  día), `packaging/core.spec`, `packaging/core_entry.py`, el lanzador del
+  Python embebido de Windows (`packaging/launcher.c`) y
+  `scripts/update-models.py`. Los flujos de Linux, Windows y macOS, sin
+  `setup-python`, uv, pip ni pruebas de Python (que entonces solo quedaban en
+  `tests.yml`): compilan, sacan la foto, prueban el pulso de una canción con
+  la propia app (`--pulse`, con su ONNX Runtime y su ffmpeg) y empaquetan; el
+  de Linux comprueba además que el .deb no lleva Python. Probado en Linux:
+  `scripts/build.sh --package` y `tests/smoke.sh` contra el .deb extraído y
+  contra el AppImage (18 de 18 cada uno, en su caja de arena: el núcleo
+  contesta dentro, sin núcleo aparte, socket ni puerto, encuentra ONNX Runtime
+  y ffmpeg, saca el pulso, la instancia única y nada vivo al cerrarla).
+  Windows y macOS, solo los scripts: salen de GitHub.
 - **Las descargas** (`downloads.py`, con el turno, `STATE`, `run_many` y
   `on_done` de `youtube.py` en `services::youtube`, que es también la API de
   Rust para el asistente): yt-dlp ya sin Python, como su ejecutable oficial
@@ -213,13 +222,14 @@ y el estado: en el comentario de `server/src/lib.rs`.
   carpeta entera): 196 de 196 iguales, con la base, reuse.json, las
   rejillas, las pistas adoptadas y los archivos de audio byte a byte.
 - **Las pruebas de la API de Python, contra el núcleo de Rust**:
-  `./scripts/test.sh api` (o pytest con `DANPLAY_API_CORE=rust`) le da a cada
-  cliente un `danplay-server` en caja de arena y sin red, con la
-  configuración de Python de esa prueba (`tests/api_core.py`). Pasan 123; se
-  saltan 36, diciendo por qué, las que sustituyen funciones de Python o miran
-  su estado en memoria (`python_core`).
-- **Queda**: esas 36 (el punto 3: que lo que sustituyen se pueda sustituir
-  también desde Rust).
+  `./scripts/test.sh api` (o pytest con `DANPLAY_API_CORE=rust`) le daba a
+  cada cliente un `danplay-server` en caja de arena y sin red, con la
+  configuración de Python de esa prueba (`tests/api_core.py`). Pasaban 123;
+  se saltaban 36, diciendo por qué, las que sustituían funciones de Python o
+  miraban su estado en memoria (`python_core`).
+- **Quedaban** esas 36 (el punto 3). Las resolvió la fase 5: al pasar las
+  pruebas a Rust, lo que sustituían se sustituye con costuras de Rust solo
+  de pruebas (`#[cfg(test)]`).
 
 Medido en la fase 0, lo que se esperaba ganar: unos 150 MB y miles de
 archivos menos en el paquete de Windows, varios minutos menos por paquete en
@@ -229,6 +239,8 @@ la CI, el arranque sin esperar a que Python importe nada, y menos memoria
 42), y el AppImage, de 251 a 246 MB. Pesa menos de lo que se quita porque
 ahora viajan aparte ONNX Runtime (29 MB) y yt-dlp (40 MB, un ejecutable que
 lleva su propio Python dentro), y la app lleva el núcleo (de 20 a 40 MB).
+Con la 1.40.0, ya sin Python en el repositorio: el .deb, 139 MB, y el
+AppImage, 235 MB.
 
 El núcleo, frente al de Python de la 1.30.0 (el mismo equipo, la misma
 muestra de 120 canciones copiadas, la mediana de tres pasadas):
@@ -249,3 +261,55 @@ muestra de 120 canciones copiadas, la mediana de tres pasadas):
 
 La app entera en reposo pesa lo mismo (unos 1070 MB, casi todo de WebKit),
 pero con un proceso menos.
+
+## La fase 5: fuera Python
+
+Con la app ya sin Python, el núcleo de Python solo quedaba de testigo. La
+fase 5 cerró la migración, en la 1.40.0:
+
+1. **Sus pruebas, en Rust.** Las 944 pruebas de Python (359 de la parte del
+   servidor A, 137 de la B y 448 de la biblioteca) se pasaron una a una, con
+   las mismas comprobaciones y los mismos valores esperados. Las que solo
+   tenían sentido en Python se dicen, con su porqué. Prueba a prueba, en
+   [TESTS-PORT.md](TESTS-PORT.md). Al pasarlas salieron diferencias de
+   verdad, arregladas en Rust: la cola del pulso, que dejaba una canción en
+   ningún sitio; `safe::datum`, que dejaba pasar caracteres de formato; un
+   «ERROR:» de yt-dlp con color que no se reconocía; una base borrada por
+   fuera que se volvía a crear vacía.
+2. **Los datos, a `data/`** (b7f888c): lo que viaja con la app (el pulso, el
+   separador, las voces y la foto del catálogo de modelos) estaba en
+   `danplay/data`.
+3. **Fuera Python** (a0e9317): `danplay/` (el núcleo), `core/` (su módulo
+   PyO3), `tests/*.py`, `pyproject.toml`, `uv.lock`, los
+   `requirements*.txt`, `danplay.sh`, `.basedpyright/` y todos los guiones
+   de Python de `scripts/`. Quedan en el historial: `git show
+   a0e9317^:<ruta>`.
+4. **Los guiones que exportaban los modelos** (`scripts/export-pulse.py`,
+   `export-separator.py` y `export-mega53.py`) dependían del núcleo de
+   Python, y se fueron con él. Los modelos ya están en `data/`; si un día
+   hay que rehacerlos, los guiones están en `a0e9317^`. Igual los que
+   medían (`evaluate-pulse.py`, `evaluate-separator.py`,
+   `evaluate-chords.py`, `evaluate-laya.py`, `check-metronome.py`) y el banco
+   del asistente contra un modelo de verdad (`evaluate-assistant.py`, con
+   `tests/evaluation.json`).
+5. **Al desarrollar ya no hace falta Python.** `scripts/test.sh` y la CI
+   (`tests.yml`) prueban el núcleo con `cargo test` (también en Windows:
+   `danplay-library`, `danplay-analysis` y `danplay-server`), y las e2e van
+   contra `danplay-server`. `scripts/bump-version.sh` lee la versión del
+   `Cargo.toml`. En desarrollo, ONNX Runtime sale de
+   `desktop/src-tauri/data` (lo deja `scripts/data.sh`), no del `.venv`. La
+   línea de órdenes de Python (`danplay status`, `scan`, `import`…) se fue
+   sin sustituta: todo se hace desde la app.
+
+Las pruebas, el día que se fue Python:
+
+| Crate o tanda | Pruebas |
+| --- | --- |
+| `danplay-library` | 543 |
+| `danplay-server` | 541 (538, 2 del binario y 1 de integración, por el socket) |
+| `danplay-analysis` | 61 |
+| `danplay-engine` | 69 |
+| `danplay-app` (la de escritorio) | 102 |
+| `danplay-mobile` | 16 |
+| La interfaz (Vitest) | 1.288 |
+| De punta a punta (Playwright, contra `danplay-server`) | 26 |

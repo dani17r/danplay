@@ -110,7 +110,8 @@ Python:
    podían llevar un ffmpeg distinto. Para subir una, se cambian la URL y la
    suma en el propio flujo.
 2. Los datos: ONNX Runtime 1.31.0 (`onnxruntime.dll`, el oficial de
-   Microsoft, también con su SHA-256) y lo de `danplay/data`, en `data\`.
+   Microsoft, también con su SHA-256) y lo de `data/` del repositorio, en
+   `data\`.
 3. Compila la interfaz y la aplicación, sin empaquetar todavía.
 4. Con ella misma saca la foto del catálogo de modelos de hoy
    (`--models-snapshot`) y **el pulso de una canción de prueba** (`--pulse`,
@@ -119,8 +120,9 @@ Python:
    lance sin ellas), y el portátil.
 6. Lo deja como artefacto descargable; con una etiqueta `v*`, lo publica.
 
-Las pruebas del núcleo de Python **en Windows** no van ahí: las pasa
-`tests.yml` en cada push (el trabajo «núcleo Python en Windows»).
+Las pruebas del núcleo **en Windows** no van ahí: las pasa `tests.yml` en
+cada push (el trabajo «núcleo en Windows»: `danplay-library`,
+`danplay-analysis` y `danplay-server`).
 
 Se lanza a mano desde la pestaña Actions («Run workflow») o subiendo una
 etiqueta:
