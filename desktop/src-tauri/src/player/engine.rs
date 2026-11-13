@@ -120,9 +120,11 @@ struct Loaded {
     stems: Vec<(String, Stamp)>,
 }
 
-/// Lo que se prepara aparte (pasar a FLAC lo que el motor no lee).
-enum Prepared {
-    Ready,
+/// Lo que se preparó aparte (pasar a FLAC lo que el motor no lee): la orden
+/// que lo esperaba y, si no se pudo, por qué.
+struct Prepared {
+    turn: u64,
+    error: Option<String>,
 }
 
 /// Una vuelta del bucle: lo que hay que contar.
@@ -157,11 +159,12 @@ struct Engine<'a> {
     idle_since: Option<Instant>,
     /// Hay salida de audio en el equipo (mirado al empezar).
     any_output: bool,
-    /// La orden que espera a que se prepare un archivo (`formats`).
-    waiting: Option<Command>,
+    /// La orden que espera a que se prepare un archivo (`formats`), con su
+    /// turno: lo que acabe de prepararse para otra ya no la repite.
+    waiting: Option<(u64, Command)>,
+    turns: u64,
     prepared_tx: Sender<Prepared>,
     prepared_rx: Receiver<Prepared>,
-    preparing: bool,
     /// Las voces guia ya leidas, por archivo.
     clips: Clips,
 }
@@ -184,9 +187,9 @@ pub(super) fn run(rx: &Receiver<Command>, shared: &Arc<Mutex<State>>, notify: &N
         idle_since: None,
         any_output: danplay_engine::output::has_default(),
         waiting: None,
+        turns: 0,
         prepared_tx,
         prepared_rx,
-        preparing: false,
         clips: Clips::default(),
     };
     engine.apply_session();
@@ -211,11 +214,8 @@ pub(super) fn run(rx: &Receiver<Command>, shared: &Arc<Mutex<State>>, notify: &N
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => return,
         }
-        if engine.prepared_rx.try_recv().is_ok() {
-            engine.preparing = false;
-            if let Some(command) = engine.waiting.take() {
-                engine.handle(command, &mut step);
-            }
+        while let Ok(done) = engine.prepared_rx.try_recv() {
+            engine.prepared(done, &mut step);
         }
         engine.watch(&mut step);
         if !engine.publish(step) {
@@ -241,6 +241,18 @@ impl Engine<'_> {
 
     fn handle(&mut self, command: Command, step: &mut Step) {
         step.clear_error = matches!(command, Command::Play { .. } | Command::Load { .. } | Command::Stop);
+        // lo que esperaba a prepararse era para lo de antes: si no se
+        // olvida, al acabar ffmpeg entraba la canción vieja sobre la nueva
+        let replaces = matches!(
+            (&command, &self.waiting),
+            (
+                Command::Play { .. } | Command::Load { .. } | Command::Stop | Command::Fail(_),
+                Some(_)
+            ) | (Command::Stems { .. }, Some((_, Command::Stems { .. })))
+        );
+        if replaces {
+            self.waiting = None;
+        }
         match command {
             Command::Play { path, duration } => self.play(path, duration, step),
             Command::Load { path, duration } => self.load(path, duration),
@@ -334,20 +346,44 @@ impl Engine<'_> {
             return formats::playable(&missing[0]).map(|_| None);
         }
         // aparte: el hilo de audio no se queda esperando a ffmpeg
-        self.waiting = Some(command());
-        self.preparing = true;
+        self.turns += 1;
+        let turn = self.turns;
+        self.waiting = Some((turn, command()));
         let tx = self.prepared_tx.clone();
         let _ = std::thread::Builder::new()
             .name("danplay-prepare".into())
             .spawn(move || {
+                let mut error = None;
                 for path in missing {
                     if let Err(e) = formats::playable(&path) {
                         log::warn!("no se pudo preparar {}: {e}", path.display());
+                        error.get_or_insert(e);
                     }
                 }
-                let _ = tx.send(Prepared::Ready);
+                let _ = tx.send(Prepared { turn, error });
             });
         Ok(None)
+    }
+
+    /// Acabó de prepararse lo que esperaba una orden: se repite; y si no se
+    /// pudo, se dice (repetirla lo volvía a intentar sin fin, con el
+    /// reproductor en «preparando» y sin un error).
+    fn prepared(&mut self, done: Prepared, step: &mut Step) {
+        if self.waiting.as_ref().is_none_or(|(turn, _)| *turn != done.turn) {
+            return; // era para una orden que ya no espera
+        }
+        let Some((_, command)) = self.waiting.take() else {
+            return;
+        };
+        match (done.error, command) {
+            (None, command) => self.handle(command, step),
+            // sin sus pistas, la canción sigue sonando entera
+            (Some(error), Command::Stems { .. }) => {
+                self.carry.stems = None;
+                step.failure = Some(readable(&error));
+            }
+            (Some(error), _) => self.failed(error, step),
+        }
     }
 
     /// Volver a pedir las pistas de la que suena (cuando acaben de
@@ -798,7 +834,7 @@ impl Engine<'_> {
             }
         }
         // en pausa un rato: la salida, fuera
-        if st.playing || st.counting > 0 || self.preparing {
+        if st.playing || st.counting > 0 || self.waiting.is_some() {
             self.idle_since = None;
         } else {
             let since = *self.idle_since.get_or_insert_with(Instant::now);
@@ -860,7 +896,7 @@ impl Engine<'_> {
             e.stems = loaded && self.carry.stems.is_some();
             e.counting_in = st.counting > 0;
             e.output = output;
-            e.preparing = self.preparing;
+            e.preparing = self.waiting.is_some();
             e.clone()
         };
 

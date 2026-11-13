@@ -24,7 +24,7 @@ use std::ffi::OsString;
 use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Condvar, LazyLock, Mutex, PoisonError};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// Lo guardado cambia si cambia la red o la forma de sacar la rejilla: con
 /// otro número, se calcula otra vez.
@@ -650,7 +650,7 @@ pub fn child_main(args: &[OsString]) -> i32 {
     let said = (|| -> Result<(), String> {
         let library = crate::services::onnx::library_in(None)
             .ok_or("falta ONNX Runtime en esta instalación de DanPlay")?;
-        let (_grid, raw) = analysis::pulse::analyze(ffmpeg, path, &library, graph, &mut |part| {
+        let raw = analysis::pulse::hear(ffmpeg, path, &library, graph, &mut |part| {
             let line = Value::from(library::num::round_to(part, 3));
             let _ = writeln!(std::io::stdout(), "{{\"progress\": {line}}}");
             let _ = std::io::stdout().flush();
@@ -695,7 +695,7 @@ pub fn child_main(args: &[OsString]) -> i32 {
 struct Queue {
     waiting: VecDeque<(String, App)>,
     busy: Option<String>,
-    failed: HashMap<String, String>,
+    failed: HashMap<String, Failed>,
     progress: HashMap<String, f64>,
     worker: bool,
     /// el hilo, parado por una prueba: lo que se pide se queda en la cola
@@ -703,6 +703,22 @@ struct Queue {
     #[cfg(test)]
     paused: bool,
 }
+
+/// Un fallo del detector con un archivo: por qué, cuándo y cuántas veces.
+struct Failed {
+    why: String,
+    at: Instant,
+    tries: u32,
+}
+
+/// Lo que se recuerda un fallo antes de volver a intentarlo. Recordarlo
+/// hasta cerrar DanPlay dejaba la canción con el clic aproximado (un solo
+/// tempo, el «1» mucho peor) por un tropiezo pasajero: el equipo sin
+/// memoria un momento, el disco que tarda.
+pub const RETRY_AFTER: Duration = Duration::from_secs(120);
+/// Y las veces que se intenta: lo que falla tres veces seguidas no es un
+/// tropiezo, y pasar la red cuesta.
+pub const MAX_TRIES: u32 = 3;
 
 /// Si una prueba paró el hilo (`tests::Paused`).
 #[cfg(test)]
@@ -755,8 +771,10 @@ pub fn request(app: &App, path: &Path, first: bool) -> Result<Option<Value>, Bea
     let key = path.to_string_lossy().into_owned();
     let fkey = failure_key(path);
     let mut q = QUEUE.lock().unwrap_or_else(PoisonError::into_inner);
-    if let Some(failed) = q.failed.get(&fkey) {
-        return Err(beats_err(failed.clone()));
+    if let Some(failed) = q.failed.get(&fkey)
+        && (failed.tries >= MAX_TRIES || failed.at.elapsed() < RETRY_AFTER)
+    {
+        return Err(beats_err(failed.why.clone()));
     }
     if q.busy.as_deref() != Some(key.as_str()) {
         q.waiting.retain(|(p, _)| *p != key);
@@ -820,8 +838,17 @@ fn work() {
             }
         };
         let mut q = QUEUE.lock().unwrap_or_else(PoisonError::into_inner);
-        if let Some(m) = failed {
-            q.failed.insert(failure_key(&p), m);
+        let fkey = failure_key(&p);
+        match failed {
+            Some(why) => {
+                let tries = q.failed.get(&fkey).map_or(0, |f| f.tries) + 1;
+                let at = Instant::now();
+                q.failed.insert(fkey, Failed { why, at, tries });
+            }
+            // a la segunda fue: ya no hay nada que recordar
+            None => {
+                q.failed.remove(&fkey);
+            }
         }
         q.busy = None;
         WAKE.notify_all();

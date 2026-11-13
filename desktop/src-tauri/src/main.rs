@@ -25,6 +25,17 @@ mod tray;
 use std::path::Path;
 use tauri::Manager;
 
+/// Lo que merece una línea en el registro. `lofty` (las etiquetas) y
+/// `symphonia` (el sonido) avisan de cada rareza de cada archivo —una
+/// cabecera Xing sin datos, un ID3 en otra codificación—, y con una
+/// biblioteca de unos cientos de canciones eran nueve de cada diez líneas:
+/// con la rotación a 1 MB, lo que de verdad contaba un fallo se iba antes de
+/// que nadie lo leyera. De ellas, solo los errores.
+fn worth_logging(target: &str, level: log::Level) -> bool {
+    let chatty = target.starts_with("lofty") || target.starts_with("symphonia");
+    !chatty || level <= log::Level::Error
+}
+
 /// Los avisos de la app, a un archivo en su carpeta de registros (y ademas a
 /// la consola en desarrollo). En Windows, una compilacion de verdad no tiene
 /// consola: todo lo que se escribia con `eprintln!` se perdia, y con ello la
@@ -42,6 +53,7 @@ fn logs() -> tauri::plugin::TauriPlugin<tauri::Wry> {
         .level_for("wry", log::LevelFilter::Warn)
         .level_for("zbus", log::LevelFilter::Warn)
         .level_for("tracing", log::LevelFilter::Warn)
+        .filter(|meta| worth_logging(meta.target(), meta.level()))
         .max_file_size(1 << 20)
         .rotation_strategy(RotationStrategy::KeepSome(3))
         .timezone_strategy(TimezoneStrategy::UseLocal);
@@ -360,5 +372,19 @@ mod tests {
             .filter(|l| l.trim_start().starts_with('"') && l.trim_end().ends_with("\","))
             .count();
         assert_eq!(declared, commands.len(), "build.rs declara comandos que no existen");
+    }
+
+    /// El ruido de las bibliotecas no entra al registro; sus errores y todo
+    /// lo de DanPlay, sí.
+    #[test]
+    fn the_log_keeps_what_matters() {
+        use log::Level::{Error, Info, Warn};
+        assert!(!super::worth_logging("lofty::mpeg::properties", Warn));
+        assert!(!super::worth_logging("symphonia_bundle_mp3::layer3", Warn));
+        assert!(!super::worth_logging("symphonia_bundle_mp3::demuxer", Info));
+        assert!(super::worth_logging("symphonia_core::formats::probe", Error));
+        assert!(super::worth_logging("lofty::id3", Error));
+        assert!(super::worth_logging("danplay_app::core", Info));
+        assert!(super::worth_logging("server::startup", Warn));
     }
 }

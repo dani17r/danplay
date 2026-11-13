@@ -113,6 +113,9 @@ pub struct State {
     rw: RwLock<()>,
     /// El ejecutable en uso, una vez elegido.
     current: Mutex<Option<Exe>>,
+    /// Elegirlo (que es lanzarlo, para que diga su versión): de uno en uno,
+    /// y sin `current` cogido.
+    choosing: Mutex<()>,
     /// La versión que dijo cada ejecutable (por su ruta, tamaño y fecha):
     /// preguntársela es lanzarlo.
     versions: Mutex<HashMap<PathBuf, (Stamp, String)>>,
@@ -259,14 +262,25 @@ fn load(app: &App) -> Option<Exe> {
 /// El yt-dlp en uso, o `None` si no hay ninguno que conteste.
 /// Se recuerda mientras su archivo siga ahí.
 pub fn executable(app: &App) -> Option<Exe> {
-    let mut current = lock(&state(app).current);
-    if let Some(exe) = current.as_ref()
-        && exe.path.is_file()
-    {
-        return Some(exe.clone());
+    let known = || {
+        lock(&state(app).current)
+            .as_ref()
+            .filter(|exe| exe.path.is_file())
+            .cloned()
+    };
+    if let Some(exe) = known() {
+        return Some(exe);
+    }
+    // Elegirlo es lanzarlo (más de un segundo), y se hacía con `current`
+    // cogido: `/api/status`, que lo mira a cada rato (`installed`), se
+    // quedaba esperando, y detrás de él la lista. Ahora espera solo quien
+    // también quiere elegirlo.
+    let _one = lock(&state(app).choosing);
+    if let Some(exe) = known() {
+        return Some(exe); // lo eligió otro mientras se esperaba
     }
     let chosen = load(app);
-    current.clone_from(&chosen);
+    lock(&state(app).current).clone_from(&chosen);
     chosen
 }
 

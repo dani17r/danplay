@@ -365,6 +365,10 @@ fn tidy_song(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
 }
 
 const CATEGORIES: [&str; 3] = ["track", "sequence", "tutorial"];
+/// Lo que se admite de largo en las notas del estudio: de sobra para un
+/// pegado grande, y aun así con tope (se guardan las primeras
+/// `library::index::songs::MAX_NOTES` letras).
+const NOTES_ACCEPTED: usize = 100_000;
 
 /// A su carpeta: la Drum Cam a Pistas, el tutorial a Tutoriales y Play
 /// Along, la secuencia a Secuencias.
@@ -852,11 +856,14 @@ fn study_in(b: &mut Fields) -> Value {
         b.absorb(m);
         out.insert("metronome".into(), v);
     }
-    if let Some(items) = models(b, &loc, "markers", 200) {
+    if let Some(items) = models(b, &loc, "markers", library::index::songs::MAX_MARKERS) {
         let v = each(b, items, marker);
         out.insert("markers".into(), Value::Array(v));
     }
-    if let Some(v) = b.str("notes").max_len(4000).opt() {
+    // unas notas más largas de lo que se guarda se recortan al guardar
+    // (`library::index::songs::MAX_NOTES`): rechazarlas dejaba sin guardar
+    // también los tramos, los marcadores y la mezcla
+    if let Some(v) = b.str("notes").max_len(NOTES_ACCEPTED).opt() {
         out.insert("notes".into(), v.into());
     }
     if let Some(mut m) = model(b, &loc, "mixer") {

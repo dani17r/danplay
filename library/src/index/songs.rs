@@ -131,6 +131,13 @@ fn float_or(v: Option<&Value>, default: f64) -> Option<f64> {
 
 /// El texto de un valor que puede faltar, sin espacios a los lados y con `n`
 /// caracteres como mucho.
+/// Los marcadores que se guardan de una canción, y lo que caben sus notas.
+/// La ruta admite lo mismo: admitía 200 marcadores y aquí se guardaban 50
+/// (del 51 en adelante desaparecían al recargar), y con unas notas de más de
+/// 4.000 letras no se guardaba nada del estudio.
+pub const MAX_MARKERS: usize = 200;
+pub const MAX_NOTES: usize = 4000;
+
 fn text_of(v: Option<&Value>, n: usize) -> String {
     let raw = match v {
         Some(x) if value::truthy(x) => value::str_of(x),
@@ -573,7 +580,7 @@ pub fn clean_study(study: &Value, cues_dir: &str) -> String {
             .unwrap_or_default();
         let mut markers: Vec<Dict> = raw_markers
             .iter()
-            .take(50)
+            .take(MAX_MARKERS)
             .filter_map(|m| m.as_object().and_then(marker))
             .collect();
         if !markers.is_empty() {
@@ -586,7 +593,7 @@ pub fn clean_study(study: &Value, cues_dir: &str) -> String {
                 Value::Array(markers.into_iter().map(Value::Object).collect()),
             );
         }
-        let notes = text_of(study.get("notes"), 4000);
+        let notes = text_of(study.get("notes"), MAX_NOTES);
         if !notes.is_empty() {
             clean.insert("notes".into(), notes.into());
         }

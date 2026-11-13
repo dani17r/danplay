@@ -600,6 +600,67 @@ fn with_a_crossfade_the_end_is_announced_ahead_and_the_next_comes_in() {
     m.send(Command::Stop).unwrap();
 }
 
+/// Un archivo que ffmpeg tiene que preparar y no puede (dice ser Opus y no
+/// lo es).
+fn not_really_opus(name: &str) -> String {
+    let file = std::env::temp_dir().join(format!("danplay-test-{}-{name}.opus", std::process::id()));
+    std::fs::write(&file, b"esto no es audio").unwrap();
+    file.to_string_lossy().into_owned()
+}
+
+/// Lo que ffmpeg no puede preparar se dice, y no se vuelve a intentar: se
+/// repetía la orden sin fin, con el reproductor en «preparando» para
+/// siempre y sin un error.
+#[test]
+fn a_file_ffmpeg_cannot_prepare_says_so_and_stops_trying() {
+    if tools::ffmpeg().is_none() {
+        return;
+    }
+    let (m, rx) = handle();
+    let path = not_really_opus("roto");
+    m.send(Command::Play {
+        path: path.clone(),
+        duration: 0.0,
+    })
+    .unwrap();
+    let s = until(&m, |s| !s.error.is_empty());
+    assert!(s.error.contains("ffmpeg no pudo leer"), "{:?}", s.error);
+    let s = until(&m, |s| !s.preparing);
+    assert!(!s.preparing && !s.playing, "{s:?}");
+    // y a la cola: viniendo sola, sigue con la siguiente
+    assert!(announced(&rx, |e| matches!(e, Event::Failed)));
+    let _ = std::fs::remove_file(path);
+}
+
+/// Lo que esperaba a ffmpeg se olvida al pedir otra cosa: cuando ffmpeg
+/// acababa, la orden vieja entraba sobre lo que se hubiera pedido después.
+#[test]
+fn what_waited_for_ffmpeg_is_forgotten_when_something_else_is_asked() {
+    if tools::ffmpeg().is_none() {
+        return;
+    }
+    let (m, _rx) = handle();
+    let path = not_really_opus("olvidado");
+    m.send(Command::Play {
+        path: path.clone(),
+        duration: 0.0,
+    })
+    .unwrap();
+    m.send(Command::Stop).unwrap();
+    // a ffmpeg se le da tiempo de sobra para acabar (y fallar)
+    let deadline = Instant::now() + Duration::from_millis(1500);
+    let mut s = m.state();
+    while Instant::now() < deadline {
+        wait_ms(50);
+        s = m.state();
+        if !s.error.is_empty() {
+            break;
+        }
+    }
+    assert!(s.error.is_empty() && !s.preparing, "{s:?}");
+    let _ = std::fs::remove_file(path);
+}
+
 /// Lo que el motor no lee se prepara aparte y luego suena.
 #[test]
 fn an_opus_file_is_prepared_and_plays() {

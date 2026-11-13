@@ -358,6 +358,40 @@ fn a_failure_is_remembered_until_the_file_changes() {
     );
 }
 
+/// Como si el fallo apuntado de ese archivo fuera de hace `ago`.
+fn age_failure(path: &Path, ago: Duration) {
+    let mut q = QUEUE.lock().unwrap_or_else(PoisonError::into_inner);
+    let failure = q
+        .failed
+        .get_mut(&failure_key(path))
+        .expect("fallo apuntado");
+    failure.at = Instant::now().checked_sub(ago).expect("reloj");
+}
+
+#[test]
+fn a_failure_is_tried_again_after_a_while_but_not_for_ever() {
+    // un fallo del detector se recordaba hasta cerrar DanPlay: por un
+    // tropiezo pasajero, la canción se quedaba con el clic aproximado
+    let app = crate::tests::app();
+    let Some(d) = Detector::start(&app) else {
+        return;
+    };
+    let bad = d.file("sin-pulso.mp3", b"x");
+    for tried in 1..=MAX_TRIES as usize {
+        assert_eq!(request(&app, &bad, true).expect("pedir"), None);
+        assert!(idle(Duration::from_secs(30)));
+        assert_eq!(d.calls().len(), tried);
+        // recién fallado, no se insiste
+        beats_failure(request(&app, &bad, true), "no tiene pulso");
+        assert_eq!(d.calls().len(), tried);
+        age_failure(&bad, RETRY_AFTER);
+    }
+    // a la tercera ya no es un tropiezo: no se vuelve a pasar la red
+    beats_failure(request(&app, &bad, true), "no tiene pulso");
+    assert!(idle(Duration::from_secs(30)));
+    assert_eq!(d.calls().len(), MAX_TRIES as usize);
+}
+
 // ---------------------------------------------------------------- la etiqueta
 
 #[test]

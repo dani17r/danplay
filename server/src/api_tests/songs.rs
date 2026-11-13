@@ -16,6 +16,30 @@ fn study_of(app: &crate::App, cid: i64, body: Value) -> Value {
     }
 }
 
+/// Unas notas muy largas no dejan sin guardar lo demás del estudio (se
+/// rechazaba todo: tramos, marcadores y mezcla), y los marcadores que admite
+/// la ruta son los que se guardan (del 51 en adelante desaparecían).
+#[test]
+fn long_notes_and_many_markers_do_not_lose_the_study() {
+    let Some(app) = api_library() else { return };
+    let cid = get(&app, "/api/search?limit=1")["songs"][0]["id"]
+        .as_i64()
+        .expect("id");
+    let markers: Vec<Value> = (0..120)
+        .map(|i| json!({"t": i, "label": format!("Marca {i}")}))
+        .collect();
+    let study = study_of(
+        &app,
+        cid,
+        json!({"loop": [12.5, 30], "notes": "a".repeat(5000), "markers": markers}),
+    );
+    assert_eq!(study["loop"], json!([12.5, 30.0]));
+    assert_eq!(study["notes"].as_str().map(str::len), Some(4000));
+    let saved = study["markers"].as_array().expect("marcadores");
+    assert_eq!(saved.len(), 120);
+    assert_eq!(saved[119]["label"], "Marca 119");
+}
+
 /// Bucle, velocidad, marcadores y notas viajan con el archivo (etiqueta
 /// ESTUDIO) y vuelven al índice si este se pierde, como las estrellas.
 #[test]

@@ -111,6 +111,26 @@ hecho así, en [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
   dice cuál era y la lista sigue con la siguiente. Y si la lista llega sola
   a un archivo que no se puede abrir, lo salta en vez de pararse (si es uno
   que se eligió a mano, se queda el aviso y no se salta nada).
+- **El reproductor ya no se queda en «preparando» para siempre**: si ffmpeg
+  no podía preparar un archivo (un `.opus` o un `.m4a` dañado), se volvía a
+  intentar sin fin y sin un error. Ahora se dice por qué y, si la lista
+  llegó sola a él, sigue con la siguiente. Y lo que esperaba a ffmpeg se
+  olvida al pedir otra canción: antes, cuando ffmpeg acababa, la vieja
+  entraba sobre la que ya sonaba.
+- **Arreglado, en el clic**: un tropiezo pasajero del detector dejaba la
+  canción con el clic aproximado (un solo tempo) hasta cerrar DanPlay; ahora
+  se vuelve a intentar a los dos minutos, hasta tres veces. Una canción sin
+  pulso claro ya no vuelve a pasar la red entera en cada sesión (lo que oyó
+  se guarda). Y si el núcleo no contesta, el botón del clic no se queda en
+  «Cargando…» para siempre.
+- **Arreglado, en el estudio**: con unas notas de más de 4.000 letras no se
+  guardaba nada (ni tramos, ni marcadores, ni mezcla); ahora se guardan las
+  primeras 4.000 y todo lo demás. Y los marcadores del 51 en adelante
+  desaparecían al recargar: se guardan los 200 que se admiten.
+- **Más ligera**: preguntarle la versión a yt-dlp ya no deja esperando a la
+  lista (más de un segundo al cambiar de vista), y el registro ya no se
+  llena con los avisos de cada rareza de cada archivo (eran nueve de cada
+  diez líneas, y lo útil se iba antes de leerlo).
 - **Los fallos del reproductor se quedan a la vista**: lo que no se pudo
   reproducir salía un instante en la barra y se perdía con el siguiente
   cambio; ahora es un aviso que se queda unos segundos.

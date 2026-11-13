@@ -488,16 +488,22 @@ impl std::fmt::Display for Error {
     }
 }
 
-/// La rejilla de un archivo, de principio a fin, y lo que dijo la red (para
-/// guardarlo). `on_progress(0..1)` según avanza: la app enseña una barra mientras
-/// espera. `library` es la de ONNX Runtime y `graph`, el de Beat This!.
-pub fn analyze(
+/// Lo que dijo la red de un archivo, de principio a fin (para guardarlo: la
+/// rejilla se saca de ahí, `grid::grid`). `on_progress(0..1)` según avanza:
+/// la app enseña una barra mientras espera. `library` es la de ONNX Runtime
+/// y `graph`, el de Beat This!.
+///
+/// No hace la rejilla: si la canción no tiene pulso claro, lo que oyó la red
+/// se devuelve igual y se guarda, y eso se sabe sin pasarla otra vez (antes
+/// fallaba aquí, sin guardar nada, y cada sesión volvía a pasar la red
+/// entera por esa canción).
+pub fn hear(
     ffmpeg: &Path,
     path: &Path,
     library: &Path,
     graph: &Path,
     on_progress: &mut dyn FnMut(f64),
-) -> Result<(grid::Grid, raw::Raw), Error> {
+) -> Result<raw::Raw, Error> {
     let mono = decode(ffmpeg, path).map_err(|e| Error::ReadError(e.to_string()))?;
     let mut net = net::Net::open(library, graph, net::threads()).map_err(Error::Net)?;
     on_progress(READ_SHARE);
@@ -510,25 +516,13 @@ pub fn analyze(
     .map_err(Error::Net)?;
     let (low, low_fps) = low_band(&mono, 150.0).map_err(Error::ReadError)?;
     let seconds = mono.len() as f64 / f64::from(RATE);
-    let b: Vec<f64> = beat.iter().map(|x| f64::from(*x)).collect();
-    let d: Vec<f64> = down.iter().map(|x| f64::from(*x)).collect();
-    let options = grid::Options {
-        grave: Some((&low, low_fps)),
-        has_low: true,
-        duration: Some(seconds),
-        ..grid::Options::default()
-    };
-    let r = grid::grid(&b, &d, options).map_err(Error::Grid)?;
-    Ok((
-        r,
-        raw::Raw {
-            beat,
-            down,
-            low,
-            low_fps,
-            seconds,
-        },
-    ))
+    Ok(raw::Raw {
+        beat,
+        down,
+        low,
+        low_fps,
+        seconds,
+    })
 }
 
 /// Cómo se reconoce un archivo en la caché: ruta absoluta, tamaño y fecha

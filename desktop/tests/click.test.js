@@ -21,7 +21,14 @@ import StudyBar from '../src/components/StudyBar.vue'
 import SliderField from '../src/components/ui/SliderField.vue'
 import StudyTimeline from '../src/components/StudyTimeline.vue'
 import { resetPlayback, usePlayback } from '../src/composables/usePlayback.js'
-import { resetClick, useClick, POLL_MS } from '../src/composables/useClick.js'
+import {
+  resetClick,
+  useClick,
+  POLL_MS,
+  LOAD_LIMIT_MS,
+  ANSWER_MS
+} from '../src/composables/useClick.js'
+import { ApiError } from '../src/api.js'
 import { song } from './support/backend.js'
 import { useContextMenu } from '../src/composables/useContextMenu.js'
 
@@ -200,6 +207,47 @@ describe('automatic click', () => {
     expect(bridge().analyzeBeats).toHaveBeenCalledWith('/musica/mi-gozo.mp3', null)
     expect(w.find('.study-metro-toggle').attributes('disabled')).toBeUndefined()
     expect(w.find('.tl-click-load').exists()).toBe(false)
+    expect(useClick().fallbackWhy.value, 'no hay detector: no es un fallo').toBe('')
+  })
+
+  it('a detector that could not with this song: the approximate click, and why is kept', async () => {
+    // antes no se decía: la canción se quedaba con el clic de un solo tempo
+    // y parecía cosa del clic
+    held.api.beatGridNow.mockRejectedValueOnce(
+      new ApiError('el detector se cerró sin terminar (137)', 422)
+    )
+    await mountView()
+    const click = useClick()
+    expect(bridge().analyzeBeats).toHaveBeenCalledWith('/musica/mi-gozo.mp3', null)
+    expect(click.source.value).toBe('rust')
+    expect(click.fallbackWhy.value).toBe('el detector se cerró sin terminar (137)')
+    // la siguiente, con su clic de verdad, ya no arrastra el motivo
+    held.playback.emit({ ...other, playing: true, position: 0, ...base, path: '/musica/otra.mp3' })
+    await settle()
+    expect(click.source.value).toBe('beat-this')
+    expect(click.fallbackWhy.value).toBe('')
+  })
+
+  it('a core that never answers does not leave it loading for ever', async () => {
+    const usual = held.api.beatGridNow.getMockImplementation()
+    held.api.beatGridNow.mockImplementation(() => new Promise(() => {}))
+    try {
+      const w = await mountView()
+      const click = useClick()
+      expect(click.loading.value).toBe(true)
+      // una respuesta que no llega se vuelve a pedir, no se espera sin fin
+      await vi.advanceTimersByTimeAsync(ANSWER_MS + POLL_MS)
+      expect(held.api.beatGridNow.mock.calls.length).toBeGreaterThan(1)
+      expect(click.loading.value).toBe(true)
+      await vi.advanceTimersByTimeAsync(LOAD_LIMIT_MS + ANSWER_MS)
+      await settle()
+      expect(click.loading.value).toBe(false)
+      expect(click.fallbackWhy.value).toBe('tarda demasiado')
+      expect(bridge().analyzeBeats).toHaveBeenCalledWith('/musica/mi-gozo.mp3', null)
+      expect(w.find('.study-metro-toggle').attributes('disabled')).toBeUndefined()
+    } finally {
+      held.api.beatGridNow.mockImplementation(usual)
+    }
   })
 })
 

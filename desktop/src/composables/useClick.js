@@ -24,7 +24,7 @@
  * bpm (y con los ajustes de la anterior).
  */
 import { effectScope, ref, shallowRef, watch } from 'vue'
-import { api } from '../api.js'
+import { api, ApiError } from '../api.js'
 import { usePlayback } from './usePlayback.js'
 import { ownToGrid } from '../utils/beats.js'
 
@@ -33,6 +33,26 @@ const MODE_KEY = 'danplay.click.mode'
 const MANUAL_KEY = 'danplay.click.manual'
 /** Cada cuánto se pregunta por la rejilla que se está calculando. */
 export const POLL_MS = 700
+/**
+ * Lo que se espera como mucho la rejilla de una canción. El núcleo corta al
+ * detector a los diez minutos; si pasado eso sigue sin contestar, es que algo
+ * se colgó, y el botón no se queda en «cargando» para siempre.
+ */
+export const LOAD_LIMIT_MS = 11 * 60 * 1000
+/** Lo que se espera una respuesta del núcleo antes de volver a preguntar. */
+export const ANSWER_MS = 20000
+/** El núcleo no contestó a tiempo (`within`). */
+const LATE = Symbol('tarde')
+
+/** `promise`, o `LATE` si a los `ms` no ha contestado. @param {Promise<any>} promise @param {number} ms */
+function within(promise, ms) {
+  /** @type {any} */
+  let timer = null
+  const late = new Promise((resolve) => {
+    timer = setTimeout(() => resolve(LATE), ms)
+  })
+  return Promise.race([promise, late]).finally(() => clearTimeout(timer))
+}
 /** Cuántas de las siguientes de la cola se dejan preparadas. */
 export const AHEAD = 3
 
@@ -94,6 +114,14 @@ const loading = ref(false)
 const progress = ref(0)
 /** Por qué no hay rejilla, si falló todo. */
 const error = ref('')
+/**
+ * Por qué el clic es el aproximado (el de Rust) habiendo detector: falló con
+ * esta canción, o tarda demasiado. Vacío si aquí no hay detector, que eso no
+ * es un fallo. Antes no se decía, y el «1» a contrapié parecía cosa del clic.
+ */
+const fallbackWhy = ref('')
+/** Cuándo se empezó a pedir la rejilla de la que suena. */
+let askedAt = 0
 
 /** De qué canción es lo de arriba. */
 let forSong = { id: /** @type {number|null} */ (null), path: '' }
@@ -209,17 +237,24 @@ async function ask(id, path) {
   pollTimer = null
   /** @type {any} sin Beat This! aquí, o la canción no le dio pulso: null */
   let r = null
+  let why = ''
   try {
-    r = await api.beatGridNow(id)
-  } catch {
-    /* se queda en null: la de Rust */
+    r = await within(api.beatGridNow(id), ANSWER_MS)
+  } catch (e) {
+    // 422: el detector no pudo con esta canción (503: aquí no lo hay)
+    if (e instanceof ApiError && e.status === 422) why = e.message
   }
   if (!sameSong(id, path) || !auto.value) return
-  if (r && r.pending) {
-    progress.value = Math.max(progress.value, Number(r.progress) || 0)
-    pollTimer = setTimeout(() => ask(id, path), POLL_MS)
-    return
+  if (r === LATE || r?.pending) {
+    if (Date.now() - askedAt < LOAD_LIMIT_MS) {
+      if (r !== LATE) progress.value = Math.max(progress.value, Number(r.progress) || 0)
+      pollTimer = setTimeout(() => ask(id, path), POLL_MS)
+      return
+    }
+    why = 'tarda demasiado'
+    r = null
   }
+  fallbackWhy.value = why
   if (r) await adopt(id, path, r)
   else await fromRust(id, path)
 }
@@ -239,8 +274,10 @@ async function load() {
   grid.value = null
   source.value = ''
   error.value = ''
+  fallbackWhy.value = ''
   progress.value = 0
   loading.value = true
+  askedAt = Date.now()
   // el de la anterior no puede seguir sonando sobre esta: iría a su tempo
   if (p.metronomeSent().on) await p.setMetronome({ on: false })
   await applySongSettings(id)
@@ -280,6 +317,8 @@ async function reload(fresh = null) {
   stopPolling()
   forSong = { id, path }
   error.value = ''
+  fallbackWhy.value = ''
+  askedAt = Date.now()
   if (fresh?.beats?.length) {
     await adopt(id, path, fresh)
     return true
@@ -470,6 +509,7 @@ export function useClick() {
     loading,
     progress,
     error,
+    fallbackWhy,
     toggle,
     stop,
     setAuto,
@@ -494,6 +534,8 @@ export function resetClick() {
   loading.value = false
   progress.value = 0
   error.value = ''
+  fallbackWhy.value = ''
+  askedAt = 0
   forSong = { id: null, path: '' }
   settingsFor = null
   viewers = 0
