@@ -5,6 +5,24 @@ hecho así, en [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Sin publicar
 
+- **El clic sigue a las canciones que cambian de tempo**: un final en vivo
+  más lento, el paso de una canción a otra en un popurrí, una subida. La
+  cadena de pulsos de toda la canción no podía seguir lo que se iba de su
+  tempo y esos tramos se quedaban sin clic con la banda tocando; ahora cada
+  uno tiene su propia rejilla, a su tempo. Donde la red duda (una parte
+  libre) sigue sin clic, como debe.
+- **Arreglado: el clic a contratiempo en toda la canción**. Si la intro iba
+  medio pulso corrida y el final volvía a esa fase, se tomaba la canción
+  entera por un tropiezo y se corría a la fase de la intro. Ahora manda la
+  fase de la mayoría.
+- **Más canciones a tempo fijo, y con clic de entrada**: los discos de
+  estudio lentos (65-75 bpm) salían todos como «en vivo» por unos
+  milisegundos, con sus huecos. Y a tempo fijo el clic entra ya antes del
+  primer pulso (hasta dos compases) y llega hasta donde la banda deja de
+  tocar a ese tempo. Medido en una biblioteca de 324 canciones (35,6
+  horas): lo que se queda sin clic con pulso sonando baja de 2.587 a 1.024
+  segundos, y las canciones con algún hueco así, de 73 a 25. Las rejillas
+  guardadas se rehacen solas, sin volver a analizar nada.
 - **Recién instalada, suena**: en un sistema recién instalado con PipeWire
   DanPlay «sonaba» sin dar error y no se oía nada, hasta instalar a mano
   `pipewire-alsa`. El motor saca el sonido por ALSA, y ALSA solo llega al

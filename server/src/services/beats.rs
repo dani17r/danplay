@@ -28,7 +28,11 @@ use std::time::Duration;
 
 /// Lo guardado cambia si cambia la red o la forma de sacar la rejilla: con
 /// otro número, se calcula otra vez.
-pub const VERSION: i64 = 3;
+// 4: la fase de la mayoría (y no la del primer trozo), los tramos a otro
+// tempo con su propia rejilla, el tempo fijo medido en parte del pulso y el
+// clic de entrada. Las rejillas guardadas con la 3 se rehacen solas de lo
+// que oyó la red (milisegundos por canción).
+pub const VERSION: i64 = 4;
 /// Lo que puede tardar el detector con una canción.
 pub const TIMEOUT: Duration = Duration::from_secs(600);
 /// La cola es corta: lo que se queda fuera se pedirá cuando toque.

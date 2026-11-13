@@ -230,9 +230,11 @@ fn the_grid_is_worked_out_once_and_kept() {
     };
     let song = d.file("cancion.mp3", b"x");
     let g = api(&grid_of(&app, &song).expect("rejilla"));
+    // a tempo fijo el clic entra desde el principio: un pulso antes del
+    // primero que oyó la red (a 0,5 s), así que el primer «1» es el segundo
     assert_eq!(
-        (&g["bpm"], &g["meter"], &g["bars"][0]),
-        (&json!(120.0), &json!(4), &json!(0))
+        (&g["bpm"], &g["meter"], &g["bars"][0], &g["beats"][0]),
+        (&json!(120.0), &json!(4), &json!(1), &json!(0.0))
     );
     assert!(g.get("ok").is_none());
     assert_eq!(api(&grid_of(&app, &song).expect("rejilla")), g);
