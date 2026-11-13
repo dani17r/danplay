@@ -26,6 +26,43 @@ final, con todo validado (sección «Cómo se valida»).
 
 ---
 
+## Estado (13 de noviembre de 2026, rama `fase-8/mejoras`)
+
+Lo de abajo sigue siendo la revisión tal como se hizo; aquí va lo que ya
+está hecho de ella, todo con su prueba y compilado y probado en Linux. El
+detalle de cada cosa, en `CHANGELOG.md` («Sin publicar»).
+
+| Bloque | Hecho | Queda |
+| --- | --- | --- |
+| A. Instalar y que suene | A1, A2, A3, A4, A5 | A6 (la instalación limpia en Docker), A7 |
+| B. Re-analizar | B1, B2, B4 | B3 (el avance de «con la batería») |
+| C. Exportar | C1, C2, C4, C5 | C3 |
+| D. El clic | D1–D8, D10, D11; D9 en parte (se dice cuándo es el aproximado y por qué) | D12, D13 |
+| E. Al cambiar de canción | E1, E2, E4, E5 | E3 |
+| F. Salidas, guardado, onda | F1, F4, F5, F6, F8, F9 | F3, F7, F10, F11, F12 |
+| G. El reproductor | G1, G2, G3, G4; G7 (las pistas en Ogg Vorbis suenan sin preparar) | G5, G6, G8–G15 |
+| H. Velocidad y tono | — | todo (H5 queda dicho en ARCHITECTURE) |
+| I. El pulso | I1, I2, I3; I5 en parte (manda la fase de la mayoría) | I4, I6–I11 |
+| J. La guía | J1, J3, J5; J6 en parte (la letra con tiempos; el cifrado aún no) | J2, J4, J7, J8, J9 |
+| K. Tono y acordes | K1, K2, K3 | K4, K5 |
+| L. Rapidez | L1, L9 | el resto |
+| M. Mantenimiento | M1, M7; M3 en parte (el banco del pulso, `gridlab`) | M2, M4, M5, M6 |
+
+**F2 no es un fallo**: se decidió que el reparto de las salidas se quede
+como se dejó al salir del estudio, y que valga desde que se abre DanPlay.
+
+**Hecho sin estar en la lista** (se pidió después): una secuencia con
+veintitantas pistas cabe en el estudio; un `.danpista` se abre también en
+la PC; el clic sigue a las canciones que cambian de tempo, medido en toda
+la biblioteca; la guía automática sale de la letra con tiempos.
+
+**Lo que más se notaría de lo que queda**: H1 (el tono sin voz de
+«ardilla»: el estirador ya lo sabe hacer, falta ofrecerlo y oírlo), H9
+(sin hueco entre canciones), H11 (m4a y Opus sin pasar por ffmpeg), I4 (la
+batería separada mejorando el clic sola) y M5 (partir `StudyBar.vue`).
+
+---
+
 ## Fase 1: lo que se pidió arreglar primero
 
 ### A. Instalar y que suene
