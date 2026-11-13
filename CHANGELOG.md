@@ -74,6 +74,19 @@ hecho así, en [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
   guardar una mezcla mientras se guardaba otra decía «Guardada» sin
   escribir nada; y ajustando pulsos a mano, el doble clic que añade un pulso
   quitaba además el tramo que hubiera.
+- **La ventana grande se aprovecha**: Ajustes, Descargas y Entrada iban en
+  una columna de 780 px con media ventana vacía al lado; ahora se reparten
+  en dos columnas (tres en un monitor muy ancho). «Acerca de» y Novedades,
+  en rejilla. La ficha en ventana pone la portada a un lado y los datos y
+  la letra al otro, en vez de una columna estrecha con la portada tapándolo
+  todo; la letra ya no va en una cajita con su propia barra. La búsqueda
+  avanzada enseña sus quince campos de una vez. En ventanas anchas crecen
+  el lateral, la ficha, la cola y el título del reproductor, y la lista
+  fina gana la columna del álbum. Y con la ficha al lado, la tabla esconde
+  antes las columnas de un número para que el título y el artista se lean
+  enteros (sin la ficha, sigue enseñándolas todas como antes).
+- **Arreglado**: los desplegables de abajo del menú «Vista» (tema, tamaño,
+  forma de la ventana) se abrían hacia abajo y se salían de la ventana.
 - **Una secuencia con muchas pistas ya cabe**: con veintitantas pistas la
   onda se comía el modo estudio entero y de las columnas de abajo
   (velocidad, clic, marcadores, notas) solo quedaba el título. Ahora los

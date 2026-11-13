@@ -70,6 +70,21 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* El album solo sale en una ventana ancha: ahi el titulo y el artista se
+   repartian mil pixeles y media fila quedaba vacia. En las demas no cabe. */
+.row-album {
+  display: none;
+  flex: 2 1 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (min-width: 1700px) {
+  .row-album {
+    display: block;
+  }
+}
 .row-extra {
   width: 34px;
   text-align: right;

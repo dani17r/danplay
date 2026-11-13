@@ -168,6 +168,8 @@ const {
           @copied="(ok) => notifyCopied(ok, c.title || c.file)"
         />
         <span class="row-artist sub">{{ c.artist || '—' }}</span>
+        <!-- el álbum: solo en una ventana ancha, que es donde cabe (list-rows.css) -->
+        <span class="row-album sub">{{ c.album || '' }}</span>
         <span class="row-extra sub mono">{{ c.key || '' }}</span>
         <StarRating
           class="row-stars"
