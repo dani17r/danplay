@@ -169,6 +169,11 @@ sin esas dos funciones:
 sudo apt install ffmpeg libchromaprint-tools
 ```
 
+Y para que suene en un Linux con PipeWire hace falta su puente de ALSA
+(`sudo apt install pipewire-alsa`; con PulseAudio, `pulseaudio`). El `.deb`
+lo instala solo, y si falta, DanPlay lo dice al abrirse en vez de quedarse
+callado.
+
 `scripts/build.sh --package` genera además un `.deb` y un `.AppImage`. El
 núcleo va dentro de la app, con sus datos (los modelos del pulso y del
 separador, las voces y ONNX Runtime, que los mueve) y sus programas

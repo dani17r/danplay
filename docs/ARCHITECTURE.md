@@ -165,6 +165,19 @@ manda a la cola. Rust lo decodifica y lo saca a la tarjeta de sonido con el
 para decodificar, un render propio muestra a muestra y cpal para la salida.
 El WebView no toca el audio en ningún momento. Ver «El motor» más abajo.
 
+**Que suene recién instalada (1.41).** cpal habla con ALSA, y en un Linux
+de hoy quien tiene la tarjeta es PipeWire (o PulseAudio): ALSA llega a
+ellos por un puente (`pipewire-alsa`, o el complemento `pulse` de
+`alsa-plugins`) que no todas las instalaciones traen. Sin él, DanPlay
+abría el «default» de ALSA, que iba a la tarjeta a pelo (ocupada por el
+servidor de sonido) o a ninguna parte: no sonaba y no decía nada. Ahora el
+`.deb` lo pide (`Depends: pipewire-alsa | pulseaudio`), el motor abre el
+PCM `pipewire` o `pulse` por su nombre antes que `default`
+(`engine/src/output.rs`, `system_devices`), y al arrancar se mira qué
+servidor de sonido hay y si su puente está (`output::bridge`,
+`dependencies.rs`): si falta, se dice qué instalar. ffmpeg, fpcalc y el
+motor de JS viajan dentro del paquete; ya no se piden al sistema.
+
 Las carátulas sí llegan al WebView, por un protocolo propio
 (`danplay://cover/<id>?size=N`, en `protocol.rs`) que se las pide al núcleo
 sin pasar por el JS. En el modo navegador, el `<audio>` lee
@@ -571,16 +584,19 @@ semitono— y se corre de cuarto en cuarto de tono, de medio en medio o de
 tono en tono, hasta una octava arriba o abajo. El cuarto de tono (medio
 semitono) sirve para ponerse a la par de una grabación que no está afinada
 a 440. Va a Rust en semitonos con fracciones y por el mismo camino que la
-velocidad: ffmpeg reabre la canción donde iba con `rubberband=tempo:pitch`
-(tiempo y tono a la vez, buena calidad; lo traen el ffmpeg de Debian y el
-que va en el paquete de Windows) o, si no está, `asetrate`+`atempo`; los
-dos admiten cualquier factor. Se guarda con la canción y se enseña el tono
+velocidad: el estirador del motor (Signalsmith Stretch,
+`engine/src/stretch.rs`) cambia el tono sin tocar el tiempo y el tiempo sin
+tocar el tono, sobre lo que ya está sonando: no se reabre la canción ni pasa
+por ffmpeg, y admite cualquier factor. Se guarda con la canción y se enseña el tono
 resultante («G → A») si el índice sabe el tono original; con un cuarto de
 tono no hay nombre de tonalidad y se dice de cuál se parte, «G +¼».
 
-**Metrónomo.** Un clic sintetizado en un sink aparte del mezclador de rodio
-(`metronome.rs`): tiene su volumen y su play/pausa, independientes de la
-canción. El pulso y el «1» los saca **Beat This!** (CPJKU, 2024, MIT) en el
+**Metrónomo.** Un clic sintetizado que el propio motor suma encima de la
+canción (`engine/src/click.rs` el sonido; `engine/src/metro.rs` los ajustes
+y qué pulso toca en cada trozo): tiene su volumen y su encendido,
+independientes de la canción, y cae en la muestra de su pulso a cualquier
+velocidad porque cada trozo sabe qué muestras de la canción se están
+oyendo. El pulso y el «1» los saca **Beat This!** (CPJKU, 2024, MIT) en el
 núcleo (`analysis/src/pulse.rs`, `analysis/src/beatgrid.rs`): una red que
 mira el espectrograma y dice,
 cada 50 avos de segundo, lo probable que es un pulso y que sea el «1». Va
@@ -749,13 +765,14 @@ tal como suena —con el doble, el compás y el «1» corrido—, que la interfa
 rehace igual que Rust (`utils/beats.js`).
 
 **Volumen.** La canción sube hasta un 150 % (también desde el reproductor)
-y el clic hasta el doble: para las grabaciones flojas y para oír el clic
-por encima de una mezcla cargada. Todo lo que suena pasa por un
-**limitador** (`player/output.rs`: la canción y el clic van a un mezclador
-propio que sale por el `Limit` de rodio): con el umbral pegado al tope, a
+y el clic hasta el triple (300 %, `metro::MAX_VOLUME`): para las
+grabaciones flojas y para oír el clic por encima de una mezcla cargada, con
+la batería sonando al lado. Todo lo que suena pasa por un **limitador** al
+final del motor (`engine/src/render.rs`, `Limiter`; la salida lo aplica
+donde se suman la canción que entra y la que sale en un fundido): a
 volumen normal no toca ni una muestra; lo que se pasaría baja en esa misma
-muestra en vez de recortarse en seco en la salida, y se recupera en 80 ms,
-así que con el clic al doble la canción cede un instante en cada golpe. La
+muestra en vez de recortarse en seco, y se recupera en unos 100 ms, así que
+con el clic muy alto la canción cede un instante en cada golpe. La
 rueda de la bandeja y las flechas se paran en el 100 %: pasar de ahí es a
 propósito.
 
@@ -776,23 +793,27 @@ canción**: al mandarla a la papelera, y al escanear si desapareció por
 fuera (el escaneo poda además las que no correspondan a ninguna canción del
 índice). El estudio en sí es una columna de la fila, así que se va solo.
 
-La velocidad la aplica ffmpeg
-(`atempo`) al decodificar —cualquier formato pasa por él cuando no es 1×—,
-así que el tono no se mueve; rodio cuenta entonces en tiempo de salida y el
-reproductor convierte a segundos de la canción en las posiciones, las
-búsquedas y el bucle. `atempo` y `rubberband` estiran por ventanas y lo que
-suena sale unos milisegundos antes de esa cuenta: medido con golpes a
-instantes exactos, unos 7 ms de canción entre 0,7× y 0,95×, 11 ms más
-despacio y 13 ms con el tono corrido. El clic llegaba tarde (20 ms de reloj
-a 0,5×); la posición suma ese adelanto (`transcode::filter_lead`). A 1× la
-canción va por rodio y coincide muestra a muestra con lo que se analizó. Sin ffmpeg, rodio cambia la velocidad a la antigua y
-la barra avisa de que el tono cambia. Los tramos viven en el hilo de audio
-(al pasar del final de uno, al principio del siguiente), y en el navegador
-los recorre el `<audio>`. Lo que se
-marca se guarda con la canción, en el índice y en una etiqueta del archivo
-(`ESTUDIO`, JSON), y se recupera al escanear si el índice se pierde, como
-las estrellas y las listas. Al cerrar la barra, la canción vuelve a sonar
-normal.
+La velocidad y el tono los aplica el motor (`engine/`, descrito en «La app
+del celular»: es el mismo en la PC desde la 1.40). Si no son los normales,
+la suma de lo que suena pasa por Signalsmith Stretch; a 1× y sin tono no
+pasa, y lo que suena coincide muestra a muestra con lo que se analizó. La
+posición se cuenta siempre en muestras de la canción, descontando lo que
+retrasa el estirador, así que la aguja, los tramos y el clic no dependen de
+la velocidad (con ffmpeg, que estiraba al decodificar, había que sumar a
+mano un adelanto medido de 7 a 13 ms). ffmpeg solo queda para lo que
+symphonia no lee (ver «Los formatos que el decodificador no conoce»): se
+pasa una vez a FLAC y de ahí suena como cualquier otro. Los tramos se
+resuelven en el hilo que alimenta al motor (`feeder.rs`: al pasar del final
+de uno, al principio del siguiente, con 4 ms de fundido en la costura), y
+en el navegador los recorre el `<audio>`. La velocidad va de 0,5× a 2× con
+la misma lista en el estudio y en el reproductor (`usePlayback.SPEEDS`), y
+no se queda puesta de un día para otro: es de la canción, y vuelve con su
+estudio. Lo que se marca se guarda con la canción, en el índice y en una
+etiqueta del archivo (`ESTUDIO`, JSON), y se recupera al escanear si el
+índice se pierde, como las estrellas y las listas. Al cerrar la barra, la
+canción vuelve a sonar normal (entera, a su velocidad y sin clic); lo que
+no se toca es el reparto de las salidas, que se queda como se dejó y vale
+desde que se abre DanPlay.
 
 ### El clic sin silencios ni saltos (1.28)
 
@@ -826,6 +847,56 @@ va en Rust (`analysis/src/beatgrid.rs`, y lo guardado en
 `library/src/beatgrid.rs`, leído y escrito byte a byte como lo escribía el
 `json` de Python), y también la cola, su hilo y el proceso del detector
 (`services::beats`).
+
+### El clic que sigue los cambios de tempo (1.41)
+
+Un final en vivo más lento, el paso de una canción a otra en un popurrí,
+una subida: la cadena de pulsos de toda la canción (`chain`, programación
+dinámica con un coste por salirse del tempo) no podía seguir lo que se iba
+de su tempo, y esos tramos se quedaban **sin clic con la banda tocando**.
+Medido antes de tocar nada, en las 324 canciones de una biblioteca de
+alabanza (35,6 horas, con lo que oyó la red ya guardado): 2.587 segundos
+así, en 73 canciones. Lo que cambió en `pulse::grid`:
+
+- **Rescatar los tramos a otro tempo** (`rescue`): donde la cadena deja un
+  hueco con máximos seguros de la red dentro, se hace otra cadena solo con
+  ese tramo, a su propio tempo y con el coste de tempo más suelto. Se
+  queda si es regular (tres de cada cuatro intervalos a su tempo), si dura
+  al menos cinco segundos y tiene seis pulsos claros: un redoble de batería
+  no es un cambio de tempo.
+- **No rellenar lo que no se oye** (`fill`): un hueco largo solo se rellena
+  si la red oye algo donde irían los pulsos que se pondrían; una parte
+  libre (un piano solo, una oración) se queda sin clic, que es lo suyo.
+- **La fase de la mayoría** (`repair_flips`): se tomaba por buena la fase
+  del primer trozo, y si la intro iba medio pulso corrida y el final volvía
+  a ella, la canción **entera** se llevaba a contratiempo («Como David»,
+  «La Sunamita»). Ahora manda la fase en que está la mayor parte.
+- **Tempo fijo con margen** (`steady_range`): los discos de estudio lentos
+  (65-75 bpm) salían como «en vivo» por unos milisegundos. A tempo fijo el
+  clic entra hasta dos compases antes del primer pulso oído (`LEAD_IN`) y
+  llega hasta donde la banda deja de tocar a ese tempo.
+
+Después: 1.024 segundos sin clic con pulso sonando (25 canciones), los
+pulsos sin nada de la red cerca bajan de 22.095 a 17.984, los máximos
+claros que caen entre dos pulsos de 21.840 a 17.999, y las canciones a
+tempo fijo pasan de 150 a 184. Como lo que oyó la red está guardado, las
+rejillas se rehacen solas al subir la versión de la caché
+(`services::beats::VERSION`), en milisegundos.
+
+**El banco** (`analysis/examples/gridlab.rs`) es con lo que se midió: pasa
+la rejilla por todos los `.npz` de una carpeta y da, por canción, lo que se
+puede medir sin que nadie haya anotado los pulsos a mano (lo que se queda
+sin clic con máximos seguros dentro, el clic inventado, los máximos a
+contratiempo y el mapa de tempo por tramos). Una biblioteca entera son unos
+segundos, así que cada cambio en la rejilla se compara con el anterior
+canción a canción. No sustituye a oír: dice dónde mirar.
+
+El detector también es menos frágil: un fallo se vuelve a intentar a los
+dos minutos, hasta tres veces (antes se recordaba hasta cerrar la app, y
+la canción se quedaba con la rejilla de reserva); lo que oyó la red se
+guarda aunque la canción no tenga pulso claro (`pulse::hear` no hace la
+rejilla: la hace quien la pide), y la interfaz tiene plazo y recuerda por
+qué va el clic aproximado (`useClick.fallbackWhy`).
 
 ## Separar en pistas
 
@@ -957,11 +1028,11 @@ canciones sueltas y, si el índice se pierde, las vuelve a unir con su
 canción (`stems.relink`). En el índice solo va dónde están (`songs.stems`,
 de la migración 4). Se van a la papelera con la canción.
 
-**Sonar juntas sin desfasarse.** Un solo ffmpeg lee todas las pistas a la
-vez y las junta (`amerge`) en un flujo de dos canales por pista: empiezan en
-la misma muestra, y la velocidad, el tono, los saltos y el bucle les pasan a
-todas por igual, por el mismo camino que a una canción que pasa por ffmpeg.
-El render del motor las suma con el volumen y el panorama de cada una, que
+**Sonar juntas sin desfasarse.** Cada pista es una parte más de la canción
+para el motor, y un mismo hilo las decodifica a la par, bloque a bloque
+(`engine/src/feeder.rs`): empiezan en la misma muestra, y la velocidad, el
+tono, los saltos y los tramos les pasan a todas por igual, porque se aplican
+a lo que ya va junto. El render del motor las suma con el volumen y el panorama de cada una, que
 le llegan por su buzón: callar la batería no reabre nada, y el cambio se hace
 en unos milisegundos (en seco se oye un clic). La
 prueba de que no se desfasan es una pista y su contraria, que se anulan del
@@ -971,7 +1042,9 @@ todo.
 canción sin batería para practicar con el móvil—, tal cual o como suena (a
 otra velocidad y tono). El volumen y el panorama se aplican con la misma
 cuenta que el reproductor, y un limitador al final evita que la suma se
-recorte. Solo dentro de la biblioteca y sin pisar una canción suya; si no
+recorte. Exportar «como suena» lo hace ffmpeg (`rubberband` si lo trae, o
+`asetrate` y `atempo`), no el estirador con que se oye: el tiempo y el tono
+son los mismos, el timbre puede no serlo (está en el plan, H5). Solo dentro de la biblioteca y sin pisar una canción suya; si no
 cae dentro de una carpeta de pistas, entra en la biblioteca como una más.
 
 ### Más instrumentos: la máxima calidad
@@ -1737,6 +1810,24 @@ con una frase y, donde ayuda, una animación de CSS que se mueve sola
 (si tiene medidas: en las pruebas no) y con «?». Los pasos sin sitio a la
 vista se saltan.
 
+**La guía, por la letra (1.41).** Las partes salían solo de cómo suena
+(`analysis/src/structure.rs`), y con estrofa y coro sobre los mismos
+acordes los confundía, o llamaba «coro» al puente por sonar más fuerte.
+Si la canción tiene letra con tiempos —la guardada, o la de LRCLIB de esa
+misma grabación (misma duración, ±3 s), que se baja sola—, salen de lo que
+se canta (`library/src/parts.rs`): las líneas se agrupan en bloques por sus
+pausas; el bloque que vuelve en más sitios distintos de la canción es el
+coro (no el que más se repite seguido: eso suele ser un puente); lo que no
+se repite son estrofas, numeradas por su letra (la misma cantada otra vez
+conserva su número); lo que va justo antes del coro, tras una estrofa, es
+el pre coro, y lo que aparece tarde y no es ninguna de las dos, el puente.
+Los trozos sin letra son la intro, los instrumentales y el final. Cada
+parte se lleva al «1» más cercano del clic. El orden de fuentes es: las
+partes que ya vinieran dadas, las de una secuencia (sus marcadores), la
+letra y, si no hay nada de eso, el sonido; el resultado dice de dónde salió
+(`source`) y la interfaz lo enseña. Se ajustó contra letras de verdad de
+LRCLIB (cinco canciones de la biblioteca), no contra ejemplos inventados.
+
 ## La app del celular
 
 Pedido el 14 de octubre: el reproductor en el teléfono, **sin** convertir,
@@ -1766,14 +1857,28 @@ iría). Con una canción de 4:54 y cinco partes: FLAC 86 MB, MP3 a 256 kbps
 cinco). Opus queda fuera porque symphonia no lo decodifica. Si el ffmpeg de la
 PC no sabe hacer Vorbis, van en MP3.
 
+**En la PC también (1.41).** Hasta ahora solo lo abría el celular, así que
+lo que un compañero preparaba en su equipo no se podía abrir en otro. Abrir
+un `.danpista` en la PC (`library::bundle::unpack`, `services::bundle::import`;
+«Abrir DanPista» en la barra, o con DanPlay desde fuera) lo deja en la
+biblioteca como una canción más: la mezcla en `Artistas/<artista>/` (mp3 a
+320), las partes en `Separadas/` con su manifiesto, y el pulso, el estudio,
+la letra y el cifrado donde viven los de cualquier otra. Si la canción ya
+está en la biblioteca (`reuse::twins`) no se trae otra vez: se enseña la
+que hay. Los nombres de dentro del ZIP se comprueban uno
+a uno y hay tope de tamaño por entrada y en total, contando lo que de
+verdad se escribe.
+
 ### El motor: `engine/`
 
-En la PC, mezclar las partes y cambiar la velocidad sin cambiar el tono lo
-hace ffmpeg, que en el teléfono no existe. El motor es Rust puro, salvo el
-estirador:
+Nació para el teléfono, donde no hay ffmpeg, y desde la 1.40 es también el
+reproductor de la PC (`desktop/src-tauri/src/player/engine.rs` lo maneja):
+una sola manera de mezclar, estirar y poner el clic, y lo que se arregla en
+un sitio queda arreglado en el otro. Es Rust puro, salvo el estirador:
 
-- **Decodificar** (`decode.rs`): cada parte desde memoria (los bytes se leen
-  enteros al abrir: nunca se lee del disco en el hilo de audio). Lo que sale se
+- **Decodificar** (`decode.rs`): cada parte desde memoria en el teléfono
+  (los bytes se leen enteros al abrir) o del archivo en la PC; nunca se lee
+  del disco en el hilo de audio. Lo que sale se
   coloca por la **marca de tiempo de cada paquete**: medido, el primer paquete
   de Vorbis tras un salto no da audio y, contando desde donde dejaba el salto,
   todo salía 1024 muestras corrido. Y se salta 4096 muestras antes de lo
@@ -1782,7 +1887,10 @@ estirador:
 - **Alimentar** (`feeder.rs`): un hilo decodifica todas las partes a la par
   en bloques de 1024 muestras, 1,5 s por delante. Los bloques van y vuelven
   por dos anillos sin candados: el hilo de audio no pide memoria ni espera. Un
-  salto empieza una «generación» nueva y los bloques viejos se tiran. Los
+  salto empieza una «generación» nueva y los bloques viejos se tiran. Si un
+  archivo dañado hace caer al decodificador a media canción, la canción se
+  acaba ahí y se dice (`fill_safely`; antes el hilo moría y el reproductor
+  seguía «sonando» en silencio). Los
   tramos se resuelven aquí, **como en la PC**: un tramo nuevo no mueve la
   canción (entra cuando llega a él) y con tramos la canción no se acaba;
   4 ms de fundido a cada lado de la costura.
@@ -2106,7 +2214,8 @@ El crate del núcleo llegó a estimarlos por señal (cromagramas y FFT), pero
 medido contra valores conocidos acertaba el tono en 2 de 8 canciones y el
 tempo en 5 de 8, y ya nadie lo usaba: se quitó, y con él `rustfft` del crate.
 Lo que sí se analiza por señal es **el pulso** para el metrónomo del modo
-estudio (`beats.rs`, en la app de escritorio): por bloques, sin cargar la
+estudio: con Beat This! en el núcleo y, donde no lo hay, con la rejilla de
+reserva del motor (`engine/src/beats.rs`): por bloques, sin cargar la
 canción entera en memoria (unos 9 MB por hora de audio; antes 320).
 
 Si alguien sabe de detección de tonalidad, sigue siendo probablemente el sitio
