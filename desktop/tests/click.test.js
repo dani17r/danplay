@@ -19,6 +19,7 @@ vi.mock('../src/api.js', async (importOriginal) => {
 
 import StudyBar from '../src/components/StudyBar.vue'
 import SliderField from '../src/components/ui/SliderField.vue'
+import StudyTimeline from '../src/components/StudyTimeline.vue'
 import { resetPlayback, usePlayback } from '../src/composables/usePlayback.js'
 import { resetClick, useClick, POLL_MS } from '../src/composables/useClick.js'
 import { song } from './support/backend.js'
@@ -446,5 +447,60 @@ describe('leaving the study', () => {
     await settle()
     await vi.advanceTimersByTimeAsync(POLL_MS * 2)
     for (const [sent] of bridge().setMetronome.mock.calls) expect(sent.on).not.toBe(true)
+  })
+})
+
+// El tempo que se enseña es el que se oye. El motor lleva los golpes del
+// clic en tiempo de canción, también con el tempo a mano: a 0,8×, un 100
+// suena a 80. Se enseñaba 100, y «+» guardaba un tempo que no era.
+describe('the tempo shown at another speed', () => {
+  const metro = (over) => ({ ...base.metronome, has_grid: true, ...over })
+  const shown = (w) => w.find('.study-bpm').find('input').element.value
+
+  it('a hand-set tempo is shown as it sounds, and «+» adds to what sounds', async () => {
+    held.state.songs = [
+      song(7, { title: 'Mi Gozo', study: JSON.stringify({ speed: 0.8, metronome: { bpm: 100 } }) })
+    ]
+    held.playback.emit({ speed: 0.8, metronome: metro({ bpm: 100, free: true }) })
+    const w = await mountView()
+    held.playback.emit({ speed: 0.8, metronome: metro({ bpm: 100, free: true }) })
+    await settle()
+    expect(String(shown(w))).toContain('80')
+    bridge().setMetronome.mockClear()
+    await w.findAll('.study-bpm-step').at(-1).trigger('click')
+    await settle()
+    // 81 oídos a 0,8× son 101,25 de canción
+    expect(bridge().setMetronome).toHaveBeenLastCalledWith(expect.objectContaining({ bpm: 101.25 }))
+  })
+})
+
+// Ajustar pulsos a mano con ×2 o «el 1 es el siguiente» puestos: lo ajustado
+// ya los lleva, y a Rust hay que quitárselos (los aplicaba otra vez encima).
+describe('adjusting beats with ×2 on', () => {
+  it('the double and the shifted «1» are taken off in the engine too', async () => {
+    held.state.songs = [
+      song(7, { title: 'Mi Gozo', study: JSON.stringify({ metronome: { mult: 1, shift: 1 } }) })
+    ]
+    const w = await mountView()
+    // de entrada, los de la canción
+    expect(bridge().setMetronome).toHaveBeenCalledWith(
+      expect.objectContaining({ mult: 1, shift: 1 })
+    )
+    bridge().setMetronome.mockClear()
+    const timeline = w.findComponent(StudyTimeline)
+    timeline.vm.$emit('update:grid', {
+      ...GRID,
+      beats: GRID.beats.slice(0, 40),
+      bars: [0, 4, 8]
+    })
+    await settle()
+    await vi.advanceTimersByTimeAsync(800)
+    await settle()
+    expect(bridge().setMetronome).toHaveBeenCalled()
+    for (const [sent] of bridge().setMetronome.mock.calls) {
+      expect([sent.mult, sent.shift], 'ya no van el doble ni el «1» corrido').toEqual([0, 0])
+      // y los pulsos ajustados no viajan con los ajustes: van por su rejilla
+      expect(sent.own).toBeUndefined()
+    }
   })
 })

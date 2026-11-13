@@ -1008,6 +1008,14 @@ onMounted(async () => {
   preloadWhenIdle([islands.details, islands.selectionBar, islands.searchResults])
   offerToBeDefault()
   warnAboutSound()
+  // La salida de audio y el reparto que se dejaron elegidos, desde ya. Solo
+  // los ponía el modo estudio al abrirse: con una interfaz elegida, cada
+  // arranque sonaba por la del sistema, y al abrir el estudio la salida se
+  // reabría a mitad de canción. (`useRouting` los manda al motor la primera
+  // vez que alguien lo usa; aquí, aparte, para no cargarlo con la lista.)
+  if (api.inTauri) {
+    import('./composables/useRouting.js').then((m) => m.useRouting()).catch(() => {})
+  }
   termsAtStart()
   // la primera vez no hay nada que contar; tras actualizar, se avisa una vez
   if (!newsSeen.value) markNewsSeen()

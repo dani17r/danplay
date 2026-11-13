@@ -768,12 +768,13 @@ const shownGrid = computed(() => {
   })
 })
 
-/** El tempo que se oye: siguiendo la cancion, el suyo por la velocidad; a mano, el puesto. */
-const bpmHeard = computed(() => {
-  const m = metronome.value
-  const base = m.bpm || 0
-  return m.free ? base : base * speed.value
-})
+/**
+ * El tempo que se oye: el del clic por la velocidad. También con el tempo a
+ * mano: el motor lleva sus golpes en tiempo de canción (así no se despega de
+ * ella), y a 0,8× un 100 suena a 80. Se enseñaba 100, y al tocar «+»
+ * siguiendo la canción a 0,8× (96 oídos) se guardaba 97, que sonaba a 77,6.
+ */
+const bpmHeard = computed(() => (metronome.value.bpm || 0) * speed.value)
 const bpmShown = computed(() => (bpmHeard.value ? formatBpm(bpmHeard.value) : '—'))
 /** Lo que se esta escribiendo en el tempo (o null: se enseña el que va). */
 const bpmDraft = ref(null)
@@ -825,9 +826,12 @@ function onClickLane(patch) {
  * puestos se guarda el tempo sin ellos: al quitarlos, vuelve al que era.
  */
 function setBpm(heard) {
-  // a mano no hay doble ni mitad: el tempo es el que se oye
-  if (!click.auto.value) return click.setManual({ bpm: round2(clamp(heard, 20, 300)) })
-  const base = heard / multFactor(metronome.value.mult)
+  // lo que se escribe es lo que se quiere oír: a otra velocidad, el tempo
+  // del clic (en tiempo de canción) es ese entre la velocidad
+  const own = heard / (speed.value || 1)
+  // a mano no hay doble ni mitad
+  if (!click.auto.value) return click.setManual({ bpm: round2(clamp(own, 20, 300)) })
+  const base = own / multFactor(metronome.value.mult)
   return metroPatch({ bpm: round2(clamp(base, 20, 300)) })
 }
 function bumpBpm(delta) {
@@ -923,6 +927,10 @@ async function onOwnGrid(edited) {
   delete study.value.metronome.mult
   scheduleSave()
   await flushSave()
+  // Lo ajustado ya lleva el doble, la mitad y el «1» corrido que se veían:
+  // a Rust también hay que quitárselos, o los aplica otra vez encima (el
+  // clic al cuádruple, o el «1» corrido dos veces, con la onda bien pintada).
+  await player.setMetronome({ mult: 0, shift: 0 })
   await click.applyOwn(id, own)
 }
 /** Empezar el propio desde el automático, o quitarlo (vuelve el automático). */

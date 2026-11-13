@@ -1714,3 +1714,29 @@ describe('the sound bridge', () => {
     expect(said.some((m) => m.includes('no se oiga'))).toBe(false)
   })
 })
+
+// La salida de audio y el reparto elegidos se aplican al abrir DanPlay. Solo
+// los ponía el modo estudio al abrirse: hasta entonces, todo sonaba por la
+// salida del sistema.
+describe('the audio output chosen', () => {
+  it('is applied when the app starts, without opening the study', async () => {
+    const { resetRouting } = await import('../src/composables/useRouting.js')
+    resetRouting()
+    localStorage.setItem(
+      'danplay.outputs',
+      JSON.stringify({ device: 'alsa:hw:CARD=Scarlett,DEV=0', preset: 'split' })
+    )
+    resetRouting()
+    playback.bridge.setOutput.mockClear()
+    await mountView()
+    await flushPromises()
+    await new Promise((r) => setTimeout(r, 20))
+    await flushPromises()
+    expect(playback.bridge.setOutput).toHaveBeenCalledWith(
+      expect.objectContaining({ device: 'alsa:hw:CARD=Scarlett,DEV=0' })
+    )
+    expect(playback.bridge.setRouting).toHaveBeenCalled()
+    localStorage.removeItem('danplay.outputs')
+    resetRouting()
+  })
+})

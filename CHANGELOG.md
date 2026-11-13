@@ -80,6 +80,17 @@ hecho así, en [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
   que se puede usar y, si aun así no caben, los carriles se desplazan con
   la regla de los minutos a la vista. Con pocas pistas y en «Grande», al
   revés: los carriles y la onda crecen para llenar la pantalla.
+- **Arreglado, en el clic**: con el clic parado el estudio decía «tempo a
+  mano» y ofrecía «el de la canción» aunque la siguiera; con la velocidad
+  cambiada, el tempo a mano se enseñaba sin la velocidad (a 0,8×, un 100
+  suena a 80 y ponía 100) y «+» guardaba otro; la cuenta de entrada, con el
+  clic apagado, empezaba siempre en «1» en vez de caer en el pulso de la
+  canción; y ajustar pulsos a mano con ×2 o «el 1 es el siguiente» puestos
+  los aplicaba dos veces (el clic al cuádruple, con la onda bien pintada).
+- **La salida de audio elegida vale desde que se abre DanPlay**: la salida
+  y el reparto (el clic a un lado, la música al otro) solo se ponían al
+  abrir el modo estudio; hasta entonces todo sonaba por la del sistema, y
+  al abrirlo la salida se reabría a mitad de canción.
 - **La velocidad** ya no se queda puesta de un día para otro: la del
   estudio se guarda con su canción y vuelve con ella, pero cerrando DanPlay
   con una canción al 70 % sonaba todo al 70 % al abrirlo. Y el botón de

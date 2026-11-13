@@ -741,7 +741,11 @@ function setMetronome(patch) {
 }
 /** Los ajustes por canción (lo guardado con ella, o nada), sin tocar on/volumen. */
 function resetMetronomeOverrides(overrides = {}) {
-  Object.assign(metronomeSettings, { bpm: null, meter: null, shift: 0, mult: 0 }, overrides)
+  // (`own`, los pulsos ajustados a mano, no es un ajuste del metrónomo: va
+  // a Rust como rejilla, y aquí viajaba entero, miles de números, en cada
+  // cambio de volumen del clic)
+  const { own: _own, ...settings } = /** @type {any} */ (overrides)
+  Object.assign(metronomeSettings, { bpm: null, meter: null, shift: 0, mult: 0 }, settings)
   return send((b) => b.setMetronome({ ...metronomeSettings }))
 }
 /**
