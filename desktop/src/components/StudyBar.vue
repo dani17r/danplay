@@ -2280,7 +2280,17 @@ function fitTimeline() {
     if (child !== tl && !child.classList.contains('study-body')) others += child.offsetHeight
   }
   const rest = tl.scrollHeight - box.offsetHeight
-  const next = roomFor({ inner, pad, others, gap, rows, rest })
+  // lo que piden las columnas de los mandos (velocidad y tono, y el clic):
+  // la suma de lo suyo, que no depende del alto que tengan ahora. Las de
+  // los marcadores y las notas se estiran o se desplazan: no cuentan.
+  let wanted = 0
+  for (const col of [...el.querySelectorAll('.study-body > .study-col')].slice(0, 2)) {
+    const between = parseFloat(getComputedStyle(col).rowGap) || 0
+    const items = [...col.children]
+    const sum = items.reduce((total, item) => total + item.offsetHeight, 0)
+    wanted = Math.max(wanted, sum + between * Math.max(0, items.length - 1))
+  }
+  const next = roomFor({ inner, pad, others, gap, rows, rest, wanted })
   // de dos en dos píxeles: que un redondeo no la tenga midiendo sin parar
   if (waveRoom.value == null || Math.abs(next - waveRoom.value) >= 2) waveRoom.value = next
 }

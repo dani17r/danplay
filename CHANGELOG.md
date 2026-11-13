@@ -85,6 +85,11 @@ hecho así, en [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
   fina gana la columna del álbum. Y con la ficha al lado, la tabla esconde
   antes las columnas de un número para que el título y el artista se lean
   enteros (sin la ficha, sigue enseñándolas todas como antes).
+- **El modo estudio ya no corta sus mandos**: en la ventana de un portátil
+  (1536×864) las tarjetas del tono y del clic quedaban cortadas por abajo,
+  con cuatro filas de la lista encima. Ahora el estudio coge el alto que
+  piden esas tarjetas si la ventana lo da (dejando un par de filas de la
+  lista), y la onda sigue igual de alta.
 - **Arreglado**: los desplegables de abajo del menú «Vista» (tema, tamaño,
   forma de la ventana) se abrían hacia abajo y se salían de la ventana.
 - **Una secuencia con muchas pistas ya cabe**: con veintitantas pistas la

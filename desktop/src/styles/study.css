@@ -761,8 +761,15 @@
    baja), la línea de tiempo se desplaza por dentro. Antes la onda se comía
    el panel y de las columnas solo quedaba el título. */
 @media (min-width: 701px) {
+  /* lo de siempre, o 588 px si aun así quedan 100 de lista por encima: es lo
+     que piden las tarjetas del tono y del clic para verse enteras (a 1536x864,
+     un portátil al 125 %, quedaban cortadas con cuatro filas de lista
+     encima). El reparto de dentro lo hace `studyFit`. */
   .study.desk {
-    height: min(max(52vh, 520px), calc(100vh - var(--player-h) - 56px));
+    height: max(
+      min(max(52vh, 520px), calc(100vh - var(--player-h) - 56px)),
+      min(588px, calc(100vh - var(--player-h) - 156px))
+    );
   }
   .study.desk.with-lanes {
     height: min(max(74vh, 560px), calc(100vh - var(--player-h) - 48px));

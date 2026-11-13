@@ -4,6 +4,7 @@ import {
   BODY_MIN,
   LANE_MAX,
   LANE_MIN,
+  WAVE_MIN,
   bodyHeight,
   laneHeight,
   waveRoom
@@ -39,6 +40,19 @@ describe('the height of the study, shared out', () => {
     const room = waveRoom({ ...panel, inner: 1004 })
     expect(laneHeight(6, room)).toBe(LANE_MAX)
     expect(laneHeight(6, 200)).toBe(33)
+  })
+
+  it('the body gets what its cards ask for, when there is room', () => {
+    // a 1536x864 las tarjetas del tono y del clic (266 px) quedaban cortadas
+    // con el cuerpo a 200
+    expect(bodyHeight(588, 266)).toBe(266)
+    expect(bodyHeight(588, 900), 'con su tope').toBe(BODY_MAX)
+    const small = { pad: 22, others: 61, gap: 8, rows: 4, rest: 112, wanted: 266 }
+    expect(waveRoom({ ...small, inner: 588 })).toBe(588 - 22 - 61 - 24 - 112 - 266)
+    // sin sitio para las dos cosas, la onda conserva su mínimo y el cuerpo
+    // cede lo que pedía de más (nunca por debajo de lo suyo)
+    expect(waveRoom({ ...small, inner: 536 })).toBe(WAVE_MIN)
+    expect(waveRoom({ ...small, inner: 480 })).toBe(480 - 22 - 61 - 24 - 112 - BODY_MIN)
   })
 
   it('a panel too small leaves no room, never a negative one', () => {

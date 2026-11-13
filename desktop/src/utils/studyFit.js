@@ -12,6 +12,8 @@
 /** Lo que se le guarda al cuerpo como poco y como mucho, en px. */
 export const BODY_MIN = 200
 export const BODY_MAX = 300
+/** Lo que mide la onda como poco: por debajo ya no se distingue nada. */
+export const WAVE_MIN = 80
 /** Lo que mide un carril como poco y como mucho, en px. */
 export const LANE_MIN = 20
 export const LANE_MAX = 60
@@ -19,25 +21,32 @@ export const LANE_MAX = 60
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v))
 
 /**
- * El alto que se le guarda al cuerpo: un tercio largo del panel, entre sus
- * topes.
+ * El alto que se le guarda al cuerpo: un tercio largo del panel o, si es
+ * más, lo que piden sus columnas (`wanted`), entre sus topes. Sin eso, en
+ * una ventana de portátil las tarjetas del tono y del clic quedaban cortadas
+ * por abajo aunque hubiera sitio.
  * @param {number} inner  el alto del panel
+ * @param {number} [wanted]  lo que miden por dentro las columnas de los mandos
  */
-export function bodyHeight(inner) {
-  return clamp(inner * 0.34, BODY_MIN, BODY_MAX)
+export function bodyHeight(inner, wanted = 0) {
+  return clamp(Math.max(inner * 0.34, wanted), BODY_MIN, BODY_MAX)
 }
 
 /**
  * El sitio que le queda a la onda (o a todos los carriles juntos).
- * @param {{inner: number, pad?: number, others?: number, gap?: number, rows?: number, rest?: number}} m
+ * @param {{inner: number, pad?: number, others?: number, gap?: number, rows?: number, rest?: number, wanted?: number}} m
  *   `inner`, el alto del panel; `pad`, su relleno; `others`, lo que miden la
  *   cabecera y la barra; `gap` y `rows`, la separación entre filas y cuántas
  *   son; `rest`, lo demás de la línea de tiempo (el carril del clic, los de
- *   las guías, la regla)
+ *   las guías, la regla); `wanted`, lo que piden las columnas del cuerpo
  */
-export function waveRoom({ inner, pad = 0, others = 0, gap = 0, rows = 0, rest = 0 }) {
-  const room = inner - pad - others - gap * Math.max(0, rows - 1) - bodyHeight(inner) - rest
-  return Math.max(0, Math.round(room))
+export function waveRoom({ inner, pad = 0, others = 0, gap = 0, rows = 0, rest = 0, wanted = 0 }) {
+  const left = inner - pad - others - gap * Math.max(0, rows - 1) - rest
+  let body = bodyHeight(inner, wanted)
+  // lo que el cuerpo pide de más lo cede él antes que dejar la onda en nada
+  const short = WAVE_MIN - (left - body)
+  if (short > 0) body = Math.max(bodyHeight(inner), body - short)
+  return Math.max(0, Math.round(left - body))
 }
 
 /**
