@@ -53,8 +53,12 @@ como se dejó al salir del estudio, y que valga desde que se abre DanPlay.
 
 **Hecho sin estar en la lista** (se pidió después): una secuencia con
 veintitantas pistas cabe en el estudio; un `.danpista` se abre también en
-la PC; el clic sigue a las canciones que cambian de tempo, medido en toda
-la biblioteca; la guía automática sale de la letra con tiempos.
+la PC (y con doble clic); el clic sigue a las canciones que cambian de
+tempo, medido en toda la biblioteca; la guía automática sale de la letra
+con tiempos; la interfaz aprovecha la ventana grande (revisada con fotos a
+cinco tamaños); y la app del celular, revisada entera: doce arreglos con
+su prueba (lo de Kotlin —pausar al desconectar los auriculares, el foco de
+audio— queda para cuando haya un SDK donde compilarlo).
 
 **Lo que más se notaría de lo que queda**: H1 (el tono sin voz de
 «ardilla»: el estirador ya lo sabe hacer, falta ofrecerlo y oírlo), H9

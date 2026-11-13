@@ -1863,6 +1863,32 @@ iría). Con una canción de 4:54 y cinco partes: FLAC 86 MB, MP3 a 256 kbps
 cinco). Opus queda fuera porque symphonia no lo decodifica. Si el ffmpeg de la
 PC no sabe hacer Vorbis, van en MP3.
 
+**Las partes, por su nombre y su papel (1.41).** Dentro del ZIP cada parte
+se llama con letras sin tilde, números, espacios, «-» y «_», hasta 60, y
+sin repetirse (`library::bundle::inside_name`): antes iba el nombre de la
+pista tal cual («Keys (2)», «E.Gtr 1», «BGV's»), y el celular, que solo
+admitía eso mismo, rechazaba la pista entera por una sola parte. Al leer,
+los dos lados aceptan ya cualquier nombre de archivo que se quede dentro de
+`partes/` (sin barras, sin «:», sin caracteres de control ni punto al
+principio), así que los `.danpista` de antes también se abren. Y el clic y
+la guía de una secuencia llevan `role` en `pista.json`; en los de antes se
+saca de su nombre, con la misma regla en los dos lados
+(`library::sequence::role_of` y `danplay_engine::role`, que no comparten
+crate: una prueba con los mismos casos las mantiene iguales). Con eso el
+celular no las suena con la música al tocar la secuencia como canción, y
+las manda por la salida del clic y de las guías.
+
+**Volver a importar (1.41).** Lo que se cambia del estudio en el celular va
+aparte (`estudio.json`), y al traer otra vez la misma pista se quedaba
+entero: tapaba para siempre lo que se rehiciera en la PC, y sus guías
+apuntaban a archivos que se borraban con la pista vieja (mudas, sin aviso).
+Ahora se mezcla a tres (`engine::bundle::merged_study`), con el estudio que
+traía la pista anterior como referencia: clave a clave, lo que el celular
+tiene igual que lo que traía no se tocó aquí y vale lo nuevo; lo que tiene
+distinto se cambió aquí y se queda. De las guías solo sobreviven las que
+tienen su archivo en la pista nueva; si las del celular se quedan cojas y
+la nueva trae las suyas, valen esas.
+
 **En la PC también (1.41).** Hasta ahora solo lo abría el celular, así que
 lo que un compañero preparaba en su equipo no se podía abrir en otro. Abrir
 un `.danpista` en la PC (`library::bundle::unpack`, `services::bundle::import`;
