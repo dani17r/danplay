@@ -565,6 +565,8 @@ describe('the search results', () => {
       const h = this.classList.contains('sr-row') ? 41 : 0
       return { height: h, width: 300, top: 0, left: 0, right: 300, bottom: h, x: 0, y: 0 }
     })
+    // en una ventana baja, las cinco de siempre
+    vi.stubGlobal('innerHeight', 380)
     const w = mount(SearchResults, { props: { songs: eight(), query: 'x' } })
     await flushPromises()
     expect(w.find('.sr-list').attributes('style')).toContain('max-height: 205px')
@@ -573,6 +575,28 @@ describe('the search results', () => {
     await flushPromises()
     expect(w.find('.sr-list').attributes('style')).toBeUndefined()
     expect(CSS).toMatch(/\.sr-list\{[^}]*overflow-y:auto/)
+    vi.unstubAllGlobals()
+  })
+
+  it('a tall window shows as many as fit, up to twelve', async () => {
+    // con cincuenta resultados se enseñaban cinco y media ventana vacía debajo
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function () {
+      const h = this.classList.contains('sr-row') ? 41 : 0
+      return { height: h, width: 300, top: 0, left: 0, right: 300, bottom: h, x: 0, y: 0 }
+    })
+    const many = Array.from({ length: 50 }, (_, i) => song(i + 1))
+    // caben (580 - 170) / 41 = 10
+    vi.stubGlobal('innerHeight', 580)
+    const w = mount(SearchResults, { props: { songs: many, query: 'x' } })
+    await flushPromises()
+    expect(w.find('.sr-list').attributes('style')).toContain('max-height: 410px')
+    w.unmount()
+    // y por alta que sea la ventana, doce: es un buscador, no la lista
+    vi.stubGlobal('innerHeight', 1400)
+    const tall = mount(SearchResults, { props: { songs: many, query: 'x' } })
+    await flushPromises()
+    expect(tall.find('.sr-list').attributes('style')).toContain('max-height: 492px')
+    vi.unstubAllGlobals()
   })
 
   it('are driven with the keyboard from the search box', async () => {

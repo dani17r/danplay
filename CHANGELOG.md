@@ -90,6 +90,10 @@ hecho así, en [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
   con cuatro filas de la lista encima. Ahora el estudio coge el alto que
   piden esas tarjetas si la ventana lo da (dejando un par de filas de la
   lista), y la onda sigue igual de alta.
+- **El buscador enseña lo que cabe**: con cincuenta resultados enseñaba
+  cinco y dejaba media ventana vacía debajo; ahora, los que quepan hasta el
+  reproductor (hasta doce). Y «Todas las canciones» ya no se parte en dos
+  líneas en el lateral mientras suena algo.
 - **Arreglado**: los desplegables de abajo del menú «Vista» (tema, tamaño,
   forma de la ventana) se abrían hacia abajo y se salían de la ventana.
 - **Una secuencia con muchas pistas ya cabe**: con veintitantas pistas la

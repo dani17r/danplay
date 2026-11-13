@@ -333,6 +333,16 @@ td {
     transform-origin: bottom center;
   }
 }
+
+/* «Todas las canciones» con el punto de «suena desde aqui» y un contador de
+   tres o cuatro cifras no cabe en una linea en el lateral estrecho (el de
+   menos de 1700 px de ventana) y se partia en dos. Mientras lleva el punto,
+   el contador le cede el sitio; el que late (una descarga en marcha) no. */
+@media (min-width: 701px) and (max-width: 1699px) {
+  .sidebar .nav-link:has(.now-dot) .count:not(.live) {
+    display: none;
+  }
+}
 /* en un portatil de 768 le faltaban 40 px para caber sin barra: algo mas
    prieta, entra */
 @media (min-width: 701px) and (max-height: 820px) {

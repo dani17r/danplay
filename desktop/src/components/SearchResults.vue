@@ -53,7 +53,17 @@ const listId = `${uid}-list`
 const optionId = (i) => `${uid}-opt-${i}`
 const activeId = computed(() => (props.songs.length ? optionId(highlighted.value) : undefined))
 
-/** Alto para que se vean justo `visibleRows` filas: se mide una de verdad. */
+/** Las filas que se enseñan como mucho sin rueda, por alta que sea la ventana. */
+const MAX_ROWS = 12
+/** Lo que se deja por debajo de la lista: su pie y el reproductor, en px. */
+const BELOW = 170
+
+/**
+ * Alto para que se vean justo las filas que tocan: se mide una de verdad.
+ * Son `visibleRows` como poco y, si la ventana da para más, las que quepan
+ * hasta el reproductor (hasta `MAX_ROWS`): con cincuenta resultados se
+ * enseñaban cinco y media ventana vacía debajo.
+ */
 async function measure() {
   await nextTick()
   const row = box.value?.querySelector('.sr-row')
@@ -62,8 +72,10 @@ async function measure() {
     return
   }
   const h = row.getBoundingClientRect().height
-  listHeight.value =
-    h > 0 && props.songs.length > props.visibleRows ? Math.round(h * props.visibleRows) : null
+  const top = box.value.querySelector('.sr-list')?.getBoundingClientRect().top || 0
+  const fit = h > 0 ? Math.floor((window.innerHeight - top - BELOW) / h) : 0
+  const rows = Math.min(MAX_ROWS, Math.max(props.visibleRows, fit))
+  listHeight.value = h > 0 && props.songs.length > rows ? Math.round(h * rows) : null
 }
 
 const hasResults = computed(() => props.songs.length > 0)
