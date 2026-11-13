@@ -336,7 +336,7 @@ describe('re-analysing the click', () => {
 // recuerda. Antes volvía al 80 % cada vez que se abría DanPlay.
 describe('the click volume', () => {
   it('is remembered, and put back when the study opens', async () => {
-    let w = await mountView()
+    const w = await mountView()
     const slider = w.find('.study-metro-vol').findComponent(SliderField)
     slider.vm.$emit('update:modelValue', 1.7)
     await settle()
@@ -353,7 +353,98 @@ describe('the click volume', () => {
       ...base
     })
     bridge().setMetronome.mockClear()
-    w = await mountView()
+    await mountView()
     expect(bridge().setMetronome).toHaveBeenCalledWith(expect.objectContaining({ volume: 1.7 }))
+  })
+})
+
+// Al pasar de canción, Rust anuncia la nueva (`track`, de la cola) un
+// instante antes de que su ruta sea la del motor (`path`, del audio). Lo que
+// el estudio mandaba en ese instante iba con la ruta de la anterior y el
+// motor lo descartaba: la siguiente sonaba sin sus guías.
+describe('changing song with the study open', () => {
+  it('the cues of the new song are sent again when its path arrives', async () => {
+    const cues = [{ t: 12, file: '/guias/coro.wav', text: 'Coro' }]
+    held.state.songs = [
+      song(7, { title: 'Mi Gozo', study: '' }),
+      song(8, { title: 'Otra', study: JSON.stringify({ cues }) })
+    ]
+    await mountView()
+    bridge().setCues.mockClear()
+    // la cola ya dice la 8, y el audio aún la ruta de la 7
+    held.playback.emit({ ...other, path: '/musica/mi-gozo.mp3' })
+    await settle()
+    const early = bridge().setCues.mock.calls.filter(([, list]) => list.length)
+    for (const [path] of early) expect(path).toBe('/musica/mi-gozo.mp3')
+    // llega su ruta: ahora sí van a su canción
+    held.playback.emit({ ...other, path: '/musica/otra.mp3' })
+    await settle()
+    const last = bridge().setCues.mock.calls.at(-1)
+    expect(last[0]).toBe('/musica/otra.mp3')
+    expect(last[1]).toEqual([expect.objectContaining({ at: 12, path: '/guias/coro.wav' })])
+  })
+})
+
+// Ajustando pulsos, la onda es de los pulsos: el doble clic que añade uno
+// son también dos clics, y cada uno quitaba el tramo que hubiera.
+describe('adjusting the beats on the waveform', () => {
+  it('a click does not remove the segment', async () => {
+    held.state.songs = [
+      song(7, { title: 'Mi Gozo', study: JSON.stringify({ loop: [50, 100] }) }),
+      song(8, { title: 'Otra' })
+    ]
+    const w = await mountView()
+    const box = w.find('.tl-box').element
+    box.getBoundingClientRect = () => ({
+      left: 0,
+      width: 400,
+      right: 400,
+      top: 0,
+      height: 56,
+      bottom: 56,
+      x: 0,
+      y: 0
+    })
+    const pointer = (target, type, x) => {
+      target.dispatchEvent(
+        new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: 20 })
+      )
+      return settle()
+    }
+    expect(w.find('.tl-loop').exists()).toBe(true)
+    await w.find('.study-edit-beats').trigger('click')
+    await settle()
+    expect(w.find('.study-edit-beats').text()).toContain('Listo')
+    // un clic suelto fuera del tramo, como los de un doble clic
+    await pointer(box, 'pointerdown', 300)
+    await pointer(window, 'pointerup', 300)
+    expect(w.find('.tl-loop').exists(), 'el tramo sigue').toBe(true)
+    // y fuera de «Ajustar pulsos», el mismo clic sí lo quita
+    await w.find('.study-edit-beats').trigger('click')
+    await settle()
+    await pointer(box, 'pointerdown', 300)
+    await pointer(window, 'pointerup', 300)
+    expect(w.find('.tl-loop').exists()).toBe(false)
+  })
+})
+
+// «Salir del modo estudio» quita el clic. Se callaba solo en Rust y seguía
+// «pedido»: en automático volvía él solo en la canción siguiente.
+describe('leaving the study', () => {
+  it('turns the click off for good: the next song does not bring it back', async () => {
+    const w = await mountView()
+    await w.find('.study-metro-toggle').trigger('click')
+    await settle()
+    expect(useClick().wanted.value).toBe(true)
+    const { menu } = useContextMenu()
+    await w.find('.study-more').trigger('click')
+    await menu.value.items.find((i) => i.label === 'Salir del modo estudio').action()
+    await settle()
+    expect(useClick().wanted.value).toBe(false)
+    bridge().setMetronome.mockClear()
+    held.playback.emit({ ...other, path: '/musica/otra.mp3' })
+    await settle()
+    await vi.advanceTimersByTimeAsync(POLL_MS * 2)
+    for (const [sent] of bridge().setMetronome.mock.calls) expect(sent.on).not.toBe(true)
   })
 })

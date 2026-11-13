@@ -761,6 +761,13 @@ export const app = {
     inTauri
       ? invoke('send_to_telegram', { paths: [].concat(paths) })
       : Promise.reject(new Error('Solo en la aplicación de escritorio')),
+  /**
+   * Cómo llega DanPlay al servidor de sonido (Linux): con `server` y sin
+   * `pcm`, falta el puente de ALSA y puede no oírse nada.
+   * @returns {Promise<{server: 'pipewire'|'pulse'|null, pcm: string|null}>}
+   */
+  soundBridge: () =>
+    inTauri ? invoke('sound_bridge') : Promise.resolve({ server: null, pcm: null }),
   /** Cierra DanPlay del todo, lo mismo que «Salir» en la bandeja. */
   quit: () => (inTauri ? invoke('quit_app') : Promise.resolve()),
   /**

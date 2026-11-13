@@ -22,13 +22,23 @@ import {
 /** @typedef {import('../api.js').Track} Track */
 
 const VOLUME_KEY = 'danplay.vol'
-const SPEED_KEY = 'danplay.speed'
 const CROSSFADE_KEY = 'danplay.crossfade'
 /** Lo que se puede elegir de fundido entre canciones, en segundos (0 = sin él). */
 export const CROSSFADES = [0, 2, 4, 6, 8, 12]
 /** El de fábrica: se nota la transición sin que se pisen mucho. */
 const DEFAULT_CROSSFADE = 4
 const REPEAT_KEY = 'danplay.repeat'
+
+/**
+ * Las velocidades que se ofrecen: las mismas en el reproductor y en el modo
+ * estudio. Eran dos listas distintas, y desde un 80 % puesto en el estudio el
+ * botón del reproductor (que buscaba la suya) saltaba al 50 %.
+ */
+export const SPEEDS = [0.5, 0.6, 0.7, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 2]
+/** La siguiente de la lista desde `speed` (esté o no en ella); tras la última, la primera. */
+export function nextSpeed(speed) {
+  return SPEEDS.find((s) => s > (Number(speed) || 1) + 0.005) ?? SPEEDS[0]
+}
 
 /** @type {PlaybackState} */
 const EMPTY = {
@@ -502,7 +512,6 @@ function applyState(s) {
   if (ready && backend && (changed || state.length !== queue.value.length)) refreshQueue(changed)
   if (ready) {
     remember(VOLUME_KEY, state.volume)
-    remember(SPEED_KEY, state.speed)
     remember(REPEAT_KEY, state.repeat)
   }
 }
@@ -542,7 +551,6 @@ async function boot() {
     // cambiar el volumen, la velocidad ni la repetición.
     if (isMainWindow()) {
       const vol = readNumber(VOLUME_KEY)
-      const savedSpeed = readNumber(SPEED_KEY)
       let repeat = null
       try {
         repeat = localStorage.getItem(REPEAT_KEY)
@@ -550,8 +558,9 @@ async function boot() {
         /* sin almacenamiento */
       }
       if (vol != null && Number.isFinite(vol)) await backend.setVolume(clamp(vol, 0, MAX_VOLUME))
-      if (savedSpeed != null && Number.isFinite(savedSpeed) && savedSpeed > 0)
-        await backend.setSpeed(savedSpeed)
+      // La velocidad NO se recuerda de un día para otro: la del estudio se
+      // guarda con su canción y vuelve con ella; cerrando DanPlay con una
+      // canción al 70 %, al día siguiente sonaba todo al 70 %.
       await backend.setCrossfade?.(crossfade.value)
       if (REPEAT_MODES.includes(repeat)) await backend.setRepeat(normalizeRepeat(repeat))
     }
@@ -684,7 +693,6 @@ const clearLoop = () => setLoop(null, null)
 
 function setSpeed(value) {
   const v = clamp(Number(value) || 1, 0.25, 3)
-  remember(SPEED_KEY, v)
   return send((b) => b.setSpeed(v))
 }
 /**

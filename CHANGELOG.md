@@ -5,6 +5,37 @@ hecho así, en [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Sin publicar
 
+- **Recién instalada, suena**: en un sistema recién instalado con PipeWire
+  DanPlay «sonaba» sin dar error y no se oía nada, hasta instalar a mano
+  `pipewire-alsa`. El motor saca el sonido por ALSA, y ALSA solo llega al
+  servidor de sonido por ese puente. Ahora el `.deb` lo pide (apt lo instala
+  solo), la app elige ella misma la salida del servidor de sonido en vez de
+  fiarse de la que ALSA tenga por omisión, y si el puente falta lo dice al
+  arrancar, ofrece instalarlo y lo avisa en la ventana. De paso, el `.deb`
+  ya no pide `ffmpeg` ni `libchromaprint-tools` al sistema: van dentro, y se
+  instalaban dos veces; y con el AppImage ya no se ofrece instalarlos.
+- **«Re-analizar» el clic hace algo**: recalculaba y guardaba la rejilla
+  nueva, pero ni la onda ni el clic cambiaban hasta pasar de canción (el
+  aviso decía «arreglado» igual). Ahora suena y se ve al momento, y el aviso
+  dice cuántos pulsos cambiaron de sitio, o que ninguno.
+- **Un solo «Exportar…»** en el modo estudio: había dos (en el «⋯» del
+  estudio y en el de las pistas) que abrían la misma ventana. Queda el del
+  estudio, que con las pistas sonando abre ya con su mezcla elegida.
+- **Arreglado, en el modo estudio**: al pasar de canción, la siguiente
+  podía sonar sin sus guías o entera con «Pistas» encendido; saltando
+  deprisa de una a otra, la velocidad o el tono de una caían sobre la
+  siguiente; «Salir del modo estudio» callaba el clic, pero volvía él solo
+  en la canción siguiente; el volumen del clic volvía al 80 % cada vez que
+  se abría DanPlay (y en su carril paraba en 150 % aunque en el panel
+  llegara a 300 %); exportar con el clic por encima del 200 % daba error;
+  guardar una mezcla mientras se guardaba otra decía «Guardada» sin
+  escribir nada; y ajustando pulsos a mano, el doble clic que añade un pulso
+  quitaba además el tramo que hubiera.
+- **La velocidad** ya no se queda puesta de un día para otro: la del
+  estudio se guarda con su canción y vuelve con ella, pero cerrando DanPlay
+  con una canción al 70 % sonaba todo al 70 % al abrirlo. Y el botón de
+  velocidad del reproductor pasa a la siguiente desde donde esté (desde un
+  80 % puesto en el estudio saltaba al 50 %).
 - **Avisos de datos mal formados en castellano**: cuando al núcleo le llega
   algo que no vale, el aviso salía en inglés («Field required», «Input
   should be a valid string»…) y la app lo enseñaba como un JSON en bruto.

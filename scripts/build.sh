@@ -108,6 +108,17 @@ if [ "${1:-}" = "--package" ]; then
         die "el .deb lleva algo de Python: $(printf '%s\n' "$CONTENTS" | grep -iE 'python|\.pyc|/_internal/|libpython' | head -3)"
     fi
     echo "  el .deb lleva el nucleo, sus datos y sus programas, y nada de Python"
+    # Lo que tiene que pedir al sistema: el puente de ALSA al servidor de
+    # sonido. Sin el, en un equipo recien instalado con PipeWire la app
+    # «sonaba» sin error y no se oia nada (paso tras reinstalar). ffmpeg y
+    # fpcalc no se piden: van dentro.
+    DEPENDS=$(dpkg-deb -f "$DEB" Depends)
+    printf '%s' "$DEPENDS" | grep -q 'pipewire-alsa | pulseaudio' \
+        || die "el .deb no pide el puente de sonido (pipewire-alsa | pulseaudio): $DEPENDS"
+    for wanted in usr/lib/DanPlay/tools/fpcalc usr/lib/DanPlay/tools/qjs; do
+        printf '%s\n' "$CONTENTS" | grep -q "$wanted" || die "el .deb no lleva $wanted"
+    done
+    echo "  y pide al sistema el puente de sonido"
 fi
 
 printf '\n\033[32mLISTO\033[0m\n'

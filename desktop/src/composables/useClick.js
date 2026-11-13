@@ -330,6 +330,16 @@ async function toggle() {
 }
 
 /**
+ * Quitar el clic del todo (al salir del modo estudio): lo pedido deja de
+ * estarlo. Callarlo solo en Rust no basta: seguía «pedido», y en automático
+ * volvía él solo en la canción siguiente.
+ */
+function stop() {
+  wanted.value = false
+  return player().setMetronome({ on: false })
+}
+
+/**
  * Automático o a mano. Al pasar a mano se queda el tempo que se oía, para
  * que el clic no cambie de golpe; al volver a automático, cada canción con
  * el suyo otra vez.
@@ -461,6 +471,7 @@ export function useClick() {
     progress,
     error,
     toggle,
+    stop,
     setAuto,
     setManual,
     watchGrid,

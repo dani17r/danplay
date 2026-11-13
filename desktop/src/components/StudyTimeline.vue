@@ -757,6 +757,14 @@ function onMove(e) {
 /** Un clic sin arrastrar: quita la seleccion y lleva la cancion ahi. */
 function onClick(e, index) {
   const list = saved.value
+  // Ajustando pulsos, la onda es de los pulsos: un clic (y los dos de un
+  // doble clic, que añade un pulso) no quita el tramo que hubiera. Antes
+  // cada doble clic borraba el tramo y movía la canción dos veces. Sonando
+  // con el candado tampoco la mueve, como siempre.
+  if (props.editBeats) {
+    if (!(props.locked && props.playing)) emit('seek', round2(timeAt(e.clientX)))
+    return
+  }
   // con el candado y «ir con un clic», un clic lleva la canción ahí (sonando
   // también) sin quitar el tramo: para ir y volver mientras se ensaya
   if (props.locked && props.seekClick && !(props.multi && index >= 0)) {

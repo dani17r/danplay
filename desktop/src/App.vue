@@ -990,6 +990,7 @@ onMounted(async () => {
   // desplegable del buscador). Lo demás, al pasar por su botón.
   preloadWhenIdle([islands.details, islands.selectionBar, islands.searchResults])
   offerToBeDefault()
+  warnAboutSound()
   termsAtStart()
   // la primera vez no hay nada que contar; tras actualizar, se avisa una vez
   if (!newsSeen.value) markNewsSeen()
@@ -1024,6 +1025,26 @@ onMounted(async () => {
 /** La clave de «ya lo pregunté». Una vez en la vida, no en cada arranque. */
 const ASKED_DEFAULT = 'danplay.default-player-asked'
 
+/**
+ * En Linux el motor suena por ALSA, y sin el puente al servidor de sonido
+ * (el paquete `pipewire-alsa`) todo «suena» sin error y no se oye nada: pasó
+ * con un sistema recién instalado. Rust ya ofrece instalarlo al arrancar; si
+ * no se instaló, la ventana lo dice, con lo que hay que poner.
+ */
+async function warnAboutSound() {
+  // sin saberlo (la orden falla) no se asusta a nadie
+  const bridge = await tauriApp.soundBridge().catch(() => null)
+  if (!bridge?.server || bridge.pcm) return
+  const what =
+    bridge.server === 'pipewire'
+      ? 'el paquete «pipewire-alsa» (sudo apt install pipewire-alsa)'
+      : 'el complemento de ALSA para PulseAudio (sudo apt install libasound2-plugins)'
+  notify(
+    `Puede que DanPlay no se oiga: a este sistema le falta ${what}. Instálalo y vuelve a darle a play.`,
+    'info',
+    90
+  )
+}
 /**
  * La primera vez, ofrece abrir las canciones con DanPlay.
  *

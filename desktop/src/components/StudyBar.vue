@@ -193,11 +193,14 @@ function parse(raw) {
     return {}
   }
 }
+/** De qué canción es ya `study` (mientras se lee la nueva, aún es el de la anterior). */
+const studyFor = ref(null)
 async function loadFor(id) {
   // lo pendiente es de la cancion que se deja: se guarda en ELLA ya, sin
   // esperar (su copia y su id ya van apuntados)
   flushSave()
   loadedFor.value = id
+  studyFor.value = null
   selected.value = null
   checked.value = new Set()
   stems.value = null
@@ -241,16 +244,25 @@ async function loadFor(id) {
         )
       }
     }
+    studyFor.value = id
     multi.value = loops.length > 1
     lastTouched.value = loops.length - 1
-    // lo guardado se aplica al entrar: para eso se guardo
+    // Lo guardado se aplica al entrar: para eso se guardó. Tras cada espera
+    // se mira que siga siendo esta canción: saltando deprisa de una a otra,
+    // la velocidad, el tono o el clic de esta caían sobre la siguiente.
+    const still = () => loadedFor.value === id
     await player.setLoops(loops, { end: loopEndWanted.value })
+    if (!still()) return
     if (study.value.speed !== speed.value) await player.setSpeed(study.value.speed)
+    if (!still()) return
     if (study.value.pitch !== pitch.value) await player.setPitch(study.value.pitch)
+    if (!still()) return
     // los ajustes del clic de esta canción (su rejilla la pide `useClick`)
     await click.songSettings(id, study.value.metronome)
+    if (!still()) return
     selected.value = markerOf(study.value.loops)
     await sendCues()
+    if (!still()) return
     // y las pistas: si las tiene y se dejaron sonando, vuelven a sonar
     await loadStems(id)
   } catch (e) {
@@ -1255,6 +1267,21 @@ watch(
   () => JSON.stringify(routing.routing.value.stems),
   () => sendCues()
 )
+// Rust anuncia la canción nueva un instante antes de que su ruta sea la del
+// motor (el estado lleva `track` de la cola y `path` del audio). Lo que se
+// mandó en ese instante iba con la ruta de la anterior y el motor lo
+// descartó: la siguiente sonaba sin sus guías, o entera con «Pistas»
+// encendido. Al llegar su ruta, se manda otra vez.
+watch(
+  () => player.state.path,
+  (path, before) => {
+    const id = track.value?.id ?? null
+    if (!path || path === before || id == null) return
+    if (loadedFor.value !== id || studyFor.value !== id) return
+    sendCues()
+    if (mixerOn.value) sendMix()
+  }
+)
 /**
  * Las guías se ponen, se mueven y se cambian con la canción parada: sonando,
  * un doble clic o un arrastre sin querer movería lo que está sonando.
@@ -2087,8 +2114,11 @@ async function exit() {
   await player.clearLoop()
   if (speed.value !== 1) await player.setSpeed(1)
   if (pitch.value !== 0) await player.setPitch(0)
-  // la cuenta y las guías son cosa del estudio: fuera de el, play es play
-  await player.setMetronome({ on: false, count_in: 0 })
+  // la cuenta y las guías son cosa del estudio: fuera de el, play es play.
+  // Y el clic se quita de verdad (`click.stop`): callado solo en Rust,
+  // volvía él solo al pasar de canción.
+  await click.stop()
+  await player.setMetronome({ count_in: 0 })
   await player.setCues([], cueVolume.value)
   emit('exit')
 }

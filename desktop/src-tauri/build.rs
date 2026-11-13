@@ -52,6 +52,7 @@ const COMMANDS: &[&str] = &[
     "open_in_browser",
     "open_html",
     "share_targets",
+    "sound_bridge",
     "send_to_telegram",
     "set_window_shape",
     "window_shape",

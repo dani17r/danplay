@@ -185,6 +185,7 @@ fn main() {
             reveal::open_in_browser,
             reveal::open_html,
             share::share_targets,
+            dependencies::sound_bridge,
             share::send_to_telegram,
             shape::set_window_shape,
             shape::window_shape,

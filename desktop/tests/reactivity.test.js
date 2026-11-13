@@ -1689,3 +1689,28 @@ describe('the whole list', () => {
     expect(w.find('.filters .chip').text()).toBe('3')
   })
 })
+
+// En Linux el motor suena por ALSA, y sin el puente al servidor de sonido
+// (`pipewire-alsa`) todo «suena» y no se oye nada. Pasó con un sistema recién
+// instalado: la ventana lo tiene que decir, con lo que hay que instalar.
+describe('the sound bridge', () => {
+  it('missing: the window says so, with the package to install', async () => {
+    const { useNotices } = await import('../src/composables/useNotices.js')
+    held.app.soundBridge.mockResolvedValueOnce({ server: 'pipewire', pcm: null })
+    await mountView()
+    await flushPromises()
+    const said = useNotices().notices.value.map((n) => n.message)
+    expect(said.some((m) => m.includes('pipewire-alsa') && m.includes('no se oiga'))).toBe(true)
+  })
+
+  it('in place (or with no sound server), nothing is said', async () => {
+    const { useNotices } = await import('../src/composables/useNotices.js')
+    await mountView()
+    await flushPromises()
+    held.app.soundBridge.mockResolvedValueOnce({ server: null, pcm: null })
+    await mountView()
+    await flushPromises()
+    const said = useNotices().notices.value.map((n) => n.message)
+    expect(said.some((m) => m.includes('no se oiga'))).toBe(false)
+  })
+})

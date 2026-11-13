@@ -986,6 +986,7 @@ export function createAppDouble(over = {}) {
     setWindowOnTop: vi.fn(async (on) => on),
     trayAvailable: vi.fn(async () => false),
     shareTargets: vi.fn(async () => ({ telegram: true })),
+    soundBridge: vi.fn(async () => ({ server: 'pipewire', pcm: 'pipewire' })),
     sendToTelegram: vi.fn(async () => {}),
     revealInFolder: vi.fn(async () => {}),
     openInBrowser: vi.fn(async () => {}),

@@ -169,6 +169,117 @@ pub fn has_default() -> bool {
     cpal::default_host().default_output_device().is_some()
 }
 
+/// El servidor de sonido del escritorio, en Linux.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SoundServer {
+    Pipewire,
+    Pulse,
+}
+
+/// Cómo llega DanPlay al servidor de sonido en Linux.
+///
+/// El motor saca el sonido por ALSA, y ALSA solo llega a PipeWire (o a
+/// PulseAudio) por su puente: un complemento que viene en un paquete aparte
+/// (`pipewire-alsa`, o el de PulseAudio). Sin él, «la salida del sistema» de
+/// ALSA es la tarjeta 0 a pelo: la tiene cogida el servidor de sonido, o es
+/// el HDMI, y entonces todo «suena» sin error y no se oye nada. Pasó con un
+/// sistema recién instalado.
+#[derive(Clone, Debug, Default, Serialize, PartialEq, Eq)]
+pub struct Bridge {
+    /// El servidor de sonido que hay en marcha, si hay.
+    pub server: Option<SoundServer>,
+    /// El PCM de ALSA que lleva a él (`pipewire` o `pulse`), si su puente está.
+    pub pcm: Option<String>,
+}
+
+impl Bridge {
+    /// Hay servidor de sonido y no hay por dónde llegar a él.
+    pub fn missing(&self) -> bool {
+        self.server.is_some() && self.pcm.is_none()
+    }
+}
+
+/// El servidor de sonido en marcha, por su socket en la carpeta de la sesión
+/// (`$XDG_RUNTIME_DIR`). PipeWire sirve además a los clientes de PulseAudio
+/// (`pipewire-pulse`), así que con los dos sockets es PipeWire.
+fn server_in(runtime: &std::path::Path) -> Option<SoundServer> {
+    if runtime.join("pipewire-0").exists() {
+        Some(SoundServer::Pipewire)
+    } else if runtime.join("pulse").join("native").exists() {
+        Some(SoundServer::Pulse)
+    } else {
+        None
+    }
+}
+
+/// El PCM de ALSA por el que se llega a `server`, de los que hay (`names`).
+/// A PipeWire, por su complemento o por el de PulseAudio (lo sirve igual).
+fn pick_pcm<S: AsRef<str>>(server: SoundServer, names: &[S]) -> Option<String> {
+    let wanted: &[&str] = match server {
+        SoundServer::Pipewire => &["pipewire", "pulse"],
+        SoundServer::Pulse => &["pulse"],
+    };
+    wanted
+        .iter()
+        .find(|w| names.iter().any(|n| n.as_ref() == **w))
+        .map(|w| (*w).to_owned())
+}
+
+/// El PCM de ALSA de una salida (`alsa:pipewire` → `pipewire`).
+#[cfg(target_os = "linux")]
+fn pcm_of(device: &cpal::Device) -> Option<String> {
+    id_of(device).strip_prefix("alsa:").map(str::to_owned)
+}
+
+/// Los PCM de ALSA que hay, por su nombre, sin abrir ninguno.
+#[cfg(target_os = "linux")]
+fn pcm_names(host: &cpal::Host) -> Vec<String> {
+    host.devices()
+        .map(|all| all.filter_map(|d| pcm_of(&d)).collect())
+        .unwrap_or_default()
+}
+
+/// Cómo se llega al servidor de sonido (fuera de Linux no hay puente: nada).
+pub fn bridge() -> Bridge {
+    #[cfg(target_os = "linux")]
+    {
+        let Some(runtime) = std::env::var_os("XDG_RUNTIME_DIR") else {
+            return Bridge::default();
+        };
+        let Some(server) = server_in(std::path::Path::new(&runtime)) else {
+            return Bridge::default();
+        };
+        let pcm = pick_pcm(server, &pcm_names(&cpal::default_host()));
+        Bridge {
+            server: Some(server),
+            pcm,
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        Bridge::default()
+    }
+}
+
+/// La salida del sistema. En Linux, el PCM del servidor de sonido por su
+/// nombre, si está: el «default» de ALSA solo lleva a él si además el
+/// sistema lo configuró así (con `pipewire-pulse` y el complemento de
+/// PulseAudio instalados pero sin `pipewire-alsa`, no), y entonces va a la
+/// tarjeta 0.
+fn system_devices(host: &cpal::Host) -> Vec<cpal::Device> {
+    let mut out = Vec::new();
+    #[cfg(target_os = "linux")]
+    if let Some(pcm) = bridge().pcm
+        && let Ok(mut all) = host.devices()
+        && let Some(d) = all.find(|d| pcm_of(d).as_deref() == Some(pcm.as_str()))
+    {
+        out.push(d);
+    }
+    out.extend(host.default_output_device());
+    out
+}
+
 /// Las salidas de audio del equipo, la del sistema primero.
 ///
 /// En Linux, ALSA enseña además de las tarjetas un montón de complementos
@@ -243,11 +354,20 @@ fn open(
     let (device, (stream_config, format)) = if let Some(found) = chosen {
         found
     } else {
-        let d = host
-            .default_output_device()
-            .ok_or("no hay salida de audio")?;
-        let c = choose(&d, rate, need)?;
-        (d, c)
+        // la del sistema: la del servidor de sonido y, si esa no se deja
+        // abrir, la que ALSA tenga por «default»
+        let mut found = None;
+        let mut why = String::from("no hay salida de audio");
+        for d in system_devices(&host) {
+            match choose(&d, rate, need) {
+                Ok(c) => {
+                    found = Some((d, c));
+                    break;
+                }
+                Err(e) => why = e,
+            }
+        }
+        found.ok_or(why)?
     };
     let channels = usize::from(stream_config.channels.max(1));
     for deck in decks {
@@ -399,7 +519,60 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::is_physical;
+    use super::{Bridge, SoundServer, is_physical, pick_pcm, server_in};
+
+    #[test]
+    fn the_sound_server_by_its_socket() {
+        let dir = std::env::temp_dir().join(format!("danplay-bridge-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("pulse")).expect("carpeta de prueba");
+        assert_eq!(server_in(&dir), None);
+        // PulseAudio (o pipewire-pulse) solo
+        std::fs::write(dir.join("pulse").join("native"), b"").expect("socket de prueba");
+        assert_eq!(server_in(&dir), Some(SoundServer::Pulse));
+        // con los dos, PipeWire: también sirve a los clientes de PulseAudio
+        std::fs::write(dir.join("pipewire-0"), b"").expect("socket de prueba");
+        assert_eq!(server_in(&dir), Some(SoundServer::Pipewire));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_bridge_to_the_sound_server_or_none() {
+        // un sistema recién instalado, con PipeWire y sin `pipewire-alsa`:
+        // solo las tarjetas y el «default», que va a la tarjeta 0
+        let bare = [
+            "null",
+            "default",
+            "hw:CARD=Generic,DEV=3",
+            "sysdefault:CARD=Generic",
+        ];
+        assert_eq!(pick_pcm(SoundServer::Pipewire, &bare), None);
+        let missing = Bridge {
+            server: Some(SoundServer::Pipewire),
+            pcm: pick_pcm(SoundServer::Pipewire, &bare),
+        };
+        assert!(missing.missing());
+        // con `pipewire-alsa`
+        let with = ["null", "pipewire", "default", "hw:CARD=Generic,DEV=3"];
+        assert_eq!(
+            pick_pcm(SoundServer::Pipewire, &with).as_deref(),
+            Some("pipewire")
+        );
+        // sin él pero con el complemento de PulseAudio: PipeWire lo sirve
+        let pulse = ["null", "pulse", "default"];
+        assert_eq!(
+            pick_pcm(SoundServer::Pipewire, &pulse).as_deref(),
+            Some("pulse")
+        );
+        assert_eq!(
+            pick_pcm(SoundServer::Pulse, &pulse).as_deref(),
+            Some("pulse")
+        );
+        // a PulseAudio de verdad no se llega por el complemento de PipeWire
+        assert_eq!(pick_pcm(SoundServer::Pulse, &with), None);
+        // sin servidor de sonido (ALSA a pelo, JACK) no falta nada
+        assert!(!Bridge::default().missing());
+    }
 
     #[test]
     fn only_the_real_outputs_by_their_card_name() {

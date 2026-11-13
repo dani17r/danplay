@@ -73,8 +73,7 @@
     "linux": {
       "deb": {
         "depends": [
-          "ffmpeg",
-          "libchromaprint-tools"
+          "pipewire-alsa | pulseaudio"
         ],
         "section": "sound",
         "priority": "optional",

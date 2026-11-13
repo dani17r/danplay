@@ -172,12 +172,33 @@ describe('usePlayback', () => {
     expect(player.queue.value[0].title).toBe('La segunda')
   })
 
-  it('volume and speed are remembered between sessions', async () => {
+  it('the volume is remembered between sessions; the speed is not', async () => {
+    // la velocidad del estudio se guarda con su canción y vuelve con ella:
+    // recordada aparte, cerrar DanPlay con una canción al 70 % dejaba todo
+    // sonando al 70 % al día siguiente
     const player = usePlayback()
     await player.setVolume(0.42)
-    await player.setSpeed(1.25)
+    await player.setSpeed(0.7)
     expect(localStorage.getItem('danplay.vol')).toBe('0.42')
-    expect(localStorage.getItem('danplay.speed')).toBe('1.25')
+    expect(localStorage.getItem('danplay.speed')).toBe(null)
+    resetPlayback()
+    held.playback.reset()
+    vi.clearAllMocks()
+    localStorage.setItem('danplay.speed', '0.7') // lo que dejó una versión anterior
+    window.history.replaceState(null, '', '/')
+    await usePlayback().ready()
+    expect(held.playback.bridge.setSpeed).not.toHaveBeenCalled()
+  })
+
+  it('the speed button goes to the next speed from wherever it is', async () => {
+    const { nextSpeed, SPEEDS } = await import('../src/composables/usePlayback.js')
+    // desde un 80 % puesto en el estudio saltaba al 50 %: no estaba en su lista
+    expect(nextSpeed(0.8)).toBe(0.9)
+    expect(nextSpeed(1)).toBe(1.1)
+    expect(nextSpeed(0.85), 'una que no está en la lista').toBe(0.9)
+    expect(nextSpeed(SPEEDS.at(-1)), 'tras la última, la primera').toBe(SPEEDS[0])
+    // las del estudio están todas
+    for (const s of [0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.1, 1.25]) expect(SPEEDS).toContain(s)
   })
 
   it('saved settings are applied by the main window, not the mini player or the projection', async () => {
@@ -205,7 +226,6 @@ describe('usePlayback', () => {
     window.history.replaceState(null, '', '/')
     await usePlayback().ready()
     expect(held.playback.bridge.setVolume).toHaveBeenCalledWith(0.3)
-    expect(held.playback.bridge.setSpeed).toHaveBeenCalledWith(0.75)
     expect(held.playback.bridge.setRepeat).toHaveBeenCalledWith('one')
   })
 
