@@ -259,6 +259,39 @@ async function load() {
   if (wanted.value) prepareAhead()
 }
 
+/**
+ * La rejilla de la canción que suena, otra vez: la guardada cambió (se
+ * re-analizó). `load()` no vale para esto: con la misma canción y su rejilla
+ * ya puesta no hace nada, que es justo como está al re-analizar. Con `fresh`
+ * (la que devolvió el núcleo) no se vuelve a preguntar. Devuelve si la que
+ * suena cambió: con el clic propio manda él, y la re-analizada queda debajo.
+ * @param {import('../api.js').BeatGrid|null} [fresh]
+ */
+async function reload(fresh = null) {
+  const p = player()
+  const id = p.track.value?.id ?? null
+  const path = p.state.path
+  if (!auto.value || id == null || !path) return false
+  if (mode.value === 'own') {
+    studies.delete(id)
+    const own = ownToGrid((await songStudy(id))?.metronome?.own)
+    if (own) return false
+  }
+  stopPolling()
+  forSong = { id, path }
+  error.value = ''
+  if (fresh?.beats?.length) {
+    await adopt(id, path, fresh)
+    return true
+  }
+  grid.value = null
+  source.value = ''
+  progress.value = 0
+  loading.value = true
+  await ask(id, path)
+  return true
+}
+
 /** Las siguientes de la cola, preparadas (sin aleatorio: ahí no se sabe cuál). */
 function prepareAhead() {
   const p = player()
@@ -432,8 +465,8 @@ export function useClick() {
     setManual,
     watchGrid,
     songSettings,
-    /** vuelve a pedir la rejilla de la que suena (la «x» del tempo a mano, etc.) */
-    reload: load
+    /** la rejilla de la que suena, otra vez: se re-analizó y cambió */
+    reload
   }
 }
 

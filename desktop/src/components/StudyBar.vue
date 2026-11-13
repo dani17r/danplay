@@ -885,7 +885,11 @@ function multTitle(mult) {
     ? `El doble de clics (${to}): para ir a corcheas en una lenta, o si el tempo salió a la mitad`
     : `La mitad de clics (${to})`
 }
-const setMetroVolume = (v) => player.setMetronome({ volume: v })
+/** El volumen del clic: de quien toca, como la cuenta y el sonido (se recuerda). */
+function setMetroVolume(v) {
+  savePref(PREF_VOLUME, v)
+  return player.setMetronome({ volume: v })
+}
 
 // ---- el clic propio: los pulsos ajustados a mano sobre la onda
 /** Editando los pulsos en la onda. */
@@ -966,6 +970,9 @@ const CLICK_SOUNDS = [
 ]
 const PREF_COUNT = 'danplay.click.countIn'
 const PREF_SOUND = 'danplay.click.sound'
+const PREF_VOLUME = 'danplay.click.volume'
+/** Hasta dónde sube el clic: el triple (en el panel, en su carril y al exportar). */
+const CLICK_MAX = 3
 function setCountIn(v) {
   savePref(PREF_COUNT, v)
   return player.setMetronome({ count_in: v })
@@ -978,9 +985,12 @@ function setClickSound(v) {
 {
   const count = Math.min(2, Math.max(0, Math.round(Number(readPref(PREF_COUNT, 0)) || 0)))
   const sound = readPref(PREF_SOUND, 'clasico')
+  // el volumen también: antes volvía al 80 % cada vez que se abría DanPlay
+  const volume = Number(readPref(PREF_VOLUME, null))
   player.setMetronome({
     count_in: count,
-    sound: CLICK_SOUNDS.some((c) => c.v === sound) ? sound : 'clasico'
+    sound: CLICK_SOUNDS.some((c) => c.v === sound) ? sound : 'clasico',
+    ...(Number.isFinite(volume) && volume > 0 ? { volume: Math.min(CLICK_MAX, volume) } : {})
   })
 }
 /** Más ajustes del clic (compás, cuenta, sonido): plegados, que son muchos. */
@@ -1004,14 +1014,18 @@ async function reanalyze(ev) {
         mode,
         ...(range ? { start: range[0], end: range[1] } : {})
       })
-      await click.reload()
+      // la rejilla nueva, al motor y a la onda (si sigue sonando esa canción)
+      const heard = loadedFor.value === id && (await click.reload(r?.grid || null))
       const fixed = r?.report?.fixed || 0
+      const what = fixed
+        ? `Clic analizado otra vez: ${fixed} ${fixed === 1 ? 'pulso cambió' : 'pulsos cambiaron'} de sitio`
+        : 'Clic analizado otra vez: ya estaba así, no cambió ningún pulso'
       notify(
-        fixed
-          ? `Clic arreglado: ${fixed} ${fixed === 1 ? 'tropiezo' : 'tropiezos'} corregidos`
-          : 'Clic analizado otra vez',
-        'ok',
-        5
+        heard || loadedFor.value !== id
+          ? what
+          : what + '. Suena tu clic ajustado a mano: con «quitar el mío» vuelve el automático',
+        fixed ? 'ok' : 'info',
+        heard ? 5 : 8
       )
     } catch (e) {
       notify('No se pudo analizar: ' + errorMessage(e))
@@ -1591,7 +1605,8 @@ async function autoGuide() {
           ...(bars.length >= 8 ? { bars } : {}),
           ...(beat ? { beat } : {})
         }),
-      JOBS.autoGuide
+      JOBS.autoGuide,
+      { busy: 'aún se está haciendo la guía de otra canción: espera a que termine' }
     )
     if (loadedFor.value === id) placeAutoGuide(r, voice)
   } catch (e) {
@@ -1952,7 +1967,8 @@ async function saveMix({
           ...(clickTrack ? { click: clickTrack } : {}),
           ...(guides.length ? { cues: guides } : {})
         }),
-      JOBS.mix
+      JOBS.mix,
+      { busy: 'aún se está guardando la anterior: espera a que termine' }
     )
     notify(`Guardada «${r.name}»${r.id ? ': ya está en tu biblioteca' : ''}`, 'ok', 6)
   } catch (e) {
@@ -2017,7 +2033,8 @@ function stemsMenu(ev) {
     )
   }
   const items = [
-    { label: 'Exportar…', icon: 'download', action: () => openExport('mix') },
+    // exportar no va aquí: un solo «Exportar…», el del ⋯ del estudio, que con
+    // las pistas sonando ya abre con su mezcla elegida
     { label: 'Que suenen todas, como vienen', icon: 'refresh', action: resetMix },
     { label: 'Abrir la carpeta', icon: 'folderOpen', action: revealStems },
     { separator: true },
@@ -2080,7 +2097,12 @@ function headMenu(ev) {
     ...(isMobileApp
       ? []
       : [
-          { label: 'Exportar…', icon: 'download', action: () => openExport('song') },
+          {
+            label: 'Exportar…',
+            icon: 'download',
+            hint: 'La canción, la mezcla de las pistas o un .danpista para el celular',
+            action: () => openExport(mixerOn.value ? 'mix' : 'song')
+          },
           {
             label: 'Guía automática',
             icon: 'sparkles',
@@ -2263,7 +2285,7 @@ defineExpose({ close: hide, hide, exit })
             type="button"
             class="btn mini icon-btn study-stems-more"
             aria-label="Opciones de las pistas"
-            title="Exportar, convertir a DanPista, abrir la carpeta, separar otra vez…"
+            title="Que suenen todas, abrir la carpeta, separar otra vez, borrarlas…"
             @click="stemsMenu"
           >
             <Icon n="more" :t="13" />
@@ -2343,7 +2365,7 @@ defineExpose({ close: hide, hide, exit })
           class="btn mini icon-btn study-more"
           type="button"
           aria-label="Más del modo estudio"
-          title="Exportar, salir del modo estudio, convertir a DanPista, el estilo de la onda…"
+          title="Exportar, la guía automática, las salidas, el estilo de la onda, salir del modo estudio…"
           @click="headMenu"
         >
           <Icon n="more" :t="14" />
@@ -2381,7 +2403,7 @@ defineExpose({ close: hide, hide, exit })
           :title="
             isMobileApp
               ? 'Que suenen todas, como vienen'
-              : 'Guardar la mezcla, convertir a DanPista, abrir la carpeta, separar otra vez…'
+              : 'Que suenen todas, abrir la carpeta, separar otra vez, borrarlas…'
           "
           aria-label="Opciones de las pistas"
           @click="stemsMenu"
@@ -3056,7 +3078,7 @@ defineExpose({ close: hide, hide, exit })
             <SliderField
               :model-value="metronome.volume"
               :min="0"
-              :max="3"
+              :max="CLICK_MAX"
               :step="0.05"
               :mark="1"
               width="100%"

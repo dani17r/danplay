@@ -18,9 +18,11 @@ vi.mock('../src/api.js', async (importOriginal) => {
 })
 
 import StudyBar from '../src/components/StudyBar.vue'
+import SliderField from '../src/components/ui/SliderField.vue'
 import { resetPlayback, usePlayback } from '../src/composables/usePlayback.js'
 import { resetClick, useClick, POLL_MS } from '../src/composables/useClick.js'
 import { song } from './support/backend.js'
+import { useContextMenu } from '../src/composables/useContextMenu.js'
 
 const GRID = {
   bpm: 96,
@@ -257,5 +259,101 @@ describe('manual click', () => {
       expect.objectContaining({ bpm: null, shift: 2 })
     )
     expect(w.text()).not.toContain('a mano')
+  })
+})
+
+// «Re-analizar…»: el núcleo recalcula y guarda la rejilla, y tiene que llegar
+// al motor y a la onda sin cambiar de canción. Antes se pedía recargar con
+// `load()`, que con la misma canción y su rejilla ya puesta no hace nada: el
+// aviso decía «arreglado» y seguía sonando el clic de antes.
+describe('re-analysing the click', () => {
+  const FIXED = { ...GRID, bpm: 120, beats: Array.from({ length: 300 }, (_, i) => 0.4 + i * 0.5) }
+  const lastGrid = () => bridge().setBeatGrid.mock.calls.at(-1)?.[1]
+  /** «Re-analizar…» y su opción. */
+  async function reanalyze(w, label) {
+    const { menu } = useContextMenu()
+    const button = w.findAll('button').find((b) => b.text().includes('Re-analizar'))
+    await button.trigger('click')
+    await menu.value.items.find((i) => i.label === label).action()
+    await settle()
+  }
+
+  it('the new grid reaches the engine and the waveform while the same song plays', async () => {
+    held.api.reanalyzeBeats = vi.fn(async () => ({ ...FIXED, grid: FIXED, report: { fixed: 12 } }))
+    const w = await mountView()
+    expect(lastGrid().bpm).toBe(96)
+    await reanalyze(w, 'Arreglar huecos y saltos')
+    expect(held.api.reanalyzeBeats).toHaveBeenCalledWith(7, { mode: 'repair' })
+    expect(lastGrid().bpm).toBe(120)
+    expect(lastGrid().beats[0]).toBe(0.4)
+    expect(useClick().grid.value.bpm).toBe(120)
+    expect(useClick().loading.value).toBe(false)
+  })
+
+  it('without the grid in the answer, it is asked for again', async () => {
+    held.api.reanalyzeBeats = vi.fn(async () => {
+      held.state.beatGrid = { ...FIXED }
+      return { report: { fixed: 3 } }
+    })
+    const w = await mountView()
+    held.api.beatGridNow.mockClear()
+    await reanalyze(w, 'Tempo fijo')
+    expect(held.api.beatGridNow).toHaveBeenCalledWith(7)
+    expect(lastGrid().bpm).toBe(120)
+  })
+
+  it('with the click on, it stays on with the new grid', async () => {
+    held.api.reanalyzeBeats = vi.fn(async () => ({ ...FIXED, grid: FIXED, report: { fixed: 1 } }))
+    const w = await mountView()
+    await w.find('.study-metro-toggle').trigger('click')
+    await settle()
+    bridge().setMetronome.mockClear()
+    await reanalyze(w, 'Arreglar huecos y saltos')
+    expect(bridge().setMetronome).toHaveBeenLastCalledWith(expect.objectContaining({ on: true }))
+    for (const [sent] of bridge().setMetronome.mock.calls) expect(sent.on).not.toBe(false)
+  })
+
+  it('with a hand-adjusted click, that one keeps playing', async () => {
+    const own = { beats: Array.from({ length: 40 }, (_, i) => 1 + i * 0.75), bars: [0], meter: 4 }
+    held.state.songs = [
+      song(7, { title: 'Mi Gozo', study: JSON.stringify({ metronome: { own } }) }),
+      song(8, { title: 'Otra' })
+    ]
+    localStorage.setItem('danplay.click.mode', JSON.stringify('own'))
+    resetClick()
+    held.api.reanalyzeBeats = vi.fn(async () => ({ ...FIXED, grid: FIXED, report: { fixed: 5 } }))
+    const w = await mountView()
+    expect(useClick().source.value).toBe('own')
+    bridge().setBeatGrid.mockClear()
+    await reanalyze(w, 'Arreglar huecos y saltos')
+    expect(held.api.reanalyzeBeats).toHaveBeenCalled()
+    expect(bridge().setBeatGrid).not.toHaveBeenCalled()
+    expect(useClick().source.value).toBe('own')
+  })
+})
+
+// El volumen del clic es de quien toca, como la cuenta y el sonido: se
+// recuerda. Antes volvía al 80 % cada vez que se abría DanPlay.
+describe('the click volume', () => {
+  it('is remembered, and put back when the study opens', async () => {
+    let w = await mountView()
+    const slider = w.find('.study-metro-vol').findComponent(SliderField)
+    slider.vm.$emit('update:modelValue', 1.7)
+    await settle()
+    expect(bridge().setMetronome).toHaveBeenLastCalledWith(expect.objectContaining({ volume: 1.7 }))
+    expect(JSON.parse(localStorage.getItem('danplay.click.volume'))).toBe(1.7)
+    w.unmount()
+    resetPlayback()
+    resetClick()
+    held.playback.reset()
+    held.playback.emit({
+      track: { id: 7, title: 'Mi Gozo', artist: 'Barak', duration: 200 },
+      playing: true,
+      position: 12,
+      ...base
+    })
+    bridge().setMetronome.mockClear()
+    w = await mountView()
+    expect(bridge().setMetronome).toHaveBeenCalledWith(expect.objectContaining({ volume: 1.7 }))
   })
 })

@@ -191,7 +191,9 @@ fn read_mix(b: &mut Fields) -> Mix {
             .max_items(20000)
             .or(Vec::new());
         let sound = c.literal("sound", SOUNDS).or("clasico");
-        let volume = c.float("volume").ge(0).le(2).or(0.8);
+        // hasta el triple, como el mando del clic en el estudio (con 2 de tope,
+        // exportar con el clic por encima del 200 % daba un 422)
+        let volume = c.float("volume").ge(0).le(3).or(0.8);
         let side = c.literal("side", SIDES).or("both");
         b.absorb(c);
         MixClick {

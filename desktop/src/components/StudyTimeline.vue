@@ -1349,7 +1349,7 @@ const lockTitle = computed(() =>
         class="tl-lane-gain tl-mix"
         :model-value="clickLane.volume ?? 0.8"
         :min="0"
-        :max="1.5"
+        :max="3"
         :step="0.05"
         width="100%"
         aria-label="Volumen del clic"

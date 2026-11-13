@@ -952,13 +952,22 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
  * una igual en marcha, se sigue esa.
  * @param {() => Promise<any>} start  el POST que la arranca
  * @param {string} name               su nombre en el núcleo (ver `JOBS`)
+ * Pedir otra vez una que ya corre no arranca otra: el núcleo devuelve la
+ * que hay, y aquí se espera a esa. Vale para escanear (es el mismo trabajo
+ * lo pida quien lo pida), pero no para lo que depende de lo que se pidió
+ * (guardar una mezcla, la guía de UNA canción): esperar a la de otro daría
+ * su resultado como si fuera el de uno. Esas dan `busy`, y entonces falla
+ * diciéndolo en vez de unirse.
+ *
  * @param {{ onProgress?: (job: JobSnapshot) => void, interval?: number,
- *           poll?: (name: string) => Promise<JobSnapshot> }} [options]
+ *           poll?: (name: string) => Promise<JobSnapshot>,
+ *           busy?: string }} [options]
  * @returns {Promise<any>} lo que dejó la tarea (`result`)
  */
 export async function runJob(start, name, options = {}) {
-  const { onProgress, interval = JOB_POLL_MS, poll = (n) => api.job(n) } = options
+  const { onProgress, interval = JOB_POLL_MS, poll = (n) => api.job(n), busy } = options
   const first = await start()
+  if (busy && first?.already_running) throw new ApiError(busy, 409)
   /** @type {JobSnapshot} */
   let job = first?.job || (await poll(name))
   onProgress?.(job)

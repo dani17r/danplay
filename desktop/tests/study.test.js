@@ -1626,11 +1626,11 @@ describe('the separated stems in study mode', () => {
     await w.find('.study-stems-more').trigger('click')
     const { menu } = useContextMenu()
     const labels = menu.value.items.filter((i) => !i.separator).map((i) => i.label)
-    // un solo «Exportar…»: las formas de exportar, en su ventana
-    expect(labels).toContain('Exportar…')
+    // exportar no está aquí: hay un solo «Exportar…», el del ⋯ del estudio
+    // (antes había otro en este menú, que abría la misma ventana)
     expect(labels).toContain('Abrir la carpeta')
     expect(labels).toContain('Borrar las pistas…')
-    expect(labels.filter((l) => /export|guardar/i.test(l))).toEqual(['Exportar…'])
+    expect(labels.filter((l) => /export|guardar|danpista/i.test(l))).toEqual([])
     // fuera de la app no hay diálogo de guardar: no se guarda nada
     expect(await pickSavePath()).toBe(null)
   })
@@ -1640,11 +1640,11 @@ describe('the separated stems in study mode', () => {
     const w = await mountView()
     await w.find('.study-metro-toggle').trigger('click')
     await flushPromises()
-    await w.find('.study-stems-more').trigger('click')
+    await w.find('.study-more').trigger('click')
     const { menu } = useContextMenu()
     menu.value.items.find((i) => i.label === 'Exportar…').action()
     await flushPromises()
-    // se abre con la mezcla de las pistas elegida, y el clic entre lo que puede llevar
+    // con las pistas sonando se abre con su mezcla elegida, y el clic entre lo que puede llevar
     const kinds = [...document.querySelectorAll('.exp-kind')]
     expect(kinds.find((k) => k.classList.contains('on')).textContent).toContain('La mezcla')
     const extras = [...document.querySelectorAll('.exp-extra-name')].map((e) => e.textContent)
@@ -2545,5 +2545,27 @@ describe('exporting', () => {
     })
     localStorage.removeItem('danplay.outputs')
     resetRouting()
+  })
+
+  it('saving again while the previous one is still being written says so, not «Guardada»', async () => {
+    // el núcleo no arranca otro trabajo con el mismo nombre: devuelve el que
+    // corre. Antes se esperaba a ese y se decía «Guardada» con el nombre del
+    // archivo anterior, sin haber escrito el nuevo.
+    held.state.songs = [song(7, { title: 'Mi Gozo', study: '' })]
+    held.playback.emit({ playing: false })
+    const w = await mountView()
+    held.savePath = '/musica/Otra copia.mp3'
+    held.api.exportMix.mockImplementationOnce(async () => ({
+      job: { name: 'mix', active: true, result: null },
+      already_running: true
+    }))
+    const { useNotices } = await import('../src/composables/useNotices.js')
+    const { notices } = useNotices()
+    const before = notices.value.length
+    await open(w)
+    await save()
+    const said = notices.value.slice(before).map((n) => n.message)
+    expect(said.some((m) => m.includes('aún se está guardando la anterior'))).toBe(true)
+    expect(said.some((m) => m.includes('Guardada'))).toBe(false)
   })
 })
