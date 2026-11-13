@@ -464,6 +464,15 @@ fn custom_detector() -> Option<Vec<OsString>> {
         .clone()
 }
 
+/// En las pruebas: si la rejilla de ese archivo se puede dar sin lanzar el
+/// detector de verdad (está guardada, o hay uno de mentira puesto). Quien
+/// pide una rejilla «si la hay» (la guía automática) lo mira antes: sin
+/// esto, una prueba cualquiera lanzaba el propio programa de pruebas con
+/// `--pulse`.
+pub(crate) fn safe_in_tests(app: &App, path: &Path) -> bool {
+    cached(app, path) || custom_detector().is_some()
+}
+
 fn detector() -> Vec<OsString> {
     if let Some(c) = custom_detector() {
         return c;

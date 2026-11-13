@@ -185,6 +185,75 @@ fn analyse(
     Ok(st::name_sections(&chunks, bar))
 }
 
+/// Los «1» de la rejilla del clic de la canción y lo que dura un pulso. La
+/// rejilla es la del análisis (la guardada o, si aún no hay, calculada
+/// ahora), no como se acentúe el clic en el estudio: con «sin acento»
+/// puesto, la interfaz mandaba uno de cada cuatro pulsos, empezara donde
+/// empezara, y las partes caían hasta tres pulsos fuera del «1».
+fn grid_bars(app: &App, song: &Dict) -> Option<(Vec<f64>, f64)> {
+    let path = song.get("path").map(value::str_of).unwrap_or_default();
+    let path = std::path::Path::new(&path);
+    if cfg!(test) && !crate::services::beats::safe_in_tests(app, path) {
+        return None;
+    }
+    let grid = crate::services::beats::grid_of(app, path).ok()?;
+    let beats: Vec<f64> = grid
+        .get("beats")?
+        .as_array()?
+        .iter()
+        .filter_map(Value::as_f64)
+        .collect();
+    let bars: Vec<f64> = grid
+        .get("bars")?
+        .as_array()?
+        .iter()
+        .filter_map(|i| i.as_u64().and_then(|i| beats.get(i as usize)).copied())
+        .collect();
+    let beat = median(beats.windows(2).map(|w| w[1] - w[0]).collect());
+    (bars.len() >= 8 && beat.is_finite() && beat > 0.0).then_some((bars, beat))
+}
+
+/// Las partes de una secuencia (los localizadores de su proyecto, en
+/// pulsos, con su tempo): ya vienen con su nombre y en su sitio exacto.
+fn sequence_parts(app: &App, song: &Dict) -> Option<Vec<(f64, String)>> {
+    if !song.get("stems").is_some_and(value::truthy) {
+        return None;
+    }
+    let data = stems::info(app, song)?;
+    let sequence = data.get("sequence")?;
+    let tempo = sequence
+        .get("tempo")
+        .and_then(Value::as_f64)
+        .filter(|t| *t > 0.0)?;
+    let parts: Vec<(f64, String)> = sequence
+        .get("sections")?
+        .as_array()?
+        .iter()
+        .filter_map(|s| {
+            let beat = s.get("beat").and_then(Value::as_f64)?;
+            let name = s.get("name").and_then(Value::as_str)?.trim();
+            (!name.is_empty()).then(|| (beat * 60.0 / tempo, name.chars().take(80).collect()))
+        })
+        .collect();
+    (parts.len() >= 2).then_some(parts)
+}
+
+/// Las partes por la letra con tiempos (`library::parts`): la guardada o la
+/// de LRCLIB que dure lo mismo que el archivo. `None` si no hay letra así, o
+/// si no da para sacar partes.
+fn lyric_parts(app: &App, song: &Dict, bars: &[f64], duration: f64) -> Option<Vec<(f64, String)>> {
+    let synced = crate::services::enrich::synced_lyrics(app, song)?;
+    let lines = library::parts::lines(&synced);
+    // una letra que acaba después que la canción, o que no llega a su
+    // mitad, es de otra grabación: sus tiempos no valen aquí
+    let last = lines.last().map_or(0.0, |l| l.at);
+    if duration > 0.0 && (last > duration + 2.0 || last < 0.4 * duration) {
+        return None;
+    }
+    let parts = library::parts::from_lyrics(&lines, duration, bars);
+    (parts.len() >= 3).then_some(parts)
+}
+
 /// Lo que se pide a la guía automática.
 #[derive(Debug, Clone, Default)]
 pub struct AutoGuide {
@@ -197,31 +266,52 @@ pub struct AutoGuide {
 
 /// La guía automática de una canción: sus partes y la guía hablada de cada
 /// una, justo antes. {sections: [{start, end, label}], cues: [{t, text,
-/// voice, file, seconds}]}.
+/// voice, file, seconds}], source}.
+///
+/// De dónde salen las partes (`source`), de lo más fiable a lo menos: las
+/// que se dan hechas (`given`), las de una secuencia (`sequence`), las de la
+/// letra con tiempos (`lyrics`) y, si no hay nada de eso, las del sonido
+/// (`sound`).
 pub fn auto_guide(
     app: &App,
     song: &Dict,
     req: &AutoGuide,
     p: &Progress,
 ) -> Result<Value, JobError> {
-    let found = match req.sections.as_ref().filter(|s| !s.is_empty()) {
-        Some(sections) => {
-            let mut duration = song
-                .get("duration")
-                .and_then(value::float_of)
-                .unwrap_or(0.0);
-            if duration == 0.0 {
-                let path = song.get("path").map(value::str_of).unwrap_or_default();
-                duration = decode(app, &path, st::RATE, st::MAX_SECONDS)?.len() as f64
-                    / f64::from(st::RATE);
-            }
-            let given: Vec<(f64, String)> = sections
-                .iter()
-                .map(|(s, l)| (*s, l.trim().chars().take(80).collect()))
-                .collect();
-            st::given(&given, duration)
+    let mut duration = song
+        .get("duration")
+        .and_then(value::float_of)
+        .unwrap_or(0.0);
+    let mut beat = req.beat;
+    let (found, source) = if let Some(sections) = req.sections.as_ref().filter(|s| !s.is_empty()) {
+        if duration == 0.0 {
+            let path = song.get("path").map(value::str_of).unwrap_or_default();
+            duration =
+                decode(app, &path, st::RATE, st::MAX_SECONDS)?.len() as f64 / f64::from(st::RATE);
         }
-        None => analyse(app, song, req.bars.as_deref(), req.beat, p)?,
+        let given: Vec<(f64, String)> = sections
+            .iter()
+            .map(|(s, l)| (*s, l.trim().chars().take(80).collect()))
+            .collect();
+        (st::given(&given, duration), "given")
+    } else if let Some(parts) = sequence_parts(app, song) {
+        (st::given(&parts, duration), "sequence")
+    } else {
+        // los compases: los que mande la interfaz (el clic ajustado a mano)
+        // o, lo normal, los de la rejilla del análisis
+        let mut bars = req.bars.clone().filter(|b| b.len() >= 8);
+        if bars.is_none() {
+            p.message("Mirando el clic de la canción…");
+            if let Some((own, pulse)) = grid_bars(app, song) {
+                bars = Some(own);
+                beat = beat.or(Some(pulse));
+            }
+        }
+        p.message("Buscando la letra…");
+        match lyric_parts(app, song, bars.as_deref().unwrap_or(&[]), duration) {
+            Some(parts) => (st::given(&parts, duration), "lyrics"),
+            None => (analyse(app, song, bars.as_deref(), beat, p)?, "sound"),
+        }
     };
     let mut labels: Vec<String> = Vec::new();
     for s in found.iter().filter(|s| s.start >= st::FIRST) {
@@ -252,7 +342,7 @@ pub fn auto_guide(
         .map(|(k, v)| (k.clone(), v["seconds"].as_f64().unwrap_or(0.0)))
         .collect();
     let starts: Vec<(f64, String)> = found.iter().map(|s| (s.start, s.label.clone())).collect();
-    let plan = st::plan_cues(&starts, &clips, req.beat);
+    let plan = st::plan_cues(&starts, &clips, beat);
     let cues: Vec<Value> = plan
         .iter()
         .map(|(t, text)| {
@@ -265,5 +355,9 @@ pub fn auto_guide(
             })
         })
         .collect();
-    Ok(json!({"sections": found.iter().map(section).collect::<Vec<_>>(), "cues": cues}))
+    Ok(json!({
+        "sections": found.iter().map(section).collect::<Vec<_>>(),
+        "cues": cues,
+        "source": source,
+    }))
 }

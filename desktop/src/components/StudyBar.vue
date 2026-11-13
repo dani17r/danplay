@@ -51,7 +51,6 @@ import {
   clickTimes,
   gridToOwn,
   nearestBeat,
-  isDownbeat,
   METERS
 } from '../utils/beats.js'
 import {
@@ -1588,26 +1587,24 @@ async function readyVoice(okLabel) {
   }
   return chooseVoice({ title: 'La voz de la guía', okLabel, current: wanted })
 }
-/** Dónde empieza cada compás (los «1» que se ven) y lo que dura un pulso. */
+/**
+ * Los compases del clic ajustado a mano (el «propio» de esta canción) y lo
+ * que dura un pulso, para la guía automática. Solo esos: los del clic
+ * automático los saca el núcleo de su análisis. Antes se mandaban siempre
+ * «los "1" que se ven», y con «sin acento» puesto no se ve ninguno: salía
+ * uno de cada cuatro pulsos, empezara donde empezara, y las partes caían
+ * hasta tres pulsos fuera de su sitio.
+ */
 function barsAndBeat() {
-  const g = shownGrid.value
-  let beats = g?.beats || []
-  let ones = beats.filter((_, i) => isDownbeat(g, i))
-  if (!beats.length) {
-    const m = metronome.value
-    if (m.free && m.bpm) {
-      const c = clickTimes(null, m, duration.value || 0)
-      beats = c.beats
-      ones = c.beats.filter((_, i) => c.accents[i])
-    }
-  }
-  if (!ones.length) ones = beats.filter((_, i) => i % 4 === 0)
+  const g = clickMode.value === 'own' && hasOwn.value ? grid.value : null
+  const beats = g?.beats || []
+  const bars = (g?.bars || []).map((i) => beats[i]).filter((t) => Number.isFinite(t))
   const gaps = beats
     .slice(1)
     .map((t, i) => t - beats[i])
     .sort((a, b) => a - b)
   const beat = gaps.length ? gaps[Math.floor(gaps.length / 2)] : 0
-  return { bars: ones.map(round3), beat: beat > 0.2 && beat < 2 ? round3(beat) : 0 }
+  return { bars: bars.map(round3), beat: beat > 0.2 && beat < 2 ? round3(beat) : 0 }
 }
 /** Haciendo la guía automática. */
 const autoBusy = ref(false)
@@ -1679,7 +1676,18 @@ function placeAutoGuide(r, voice) {
   scheduleSave()
   sendCues()
   const names = (r.sections || []).map((s) => s.label)
-  notify(`Guía lista: ${names.slice(0, 5).join(', ')}${names.length > 5 ? '…' : ''}`, 'ok', 6)
+  // de dónde salieron las partes: de lo más fiable a lo menos
+  const from =
+    {
+      lyrics: 'por la letra',
+      sequence: 'las de la secuencia',
+      sound: 'por cómo suena (sin letra con tiempos de esta grabación: es aproximada)'
+    }[r.source] || ''
+  notify(
+    `Guía lista${from ? ', ' + from : ''}: ${names.slice(0, 5).join(', ')}${names.length > 5 ? '…' : ''}`,
+    'ok',
+    r.source === 'sound' ? 9 : 6
+  )
 }
 /** Decir otra vez con otra voz las guías escritas (de un carril, o todas). */
 async function changeVoice(laneKey = null) {

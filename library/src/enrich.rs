@@ -377,6 +377,44 @@ pub fn lyrics_lrclib<O: Outside>(o: &mut O, track: &Track) -> Option<Lyrics> {
     None
 }
 
+/// La letra con tiempos de ESTA grabación: la de LRCLIB que dura lo mismo
+/// que el archivo (±3 s). Para lo que depende de los tiempos (las partes de
+/// la guía automática, `parts`): la de otra versión de la canción (el disco
+/// de estudio frente al directo) lleva cada verso en otro segundo, y la
+/// búsqueda difusa de `lyrics_lrclib` devuelve la primera que encuentra,
+/// dure lo que dure. Sin duración conocida no se puede saber: ninguna.
+pub fn synced_lyrics<O: Outside>(o: &mut O, track: &Track) -> Option<Lyrics> {
+    if track.duration < 1.0 || track.title.is_empty() {
+        return None;
+    }
+    let same_length = |d: &Value| {
+        d.get("duration")
+            .and_then(Value::as_f64)
+            .is_some_and(|x| (x - track.duration).abs() <= 3.0)
+    };
+    let usable =
+        |d: &Value| lrclib_result(d).filter(|l| same_length(d) && lrc::has_stamp(&l.synced));
+    let seconds = (track.duration as i64).to_string();
+    let mut pairs = vec![
+        ("artist_name", track.artist.as_str()),
+        ("track_name", track.title.as_str()),
+        ("duration", seconds.as_str()),
+    ];
+    if !track.album.is_empty() {
+        pairs.push(("album_name", track.album.as_str()));
+    }
+    if let Ok(d) = fetch_json(o, "https://lrclib.net/api/get?", &pairs)
+        && let Some(found) = usable(&d)
+    {
+        return Some(found);
+    }
+    let query = format!("{} {}", track.artist, track.title);
+    match fetch_json(o, "https://lrclib.net/api/search?", &[("q", query.trim())]) {
+        Ok(Value::Array(items)) => items.iter().take(20).find_map(usable),
+        _ => None,
+    }
+}
+
 /// La letra: la de LRCLIB y, si no la tiene y se deja, la de la IA (si la
 /// sabe con certeza).
 pub fn lyrics<O: Outside>(o: &mut O, track: &Track, allow_ai: bool) -> Option<Lyrics> {

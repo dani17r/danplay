@@ -23,6 +23,21 @@ hecho así, en [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
   horas): lo que se queda sin clic con pulso sonando baja de 2.587 a 1.024
   segundos, y las canciones con algún hueco así, de 73 a 25. Las rejillas
   guardadas se rehacen solas, sin volver a analizar nada.
+- **La guía automática, por la letra**: las partes de la canción salían
+  solo de cómo suena, y con estrofa y coro sobre los mismos acordes los
+  confundía (o llamaba «coro» al puente, por sonar más fuerte). Ahora, si
+  la canción tiene letra con tiempos (la guardada, o la de LRCLIB de esa
+  misma grabación, que se baja sola), salen de lo que se canta: lo que
+  vuelve en más sitios de la canción es el coro; lo que no se repite, las
+  estrofas (la misma cantada otra vez conserva su número); lo que aparece
+  cuando el coro ya ha sonado dos veces, el puente; y donde no se canta, la
+  intro, un instrumental o el final. Cada parte empieza en el «1» de su
+  compás. Una secuencia usa las partes de su proyecto. Sin letra, el
+  sonido, como antes, y el aviso dice de dónde salieron.
+- **Arreglado, en la guía automática**: con el clic «sin acento» las partes
+  caían hasta tres pulsos fuera de su sitio (se le daban compases
+  inventados; ahora los pone el análisis), y pedida antes de que cargara el
+  clic salía distinta, y peor.
 - **Recién instalada, suena**: en un sistema recién instalado con PipeWire
   DanPlay «sonaba» sin dar error y no se oía nada, hasta instalar a mano
   `pipewire-alsa`. El motor saca el sonido por ALSA, y ALSA solo llega al

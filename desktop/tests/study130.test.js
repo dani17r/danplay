@@ -384,6 +384,35 @@ describe('the automatic cue', () => {
     expect(body.cueLanes[0]).toMatchObject({ name: 'Partes', auto: true })
   })
 
+  it('the bars come from the core, not from how the click is accented', async () => {
+    // con «sin acento» no se ve ningún «1»: se mandaba uno de cada cuatro
+    // pulsos, empezara donde empezara, y las partes caían fuera de su sitio
+    prepare()
+    localStorage.setItem('danplay.cues.voice', JSON.stringify('st-F1'))
+    held.state.songs = [
+      song(7, { title: 'Mi Gozo', study: JSON.stringify({ metronome: { meter: 0 } }) })
+    ]
+    const w = await mountView()
+    await w.find('.study-auto-guide').trigger('click')
+    await flushPromises()
+    const body = held.api.autoCues.mock.calls.at(-1)[1]
+    expect(body).toEqual({ voice: 'st-F1' })
+  })
+
+  it('says where the parts came from', async () => {
+    const { useNotices } = await import('../src/composables/useNotices.js')
+    prepare()
+    localStorage.setItem('danplay.cues.voice', JSON.stringify('st-F1'))
+    held.api.runJob.mockImplementation(async (start) => {
+      await start()
+      return { ...result, source: 'lyrics' }
+    })
+    const w = await mountView()
+    await w.find('.study-auto-guide').trigger('click')
+    await flushPromises()
+    expect(useNotices().notices.value.at(-1).message).toContain('Guía lista, por la letra: ')
+  })
+
   it('with no voice chosen, it asks which one (and remembers it)', async () => {
     prepare()
     const w = await mountView()

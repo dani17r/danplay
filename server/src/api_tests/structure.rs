@@ -423,3 +423,88 @@ fn a_song_too_short_has_no_parts() {
         "{job}"
     );
 }
+
+/// La letra con tiempos de la canción de prueba: cada parte que se canta,
+/// donde suena (`TRUTH`), con sus versos cada 4 s.
+fn its_lyrics() -> String {
+    use std::fmt::Write as _;
+    const VERSE_1: [&str; 4] = [
+        "En la mañana te buscaré",
+        "Con todo mi corazón",
+        "Tu misericordia veré",
+        "Y cantaré tu canción",
+    ];
+    const VERSE_2: [&str; 4] = [
+        "Aunque la noche llegue",
+        "No temeré ningún mal",
+        "Tu mano me sostendrá",
+        "Y me harás descansar",
+    ];
+    const CHORUS: [&str; 4] = [
+        "Mi gozo eres tú, Señor",
+        "Mi fuerza y mi canción",
+        "Mi gozo eres tú, mi Dios",
+        "Te doy mi adoración",
+    ];
+    let mut out = String::new();
+    for (start, verses) in [
+        (8.0, VERSE_1),
+        (24.0, CHORUS),
+        (40.0, VERSE_2),
+        (56.0, CHORUS),
+    ] {
+        for (i, v) in verses.iter().enumerate() {
+            let at: f64 = start + 0.3 + 4.0 * i as f64;
+            let _ = writeln!(out, "[{:02.0}:{:05.2}]{v}", (at / 60.0).floor(), at % 60.0);
+        }
+    }
+    out
+}
+
+#[test]
+fn with_the_lyrics_of_this_recording_the_parts_come_from_what_is_sung() {
+    // La letra con tiempos dice qué es cada parte mucho mejor que el sonido:
+    // lo que se repite es el coro, lo que no, las estrofas, y donde no se
+    // canta, la intro y el final. Se busca (aquí, en el «LRCLIB» de las
+    // pruebas) la de esta grabación, y se guarda con la canción.
+    let Some((app, cid, _)) = song() else {
+        return;
+    };
+    let file = songs::by_id(&app, cid).expect("índice").expect("canción")["path"]
+        .as_str()
+        .expect("ruta")
+        .to_owned();
+    crate::services::enrich::fake_lrclib::put(&file, &its_lyrics());
+    let r = auto(
+        &app,
+        cid,
+        json!({"voice": "st-F1", "bars": every_bar(), "beat": 0.5}),
+    );
+    assert_eq!(r["source"], "lyrics", "{r}");
+    assert_eq!(
+        labels(&r["sections"]),
+        ["Intro", "Estrofa 1", "Coro", "Estrofa 2", "Coro", "Final"]
+    );
+    // cada parte, en el «1» de su compás (los versos entran 0,3 s después)
+    assert_eq!(starts(&r["sections"]), TRUTH, "{}", r["sections"]);
+    // y la letra queda con la canción: con sus tiempos, y la limpia
+    let saved = songs::by_id(&app, cid).expect("índice").expect("canción");
+    assert_eq!(saved["lyrics_synced"].as_str(), Some(its_lyrics().as_str()));
+    assert!(
+        saved["lyrics"]
+            .as_str()
+            .is_some_and(|l| l.starts_with("En la mañana te buscaré\nCon todo"))
+    );
+    // la de otra grabación (acaba después que la canción) no vale: el sonido
+    let long = its_lyrics() + "[02:10.00]Un verso de otra versión\n";
+    songs::update_one(&app, cid, "lyrics_synced", Value::from(long)).expect("letra");
+    let r = auto(
+        &app,
+        cid,
+        json!({"voice": "st-F1", "bars": every_bar(), "beat": 0.5}),
+    );
+    assert_eq!(r["source"], "sound", "{r}");
+    songs::update_one(&app, cid, "lyrics_synced", Value::from("")).expect("letra");
+    songs::update_one(&app, cid, "lyrics", Value::from("")).expect("letra");
+    crate::services::enrich::fake_lrclib::put(&file, "");
+}

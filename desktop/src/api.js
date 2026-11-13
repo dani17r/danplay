@@ -1264,8 +1264,10 @@ export const api = {
   /**
    * La guía automática (trabajo «auto-cue»): las partes de la canción
    * (intro, estrofas, coros, puente, solos…) dichas con esa voz justo antes
-   * de cada una. `bars`: dónde empieza cada compás (los pulsos que se ven);
-   * `beat`: lo que dura un pulso. Al acabar: {sections, cues}.
+   * de cada una. `bars` y `beat`: los compases y el pulso del clic ajustado
+   * a mano, si lo hay (los del automático los saca el núcleo). Al acabar:
+   * {sections, cues, source}; `source` dice de dónde salieron las partes:
+   * 'lyrics' (la letra con tiempos), 'sequence', 'given' o 'sound'.
    * @param {number} id
    * @param {{voice: string, bars?: number[], beat?: number,
    *   sections?: Array<{start: number, label: string}>}} body
