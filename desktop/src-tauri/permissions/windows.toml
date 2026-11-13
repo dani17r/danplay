@@ -54,6 +54,7 @@ permissions = [
   "allow-open-html",
   "allow-share-targets",
   "allow-sound-bridge",
+  "allow-take-opened-bundles",
   "allow-send-to-telegram",
   "allow-set-window-shape",
   "allow-window-shape",

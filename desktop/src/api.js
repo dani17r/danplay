@@ -519,6 +519,23 @@ export async function pickFolder(title = 'Elige tu carpeta de música') {
 }
 
 /**
+ * Abre el selector de archivos para elegir un `.danpista`. Devuelve la ruta
+ * o null.
+ * @param {string} [title]
+ * @returns {Promise<string|null>}
+ */
+export async function pickBundle(title = 'Elige el .danpista') {
+  if (!inTauri) return null
+  const { open } = await import('@tauri-apps/plugin-dialog')
+  const r = await open({
+    multiple: false,
+    title,
+    filters: [{ name: 'DanPista', extensions: ['danpista'] }]
+  })
+  return typeof r === 'string' ? r : Array.isArray(r) ? r[0] : null
+}
+
+/**
  * Abre el selector de imágenes del sistema. Devuelve la ruta o null.
  * @param {string} [title]
  * @returns {Promise<string|null>}
@@ -942,6 +959,7 @@ export const JOBS = {
   mix: 'mix',
   autoGuide: 'auto-cue',
   phone: 'bundle',
+  bundleImport: 'bundle-import',
   sequence: 'sequence'
 }
 
@@ -1361,6 +1379,27 @@ export const api = {
   onSequence: inTauri
     ? (fn) => listen('danplay://sequence', (e) => fn(String(e.payload || '')))
     : noListener,
+  /**
+   * Abre un `.danpista` en la PC (tarea «bundle-import»): la canción queda en
+   * la biblioteca con sus pistas, su clic y lo del estudio. Si ya estaba,
+   * `result` lleva `existing: true` y su id.
+   * @param {string} path
+   */
+  importBundle: (path) => POST('/bundle/import', { path }),
+  /**
+   * Avisa cuando se abre un `.danpista` desde fuera de la app (con «Abrir
+   * con», o arrastrado a su icono): llega su ruta.
+   * @param {(path: string) => void} fn
+   */
+  onBundle: inTauri
+    ? (fn) => listen('danplay://danpista', (e) => fn(String(e.payload || '')))
+    : noListener,
+  /**
+   * Los `.danpista` abiertos desde fuera antes de que la ventana escuchara
+   * (con la app cerrada). Se recogen una vez.
+   * @returns {Promise<string[]>}
+   */
+  takeOpenedBundles: () => (inTauri ? invoke('take_opened_bundles') : Promise.resolve([])),
 
   inbox: () => GET('/inbox'),
 

@@ -358,6 +358,12 @@ describe('what each method requests from the core', () => {
     externalPlayed: [['/a.mp3'], 'POST', '/api/external/play', { path: '/a.mp3' }],
     sequenceInfo: [['/d/Mi Cancion'], 'GET', '/api/sequence?path=%2Fd%2FMi%20Cancion'],
     importSequence: [['/d/x'], 'POST', '/api/sequence/import', { path: '/d/x' }],
+    importBundle: [
+      ['/d/Mi Gozo.danpista'],
+      'POST',
+      '/api/bundle/import',
+      { path: '/d/Mi Gozo.danpista' }
+    ],
     externalClear: [[], 'DELETE', '/api/external'],
     externalForget: [[-2], 'DELETE', '/api/external/-2'],
     externalSave: [['Del reproductor'], 'POST', '/api/external/save', { name: 'Del reproductor' }],
@@ -431,6 +437,8 @@ describe('what each method requests from the core', () => {
     'inTauri',
     'onExternal',
     'onSequence',
+    'onBundle',
+    'takeOpenedBundles',
     'stopPreview',
     'runJob',
     'audioUrl',

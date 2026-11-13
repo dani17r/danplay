@@ -23,6 +23,14 @@ hecho así, en [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
   horas): lo que se queda sin clic con pulso sonando baja de 2.587 a 1.024
   segundos, y las canciones con algún hueco así, de 73 a 25. Las rejillas
   guardadas se rehacen solas, sin volver a analizar nada.
+- **Un `.danpista` se abre también en la PC**: hasta ahora solo lo sabía
+  abrir la app del celular, así que lo que un compañero de la banda
+  preparaba en su equipo no se podía abrir en otro. Con «Abrir DanPista»
+  (en la barra de la izquierda), o abriéndolo con DanPlay desde fuera, la
+  canción queda en la biblioteca como una más, con sus pistas separadas, su
+  clic, lo del estudio (la mezcla, los tramos, los marcadores y las guías
+  habladas), la letra y el cifrado. Si esa canción ya está en la biblioteca
+  no se trae otra vez: se enseña la que hay.
 - **La guía automática, por la letra**: las partes de la canción salían
   solo de cómo suena, y con estrofa y coro sobre los mismos acordes los
   confundía (o llamaba «coro» al puente, por sonar más fuerte). Ahora, si

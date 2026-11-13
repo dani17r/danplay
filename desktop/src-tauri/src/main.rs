@@ -101,8 +101,13 @@ fn main() {
             // sistema arranca un segundo proceso, este le pasa los argumentos
             // al primero y se va. Una ruta relativa es relativa a donde
             // estaba ese segundo proceso, no a donde esta este.
-            let files = open::files_in(args.into_iter().skip(1).map(Into::into), Some(Path::new(&cwd)));
-            if files.is_empty() {
+            let args: Vec<std::ffi::OsString> = args.into_iter().skip(1).map(Into::into).collect();
+            let bundles = open::bundles_in(args.iter().cloned(), Some(Path::new(&cwd)));
+            let files = open::files_in(args, Some(Path::new(&cwd)));
+            if !bundles.is_empty() {
+                // un .danpista: la interfaz lo trae a la biblioteca
+                open::open_bundles(app, bundles);
+            } else if files.is_empty() {
                 tray::show_main(app);
             } else {
                 open::play(app, files);
@@ -186,6 +191,7 @@ fn main() {
             reveal::open_html,
             share::share_targets,
             dependencies::sound_bridge,
+            open::take_opened_bundles,
             share::send_to_telegram,
             shape::set_window_shape,
             shape::window_shape,
@@ -235,6 +241,7 @@ fn setup(app: &tauri::App) {
     // La cola vive en Rust: con la ventana escondida, los temporizadores del
     // WebView se ralentizan y la musica se quedaba parada entre canciones.
     app.manage(queue::Playback::new(handle.clone(), address));
+    app.manage(open::OpenedBundles::default());
     tray::install(&handle);
     media::install(&handle);
     core::watch(handle.clone());
@@ -247,6 +254,9 @@ fn setup(app: &tauri::App) {
     // en la linea de ordenes. `play` ya espera al nucleo por su cuenta, asi
     // que esto no retrasa el arranque. Tal cual las da el sistema: un nombre
     // que no sea UTF-8 no puede impedir que la app arranque.
+    // Un .danpista abierto con la app cerrada: queda apuntado, y la ventana
+    // lo recoge al montarse (`take_opened_bundles`).
+    open::open_bundles(&handle, open::bundles_in(std::env::args_os().skip(1), None));
     let files = open::files_in(std::env::args_os().skip(1), None);
     if files.is_empty() {
         // Sin canciones que abrir, se vuelve a donde se dejo: la misma lista

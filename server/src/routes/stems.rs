@@ -24,6 +24,7 @@ pub const ROUTES: &[Route] = &[
     Route::post("/api/bundle", to_phone).status(202),
     Route::get("/api/sequence", sequence_info),
     Route::post("/api/sequence/import", sequence_import).status(202),
+    Route::post("/api/bundle/import", bundle_import).status(202),
 ];
 
 /// Si se puede separar aquí, lo que pesa el separador, la cola y lo último
@@ -306,6 +307,28 @@ fn sequence_import(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
             .start(sequence::JOB, "no se pudo abrir la secuencia", move |p| {
                 sequence::import_sequence(&me, &path, p)
             });
+    Ok(jobs::started(snap, already).into())
+}
+
+/// Abre un `.danpista` en la PC (trabajo «bundle-import»): la canción queda
+/// en la biblioteca con sus pistas, su clic y lo del estudio.
+fn bundle_import(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
+    let mut b = ctx.body()?;
+    let path = b.str("path").min_len(1).max_len(4096).required();
+    ctx.done(b)?;
+    let file = std::path::PathBuf::from(&path);
+    if !file.is_absolute() || !file.is_file() {
+        return Err(ApiError::http(422, "no encuentro ese archivo"));
+    }
+    if !path.to_lowercase().ends_with(library::bundle::EXTENSION) {
+        return Err(ApiError::http(422, "eso no es un .danpista"));
+    }
+    let me = ctx.app.clone();
+    let (snap, already) = ctx.app.jobs.start(
+        bundle::IMPORT_JOB,
+        "no se pudo abrir el .danpista",
+        move |p| bundle::import(&me, &file, p),
+    );
     Ok(jobs::started(snap, already).into())
 }
 

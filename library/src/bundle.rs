@@ -512,9 +512,281 @@ pub fn write(package: &Bundle<'_>, done: &(dyn Fn() + Sync)) -> Result<Dict, Str
     Ok(data)
 }
 
+// ---------------------------------------------------------------- abrir uno
+
+/// Lo que pesa como mucho lo que se saca de un `.danpista`: el manifiesto,
+/// cada archivo y todo junto. Un zip puede decir que mide poco y soltar
+/// gigas al descomprimirse.
+const MAX_MANIFEST: u64 = 32 * 1024 * 1024;
+const MAX_ENTRY: u64 = 400 * 1024 * 1024;
+const MAX_TOTAL: u64 = 2 * 1024 * 1024 * 1024;
+
+/// Lo que trae un `.danpista`, ya fuera de su zip.
+#[derive(Debug, Clone)]
+pub struct Opened {
+    /// `pista.json`.
+    pub manifest: Value,
+    /// Cada parte: (fuente, archivo ya sacado), en el orden del manifiesto.
+    pub parts: Vec<(String, PathBuf)>,
+    /// Cada guía hablada: (su nombre dentro, `guias/x.wav`; el archivo ya sacado).
+    pub guides: Vec<(String, PathBuf)>,
+    /// La carátula, si la trae.
+    pub cover: Option<PathBuf>,
+}
+
+/// `partes/<nombre>.ogg` (o .mp3), sin carpetas ni cosas raras en el nombre:
+/// lo que escribe `write`. Lo demás no se saca.
+fn safe_part(name: &str) -> bool {
+    let Some(file) = name.strip_prefix("partes/") else {
+        return false;
+    };
+    let Some(stem) = file
+        .strip_suffix(".ogg")
+        .or_else(|| file.strip_suffix(".mp3"))
+    else {
+        return false;
+    };
+    !stem.is_empty()
+        && stem.chars().count() <= 64
+        && stem.chars().all(|c| {
+            c.is_alphanumeric() || c == '_' || c == '-' || c == ' ' || c == '(' || c == ')'
+        })
+}
+
+/// `guias/<nombre>.wav`, con un nombre de los que pone DanPlay.
+fn safe_guide(name: &str) -> bool {
+    name.strip_prefix("guias/")
+        .and_then(|f| f.strip_suffix(".wav"))
+        .is_some_and(|stem| {
+            !stem.is_empty()
+                && stem.len() <= 80
+                && stem
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+        })
+}
+
+/// Saca una entrada del zip a `target`, sin pasar de `limit` bytes.
+fn extract<R: std::io::Read + std::io::Seek>(
+    archive: &mut zip::ZipArchive<R>,
+    name: &str,
+    target: &Path,
+    limit: u64,
+) -> Result<u64, String> {
+    use std::io::Read as _;
+    let entry = archive
+        .by_name(name)
+        .map_err(|_| format!("al .danpista le falta «{name}»"))?;
+    if let Some(parent) = target.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let mut out = std::fs::File::create(target).map_err(|e| e.to_string())?;
+    let written = std::io::copy(&mut entry.take(limit + 1), &mut out).map_err(|e| e.to_string())?;
+    if written > limit {
+        let _ = std::fs::remove_file(target);
+        return Err(format!("«{name}» pesa demasiado para ser de un .danpista"));
+    }
+    Ok(written)
+}
+
+/// Abre un `.danpista` y saca a `dir` lo que su manifiesto dice que trae:
+/// las partes, las guías habladas de su estudio y la carátula. Solo eso, y
+/// solo con los nombres que escribe DanPlay (`write`): un archivo hecho a
+/// mano no puede dejar nada fuera de `dir` ni llenar el disco.
+pub fn unpack(file: &Path, dir: &Path) -> Result<Opened, String> {
+    use std::io::Read as _;
+    let handle = std::fs::File::open(file).map_err(|e| format!("no pude abrir el archivo: {e}"))?;
+    let mut archive = zip::ZipArchive::new(std::io::BufReader::new(handle))
+        .map_err(|_| "no es un .danpista (no se puede leer por dentro)".to_owned())?;
+    let manifest: Value = {
+        let entry = archive
+            .by_name(MANIFEST)
+            .map_err(|_| "no es un .danpista: le falta su pista.json".to_owned())?;
+        let mut text = String::new();
+        entry
+            .take(MAX_MANIFEST)
+            .read_to_string(&mut text)
+            .map_err(|e| format!("su pista.json no se lee: {e}"))?;
+        serde_json::from_str(&text).map_err(|_| "su pista.json está roto".to_owned())?
+    };
+    if manifest.get("format").and_then(Value::as_str) != Some("danpista") {
+        return Err("no es un .danpista".into());
+    }
+    if manifest.get("version").and_then(Value::as_i64).unwrap_or(0) > VERSION {
+        return Err(
+            "está hecho con un DanPlay más nuevo que este: actualízalo para abrirlo".into(),
+        );
+    }
+    let mut total = 0;
+    let mut budget = |n: u64| -> Result<(), String> {
+        total += n;
+        if total > MAX_TOTAL {
+            return Err("pesa demasiado para ser un .danpista".into());
+        }
+        Ok(())
+    };
+    let mut parts = Vec::new();
+    for t in value::list_of(manifest.get("tracks").unwrap_or(&Value::Null)) {
+        let (Some(source), Some(name)) = (
+            t.get("source").and_then(Value::as_str),
+            t.get("file").and_then(Value::as_str),
+        ) else {
+            continue;
+        };
+        if !safe_part(name) {
+            return Err(format!(
+                "una parte tiene un nombre que no es de DanPlay: «{name}»"
+            ));
+        }
+        let target = dir.join(name);
+        budget(extract(&mut archive, name, &target, MAX_ENTRY)?)?;
+        parts.push((source.to_owned(), target));
+    }
+    if parts.is_empty() {
+        return Err("no trae ninguna parte".into());
+    }
+    let mut guides: Vec<(String, PathBuf)> = Vec::new();
+    let cues = manifest.get("study").and_then(|s| s.get("cues"));
+    for c in value::list_of(cues.unwrap_or(&Value::Null)) {
+        let Some(name) = c.get("file").and_then(Value::as_str) else {
+            continue;
+        };
+        // las que no son suyas (o no vienen dentro) se quedan sin archivo
+        if !safe_guide(name) || guides.iter().any(|(n, _)| n == name) {
+            continue;
+        }
+        let target = dir.join(name);
+        if let Ok(n) = extract(&mut archive, name, &target, MAX_ENTRY) {
+            budget(n)?;
+            guides.push((name.to_owned(), target));
+        }
+    }
+    let cover = manifest
+        .get("cover")
+        .and_then(Value::as_str)
+        .filter(|n| matches!(*n, "portada.jpg" | "portada.png"))
+        .and_then(|name| {
+            let target = dir.join(name);
+            extract(&mut archive, name, &target, MAX_MANIFEST)
+                .ok()
+                .map(|_| target)
+        });
+    Ok(Opened {
+        manifest,
+        parts,
+        guides,
+        cover,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Un zip con esas entradas, en una carpeta temporal propia.
+    fn zip_with(name: &str, entries: &[(&str, &[u8])]) -> (PathBuf, PathBuf) {
+        let dir =
+            std::env::temp_dir().join(format!("danplay-unpack-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("carpeta");
+        let file = dir.join("prueba.danpista");
+        let mut z = zip::ZipWriter::new(std::fs::File::create(&file).expect("zip"));
+        let options = zip::write::SimpleFileOptions::default();
+        for (entry, data) in entries {
+            z.start_file(*entry, options).expect("entrada");
+            z.write_all(data).expect("datos");
+        }
+        z.finish().expect("cerrar");
+        (file, dir.join("fuera"))
+    }
+
+    #[test]
+    fn unpacking_takes_out_only_what_danplay_writes() {
+        let manifest = serde_json::json!({
+            "format": "danpista",
+            "version": VERSION,
+            "song": {"title": "Mi Gozo"},
+            "tracks": [{"source": "drums", "name": "Batería", "file": "partes/Bateria.ogg"}],
+            "study": {"cues": [
+                {"t": 1.0, "file": "guias/coro-1.wav"},
+                {"t": 2.0, "file": "guias/../../fuera.wav"},
+                {"t": 3.0, "file": "guias/no-viene.wav"},
+            ]},
+            "cover": "portada.jpg",
+        });
+        let text = manifest.to_string();
+        let (file, out) = zip_with(
+            "bien",
+            &[
+                (MANIFEST, text.as_bytes()),
+                ("partes/Bateria.ogg", b"ogg"),
+                ("guias/coro-1.wav", b"wav"),
+                ("portada.jpg", b"jpg"),
+                ("otra-cosa.sh", b"#!/bin/sh"),
+            ],
+        );
+        let opened = unpack(&file, &out).expect("abrir");
+        assert_eq!(
+            opened.parts,
+            [("drums".to_owned(), out.join("partes/Bateria.ogg"))]
+        );
+        // solo la guía que es suya y viene dentro
+        assert_eq!(
+            opened.guides,
+            [("guias/coro-1.wav".to_owned(), out.join("guias/coro-1.wav"))]
+        );
+        assert_eq!(opened.cover, Some(out.join("portada.jpg")));
+        // y nada más: lo que el manifiesto no nombra se queda en el zip
+        assert!(!out.join("otra-cosa.sh").exists());
+        let _ = std::fs::remove_dir_all(file.parent().expect("carpeta"));
+    }
+
+    #[test]
+    fn a_file_made_by_hand_cannot_write_outside_or_pass_for_one() {
+        let bad = |name: &str, manifest: serde_json::Value, why: &str| {
+            let text = manifest.to_string();
+            let (file, out) = zip_with(name, &[(MANIFEST, text.as_bytes()), ("x.ogg", b"ogg")]);
+            let err = unpack(&file, &out).expect_err("tenía que fallar");
+            assert!(err.contains(why), "{err}");
+            let _ = std::fs::remove_dir_all(file.parent().expect("carpeta"));
+        };
+        // una parte que quiere salir de su carpeta
+        bad(
+            "fuera",
+            serde_json::json!({"format": "danpista", "version": 1,
+                "tracks": [{"source": "drums", "file": "partes/../../x.ogg"}]}),
+            "no es de DanPlay",
+        );
+        // otra cosa con forma de zip
+        bad(
+            "otro",
+            serde_json::json!({"format": "zip"}),
+            "no es un .danpista",
+        );
+        // de un DanPlay más nuevo
+        bad(
+            "nuevo",
+            serde_json::json!({"format": "danpista", "version": VERSION + 1, "tracks": []}),
+            "más nuevo",
+        );
+        // sin partes
+        bad(
+            "vacio",
+            serde_json::json!({"format": "danpista", "version": 1, "tracks": []}),
+            "ninguna parte",
+        );
+        // y lo que no es un zip
+        let dir = std::env::temp_dir().join(format!("danplay-unpack-nozip-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("carpeta");
+        let file = dir.join("cancion.danpista");
+        std::fs::write(&file, b"esto es un mp3").expect("archivo");
+        assert!(
+            unpack(&file, &dir.join("fuera"))
+                .expect_err("no es zip")
+                .contains("no es un .danpista")
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn entry_date_is_local_time() {

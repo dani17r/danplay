@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-take-opened-bundles"
+description = "Enables the take_opened_bundles command without any pre-configured scope."
+commands.allow = ["take_opened_bundles"]
+
+[[permission]]
+identifier = "deny-take-opened-bundles"
+description = "Denies the take_opened_bundles command without any pre-configured scope."
+commands.deny = ["take_opened_bundles"]

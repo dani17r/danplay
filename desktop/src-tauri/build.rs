@@ -53,6 +53,7 @@ const COMMANDS: &[&str] = &[
     "open_html",
     "share_targets",
     "sound_bridge",
+    "take_opened_bundles",
     "send_to_telegram",
     "set_window_shape",
     "window_shape",

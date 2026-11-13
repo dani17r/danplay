@@ -50,6 +50,7 @@ import { useSearch } from './composables/useSearch.js'
 import { usePlaylistActions } from './composables/usePlaylistActions.js'
 import { useDownloads } from './composables/useDownloads.js'
 import { useSequence } from './composables/useSequence.js'
+import { useBundle } from './composables/useBundle.js'
 import { connectChat } from './composables/chatLink.js'
 import { groupedOrder } from './utils/groups.js'
 import { useRouter } from 'vue-router'
@@ -147,6 +148,21 @@ async function openSequence(path) {
   const song = await api.song(made.id).catch(() => null)
   if (!song) return
   player.setQueue([song], song.id, { kind: 'all', label: 'Secuencias' })
+  selection.showDetail(song.id)
+  if (!StudyBar.value && !(await loaded(islands.study))) return
+  studyActive.value = true
+  studyOpen.value = true
+}
+// Abrir un `.danpista` (la canción con sus pistas, como la que va al
+// celular): al acabar, a sonar en el estudio. Si ya estaba, se enseña.
+const bundles = useBundle()
+async function openBundle(path) {
+  const made = await bundles.open(typeof path === 'string' ? path : undefined)
+  if (!made) return
+  if (!made.existing) await refreshAll()
+  const song = await api.song(made.id).catch(() => null)
+  if (!song) return
+  player.setQueue([song], song.id, { kind: 'all', label: 'Todas las canciones' })
   selection.showDetail(song.id)
   if (!StudyBar.value && !(await loaded(islands.study))) return
   studyActive.value = true
@@ -425,6 +441,7 @@ let coreWasReady = false
 let stopCoreWatch = null
 let stopExternalWatch = null
 let stopSequenceWatch = null
+let stopBundleWatch = null
 let stopChangeWatch = null
 
 const title = computed(
@@ -1013,6 +1030,19 @@ onMounted(async () => {
   stopSequenceWatch = await api.onSequence((folder) => {
     if (folder) openSequence(folder)
   })
+  // se abrió un .danpista desde fuera: los de antes de montarse la ventana
+  // (la app estaba cerrada) y los que lleguen después
+  const opened = new Set()
+  const openOnce = (file) => {
+    if (!file || opened.has(file)) return
+    opened.add(file)
+    openBundle(file).finally(() => opened.delete(file))
+  }
+  stopBundleWatch = await api.onBundle(async (file) => {
+    await api.takeOpenedBundles().catch(() => [])
+    openOnce(file)
+  })
+  for (const file of await api.takeOpenedBundles().catch(() => [])) openOnce(file)
 
   // Cualquier cambio en el núcleo —lo haga quien lo haga— se refleja aquí
   // sin salir y volver a entrar. Rust avisa; esta ventana escucha.
@@ -1089,6 +1119,7 @@ onUnmounted(() => {
   stopCoreWatch?.()
   stopExternalWatch?.()
   stopSequenceWatch?.()
+  stopBundleWatch?.()
   stopChangeWatch?.()
   clearTimeout(changeTimer)
   cancelDrag()
@@ -1330,6 +1361,7 @@ function onUpdated(song) {
         :news-badge="unreadNews"
         @go="goTo"
         @open-sequence="openSequence()"
+        @open-bundle="openBundle()"
         @new-playlist="playlistActions.create()"
         @playlist-menu="playlistMenu"
       />
@@ -1345,6 +1377,7 @@ function onUpdated(song) {
           :news-badge="unreadNews"
           @go="goTo"
           @open-sequence="openSequence()"
+          @open-bundle="openBundle()"
           @new-playlist="playlistActions.create()"
           @playlist-menu="playlistMenu"
         />

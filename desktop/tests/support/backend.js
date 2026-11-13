@@ -967,6 +967,13 @@ export function buildApiDouble(actual, state) {
     double.fireSequence = fn
     return () => (double.fireSequence = null)
   })
+  // un .danpista abierto desde fuera: su aviso, y los que quedaron apuntados
+  // antes de montarse la ventana (`state.openedBundles`)
+  double.onBundle = vi.fn(async (fn) => {
+    double.fireBundle = fn
+    return () => (double.fireBundle = null)
+  })
+  double.takeOpenedBundles = vi.fn(async () => (state.openedBundles || []).splice(0))
   return double
 }
 

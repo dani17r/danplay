@@ -1576,3 +1576,112 @@ fn the_api_separates_lists_and_deletes_stems() {
     );
     assert_eq!(call(&app, "POST", "/api/song/999999/separate", None).0, 404);
 }
+
+/// Un `.danpista` se abre también en la PC: lo que antes solo sabía hacer la
+/// app del celular. De una biblioteca a otra (otro equipo de la banda): la
+/// canción queda como una más, con sus pistas, su estudio, su letra, su
+/// cifrado y su clic. En la misma biblioteca no se trae otra vez.
+#[test]
+fn a_danpista_opens_on_the_pc_too() {
+    let Some((app, _)) = lib() else { return };
+    let cid = id_of(&app, "Barak - Mi Gozo.mp3");
+    separate(&app, cid);
+    with_grid(&app, "Barak - Mi Gozo.mp3");
+    let study = json!({"speed": 0.8, "mixer": {"on": true, "tracks": {"drums": {"mute": true}}}});
+    let sheet = json!({"source": "LaCuerda", "url": "https://x", "key": "G", "sections": []});
+    let mut fields = Dict::new();
+    fields.insert("study".into(), json!(study.to_string()));
+    fields.insert("lyrics".into(), json!("Mi gozo"));
+    fields.insert("lyrics_synced".into(), json!("[00:00.10]Mi gozo"));
+    fields.insert("chords".into(), json!(json!({"sheet": sheet}).to_string()));
+    crate::services::songs::update(&app, cid, &fields).expect("ficha");
+    let made = crate::services::bundle::export(&app, cid, &|_, _| {})
+        .unwrap_or_else(|e| panic!("{}", e.text()));
+    let file = made["path"].as_str().expect("ruta").to_owned();
+    let tracks = made["tracks"].as_u64().expect("pistas");
+
+    // en la misma biblioteca: ya está, no se trae otra
+    let r = crate::testkit::run_job(
+        &app,
+        "/api/bundle/import",
+        "bundle-import",
+        Some(json!({"path": file})),
+    );
+    assert_eq!(
+        (&r["existing"], &r["id"]),
+        (&json!(true), &json!(cid)),
+        "{r}"
+    );
+
+    // en otra: entra entera
+    let Some((other, _)) = lib() else { return };
+    let before = get(&other, "/api/search?limit=100")["songs"]
+        .as_array()
+        .map_or(0, Vec::len);
+    // (esa biblioteca de prueba ya trae la suya: fuera, para que sea nueva)
+    let same = id_of(&other, "Barak - Mi Gozo.mp3");
+    call(
+        &other,
+        "DELETE",
+        &format!("/api/song/{same}?from_lists=true"),
+        None,
+    );
+    let r = crate::testkit::run_job(
+        &other,
+        "/api/bundle/import",
+        "bundle-import",
+        Some(json!({"path": file})),
+    );
+    assert!(r.get("existing").is_none(), "{r}");
+    assert_eq!(
+        (r["title"].as_str(), r["artist"].as_str()),
+        (Some("Mi Gozo"), Some("Barak"))
+    );
+    assert_eq!(r["tracks"].as_u64(), Some(tracks));
+    let id = r["id"].as_i64().expect("id");
+    let song = get(&other, &format!("/api/song/{id}"));
+    assert_eq!(
+        (song["title"].as_str(), song["artist"].as_str()),
+        (Some("Mi Gozo"), Some("Barak"))
+    );
+    assert!(
+        song["path"]
+            .as_str()
+            .is_some_and(|p| p.ends_with("Barak - Mi Gozo.mp3")),
+        "{}",
+        song["path"]
+    );
+    assert_eq!(song["lyrics"].as_str(), Some("Mi gozo"));
+    assert_eq!(song["lyrics_synced"].as_str(), Some("[00:00.10]Mi gozo"));
+    let chords: Value =
+        serde_json::from_str(song["chords"].as_str().expect("cifrado")).expect("json");
+    assert_eq!(chords["sheet"], sheet);
+    let kept: Value = serde_json::from_str(song["study"].as_str().expect("estudio")).expect("json");
+    assert_eq!(kept["speed"], json!(0.8));
+    assert_eq!(kept["mixer"]["tracks"]["drums"]["mute"], json!(true));
+    // sus pistas, completas y en su carpeta
+    let info = get(&other, &format!("/api/song/{id}/stems"));
+    assert_eq!(info["complete"], json!(true), "{info}");
+    assert_eq!(
+        info["tracks"].as_array().map(Vec::len),
+        Some(tracks as usize)
+    );
+    // su clic, el que traía
+    assert!(crate::services::beats::cached(
+        &other,
+        Path::new(song["path"].as_str().expect("ruta"))
+    ));
+    // y sigue habiendo las mismas canciones que antes (una fuera, una dentro)
+    let after = get(&other, "/api/search?limit=100")["songs"]
+        .as_array()
+        .map_or(0, Vec::len);
+    assert_eq!(after, before);
+    // lo que no es un .danpista se dice
+    let (s, v) = call(
+        &other,
+        "POST",
+        "/api/bundle/import",
+        Some(json!({"path": song["path"]})),
+    );
+    assert_eq!(s, 422, "{v}");
+}
