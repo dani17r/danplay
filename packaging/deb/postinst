@@ -9,4 +9,9 @@ set -e
 if command -v update-desktop-database >/dev/null 2>&1; then
     update-desktop-database -q /usr/share/applications || true
 fi
+# Y el tipo de los .danpista (un ZIP por dentro): sin refrescar la base de
+# tipos, el escritorio los sigue abriendo con el gestor de comprimidos.
+if command -v update-mime-database >/dev/null 2>&1; then
+    update-mime-database /usr/share/mime >/dev/null 2>&1 || true
+fi
 exit 0

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  El tipo de un .danpista (la canción con sus pistas, su clic y su estudio,
+  como la que se manda al celular). Por dentro es un ZIP: sin esto, el
+  escritorio lo toma por un archivo comprimido y al abrirlo sale el gestor de
+  archivos comprimidos en vez de DanPlay. Por el nombre (*.danpista) manda
+  este tipo; sigue siendo un ZIP para quien quiera abrirlo como tal.
+-->
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="application/x-danpista">
+    <comment>DanPista: song with its stems</comment>
+    <comment xml:lang="es">DanPista: canción con sus pistas</comment>
+    <sub-class-of type="application/zip"/>
+    <glob pattern="*.danpista"/>
+  </mime-type>
+</mime-info>

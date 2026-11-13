@@ -63,6 +63,23 @@ echo 'console.log(1+1)' >/tmp/dos.js
 [ "$("$TOOLS/qjs" /tmp/dos.js 2>/dev/null)" = "2" ] && ok "qjs contesta" || bad "qjs no arranca"
 "$TOOLS/yt-dlp" --version >/dev/null 2>&1 && ok "yt-dlp contesta" || bad "yt-dlp no arranca"
 
+echo "== abrir un .danpista desde el explorador"
+# por dentro es un ZIP: sin su tipo, el escritorio lo abre con el gestor de
+# archivos comprimidos. Se mira con un ZIP de verdad (su firma, y vacio).
+if apt-get install -y -qq xdg-utils >/dev/null 2>&1; then
+    printf 'PK\005\006\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0' >/tmp/cancion.danpista
+    kind=$(xdg-mime query filetype /tmp/cancion.danpista 2>/dev/null)
+    if [ "$kind" = "application/x-danpista" ]; then
+        ok "un .danpista es $kind"
+    else
+        bad "un .danpista se toma por «$kind», no por application/x-danpista"
+    fi
+    opener=$(grep -ls 'application/x-danpista' /usr/share/applications/*.desktop 2>/dev/null | head -1)
+    [ -n "$opener" ] && ok "lo abre $(basename "$opener")" || bad "ningun .desktop dice abrir application/x-danpista"
+else
+    echo "  (sin xdg-utils: no se mira)"
+fi
+
 echo "== la app"
 # el detector de pulso es la propia app con --pulse: sin argumentos dice
 # como se usa y sale con 2. Con eso ya cargo todas sus bibliotecas.

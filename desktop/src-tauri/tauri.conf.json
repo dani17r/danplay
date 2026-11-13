@@ -79,7 +79,10 @@
         "priority": "optional",
         "desktopTemplate": "../../packaging/danplay.desktop",
         "postInstallScript": "../../packaging/deb/postinst",
-        "postRemoveScript": "../../packaging/deb/postrm"
+        "postRemoveScript": "../../packaging/deb/postrm",
+        "files": {
+          "/usr/share/mime/packages/danplay-danpista.xml": "../../packaging/deb/danplay-danpista.xml"
+        }
       },
       "appimage": {
         "bundleMediaFramework": false
@@ -174,6 +177,15 @@
         "name": "DanPlay.wma",
         "description": "Canción WMA",
         "mimeType": "audio/x-ms-wma",
+        "role": "Viewer"
+      },
+      {
+        "ext": [
+          "danpista"
+        ],
+        "name": "DanPlay.danpista",
+        "description": "Canción con sus pistas (DanPista)",
+        "mimeType": "application/x-danpista",
         "role": "Viewer"
       }
     ],
