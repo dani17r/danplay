@@ -169,6 +169,17 @@ Es lo mismo que comprueba la CI en cada push, y todo tiene que pasar:
 
 `./scripts/test.sh --quick` se salta las e2e y las de humo.
 
+**La instalación limpia** va aparte, antes de entregar un paquete:
+`./scripts/test-install.sh` instala el `.deb` recién construido en una
+Debian 13 y una Ubuntu 24.04 recién hechas (Docker) y comprueba que no le
+falte nada para abrirse y sonar: que `apt` resuelva lo que pide, que ningún
+programa eche en falta una biblioteca, que ALSA tenga su puente al servidor
+de sonido, que contesten los programas que viajan dentro y que la app se
+abra (con una pantalla de mentira) y el núcleo conteste. Nació de un fallo
+de verdad: la 1.40.1 se instalaba bien y no sonaba en un sistema recién
+instalado con PipeWire, porque el paquete no pedía `pipewire-alsa`. Con
+ese paquete, la prueba falla justo ahí.
+
 Si no quieres cargar el equipo, que las corra GitHub: sube el commit
 (`git push`) y
 

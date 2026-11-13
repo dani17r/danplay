@@ -4,6 +4,10 @@
 #   ./scripts/test.sh          todo, incluidas las e2e (Chrome) y la de humo
 #                              (que arranca la app compilada de verdad)
 #   ./scripts/test.sh --quick  sin las e2e ni la de humo
+#
+# Aparte va la instalacion limpia del .deb en un sistema recien hecho
+# (`./scripts/test-install.sh`): pide Docker, red y el paquete ya construido,
+# y tarda unos minutos, asi que se lanza antes de entregar y no aqui.
 set -u
 cd "$(dirname "$0")/.."
 LOGS=$(mktemp -d)
