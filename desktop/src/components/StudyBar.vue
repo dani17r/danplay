@@ -29,6 +29,7 @@ import { api, app as tauriApp, errorMessage, pickAudio, pickSavePath, JOBS } fro
 import { notify } from '../composables/useNotices.js'
 import { ask } from '../composables/useDialog.js'
 import { usePlayback, MAX_VOLUME } from '../composables/usePlayback.js'
+import { LANE_MIN, laneHeight as fittedLane, waveRoom as roomFor } from '../utils/studyFit.js'
 import { useSeparation } from '../composables/useSeparation.js'
 import { useClick } from '../composables/useClick.js'
 import { useRouting } from '../composables/useRouting.js'
@@ -1771,6 +1772,10 @@ const mixerOn = computed(() => hasStems.value && !!study.value.mixer?.on)
 const plan = computed(() => stemPlan(stems.value?.tracks || [], study.value.mixer?.tracks || {}))
 /** Los carriles de la onda: solo con las pistas sonando. */
 const lanes = computed(() => (mixerOn.value ? plan.value : []))
+/** Con más pistas que estas (una secuencia), el estudio va a todo el alto. */
+const MANY_LANES = 10
+/** El sitio que le queda a la onda en el panel, en px (null: sin medir). */
+const waveRoom = ref(null)
 /**
  * Lo alto de cada carril: más bajos cuantas más pistas (una secuencia trae
  * veintitantas y la onda pasaba de 700 px), sin bajar de lo que piden sus
@@ -1780,8 +1785,19 @@ const laneHeight = computed(() => {
   const base = isMobileApp ? 42 : big.value ? 46 : 34
   const n = lanes.value.length
   if (!n) return base
+  // en el escritorio, lo que mide de verdad el sitio de la onda (`waveRoom`):
+  // los carriles llenan lo que deja el panel, ni más (y el resto del estudio
+  // se quedaba sin sitio) ni menos (y sobraba media pantalla)
+  if (!isMobileApp && waveRoom.value != null) return fittedLane(n, waveRoom.value)
   const room = isMobileApp ? 460 : big.value ? 520 : 340
-  return Math.max(isMobileApp ? 26 : 20, Math.min(base, Math.floor(room / n)))
+  return Math.max(isMobileApp ? 26 : LANE_MIN, Math.min(base, Math.floor(room / n)))
+})
+/** El alto de la onda de la canción (sin pistas): en grande, lo que deje el panel. */
+const waveHeight = computed(() => {
+  if (isMobileApp) return 120
+  const base = big.value ? 150 : 80
+  if (waveRoom.value == null) return base
+  return Math.round(clamp(waveRoom.value, 80, big.value ? 280 : 130))
 })
 const progress = computed(() => separation.progressOf(track.value?.id))
 const canSeparate = computed(() => separation.state.ok)
@@ -2204,16 +2220,59 @@ onUnmounted(() => {
   stopStudyTour()
 })
 let sizeWatch = null
+/**
+ * Mide el sitio que le queda a la onda dentro del panel: el alto del panel
+ * menos lo de arriba (la cabecera y la barra), menos lo que se le guarda al
+ * cuerpo (las columnas de velocidad, clic, marcadores y notas) y menos lo
+ * demás de la línea de tiempo (el carril del clic, los de las guías, la
+ * regla). Con eso se reparten los carriles.
+ *
+ * Antes el alto de los carriles salía de un número fijo, y con una secuencia
+ * de veintitantas pistas la onda se comía el panel entero: las columnas de
+ * abajo se quedaban en su título y no se podía llegar a la velocidad, al
+ * clic ni a los marcadores.
+ */
+function fitTimeline() {
+  const el = root.value
+  const tl = timeline.value?.$el
+  if (isMobileApp || !el || !tl?.querySelector) return
+  const box = tl.querySelector('.tl-box')
+  const inner = el.clientHeight
+  // sin medidas (la capa aún no se ve, o un entorno sin maquetación): lo de siempre
+  if (!box || !(inner > 0) || !(box.offsetHeight > 0)) return
+  const cs = getComputedStyle(el)
+  const pad = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0)
+  const gap = parseFloat(cs.rowGap) || 0
+  let others = 0
+  let rows = 0
+  for (const child of el.children) {
+    const pos = getComputedStyle(child).position
+    if (pos === 'fixed' || pos === 'absolute') continue // las ventanas que se abren encima
+    rows++
+    if (child !== tl && !child.classList.contains('study-body')) others += child.offsetHeight
+  }
+  const rest = tl.scrollHeight - box.offsetHeight
+  const next = roomFor({ inner, pad, others, gap, rows, rest })
+  // de dos en dos píxeles: que un redondeo no la tenga midiendo sin parar
+  if (waveRoom.value == null || Math.abs(next - waveRoom.value) >= 2) waveRoom.value = next
+}
 onMounted(() => {
   // cuántos canales tiene la salida: los botones de cada carril son L y R, o
   // 1, 2, 3… con una interfaz de más salidas
   if (!isMobileApp) routing.loadDevices?.().catch?.(() => {})
   if (isMobileApp || typeof ResizeObserver !== 'function' || !root.value) return
-  sizeWatch = new ResizeObserver(([e]) => {
-    const w = e.contentRect.width
-    tabbed.value = w >= 680 && w < 1100
+  sizeWatch = new ResizeObserver((entries) => {
+    for (const e of entries) {
+      if (e.target !== root.value) continue
+      const w = e.contentRect.width
+      tabbed.value = w >= 680 && w < 1100
+    }
+    fitTimeline()
   })
   sizeWatch.observe(root.value)
+  // y lo de dentro de la línea de tiempo: otro carril de guías, el del clic
+  const tl = timeline.value?.$el
+  if (tl?.nodeType === 1) sizeWatch.observe(tl)
 })
 onUnmounted(() => sizeWatch?.disconnect())
 
@@ -2226,7 +2285,12 @@ defineExpose({ close: hide, hide, exit })
     ref="root"
     v-tips
     class="study"
-    :class="{ 'with-lanes': lanes.length, big }"
+    :class="{
+      'with-lanes': lanes.length,
+      'many-lanes': lanes.length > MANY_LANES,
+      big,
+      desk: !isMobileApp
+    }"
     role="region"
     aria-label="Modo estudio"
   >
@@ -2757,7 +2821,7 @@ defineExpose({ close: hide, hide, exit })
       "
       :seek-click="seekClick"
       :click-loading="clickLoading ? click.progress.value : null"
-      :height="isMobileApp ? 120 : big ? 150 : 80"
+      :height="waveHeight"
       :lane-height="laneHeight"
       :locked="locked"
       :playing="playing"

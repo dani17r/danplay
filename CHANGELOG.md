@@ -31,6 +31,14 @@ hecho así, en [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
   guardar una mezcla mientras se guardaba otra decía «Guardada» sin
   escribir nada; y ajustando pulsos a mano, el doble clic que añade un pulso
   quitaba además el tramo que hubiera.
+- **Una secuencia con muchas pistas ya cabe**: con veintitantas pistas la
+  onda se comía el modo estudio entero y de las columnas de abajo
+  (velocidad, clic, marcadores, notas) solo quedaba el título. Ahora los
+  carriles se reparten el sitio que de verdad hay, el estudio pasa solo a
+  todo el alto cuando son muchas, las columnas conservan siempre un alto
+  que se puede usar y, si aun así no caben, los carriles se desplazan con
+  la regla de los minutos a la vista. Con pocas pistas y en «Grande», al
+  revés: los carriles y la onda crecen para llenar la pantalla.
 - **La velocidad** ya no se queda puesta de un día para otro: la del
   estudio se guarda con su canción y vuelve con ella, pero cerrando DanPlay
   con una canción al 70 % sonaba todo al 70 % al abrirlo. Y el botón de
