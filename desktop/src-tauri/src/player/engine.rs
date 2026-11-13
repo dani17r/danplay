@@ -129,6 +129,8 @@ enum Prepared {
 #[derive(Default)]
 struct Step {
     failure: Option<String>,
+    /// El fallo es de no poder abrir la cancion: se le avisa a la cola.
+    could_not_open: bool,
     clear_error: bool,
     /// Se pidio un salto: la posicion nueva se avisa aunque este en pausa.
     sought: bool,
@@ -478,6 +480,7 @@ impl Engine<'_> {
         self.loaded = None;
         self.carry.forget_song();
         step.failure = Some(readable(&error));
+        step.could_not_open = true;
     }
 
     /// Deja una cancion preparada pero en silencio (ver `Command::Load`).
@@ -807,6 +810,7 @@ impl Engine<'_> {
     }
 
     fn publish(&mut self, step: Step) -> bool {
+        let could_not_open = step.could_not_open;
         let st = self.audio.state();
         let output = self.audio.output_status();
         let finished = self.loaded.is_some() && st.ended && !st.segments_done;
@@ -819,6 +823,15 @@ impl Engine<'_> {
             }
             if let Some(err) = output.as_ref().and_then(|o| o.error.clone()) {
                 e.error = format!("La salida de audio falla: {err}");
+            }
+            // la canción se cortó porque su archivo dejó de poder leerse: se
+            // dice cuál (se da por acabada, y la lista sigue con la siguiente)
+            if st.failed && finished && !self.was_finished {
+                e.error = format!(
+                    "«{}» está dañado y no se pudo seguir leyendo: se pasa a la siguiente.",
+                    file_name(&self.carry.path)
+                );
+                log::warn!("el archivo {} dejó de poder leerse a mitad", self.carry.path);
             }
             let loaded = self.loaded.is_some();
             e.playing = loaded && (st.playing || st.counting > 0);
@@ -886,6 +899,10 @@ impl Engine<'_> {
             if !(self.notify)(Event::Changed(current)) {
                 return false;
             }
+        }
+        // después del estado (que ya lleva el motivo): no se pudo abrir
+        if could_not_open && !(self.notify)(Event::Failed) {
+            return false;
         }
         true
     }

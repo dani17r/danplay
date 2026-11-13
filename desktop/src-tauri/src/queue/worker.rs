@@ -55,20 +55,43 @@ impl Playback {
                     ..Default::default()
                 };
                 let mut saved = (0u64, usize::MAX, Repeat::List, false);
+                // La cancion que suena (o se intento poner) la puso la lista
+                // al avanzar sola, y cuantas seguidas no se han podido abrir.
+                // Un archivo que existe pero no abre (dañado, de 0 bytes)
+                // paraba la lista: si se llego a el avanzando sola, se pasa
+                // a la siguiente; si se eligio a mano, se dice y se espera.
+                let mut auto = false;
+                let mut broken = 0usize;
 
                 while let Ok(message) = rx.recv() {
                     match message {
-                        Message::Audio(player::Event::Changed(state)) => audio = state,
+                        Message::Audio(player::Event::Changed(state)) => {
+                            if state.playing {
+                                broken = 0;
+                            }
+                            audio = state;
+                        }
                         Message::Audio(player::Event::Finished) => {
+                            auto = true;
                             advance(&mut inner, &player, &address);
                         }
                         Message::Audio(player::Event::Ending) => {
+                            auto = true;
                             cross_next(&mut inner, &player, &address);
+                        }
+                        Message::Audio(player::Event::Failed) => {
+                            broken += 1;
+                            // (con todas rotas, una vuelta y se para)
+                            if auto && broken < inner.items.len() {
+                                advance(&mut inner, &player, &address);
+                            }
                         }
                         Message::User(Command::Prune) => {
                             prune(&mut inner, audio.playing, &player, &address);
                         }
                         Message::User(command) => {
+                            auto = false;
+                            broken = 0;
                             apply(&mut inner, command, &player, &address);
                         }
                     }

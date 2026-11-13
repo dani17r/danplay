@@ -9,6 +9,7 @@
 // que aplica exactamente la misma máquina de estados (playback/queueLogic).
 import { reactive, ref, shallowRef, computed } from 'vue'
 import { api, playback as bridge } from '../api.js'
+import { notify } from './useNotices.js'
 import { cleanSegments, segmentAt } from '../utils/segments.js'
 import {
   afterEnd,
@@ -489,6 +490,7 @@ function applyState(s) {
     state[k] = s[k]
   }
   state.repeat = normalizeRepeat(state.repeat)
+  sayError(state.error)
   // Tras un salto, un tick que venía en camino traía la posición VIEJA y la
   // aguja daba un respingo atrás antes de ir a donde se pidió. Hasta que
   // Rust confirme (o pase el plazo), la posición se queda donde se pidió.
@@ -589,6 +591,7 @@ export function resetPlayback() {
   ready = false
   seenRevision = -1
   seekGuard = null
+  saidError = ''
   queue.value = []
   crossfade.value = savedCrossfade()
   Object.assign(metronomeSettings, {
@@ -604,6 +607,23 @@ export function resetPlayback() {
   Object.assign(state, { ...EMPTY })
 }
 
+/** El último fallo del reproductor que se dijo (vacío: no hay ninguno puesto). */
+let saidError = ''
+/**
+ * Un fallo del reproductor, dicho en un aviso que se queda unos segundos.
+ * En el estado dura lo que tarda Rust en mandar el siguiente (un cuarto de
+ * segundo sonando), o hasta que empieza la canción siguiente: «este archivo
+ * está dañado» o «falta el archivo de una pista» no daba tiempo a leerlos.
+ * Una vez por fallo, y solo en la ventana principal (las otras no tienen
+ * dónde enseñarlo).
+ * @param {string} message
+ */
+function sayError(message) {
+  const text = String(message || '')
+  if (text && text !== saidError && isMainWindow()) notify(text, 'info', 8)
+  saidError = text
+}
+
 // ------------------------------------------------------------------ órdenes
 /** Manda una orden en cuanto el puente esté listo. */
 async function send(fn) {
@@ -613,6 +633,7 @@ async function send(fn) {
     await fn(backend)
   } catch (e) {
     state.error = String(e?.message || e)
+    sayError(state.error)
   }
 }
 

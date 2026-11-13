@@ -54,6 +54,10 @@ pub enum Event {
     /// La pista se acabo sola. Solo una vez por pista: quien decide que suena
     /// despues es la cola, no esto.
     Finished,
+    /// La cancion que se mando poner no se pudo abrir (el archivo esta
+    /// dañado, vacio, o no es audio). El motivo ya va en el estado; la cola
+    /// decide si sigue con la siguiente.
+    Failed,
     /// Hay fundido entre canciones y a esta le queda lo que dura: si la cola
     /// manda ya la siguiente, entra subiendo mientras esta baja. Una vez por
     /// pista; si la cola no manda nada (fin de la lista, «repetir esta»), la

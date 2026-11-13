@@ -63,6 +63,9 @@ pub struct State {
     pub counting: u32,
     /// Lo ultimo que fallo de la salida de audio (o nada).
     pub error: Option<String>,
+    /// La cancion se acabo antes de tiempo porque su archivo dejo de poder
+    /// leerse (esta dañado).
+    pub failed: bool,
     /// Se esta fundiendo con la anterior.
     pub fading: bool,
 }
@@ -699,6 +702,7 @@ impl Engine {
             segments_done: shared.segments_done.load(Ordering::Acquire),
             counting: c.counting.load(Ordering::Acquire),
             error,
+            failed: shared.failed.load(Ordering::Acquire),
             fading,
         }
     }

@@ -105,6 +105,15 @@ hecho así, en [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
   con una canción al 70 % sonaba todo al 70 % al abrirlo. Y el botón de
   velocidad del reproductor pasa a la siguiente desde donde esté (desde un
   80 % puesto en el estudio saltaba al 50 %).
+- **Un archivo dañado ya no deja mudo al reproductor**: si un archivo se
+  rompía a media canción al leerlo, el reproductor se quedaba «sonando» en
+  silencio, sin avanzar ni decir nada. Ahora la canción se acaba ahí, se
+  dice cuál era y la lista sigue con la siguiente. Y si la lista llega sola
+  a un archivo que no se puede abrir, lo salta en vez de pararse (si es uno
+  que se eligió a mano, se queda el aviso y no se salta nada).
+- **Los fallos del reproductor se quedan a la vista**: lo que no se pudo
+  reproducir salía un instante en la barra y se perdía con el siguiente
+  cambio; ahora es un aviso que se queda unos segundos.
 - **Avisos de datos mal formados en castellano**: cuando al núcleo le llega
   algo que no vale, el aviso salía en inglés («Field required», «Input
   should be a valid string»…) y la app lo enseñaba como un JSON en bruto.

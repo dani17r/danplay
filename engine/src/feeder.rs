@@ -74,6 +74,9 @@ pub struct Shared {
     /// Lo escrito acaba porque se acabaron los tramos con `LoopEnd::Stop`,
     /// no la cancion: quien lo vea la deja en pausa al principio del primero.
     pub segments_done: AtomicBool,
+    /// La cancion se corto antes de tiempo: su archivo dejo de poder leerse
+    /// (un archivo dañado que hace *panic* al decodificarse).
+    pub failed: AtomicBool,
 }
 
 pub struct Feeder {
@@ -93,6 +96,10 @@ pub struct Feeder {
     ended: bool,
     scratch: Vec<f32>,
     shared: Arc<Shared>,
+    /// En las pruebas: al llegar a esa muestra, decodificar hace *panic*
+    /// (como un archivo dañado).
+    #[cfg(test)]
+    break_at: Option<u64>,
 }
 
 impl Feeder {
@@ -110,11 +117,22 @@ impl Feeder {
             ended: false,
             scratch: vec![0.0; BLOCK * 2],
             shared,
+            #[cfg(test)]
+            break_at: None,
         }
     }
 
     pub fn parts(&self) -> usize {
         self.parts.len()
+    }
+
+    /// En las pruebas: el *panic* de un archivo dañado, donde se pidió.
+    #[cfg(test)]
+    fn break_if_asked(&self) {
+        assert!(
+            self.break_at.is_none_or(|at| self.pos < at),
+            "un archivo dañado, en las pruebas"
+        );
     }
 
     /// Ir a `frame`, con una generacion nueva.
@@ -134,6 +152,7 @@ impl Feeder {
         self.contiguous_from = frame;
         self.ended = false;
         self.shared.segments_done.store(false, Ordering::Release);
+        self.shared.failed.store(false, Ordering::Release);
     }
 
     /// Tramos nuevos. Como en la PC, no mueven la cancion: un tramo entra
@@ -201,6 +220,8 @@ impl Feeder {
 
     /// Llena el bloque con lo que sigue.
     pub fn fill(&mut self, block: &mut Block) {
+        #[cfg(test)]
+        self.break_if_asked();
         let n_parts = self.parts.len();
         // dentro de un tramo, hasta su final (ahi se salta al siguiente);
         // fuera de ellos, seguido hasta donde empieza el proximo, que entra
@@ -282,6 +303,26 @@ impl Feeder {
                 _ => self.finish(block, false),
             }
         }
+    }
+
+    /// Llena el bloque, y si al decodificar algo hace *panic* (un archivo
+    /// dañado), la cancion se acaba ahi: el bloque sale vacio y es el ultimo.
+    ///
+    /// Este hilo es el que decodifica mientras suena, y nadie lo vigilaba (el
+    /// `catch_unwind` del reproductor protege otro hilo): si moria, dejaban
+    /// de llegar bloques y el reproductor se quedaba «sonando» en silencio,
+    /// con la aguja parada y la lista sin avanzar. Devuelve si se pudo.
+    pub fn fill_safely(&mut self, block: &mut Block) -> bool {
+        let filled =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.fill(block))).is_ok();
+        if !filled {
+            block.generation = self.generation;
+            block.start = self.pos;
+            block.frames = 0;
+            self.shared.failed.store(true, Ordering::Release);
+            self.finish(block, false);
+        }
+        filled
     }
 
     /// Ya no hay mas que escribir: el bloque es el ultimo. `segments`: se
@@ -388,7 +429,7 @@ pub fn run(
             continue;
         }
         if let Ok(mut block) = free.pop() {
-            feeder.fill(&mut block);
+            feeder.fill_safely(&mut block);
             // cabe: los dos anillos tienen sitio para todos los bloques
             let _ = full.push(block);
         }
@@ -425,6 +466,32 @@ mod tests {
             ));
         }
         out
+    }
+
+    #[test]
+    fn a_file_that_breaks_while_decoding_ends_the_song_there() {
+        // un archivo dañado que hace *panic* a mitad: el hilo que decodifica
+        // no se muere (se quedaba el reproductor «sonando» en silencio); la
+        // canción se acaba ahí, y se dice
+        let mut f = feeder(2);
+        f.break_at = Some(4 * BLOCK as u64);
+        let mut b = Block::new(f.parts());
+        let mut good = 0;
+        while !f.ended() && good < 100 {
+            if f.fill_safely(&mut b) {
+                good += 1;
+                assert!(!b.last);
+            }
+        }
+        assert_eq!(good, 4, "los cuatro bloques de antes sí salen");
+        assert!(f.ended());
+        assert!(b.last && b.frames == 0 && b.start == 4 * BLOCK as u64);
+        assert!(f.shared.failed.load(Ordering::Acquire));
+        // un salto es otra oportunidad: deja de darse por rota
+        f.break_at = None;
+        f.seek(0);
+        assert!(!f.ended() && !f.shared.failed.load(Ordering::Acquire));
+        assert!(f.fill_safely(&mut b) && b.frames == BLOCK);
     }
 
     #[test]

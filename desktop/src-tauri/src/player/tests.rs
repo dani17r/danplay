@@ -185,7 +185,7 @@ fn initial_state_is_consistent() {
 
 #[test]
 fn missing_file_reports_error_without_panic() {
-    let (m, _rx) = handle();
+    let (m, rx) = handle();
     m.send(Command::Play {
         path: "/no/existe/x.mp3".into(),
         duration: 0.0,
@@ -193,13 +193,15 @@ fn missing_file_reports_error_without_panic() {
     .unwrap();
     let s = until(&m, |s| !s.error.is_empty());
     assert!(!s.error.is_empty(), "deberia informar del error");
+    // y a la cola: que no se pudo abrir (viniendo sola, sigue con otra)
+    assert!(announced(&rx, |e| matches!(e, Event::Failed)));
 }
 
 /// El fallo que dejaba sonando la cancion anterior: si `Play` falla, la
 /// ruta tiene que quedar limpia o el siguiente Toggle revive la de antes.
 #[test]
 fn a_failed_play_forgets_the_previous_track() {
-    let Some((m, _rx)) = playing() else { return };
+    let Some((m, rx)) = playing() else { return };
     m.send(Command::Play {
         path: "/no/existe/y.mp3".into(),
         duration: 0.0,
@@ -207,6 +209,12 @@ fn a_failed_play_forgets_the_previous_track() {
     .unwrap();
     let s = until(&m, |s| s.path.is_empty() && !s.error.is_empty());
     assert!(s.path.is_empty(), "no deberia recordar la anterior");
+    // y se le avisa a la cola de que no se pudo abrir: si venia avanzando
+    // sola, sigue con la siguiente en vez de quedarse parada
+    assert!(
+        announced(&rx, |e| matches!(e, Event::Failed)),
+        "no aviso de que no se pudo abrir"
+    );
     m.send(Command::Toggle).unwrap();
     // que NO arranque: aqui si hay que dejar pasar un rato y mirar
     wait_ms(400);

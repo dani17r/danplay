@@ -379,3 +379,29 @@ describe('usePlayback', () => {
     }
   })
 })
+
+// Un fallo del reproductor dura en el estado lo que tarda Rust en mandar el
+// siguiente (o hasta la canción siguiente): se dice en un aviso que se queda.
+describe('a failure of the player', () => {
+  it('is said once in a notice that stays, also when it comes from an order', async () => {
+    const { useNotices, clearNotices } = await import('../src/composables/useNotices.js')
+    clearNotices()
+    window.history.replaceState(null, '', '/')
+    const player = usePlayback()
+    await player.ready()
+    const said = () => useNotices().notices.value.map((n) => n.message)
+    held.playback.emit({ error: '«a.mp3» está dañado y no se pudo seguir leyendo.' })
+    await flushPromises()
+    held.playback.emit({ error: '«a.mp3» está dañado y no se pudo seguir leyendo.' })
+    await flushPromises()
+    held.playback.emit({ error: '' })
+    await flushPromises()
+    expect(said().filter((m) => m.includes('está dañado'))).toHaveLength(1)
+    // una orden que falla: su motivo no se pierde con el estado siguiente
+    held.playback.bridge.setStems.mockRejectedValueOnce(new Error('falta el archivo de una pista'))
+    await player.setStems([{ path: '/x/Bateria.flac', gain: 1, pan: 0, on: true }])
+    held.playback.emit({ error: '' })
+    await flushPromises()
+    expect(said()).toContain('falta el archivo de una pista')
+  })
+})
