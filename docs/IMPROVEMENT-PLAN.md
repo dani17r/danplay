@@ -34,7 +34,7 @@ detalle de cada cosa, en `CHANGELOG.md` («Sin publicar»).
 
 | Bloque | Hecho | Queda |
 | --- | --- | --- |
-| A. Instalar y que suene | A1, A2, A3, A4, A5 | A6 (la instalación limpia en Docker), A7 |
+| A. Instalar y que suene | A1–A6 (la instalación limpia pasa en Debian 13 y Ubuntu 24.04 con el `.deb` de la 1.41.0) | A7 |
 | B. Re-analizar | B1, B2, B4 | B3 (el avance de «con la batería») |
 | C. Exportar | C1, C2, C4, C5 | C3 |
 | D. El clic | D1–D8, D10, D11; D9 en parte (se dice cuándo es el aproximado y por qué) | D12, D13 |
@@ -59,6 +59,13 @@ con tiempos; la interfaz aprovecha la ventana grande (revisada con fotos a
 cinco tamaños); y la app del celular, revisada entera: doce arreglos con
 su prueba (lo de Kotlin —pausar al desconectar los auriculares, el foco de
 audio— queda para cuando haya un SDK donde compilarlo).
+
+**Visto al validar** (L15, sin tocar): si la app muere de golpe mientras
+le pregunta la versión a un programa que se cuelga, ese programa se queda
+huérfano. Salió en las pruebas de humo de este equipo, donde el `bun` del
+PATH es un atajo de Vite+ que se queda veinte segundos con la casa vacía de
+la caja de arena; le pasa igual a la 1.40.1. Con el PATH del escritorio las
+de humo pasan las 18.
 
 **Lo que más se notaría de lo que queda**: H1 (el tono sin voz de
 «ardilla»: el estirador ya lo sabe hacer, falta ofrecerlo y oírlo), H9
