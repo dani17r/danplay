@@ -18,8 +18,10 @@
 //! Del ZIP solo se saca lo que se espera, con nombres sencillos: nada de
 //! rutas con `..` ni carpetas inventadas, y con un tope de tamaño, que el
 //! archivo puede venir de cualquiera por WhatsApp.
+use crate::role;
 use serde::Serialize;
-use serde_json::Value;
+use serde_json::{Map, Value};
+use std::collections::BTreeSet;
 use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -32,6 +34,11 @@ pub const VERSION: u64 = 1;
 /// Ni una cancion de veinte minutos con seis partes llega a esto.
 const MAX_TOTAL: u64 = 1_500_000_000;
 const MAX_MANIFEST: u64 = 20_000_000;
+/// Lo mas largo que puede llamarse una parte: en letras (la PC corta el
+/// nombre de una pista en 80 y le añade « (2)» si se repite) y en bytes (con
+/// su extension tiene que caber en los 255 de un nombre de archivo).
+const MAX_PART_NAME: usize = 100;
+const MAX_PART_BYTES: usize = 240;
 
 /// Lo que se enseña de una pista en la lista.
 #[derive(Serialize, Debug, Clone, PartialEq)]
@@ -92,20 +99,34 @@ pub fn check(manifest: &Value) -> Result<(), String> {
     Ok(())
 }
 
-/// `partes/<nombre>.ogg` (o .mp3), sin carpetas ni cosas raras en el nombre.
+/// `partes/<nombre>.ogg` (o .mp3): un archivo dentro de `partes/` y nada mas.
+///
+/// El nombre es el de la pista en la PC, y la PC deja en el casi cualquier
+/// cosa: «Keys (2)», «E.Gtr 1», «BGV's», «Pads & FX», tildes. Antes aqui solo
+/// valian letras, numeros, espacios, «-» y «_», y hasta 64 bytes (una tilde
+/// son dos): por una sola parte asi no se importaba la pista entera. Lo que
+/// no puede llevar es lo que sacaria el archivo de su carpeta o no vale como
+/// nombre: barras, «:», caracteres de control, ni un punto al principio (ni
+/// «..» ni archivos ocultos). Es la misma regla que la de la PC
+/// (`library::bundle::safe_part`).
 fn safe_part(name: &str) -> bool {
     let Some(file) = name.strip_prefix("partes/") else {
         return false;
     };
     // en minusculas, como las escribe la PC: una .OGG no es de las suyas
-    let ok_ext = [".ogg", ".mp3"].iter().any(|e| file.ends_with(e));
-    let stem = &file[..file.len().saturating_sub(4)];
-    ok_ext
-        && !stem.is_empty()
-        && stem.len() <= 64
-        && stem
+    let Some(stem) = file
+        .strip_suffix(".ogg")
+        .or_else(|| file.strip_suffix(".mp3"))
+    else {
+        return false;
+    };
+    !stem.is_empty()
+        && !stem.starts_with('.')
+        && stem.len() <= MAX_PART_BYTES
+        && stem.chars().count() <= MAX_PART_NAME
+        && !stem
             .chars()
-            .all(|c| c.is_alphanumeric() || c == '_' || c == '-' || c == ' ')
+            .any(|c| c.is_control() || "\\/:*?\"<>|".contains(c))
 }
 
 /// Una guia hablada del .danpista: `guias/<nombre>.wav`, con un nombre de
@@ -204,14 +225,22 @@ pub fn import(file: &Path, library: &Path) -> Result<Summary, String> {
         .map_err(|e| format!("no se pudo preparar la pista: {e}"))?;
     let result = extract(&mut zip, &manifest, &work).and_then(|()| {
         let target = library.join(&id);
-        // lo que se cambio en el celular sobrevive a la pista nueva
-        let study = fs::read(target.join(STUDY)).ok();
+        // lo que se cambio en el celular sobrevive a la pista nueva, y lo que
+        // no se toco llega con ella (`merged_study`); la pista anterior, que
+        // se borra ahora, es la que dice que se toco
+        if let Some(mine) = read_study(&target).filter(Value::is_object) {
+            let before: Option<Value> = fs::read(target.join(MANIFEST))
+                .ok()
+                .and_then(|raw| serde_json::from_slice(&raw).ok());
+            let before = before.as_ref().map(|m| &m["study"]);
+            let _ = write_study(
+                &work,
+                &merged_study(&mine, before, &manifest["study"], &work),
+            );
+        }
         if target.exists() {
             fs::remove_dir_all(&target)
                 .map_err(|e| format!("no se pudo sustituir la anterior: {e}"))?;
-        }
-        if let Some(study) = study {
-            let _ = fs::write(work.join(STUDY), study);
         }
         fs::rename(&work, &target).map_err(|e| format!("no se pudo guardar la pista: {e}"))?;
         summary(&target).ok_or_else(|| "la pista se guardó pero no se puede leer".to_string())
@@ -220,6 +249,133 @@ pub fn import(file: &Path, library: &Path) -> Result<Summary, String> {
         let _ = fs::remove_dir_all(&work);
     }
     result
+}
+
+/// Si dos valores del estudio dicen lo mismo, aunque no esten escritos igual.
+/// La PC (`library::index::songs::clean_study`) y el estudio del celular
+/// guardan las mismas claves con la misma forma, pero cada uno escribe a su
+/// manera: `8.0` o `8`, un texto con o sin espacios al final, y lo que esta
+/// vacio (`[]`, `{}`, `""`, `null`) o no esta.
+fn same(a: Option<&Value>, b: Option<&Value>) -> bool {
+    let blank = |v: Option<&Value>| match v {
+        None | Some(Value::Null) => true,
+        Some(Value::String(s)) => s.trim().is_empty(),
+        Some(Value::Array(a)) => a.is_empty(),
+        Some(Value::Object(o)) => o.is_empty(),
+        Some(_) => false,
+    };
+    match (a, b) {
+        (Some(Value::Number(x)), Some(Value::Number(y))) => match (x.as_f64(), y.as_f64()) {
+            (Some(x), Some(y)) => (x - y).abs() < 1e-6,
+            _ => x == y,
+        },
+        (Some(Value::String(x)), Some(Value::String(y))) => x.trim() == y.trim(),
+        (Some(Value::Bool(x)), Some(Value::Bool(y))) => x == y,
+        (Some(Value::Array(x)), Some(Value::Array(y))) => {
+            x.len() == y.len() && x.iter().zip(y).all(|(x, y)| same(Some(x), Some(y)))
+        }
+        (Some(Value::Object(x)), Some(Value::Object(y))) => {
+            x.keys().chain(y.keys()).all(|k| same(x.get(k), y.get(k)))
+        }
+        _ => blank(a) && blank(b),
+    }
+}
+
+/// El estudio por claves que se pueden comparar una a una: los tramos van en
+/// `loop` (uno) o en `loops` (varios), que es una sola cosa escrita de dos
+/// maneras; aqui, siempre en `loops`. Lo que no es un estudio, vacio.
+fn folded(study: &Value) -> Map<String, Value> {
+    let mut out = study.as_object().cloned().unwrap_or_default();
+    let one = out.remove("loop");
+    let many = matches!(out.get("loops"), Some(Value::Array(list)) if !list.is_empty());
+    if !many {
+        out.remove("loops");
+        if let Some(one) = one.filter(|v| matches!(v, Value::Array(pair) if !pair.is_empty())) {
+            out.insert("loops".into(), Value::Array(vec![one]));
+        }
+    }
+    out
+}
+
+/// Lo que deshace `folded`: un solo tramo se guarda como `loop`, que es como
+/// lo escriben la PC y el estudio.
+fn unfolded(mut study: Map<String, Value>) -> Map<String, Value> {
+    match study.remove("loops") {
+        Some(Value::Array(mut list)) if list.len() == 1 => {
+            study.insert("loop".into(), list.remove(0));
+        }
+        Some(other) => {
+            study.insert("loops".into(), other);
+        }
+        None => {}
+    }
+    study
+}
+
+/// El estudio que queda al volver a importar una pista que ya estaba: lo del
+/// celular (`mine`, su `estudio.json`), lo que traia la pista anterior
+/// (`before`: su estudio, o `None` si ya no se puede leer) y lo que trae la
+/// nueva (`new`), ya sacada en `folder`.
+///
+/// Clave a clave (la mezcla, los tramos, la velocidad, los marcadores, el
+/// clic, las guias, las notas...): si lo del celular es lo que traia la pista
+/// anterior, no se toco aqui y vale lo de la nueva; si es otra cosa, se cambio
+/// aqui y se queda. Antes se quedaba el `estudio.json` entero, que se escribe
+/// completo con cualquier gesto: tapaba para siempre lo que se rehiciera en la
+/// PC (la guia automatica, los marcadores, el clic propio).
+///
+/// Y de las guias, solo las que tienen su archivo en la pista nueva: las de
+/// antes se borran con ella y se quedaban mudas sin avisar. Si las del celular
+/// se quedan cojas o en nada y la pista nueva trae las suyas, valen esas, con
+/// sus carriles.
+fn merged_study(mine: &Value, before: Option<&Value>, new: &Value, folder: &Path) -> Value {
+    let (mine, new) = (folded(mine), folded(new));
+    let before = before.map(folded);
+    // sin la pista anterior no se sabe que se toco: todo lo del celular, como siempre
+    let touched = |key: &str| {
+        before
+            .as_ref()
+            .is_none_or(|before| !same(mine.get(key), before.get(key)))
+    };
+    let mut out = Map::new();
+    let keys: BTreeSet<&String> = mine.keys().chain(new.keys()).collect();
+    for key in keys {
+        let from = if touched(key) { &mine } else { &new };
+        if let Some(value) = from.get(key) {
+            out.insert(key.clone(), value.clone());
+        }
+    }
+    let alive = |cues: Option<&Value>| -> Vec<Value> {
+        let has_file = |cue: &&Value| {
+            cue.get("file")
+                .and_then(Value::as_str)
+                .is_some_and(|file| safe_guide(file) && folder.join(file).is_file())
+        };
+        cues.and_then(Value::as_array)
+            .map(|list| list.iter().filter(has_file).cloned().collect())
+            .unwrap_or_default()
+    };
+    let had = out
+        .get("cues")
+        .and_then(Value::as_array)
+        .map_or(0, Vec::len);
+    let mut cues = alive(out.get("cues"));
+    if touched("cues") && (cues.len() < had || cues.is_empty()) {
+        let theirs = alive(new.get("cues"));
+        if !theirs.is_empty() {
+            cues = theirs;
+            match new.get("cueLanes") {
+                Some(lanes) => out.insert("cueLanes".into(), lanes.clone()),
+                None => out.remove("cueLanes"),
+            };
+        }
+    }
+    if cues.is_empty() {
+        out.remove("cues");
+    } else {
+        out.insert("cues".into(), Value::Array(cues));
+    }
+    Value::Object(unfolded(out))
 }
 
 fn extract(
@@ -300,6 +456,32 @@ pub fn parts(folder: &Path) -> Result<Vec<PartFile>, String> {
                 .collect()
         })
         .unwrap_or_default())
+}
+
+/// El papel de cada parte, en el orden de `parts`: "click", "guide" o ""
+/// (musica).
+///
+/// El que dice la PC en `role` (lo pone en el clic y en la guia de una
+/// secuencia); y de la que no dice nada —las demas, y todas en los
+/// `.danpista` de antes, que no lo traian—, el de su nombre o su fuente, como
+/// hace la PC al abrir uno (`server::services::bundle`). Sin esto el «Click
+/// Track» y la «Guide» de una secuencia eran dos partes mas: sonaban
+/// mezclados con la musica.
+pub fn roles(manifest: &Value) -> Vec<&'static str> {
+    let of = |t: &Value| match t.get("role").and_then(Value::as_str) {
+        Some(role::CLICK) => role::CLICK,
+        Some(role::GUIDE) => role::GUIDE,
+        // lo dice la PC, y no es ninguno de los dos
+        Some(_) => "",
+        None => match role::role_of(&text(t, "name")) {
+            "" => role::role_of(&text(t, "source")),
+            by_name => by_name,
+        },
+    };
+    manifest["tracks"]
+        .as_array()
+        .map(|t| t.iter().map(of).collect())
+        .unwrap_or_default()
 }
 
 pub fn summary(folder: &Path) -> Option<Summary> {

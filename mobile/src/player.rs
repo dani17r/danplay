@@ -21,6 +21,7 @@ use danplay_engine::metro::{Metro, MetronomeSettings, click_plan};
 use danplay_engine::output::OutputConfig;
 use danplay_engine::queue::{LoopEnd, PlaybackState, Repeat, Track, after_end, step_index};
 use danplay_engine::render::CuePlan;
+use danplay_engine::role;
 use danplay_engine::spec::{Clips, CueSpec, RoutingSpec};
 use serde::Deserialize;
 use serde_json::Value;
@@ -132,6 +133,7 @@ impl Player {
             loaded: None,
             duration: 0.0,
             parts: Vec::new(),
+            roles: Vec::new(),
             volume: 1.0,
             speed: 1.0,
             pitch: 0.0,
@@ -198,6 +200,8 @@ struct Worker {
     duration: f64,
     /// Las partes de la cargada, en el orden del motor.
     parts: Vec<String>,
+    /// El papel de cada una ("click", "guide" o "": musica), ver `part_roles`.
+    roles: Vec<&'static str>,
     volume: f32,
     speed: f32,
     pitch: f32,
@@ -358,18 +362,14 @@ impl Worker {
         }
     }
 
-    /// Por donde sale cada parte: la del estudio (su bus) o la de la cancion.
+    /// Por donde sale cada parte (ver `buses_of`).
     fn apply_routing(&self) {
-        let parts: Vec<Option<u8>> = self
-            .parts
-            .iter()
-            .map(|p| {
-                self.stems
-                    .as_ref()
-                    .and_then(|list| list.iter().find(|t| t.path == *p))
-                    .and_then(|t| t.bus)
-            })
-            .collect();
+        let parts = buses_of(
+            &self.parts,
+            &self.roles,
+            self.stems.as_deref(),
+            &self.routing,
+        );
         self.engine.set_routing(self.routing.routing(&parts));
     }
 
@@ -423,6 +423,10 @@ impl Worker {
                 } else {
                     vec![folder.clone()]
                 };
+                let roles = bundle::manifest(Path::new(&folder))
+                    .map(|m| bundle::roles(&m))
+                    .unwrap_or_default();
+                self.roles = part_roles(roles, self.parts.len());
                 self.loaded = Some(folder.clone());
                 self.engine.set_speed(self.speed);
                 self.engine.set_pitch(self.pitch);
@@ -451,22 +455,14 @@ impl Worker {
         }
     }
 
-    /// El volumen de cada parte: el del estudio (o todas igual: la cancion),
-    /// por el volumen general.
+    /// El volumen de cada parte (ver `mix_of`).
     fn apply_mix(&self) {
-        let mix: Vec<(f32, f32)> = self
-            .parts
-            .iter()
-            .map(|p| match &self.stems {
-                Some(list) => list
-                    .iter()
-                    .find(|t| t.path == *p)
-                    .map_or((1.0, 0.0), |t| (if t.on { t.gain } else { 0.0 }, t.pan)),
-                None => (1.0, 0.0),
-            })
-            .map(|(g, pan)| (g * self.volume, pan))
-            .collect();
-        self.engine.set_mix(&mix);
+        self.engine.set_mix(&mix_of(
+            &self.parts,
+            &self.roles,
+            self.stems.as_deref(),
+            self.volume,
+        ));
     }
 
     fn apply_click(&self) {
@@ -491,20 +487,52 @@ impl Worker {
 
     /// Al acabar sola: si fueron los tramos (parar al acabar), de vuelta al
     /// primero y en pausa; si no, lo que diga la repeticion (como en la PC).
+    ///
+    /// Como en la PC tambien cuando algo va mal. Si se acabo porque su archivo
+    /// dejo de poder leerse, se dice cual: antes era un final como otro
+    /// cualquiera, y la cancion se cortaba y pasaba a la siguiente (o se
+    /// quedaba en pausa a medias) sin explicar nada. Y si la siguiente no se
+    /// puede abrir, se prueba con la de despues (`advance`): antes la lista
+    /// entera se quedaba parada en ella.
     fn check_end(&mut self) {
         let engine_state = self.engine.state();
-        if !engine_state.ended || self.loaded.is_none() {
+        if !engine_state.ended {
             return;
         }
+        let Some(loaded) = self.loaded.clone() else {
+            return;
+        };
         if self.rewind_if_segments_done() {
             return;
         }
-        if let Some(mut i) = after_end(self.items.len(), self.index, self.repeat, self.shuffle) {
-            if self.shuffle && self.items.len() > 1 {
-                i = random_other(self.items.len(), self.index);
-            }
-            self.index = i;
-            self.load(true);
+        let broken = engine_state.failed.then(|| {
+            let title = self.items.get(self.index).map_or("", |t| t.title.as_str());
+            broken_text(&shown_name(&loaded, title))
+        });
+        // por que no se pudo abrir la primera que se salto
+        let mut skipped: Option<String> = None;
+        let (length, index) = (self.items.len(), self.index);
+        advance(
+            length,
+            index,
+            self.repeat,
+            self.shuffle,
+            random_other,
+            |i| {
+                self.index = i;
+                self.load(true);
+                if self.loaded.is_none() && skipped.is_none() {
+                    skipped = Some(self.error.clone());
+                }
+                self.loaded.is_some()
+            },
+        );
+        // cargar la siguiente borra el aviso: se pone despues. Si no se pudo
+        // abrir ninguna, queda el de la ultima que se intento.
+        if self.loaded.is_some()
+            && let Some(text) = broken.or(skipped)
+        {
+            self.error = text;
         }
     }
 
@@ -574,6 +602,119 @@ impl Worker {
     }
 }
 
+/// El papel de cada una de las `parts` partes de una pista: lo que dice su
+/// `.danpista` (`bundle::roles`), una por parte. Si ninguna fuera musica (todas
+/// «clic» o «guia» por el nombre), no cuenta ninguno: la cancion no se queda
+/// muda.
+fn part_roles(mut roles: Vec<&'static str>, parts: usize) -> Vec<&'static str> {
+    roles.resize(parts, "");
+    if roles.iter().all(|r| !r.is_empty()) {
+        roles.fill("");
+    }
+    roles
+}
+
+/// El volumen y el panorama de cada parte, por el volumen general: los del
+/// estudio (`stems`) o, sin el, la cancion: todas tal cual menos el clic y la
+/// guia de una secuencia, calladas. Antes sonaban todas a la vez, y el «Click
+/// Track» y la «Guide» se oian mezclados con la musica (en la PC «la cancion»
+/// de una secuencia es la mezcla sin ellos).
+fn mix_of(
+    parts: &[String],
+    roles: &[&str],
+    stems: Option<&[StemTrack]>,
+    volume: f32,
+) -> Vec<(f32, f32)> {
+    parts
+        .iter()
+        .enumerate()
+        .map(|(i, p)| {
+            let alone = if roles.get(i).is_some_and(|r| !r.is_empty()) {
+                0.0
+            } else {
+                1.0
+            };
+            stems
+                .and_then(|list| list.iter().find(|t| t.path == *p))
+                .map_or((alone, 0.0), |t| (if t.on { t.gain } else { 0.0 }, t.pan))
+        })
+        .map(|(g, pan)| (g * volume, pan))
+        .collect()
+}
+
+/// El bus de cada parte: el que le pone el estudio; si no dice nada, el del
+/// clic o el de las guias si es una de las dos cosas; `None`, el de la cancion.
+fn buses_of(
+    parts: &[String],
+    roles: &[&str],
+    stems: Option<&[StemTrack]>,
+    routing: &RoutingSpec,
+) -> Vec<Option<u8>> {
+    parts
+        .iter()
+        .enumerate()
+        .map(|(i, p)| {
+            stems
+                .and_then(|list| list.iter().find(|t| t.path == *p))
+                .and_then(|t| t.bus)
+                .or(match roles.get(i).copied() {
+                    Some(role::CLICK) => Some(routing.click),
+                    Some(role::GUIDE) => Some(routing.cues),
+                    _ => None,
+                })
+        })
+        .collect()
+}
+
+/// Lo que se dice cuando una cancion se corta porque su archivo dejo de poder
+/// leerse (lo mismo que dice la PC, `desktop/src-tauri/src/player/engine.rs`).
+fn broken_text(name: &str) -> String {
+    format!("«{name}» está dañado y no se pudo seguir leyendo: se pasa a la siguiente.")
+}
+
+/// Como se le llama en un aviso a lo que suena: una cancion del telefono, por
+/// su archivo; una pista traida, por su titulo (su carpeta no dice nada).
+fn shown_name(loaded: &str, title: &str) -> String {
+    let path = Path::new(loaded);
+    if !title.is_empty() && path.is_dir() {
+        return title.to_string();
+    }
+    path.file_name()
+        .map_or_else(|| loaded.to_string(), |n| n.to_string_lossy().into_owned())
+}
+
+/// A que cancion se pasa cuando la que suena se acaba **sola**: la que toque
+/// segun la repeticion y el azar (`other(length, from)`: otra al azar), y si
+/// esa no se puede abrir (`open` dice que no), la de despues, como mucho una
+/// vuelta entera. Con «repetir esta» ni se salta ni se insiste. Devuelve la
+/// que quedo sonando; `None` si no hay a donde ir (el final de la cola, «solo
+/// esta cancion») o no se pudo abrir ninguna. Como en la PC
+/// (`queue/worker.rs`, `advance_within`).
+fn advance(
+    length: usize,
+    index: usize,
+    repeat: Repeat,
+    shuffle: bool,
+    mut other: impl FnMut(usize, usize) -> usize,
+    mut open: impl FnMut(usize) -> bool,
+) -> Option<usize> {
+    let mut from = index;
+    for _ in 0..length.max(1) {
+        let mut next = after_end(length, from, repeat, shuffle)?;
+        if shuffle && repeat != Repeat::One && length > 1 {
+            next = other(length, from);
+        }
+        if open(next) {
+            return Some(next);
+        }
+        if repeat == Repeat::One {
+            return None;
+        }
+        from = next;
+    }
+    None
+}
+
 /// Otra al azar, nunca la que ya suena.
 fn random_other(length: usize, index: usize) -> usize {
     use rand::RngExt;
@@ -625,6 +766,184 @@ pub fn analyze(folder: &Path, hint_bpm: Option<f32>) -> Result<BeatGrid, String>
             break;
         }
     }
-    let _ = beats::RATE;
     beats::analyze_frames(frames, hint_bpm)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn stem(path: &str, gain: f32, on: bool, bus: Option<u8>) -> StemTrack {
+        StemTrack {
+            path: path.into(),
+            gain,
+            pan: 0.0,
+            on,
+            bus,
+        }
+    }
+
+    /// Una secuencia: el clic, la guia y dos partes de musica.
+    fn sequence() -> (Vec<String>, Vec<&'static str>) {
+        (
+            ["click", "guide", "keys", "drums"]
+                .map(String::from)
+                .to_vec(),
+            part_roles(vec!["click", "guide", "", ""], 4),
+        )
+    }
+
+    /// «La cancion» de una secuencia es su musica: el clic y la guia sonaban
+    /// con ella, como dos partes mas.
+    #[test]
+    fn the_click_and_the_guide_of_a_sequence_are_not_part_of_the_song() {
+        let (parts, roles) = sequence();
+        assert_eq!(
+            mix_of(&parts, &roles, None, 0.5),
+            [(0.0, 0.0), (0.0, 0.0), (0.5, 0.0), (0.5, 0.0)]
+        );
+        // con la mezcla del estudio manda el estudio: ahi si se oyen
+        let study = [
+            stem("click", 0.8, true, Some(1)),
+            stem("guide", 1.0, false, Some(1)),
+            stem("keys", 1.0, true, None),
+        ];
+        assert_eq!(
+            mix_of(&parts, &roles, Some(&study), 1.0),
+            [(0.8, 0.0), (0.0, 0.0), (1.0, 0.0), (1.0, 0.0)]
+        );
+        // una pista de las de siempre (o una cancion del telefono): todo suena
+        let plain = ["drums", "other"].map(String::from);
+        assert_eq!(
+            mix_of(&plain, &part_roles(Vec::new(), 2), None, 1.0),
+            [(1.0, 0.0), (1.0, 0.0)]
+        );
+        // y si por el nombre ninguna fuera musica, no se queda muda
+        assert_eq!(part_roles(vec!["click", "guide"], 2), ["", ""]);
+        assert_eq!(part_roles(vec!["click"], 2), ["click", ""]);
+    }
+
+    /// Lo que se intenta abrir, por orden, al acabar sola la cancion `index`
+    /// de una cola en la que solo se pueden abrir las de `good`; y cual queda.
+    fn tried(
+        good: &[bool],
+        index: usize,
+        repeat: Repeat,
+        shuffle: bool,
+    ) -> (Vec<usize>, Option<usize>) {
+        let mut tried = Vec::new();
+        let went = advance(
+            good.len(),
+            index,
+            repeat,
+            shuffle,
+            // «al azar»: la de dos mas alla
+            |length, from| (from + 2) % length,
+            |i| {
+                tried.push(i);
+                good[i]
+            },
+        );
+        (tried, went)
+    }
+
+    /// Una cancion que no se puede abrir (dañada, borrada) paraba la lista
+    /// entera cuando se llegaba a ella sola: ahora se pasa a la siguiente.
+    #[test]
+    fn what_cannot_be_opened_is_skipped_when_the_list_moves_on_its_own() {
+        let ok = true;
+        let bad = false;
+        // lo de siempre: la siguiente, y del final al principio
+        assert_eq!(
+            tried(&[ok, ok, ok], 0, Repeat::List, false),
+            (vec![1], Some(1))
+        );
+        assert_eq!(
+            tried(&[ok, ok, ok], 2, Repeat::List, false),
+            (vec![0], Some(0))
+        );
+        // las que no abren se saltan, dando la vuelta si hace falta
+        assert_eq!(
+            tried(&[ok, bad, bad, ok], 0, Repeat::List, false),
+            (vec![1, 2, 3], Some(3))
+        );
+        assert_eq!(
+            tried(&[ok, ok, bad, bad], 1, Repeat::List, false),
+            (vec![2, 3, 0], Some(0))
+        );
+        // ninguna abre: una vuelta entera, y se para
+        assert_eq!(
+            tried(&[bad, bad, bad], 0, Repeat::List, false),
+            (vec![1, 2, 0], None)
+        );
+        // «la lista una vez»: no da la vuelta para buscar otra
+        assert_eq!(
+            tried(&[ok, ok, bad], 1, Repeat::Queue, false),
+            (vec![2], None)
+        );
+        assert_eq!(
+            tried(&[ok, bad, ok], 0, Repeat::Queue, false),
+            (vec![1, 2], Some(2))
+        );
+        // «solo esta cancion»: se para sin intentar ninguna
+        assert_eq!(tried(&[ok, ok], 0, Repeat::Once, false), (vec![], None));
+        // «repetir esta»: otra vez ella; si no abre, ni se insiste ni se salta
+        assert_eq!(tried(&[ok, ok], 0, Repeat::One, false), (vec![0], Some(0)));
+        assert_eq!(tried(&[bad, ok], 0, Repeat::One, false), (vec![0], None));
+        // al azar: otra, y si no abre, otra; con «repetir esta», ella
+        assert_eq!(
+            tried(&[ok, ok, bad, ok, ok], 0, Repeat::List, true),
+            (vec![2, 4], Some(4))
+        );
+        assert_eq!(
+            tried(&[ok, ok, ok], 1, Repeat::One, true),
+            (vec![1], Some(1))
+        );
+        // una cola vacia, o de una sola
+        assert_eq!(tried(&[], 0, Repeat::List, false), (vec![], None));
+        assert_eq!(tried(&[ok], 0, Repeat::List, true), (vec![0], Some(0)));
+    }
+
+    /// El aviso de una cancion que se corta es el de la PC, y nombra lo que
+    /// el musico conoce: el archivo de una cancion suya, o el titulo de una
+    /// pista traida (no su carpeta).
+    #[test]
+    fn a_song_that_breaks_is_named_as_the_musician_knows_it() {
+        assert_eq!(
+            broken_text("coro.mp3"),
+            "«coro.mp3» está dañado y no se pudo seguir leyendo: se pasa a la siguiente."
+        );
+        assert_eq!(shown_name("/sd/Music/Grupo/coro.mp3", "Coro"), "coro.mp3");
+        let folder = std::env::temp_dir().join(format!("barak-mi-gozo-{}", std::process::id()));
+        std::fs::create_dir_all(&folder).expect("carpeta");
+        let path = folder.to_string_lossy();
+        assert_eq!(shown_name(&path, "Mi Gozo"), "Mi Gozo");
+        assert!(shown_name(&path, "").starts_with("barak-mi-gozo-"));
+        let _ = std::fs::remove_dir_all(&folder);
+    }
+
+    /// Y van por la salida del clic y la de las guias (a los cascos), no por
+    /// la de la musica (a la mesa), salvo que el estudio diga otra cosa.
+    #[test]
+    fn the_click_and_the_guide_of_a_sequence_go_out_with_the_click_and_the_cues() {
+        let (parts, roles) = sequence();
+        let routing = RoutingSpec {
+            buses: Vec::new(),
+            song: 0,
+            click: 1,
+            cues: 2,
+        };
+        assert_eq!(
+            buses_of(&parts, &roles, None, &routing),
+            [Some(1), Some(2), None, None]
+        );
+        let study = [
+            stem("click", 1.0, true, Some(3)),
+            stem("keys", 1.0, true, Some(0)),
+        ];
+        assert_eq!(
+            buses_of(&parts, &roles, Some(&study), &routing),
+            [Some(3), Some(2), Some(0), None]
+        );
+    }
 }

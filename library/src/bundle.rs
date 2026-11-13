@@ -22,6 +22,7 @@ use crate::index::songs::own_cue_file;
 use crate::index::{Dict, get_str, now};
 use crate::num;
 use crate::paths;
+use crate::text;
 use crate::value;
 use crate::{processes, stems};
 use serde_json::Value;
@@ -29,6 +30,8 @@ use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::Duration;
+use unicode_normalization::UnicodeNormalization;
+use unicode_properties::{GeneralCategoryGroup, UnicodeGeneralCategory};
 
 pub const FOLDER: &str = "Celular";
 pub const EXTENSION: &str = ".danpista";
@@ -42,6 +45,55 @@ pub const VERSION: i64 = 1;
 pub const WORKERS: usize = 3;
 /// Las guías habladas viajan con la pista, en esta carpeta del .danpista.
 pub const GUIDES: &str = "guias";
+
+/// Lo más largo que se llama una parte dentro del `.danpista`: la app del
+/// celular de antes solo admitía 64 bytes, y quedan cuatro para un « 2» si el
+/// nombre se repite.
+const INSIDE_NAME: usize = 60;
+
+/// Cómo se llama una parte dentro del `.danpista`, a partir del nombre de su
+/// archivo (`stem`; si de él no queda nada, de su fuente): solo letras sin
+/// tilde, números, espacios, «-» y «_», y distinto de los de `taken` (a los
+/// que se añade), tampoco igual salvo por las mayúsculas.
+///
+/// Antes iba el nombre del archivo tal cual, que en una secuencia es el de
+/// la pista («Keys (2)», «E.Gtr 1», «BGV's», con tildes): la app del celular
+/// solo admitía eso de arriba, y por una sola parte rechazaba la pista
+/// entera. Así la abre también un celular sin actualizar.
+pub fn inside_name(stem: &str, source: &str, taken: &mut Vec<String>) -> String {
+    let plain = |raw: &str| -> String {
+        let mut out = String::new();
+        for c in raw.nfd() {
+            if c.is_ascii_alphanumeric() || c == '_' || c == '-' {
+                out.push(c);
+            } else if c.general_category_group() == GeneralCategoryGroup::Mark
+                || matches!(c, '\'' | '’' | '‘' | '`' | '´')
+            {
+                // la tilde de una letra o un apóstrofo: fuera, sin dejar hueco
+            } else if !out.is_empty() && !out.ends_with(' ') {
+                out.push(' ');
+            }
+        }
+        text::head(out.trim_end(), INSIDE_NAME)
+            .trim_end()
+            .to_owned()
+    };
+    let mut base = plain(stem);
+    if base.is_empty() {
+        base = plain(source);
+    }
+    if base.is_empty() {
+        base = "parte".into();
+    }
+    let mut name = base.clone();
+    let mut n = 2;
+    while taken.iter().any(|t| t.eq_ignore_ascii_case(&name)) {
+        name = format!("{base} {n}");
+        n += 1;
+    }
+    taken.push(name.clone());
+    name
+}
 
 /// La extensión y los argumentos de ffmpeg con que van las partes, según lo
 /// que este ffmpeg sabe hacer (`ffmpeg -encoders`).
@@ -168,6 +220,14 @@ pub fn manifest(
                     d.insert("source".into(), source.into());
                     d.insert("name".into(), t.get("name").cloned().unwrap_or(Value::Null));
                     d.insert("file".into(), file.clone());
+                    // El clic y la guía de una secuencia dicen que lo son: no
+                    // viajaba, y en el celular eran dos partes más que
+                    // sonaban con la música. Las demás no llevan nada (como
+                    // hasta ahora: el celular lo saca entonces del nombre).
+                    if let Some(role @ ("click" | "guide")) = t.get("role").and_then(Value::as_str)
+                    {
+                        d.insert("role".into(), role.into());
+                    }
                     Some(Value::Object(d))
                 })
                 .collect()
@@ -453,12 +513,15 @@ pub fn write(package: &Bundle<'_>, done: &(dyn Fn() + Sync)) -> Result<Dict, Str
         .tempdir()
         .map_err(|e| e.to_string())?;
     let mut files = Dict::new();
+    let mut taken = Vec::new();
     for t in &tracks {
-        let part = paths::stem(std::path::Path::new(get_str(t, "file")));
-        files.insert(
-            get_str(t, "source").to_owned(),
-            format!("{PARTS}/{part}{ext}").into(),
+        let source = get_str(t, "source");
+        let part = inside_name(
+            &paths::stem(std::path::Path::new(get_str(t, "file"))),
+            source,
+            &mut taken,
         );
+        files.insert(source.to_owned(), format!("{PARTS}/{part}{ext}").into());
     }
     std::fs::create_dir(work.path().join(PARTS)).map_err(|e| e.to_string())?;
     encode_all(package.ffmpeg, &tracks, &files, work.path(), &args, done)?;
@@ -534,8 +597,22 @@ pub struct Opened {
     pub cover: Option<PathBuf>,
 }
 
-/// `partes/<nombre>.ogg` (o .mp3), sin carpetas ni cosas raras en el nombre:
-/// lo que escribe `write`. Lo demás no se saca.
+/// Lo más largo que puede llamarse una parte al abrir un `.danpista`: en
+/// letras (el nombre de una pista se corta en 80, más « (2)» si se repite) y
+/// en bytes (con su extensión tiene que caber en un nombre de archivo).
+const MAX_PART_NAME: usize = 100;
+const MAX_PART_BYTES: usize = 240;
+
+/// `partes/<nombre>.ogg` (o .mp3): un archivo dentro de `partes/` y nada
+/// más. Lo demás no se saca.
+///
+/// Hasta la 1.40 `write` ponía el nombre del archivo de la pista tal cual
+/// («E.Gtr 1», «BGV's», «Pads & FX»), y aquí solo valían letras, números,
+/// espacios, «-», «_» y paréntesis: la PC no abría esos `.danpista` suyos.
+/// Lo que no puede llevar es lo que sacaría el archivo de su carpeta o no
+/// vale como nombre: barras, «:», caracteres de control, ni un punto al
+/// principio. Es la misma regla que la del celular
+/// (`danplay_engine::bundle::safe_part`).
 fn safe_part(name: &str) -> bool {
     let Some(file) = name.strip_prefix("partes/") else {
         return false;
@@ -547,10 +624,12 @@ fn safe_part(name: &str) -> bool {
         return false;
     };
     !stem.is_empty()
-        && stem.chars().count() <= 64
-        && stem.chars().all(|c| {
-            c.is_alphanumeric() || c == '_' || c == '-' || c == ' ' || c == '(' || c == ')'
-        })
+        && !stem.starts_with('.')
+        && stem.len() <= MAX_PART_BYTES
+        && stem.chars().count() <= MAX_PART_NAME
+        && !stem
+            .chars()
+            .any(|c| c.is_control() || "\\/:*?\"<>|".contains(c))
 }
 
 /// `guias/<nombre>.wav`, con un nombre de los que pone DanPlay.
@@ -786,6 +865,291 @@ mod tests {
                 .contains("no es un .danpista")
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// La regla de la app del celular hasta la 1.40, tal cual estaba en
+    /// `engine/src/bundle.rs`: los nombres que escribe `write` tienen que
+    /// seguir pasándola, que hay celulares sin actualizar.
+    fn old_phone_accepts(name: &str) -> bool {
+        let Some(file) = name.strip_prefix("partes/") else {
+            return false;
+        };
+        let ok_ext = [".ogg", ".mp3"].iter().any(|e| file.ends_with(e));
+        let stem = &file[..file.len().saturating_sub(4)];
+        ok_ext
+            && !stem.is_empty()
+            && stem.len() <= 64
+            && stem
+                .chars()
+                .all(|c| c.is_alphanumeric() || c == '_' || c == '-' || c == ' ')
+    }
+
+    /// El nombre de una pista de una secuencia iba tal cual dentro del
+    /// `.danpista`, y el celular rechazaba la pista entera por un paréntesis,
+    /// un punto, un apóstrofo o una tilde de más.
+    #[test]
+    fn inside_names_are_plain_unique_and_fit_an_old_phone() {
+        let long = "Guitarra eléctrica rítmica ".repeat(4);
+        let stems = [
+            "Bateria",
+            "Keys (2)",
+            "Keys 2",
+            "keys 2",
+            "E.Gtr 1",
+            "BGV's",
+            "Pads & FX + Loop #2",
+            "Batería",
+            "Año Ñu",
+            "鼓",
+            "",
+            "...",
+            long.as_str(),
+            "a/b\\c:d",
+            "鼓",
+        ];
+        let mut taken = Vec::new();
+        let names: Vec<String> = stems
+            .iter()
+            .enumerate()
+            .map(|(i, stem)| {
+                // la última, sin fuente tampoco
+                let source = if i + 1 == stems.len() {
+                    String::new()
+                } else {
+                    format!("p_{i}")
+                };
+                inside_name(stem, &source, &mut taken)
+            })
+            .collect();
+        assert_eq!(
+            names,
+            [
+                "Bateria",
+                "Keys 2",
+                "Keys 2 2",
+                "keys 2 3",
+                "E Gtr 1",
+                "BGVs",
+                "Pads FX Loop 2",
+                "Bateria 2",
+                "Ano Nu",
+                "p_9",
+                "p_10",
+                "p_11",
+                "Guitarra electrica ritmica Guitarra electrica ritmica Guitar",
+                "a b c d",
+                "parte",
+            ]
+        );
+        assert_eq!(names, taken);
+        for (i, name) in names.iter().enumerate() {
+            for ext in [".ogg", ".mp3"] {
+                let inside = format!("partes/{name}{ext}");
+                assert!(old_phone_accepts(&inside), "{inside}");
+                assert!(safe_part(&inside), "{inside}");
+            }
+            // ni iguales salvo por las mayúsculas (un disco que no las distingue)
+            let twin = names[..i].iter().any(|n| n.eq_ignore_ascii_case(name));
+            assert!(!twin, "{name}");
+        }
+    }
+
+    /// Un ffmpeg de mentira (deja vacío el archivo que se le pide) y lo que
+    /// hace falta para escribir con él el `.danpista` de unas pistas
+    /// ((fuente, nombre, papel) de cada una): la carpeta de la prueba y lo
+    /// que devuelve `write`.
+    #[cfg(unix)]
+    fn written(name: &str, tracks: &[(&str, &str, &str)]) -> (PathBuf, Dict) {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("danplay-write-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("carpeta");
+        let fake = dir.join("ffmpeg");
+        std::fs::write(&fake, "#!/bin/sh\nfor a; do last=$a; done\n: > \"$last\"\n")
+            .expect("script");
+        std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o755)).expect("permisos");
+        let tracks: Vec<Value> = tracks
+            .iter()
+            .map(|(source, name, role)| {
+                serde_json::json!({
+                    "source": source,
+                    "name": name,
+                    "file": format!("{name}.flac"),
+                    "path": dir.join(format!("{name}.flac")),
+                    "role": role,
+                })
+            })
+            .collect();
+        let dict = |v: Value| v.as_object().cloned().expect("objeto");
+        let info = dict(serde_json::json!({"folder": dir, "tracks": tracks}));
+        let song = dict(serde_json::json!({
+            "file": "Barak - Mi Gozo.flac", "title": "Mi Gozo", "artist": "Barak",
+        }));
+        let target = dir.join("Barak - Mi Gozo.danpista");
+        let package = Bundle {
+            song: &song,
+            info: &info,
+            ffmpeg: &fake,
+            encoders: " libvorbis ",
+            target: &target.to_string_lossy(),
+            grid: &Value::Null,
+            cover: None,
+            song_wave: &Value::Null,
+            cues_dir: "",
+            app: "DanPlay",
+            utc_offset: 0,
+        };
+        let data = write(&package, &|| {}).expect("escribir");
+        (dir, data)
+    }
+
+    /// Las pistas de una secuencia se llaman de cualquier manera, y dos
+    /// pueden quedar igual al quitarles lo raro: por dentro cada parte lleva
+    /// un nombre sencillo y distinto, que abre también un celular de antes.
+    #[cfg(unix)]
+    #[test]
+    fn a_sequence_is_written_with_part_names_any_phone_takes() {
+        let (dir, data) = written(
+            "nombres",
+            &[
+                ("click_track", "Click Track", "click"),
+                ("guide", "Guide", "guide"),
+                ("keys_2", "Keys (2)", ""),
+                ("keys_2_2", "Keys 2", ""),
+                ("e_gtr_1", "E.Gtr 1", ""),
+                ("bgv_s", "BGV's", ""),
+                ("bateria", "Batería", ""),
+            ],
+        );
+        let field = |k: &str| -> Vec<String> {
+            data["tracks"]
+                .as_array()
+                .expect("pistas")
+                .iter()
+                .map(|t| t[k].as_str().expect("texto").to_owned())
+                .collect()
+        };
+        assert_eq!(
+            field("file"),
+            [
+                "partes/Click Track.ogg",
+                "partes/Guide.ogg",
+                "partes/Keys 2.ogg",
+                "partes/Keys 2 2.ogg",
+                "partes/E Gtr 1.ogg",
+                "partes/BGVs.ogg",
+                "partes/Bateria.ogg",
+            ]
+        );
+        for file in field("file") {
+            assert!(old_phone_accepts(&file), "{file}");
+        }
+        // lo que se enseña sigue siendo el nombre de la pista
+        assert_eq!(field("name")[2..4], ["Keys (2)", "Keys 2"]);
+        // El clic y la guía dicen que lo son (no viajaba, y en el celular
+        // sonaban con la música); las que son música no llevan nada, como
+        // hasta ahora.
+        let tracks = data["tracks"].as_array().expect("pistas");
+        assert_eq!(
+            tracks[0],
+            serde_json::json!({"source": "click_track", "name": "Click Track",
+                "file": "partes/Click Track.ogg", "role": "click"})
+        );
+        assert_eq!(
+            tracks[1],
+            serde_json::json!({"source": "guide", "name": "Guide",
+                "file": "partes/Guide.ogg", "role": "guide"})
+        );
+        assert_eq!(
+            tracks[2],
+            serde_json::json!({"source": "keys_2", "name": "Keys (2)", "file": "partes/Keys 2.ogg"})
+        );
+        assert_eq!(
+            data["version"], VERSION,
+            "solo se añade: la versión no sube"
+        );
+        // y lo que dice el manifiesto es lo que hay dentro: la PC lo abre
+        let opened =
+            unpack(&dir.join("Barak - Mi Gozo.danpista"), &dir.join("fuera")).expect("abrir");
+        let sources: Vec<&str> = opened.parts.iter().map(|(s, _)| s.as_str()).collect();
+        assert_eq!(
+            sources,
+            [
+                "click_track",
+                "guide",
+                "keys_2",
+                "keys_2_2",
+                "e_gtr_1",
+                "bgv_s",
+                "bateria"
+            ]
+        );
+        assert!(opened.parts.iter().all(|(_, p)| p.is_file()));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Los `.danpista` que ya hay llevan el nombre de la pista tal cual: la
+    /// PC tampoco los abría («una parte tiene un nombre que no es de
+    /// DanPlay») si llevaba un punto, un apóstrofo o más de 64 letras.
+    #[test]
+    fn the_part_names_of_older_bundles_still_open() {
+        let long = format!(
+            "partes/{}.ogg",
+            "Guitarra eléctrica rítmica ".repeat(3).trim()
+        );
+        for name in [
+            "partes/Bateria.ogg",
+            "partes/Keys (2).ogg",
+            "partes/E.Gtr 1.ogg",
+            "partes/BGV's.ogg",
+            "partes/Pads & FX + Loop #2.mp3",
+            "partes/Batería, bombo [vivo]!.ogg",
+            "partes/鼓.ogg",
+            long.as_str(),
+        ] {
+            assert!(safe_part(name), "{name}");
+        }
+        let too_long = format!("partes/{}.ogg", "a".repeat(MAX_PART_NAME + 1));
+        let too_heavy = format!("partes/{}.ogg", "鼓".repeat(MAX_PART_BYTES / 3 + 1));
+        for bad in [
+            "partes/../../fuera.ogg",
+            "partes/..ogg",
+            "partes/...ogg",
+            "partes/.oculta.ogg",
+            "partes/sub/x.ogg",
+            "partes/sub\\x.ogg",
+            "partes/C:x.ogg",
+            "partes/a\u{0}b.ogg",
+            "partes/a\nb.ogg",
+            "partes/.ogg",
+            "partes/x.OGG",
+            "partes/x.exe",
+            "partes/x",
+            "/partes/x.ogg",
+            "x.ogg",
+            too_long.as_str(),
+            too_heavy.as_str(),
+        ] {
+            assert!(!safe_part(bad), "{bad:?}");
+        }
+        // y uno de esos, entero: se abre y su parte sale con su nombre
+        let manifest = serde_json::json!({
+            "format": "danpista",
+            "version": VERSION,
+            "song": {"title": "Mi Gozo"},
+            "tracks": [{"source": "e_gtr_1", "name": "E.Gtr 1", "file": "partes/E.Gtr 1.ogg"}],
+        });
+        let text = manifest.to_string();
+        let (file, out) = zip_with(
+            "viejo",
+            &[(MANIFEST, text.as_bytes()), ("partes/E.Gtr 1.ogg", b"ogg")],
+        );
+        let opened = unpack(&file, &out).expect("abrir");
+        assert_eq!(
+            opened.parts,
+            [("e_gtr_1".to_owned(), out.join("partes/E.Gtr 1.ogg"))]
+        );
+        let _ = std::fs::remove_dir_all(file.parent().expect("carpeta"));
     }
 
     #[test]

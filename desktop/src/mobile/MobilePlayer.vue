@@ -18,7 +18,7 @@
  * `usePlayback`, que escucha a Rust.
  */
 import { ref, computed, watch } from 'vue'
-import { usePlayback, MAX_VOLUME } from '../composables/usePlayback.js'
+import { usePlayback, MAX_VOLUME, SPEEDS } from '../composables/usePlayback.js'
 import { useScrub } from '../composables/useScrub.js'
 import { openMenu } from '../composables/useContextMenu.js'
 import { formatTime } from '../utils/format.js'
@@ -48,7 +48,9 @@ const REPEAT_LOOK = {
   queue: { icon: 'repeat', mark: '1', on: false, title: 'La lista una vez y para' }
 }
 const repeatLook = computed(() => REPEAT_LOOK[repeat.value] || REPEAT_LOOK.list)
-const SPEEDS = [0.5, 0.75, 0.9, 1, 1.1, 1.25, 1.5]
+// Las velocidades, las de la PC (`usePlayback.js`). Aquí había una lista
+// más corta: con 0,7× puesto en el estudio el menú no marcaba ninguna, y
+// desde el reproductor no se podían elegir 0,6×, 0,7×, 0,8× ni 2×.
 const VOLUMES = [0.25, 0.5, 0.75, 1, 1.25, MAX_VOLUME]
 
 const { scrub, start: grab } = useScrub({ duration, seek: (s) => player.seek(s) })
@@ -59,6 +61,9 @@ const pct = computed(() =>
 const segments = computed(() => (duration.value ? loops.value : []))
 const originLabel = computed(() => origin.value?.label || 'Mis pistas')
 const info = computed(() => ({ ...(track.value || {}), ...(props.song || {}) }))
+// La carátula no se pide si ya se sabe que no tiene (`cover: ''`, como todas
+// las canciones del teléfono): eran dos peticiones para nada cada vez.
+const coverId = computed(() => (info.value.cover === '' ? null : (track.value?.id ?? null)))
 const showQueue = ref(false)
 
 function close() {
@@ -250,7 +255,7 @@ function lyricsNow() {
           @pointerup="liftUp"
           @pointercancel="liftUp"
         >
-          <CoverArt :id="track?.id" :size="96" :icon-size="20" class="m-mini-cover" alt="" />
+          <CoverArt :id="coverId" :size="96" :icon-size="20" class="m-mini-cover" alt="" />
           <span class="m-mini-text">
             <span class="m-mini-title">{{ track?.title || 'Nada sonando' }}</span>
             <span class="m-mini-sub">{{
@@ -378,7 +383,7 @@ function lyricsNow() {
           </button>
         </div>
         <div class="m-full-art">
-          <CoverArt :id="track.id" :size="320" :icon-size="64" :alt="track.title" />
+          <CoverArt :id="coverId" :size="320" :icon-size="64" :alt="track.title" />
         </div>
       </div>
 

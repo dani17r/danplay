@@ -535,9 +535,14 @@ mod tests {
         let conf: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(conf).expect("tauri.conf.json"))
                 .expect("JSON");
-        let associations = conf["bundle"]["fileAssociations"]
+        // el `.danpista` (la canción con sus pistas) también se abre con
+        // DanPlay, pero no es audio que sirva la API: se importa
+        let associations: Vec<&serde_json::Value> = conf["bundle"]["fileAssociations"]
             .as_array()
-            .expect("fileAssociations");
+            .expect("fileAssociations")
+            .iter()
+            .filter(|a| a["ext"][0] != "danpista")
+            .collect();
         assert_eq!(associations.len(), AUDIO_TYPES.len());
         for a in associations {
             let ext = format!(".{}", a["ext"][0].as_str().expect("ext"));

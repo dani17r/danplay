@@ -391,6 +391,69 @@ fn the_mode_stays_and_keys_keep_their_usual_names() {
     assert_eq!(d["sections"][0]["chords"], json!(["B", "F#", "G#m", "E"]));
 }
 
+/// Los mismos casos que `the_same_sheet_as_on_the_pc` del celular
+/// (`mobile/src/theory.rs`), que lleva esto mismo escrito a mano (no tiene
+/// `regex`): si cambia uno, cambia el otro.
+#[test]
+fn the_same_sheet_as_on_the_phone() {
+    let chords = |d: &Value| d["sections"][0]["chords"].clone();
+    // sin tono, un semitono arriba: con bemoles, que son un Sib y un Mib
+    let d = transpose_sheet(
+        &json!({"sections": [{"chords": ["A", "F", "Gm", "D"]}]}),
+        1,
+        "",
+    );
+    assert_eq!(chords(&d), json!(["Bb", "Gb", "Abm", "Eb"]));
+    assert_eq!((&d["key"], &d["semitones"]), (&json!(""), &json!(1)));
+    // un tono que no se reconoce se queda como estaba
+    let d = transpose_sheet(
+        &json!({"key": "Do", "sections": [{"chords": ["C", "Am"]}]}),
+        2,
+        "",
+    );
+    assert_eq!(chords(&d), json!(["D", "Bm"]));
+    assert_eq!((&d["key"], &d["capo_hint"]), (&json!("Do"), &json!([])));
+    let d = transpose_sheet(&json!({"key": 5, "sections": []}), 0, "G");
+    assert_eq!((&d["key"], &d["semitones"]), (&json!("5"), &json!(0)));
+    // «C-» es Do menor
+    let d = transpose_sheet(
+        &json!({"key": "C-", "sections": [{"chords": ["Cm", "Eb"]}]}),
+        2,
+        "",
+    );
+    assert_eq!(chords(&d), json!(["Dm", "F"]));
+    assert_eq!(
+        (&d["key"], &d["capo_hint"]),
+        (&json!("Dm"), &json!([[5, "Am"]]))
+    );
+    // lo que no es texto, tal cual; y una línea es de acordes si su «c» cuenta
+    let odd = json!({"key": "G", "source": "LaCuerda", "sections": [
+        {"name": "Coro", "chords": [5, "G", null], "lines": [
+            {"t": 7, "c": true}, {"t": "G  D", "c": 1}, {"t": "G", "c": 0}, {"c": true}, "x",
+        ]},
+        {"name": "Puente"},
+        "x",
+    ]});
+    let d = transpose_sheet(&odd, 2, "");
+    assert_eq!(
+        d,
+        json!({"key": "A", "source": "LaCuerda", "semitones": 2,
+        "capo_hint": [[2, "G"], [5, "E"], [7, "D"]],
+        "sections": [
+            {"name": "Coro", "chords": [5, "A", null], "lines": [
+                {"t": 7, "c": true}, {"t": "A  E", "c": 1}, {"t": "G", "c": 0},
+                {"c": true, "t": null}, "x",
+            ]},
+            {"name": "Puente", "chords": [], "lines": []},
+            "x",
+        ]})
+    );
+    assert_eq!(
+        transpose_sheet(&json!("x"), 2, ""),
+        json!({"sections": [], "key": "", "semitones": 2, "capo_hint": []})
+    );
+}
+
 /// Sin tono en el cifrado se mueve por semitonos, y el tono sigue vacío.
 #[test]
 fn without_a_key_it_transposes_by_semitones() {

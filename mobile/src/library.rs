@@ -50,6 +50,13 @@ fn text(v: &Value, key: &str) -> String {
     v.get(key).and_then(Value::as_str).unwrap_or("").to_string()
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Cuantas veces se ha leido la lista entera (`Library::songs`) en este
+    /// hilo: cada prueba va en el suyo.
+    pub static LISTINGS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 impl Library {
     pub fn new(dir: PathBuf) -> Library {
         let lib = Library {
@@ -111,6 +118,8 @@ impl Library {
     /// Todas, como canciones ligeras (sin letra ni estudio, como la busqueda
     /// de la PC), por titulo.
     pub fn songs(&self) -> Vec<Value> {
+        #[cfg(test)]
+        LISTINGS.set(LISTINGS.get() + 1);
         bundle::list(&self.dir)
             .iter()
             .filter_map(|s| self.song(numeric_id(&s.id), true))
@@ -213,10 +222,14 @@ impl Library {
             .and_then(|w| w.get("tracks"))
             .cloned()
             .unwrap_or(Value::Null);
+        // el papel de cada una (el clic o la guía de una secuencia), como en
+        // la PC: el estudio las manda por la salida del clic o de las guías
+        let roles = bundle::roles(&m);
         let tracks: Vec<Value> = bundle::parts(&folder)
             .ok()?
             .into_iter()
-            .map(|p| {
+            .zip(roles)
+            .map(|(p, role)| {
                 json!({
                     "source": p.source,
                     "name": p.name,
@@ -224,6 +237,7 @@ impl Library {
                     "path": p.path.to_string_lossy(),
                     "exists": p.path.is_file(),
                     "wave": waves.get(&p.source).cloned().unwrap_or(Value::Null),
+                    "role": role,
                 })
             })
             .collect();
@@ -346,7 +360,7 @@ fn columns(x: &[f64], n: usize, peak: bool) -> Vec<f64> {
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::*;
 
     #[test]
@@ -355,6 +369,66 @@ mod tests {
         assert_eq!(id, numeric_id("barak-mi-gozo-1a2b3c4d"));
         assert!(id > 0);
         assert_ne!(id, numeric_id("barak-mi-gozo-1a2b3c4e"));
+        // los de siempre (las listas y lo guardado de cada cancion van por id);
+        // el de una cancion del telefono es el mismo resumen, en negativo
+        assert_eq!(id, 1_531_661_830);
+        assert_eq!(
+            crate::music::id_of("/sd/Music/Grupo/coro.mp3"),
+            -1_833_965_061
+        );
+    }
+
+    /// Una pista ya importada, escrita a mano en su carpeta: `tracks` es lo
+    /// que dice su `pista.json` de cada parte. Devuelve la biblioteca y su id.
+    pub fn library_with(name: &str, tracks: &Value) -> (Library, i64) {
+        let dir = std::env::temp_dir()
+            .join(format!("danplay-mobile-{name}-{}", std::process::id()))
+            .join("tracks");
+        let _ = fs::remove_dir_all(&dir);
+        let folder = dir.join("barak-mi-gozo-1a2b3c4d");
+        fs::create_dir_all(folder.join("partes")).expect("carpeta");
+        for t in tracks.as_array().expect("pistas") {
+            fs::write(folder.join(t["file"].as_str().expect("archivo")), b"ogg").expect("parte");
+        }
+        let manifest = json!({
+            "format": "danpista", "version": 1,
+            "song": {"title": "Mi Gozo", "artist": "Barak", "file": "Barak - Mi Gozo.flac"},
+            "tracks": tracks,
+        });
+        fs::write(folder.join(bundle::MANIFEST), manifest.to_string()).expect("pista.json");
+        (Library::new(dir), numeric_id("barak-mi-gozo-1a2b3c4d"))
+    }
+
+    /// El estudio necesita saber cuáles son el clic y la guía de una
+    /// secuencia para mandarlos por su salida: no se lo decía nadie, y eran
+    /// dos pistas más por la de la música.
+    #[test]
+    fn the_stems_say_which_are_the_click_and_the_guide() {
+        let (lib, id) = library_with(
+            "roles",
+            &json!([
+                {"source": "click_track", "name": "Click Track", "file": "partes/Click Track.ogg", "role": "click"},
+                // un .danpista de antes, que no lo traía: por el nombre
+                {"source": "guide", "name": "Guide", "file": "partes/Guide.ogg"},
+                {"source": "keys", "name": "Keys", "file": "partes/Keys.ogg"},
+            ]),
+        );
+        let stems = lib.stems(id).expect("pistas");
+        let tracks = stems["tracks"].as_array().expect("pistas");
+        let said: Vec<(&str, &str)> = tracks
+            .iter()
+            .map(|t| {
+                (
+                    t["source"].as_str().expect("fuente"),
+                    t["role"].as_str().expect("papel"),
+                )
+            })
+            .collect();
+        assert_eq!(
+            said,
+            [("click_track", "click"), ("guide", "guide"), ("keys", "")]
+        );
+        assert_eq!(stems["complete"], json!(true));
     }
 
     #[test]

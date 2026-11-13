@@ -92,14 +92,10 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// El id de un archivo: FNV-1a de su ruta, negativo y nunca cero.
+/// El id de un archivo: el resumen de su ruta (el mismo que el de una
+/// pista, `library::numeric_id`), negativo y nunca cero.
 pub fn id_of(path: &str) -> i64 {
-    let mut h: u32 = 0x811c_9dc5;
-    for b in path.bytes() {
-        h ^= u32::from(b);
-        h = h.wrapping_mul(0x0100_0193);
-    }
-    -(i64::from(h & 0x7fff_ffff).max(1))
+    -crate::library::numeric_id(path)
 }
 
 pub fn is_audio(path: &Path) -> bool {

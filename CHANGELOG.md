@@ -170,6 +170,30 @@ hecho así, en [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
   el `.deb` en una Debian y una Ubuntu recién hechas y comprueba que no le
   falte nada para abrirse y sonar. Con el paquete de la 1.40.1 falla justo
   donde falló de verdad: no pedía el puente de sonido.
+- **En el celular, el clic y la guía de una secuencia ya no suenan con la
+  música**: al tocar una secuencia como canción se oían el «Click Track» y
+  la «Guide» mezclados con todo (y por el lado de la mesa, con el clic a la
+  izquierda). El `.danpista` dice ahora cuáles son, y en los de antes se
+  saca de su nombre.
+- **El celular abre todos los `.danpista` de la PC**: rechazaba la pista
+  entera si una parte se llamaba «Keys (2)», «E.Gtr 1» o «BGV's», o tenía
+  un nombre largo con tildes. Ahora los abre, y la PC los escribe además con
+  nombres que acepta también un celular sin actualizar. (La PC tampoco abría
+  esos suyos; ya sí.)
+- **Volver a mandar una pista al celular trae lo que se rehízo en la PC**:
+  el estudio del celular tapaba entero al nuevo, y las guías se quedaban
+  mudas porque apuntaban a archivos borrados. Ahora lo que no se tocó en el
+  celular llega con la pista nueva (la guía, los marcadores, el clic
+  propio), lo que sí se tocó se queda, y ninguna guía queda sin su archivo.
+- **En el celular**: una canción dañada se dice cuál es y la lista sigue
+  (se paraba, o saltaba sin explicar nada); la salida y el reparto elegidos
+  valen desde que se abre la app, sin corte al entrar al estudio; importar
+  dice «Importando…» y dos importaciones seguidas ya no se pisan; las
+  velocidades son las mismas que en la PC; «atrás» cierra el panel de
+  Carpetas; ya no se piden carátulas que no existen; y se fue de Ajustes
+  el «Fundido entre canciones», que en el celular no hacía nada.
+- **Arreglado, en el celular**: transponer un cifrado sin tono escribía
+  sostenidos donde la PC escribe bemoles («A# F# G#m» por «Bb Gb Abm»).
 - **Los fallos del reproductor se quedan a la vista**: lo que no se pudo
   reproducir salía un instante en la barra y se perdía con el siguiente
   cambio; ahora es un aviso que se queda unos segundos.
