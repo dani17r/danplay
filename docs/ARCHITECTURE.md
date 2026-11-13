@@ -1015,11 +1015,17 @@ detrás de otra mientras se sigue usando la app.
 
 **Dónde quedan.** En `Separadas/<nombre del archivo>/` dentro de la carpeta
 de la biblioteca de la que cuelga la canción: `Bateria.flac`, `Voces.flac`…
-archivos normales que abre cualquier programa. En FLAC, o en Opus a 128
-kbps si se elige en Ajustes (cuatro veces menos; a 96 serían cinco, pero una
-pista sola deja oír más lo que quita el códec). El Opus se hace al final de
-la mejora: hasta entonces todo va en FLAC, para que «Otros» salga de pistas
-sin pérdida. Se separa en una carpeta
+archivos normales que abre cualquier programa. En FLAC, o más pequeñas si
+se elige en Ajustes (unas cuatro veces menos en los dos casos): en **Ogg
+Vorbis** (calidad 6), que el motor lee tal cual y empieza en su muestra
+exacta, o en Opus a 128 kbps (a 96 serían cinco veces menos, pero una pista
+sola deja oír más lo que quita el códec). Opus suena algo mejor a igual
+tamaño, pero el motor no lo lee: la primera vez que se abren esas pistas
+ffmpeg las pasa a FLAC en la caché, con su espera y ocupando allí lo que se
+quería ahorrar; por eso desde la 1.41 lo que se ofrece primero es Vorbis.
+Lo ya guardado en Opus sigue sonando igual. La pasada al formato pequeño se
+hace al final de la mejora: hasta entonces todo va en FLAC, para que
+«Otros» salga de pistas sin pérdida. Se separa en una carpeta
 oculta al lado (el escaneo se salta las ocultas) y al acabar se pone en su
 sitio de golpe; si la app se cerró a mitad, la siguiente separación limpia
 lo que quedó. Junto a las pistas va `.danplay-stems.json`, que dice de qué

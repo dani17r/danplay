@@ -131,6 +131,17 @@ hecho así, en [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
   lista (más de un segundo al cambiar de vista), y el registro ya no se
   llena con los avisos de cada rareza de cada archivo (eran nueve de cada
   diez líneas, y lo útil se iba antes de leerlo).
+- **Las pistas separadas, también en Ogg Vorbis** (Ajustes › Pistas
+  separadas): ocupan unas cuatro veces menos que en FLAC, como en Opus,
+  pero suenan al momento. Las de Opus había que prepararlas la primera vez
+  que se abrían (pasarlas a FLAC en la caché, con su espera, y ocupando
+  allí lo que se quería ahorrar). Opus sigue estando, y lo ya guardado en
+  Opus suena igual.
+- **Arreglado, en el estudio**: la tecla B sin haber marcado A hacía un
+  tramo desde 0:00 y mandaba la canción al principio; ahora pide marcar A.
+  Cuando el detector de pulso no puede con una canción, el estudio dice que
+  el clic es el aproximado y por qué, en vez de callarlo. Y las notas no
+  dejan escribir más de lo que se guarda.
 - **Los fallos del reproductor se quedan a la vista**: lo que no se pudo
   reproducir salía un instante en la barra y se perdía con el siguiente
   cambio; ahora es un aviso que se queda unos segundos.

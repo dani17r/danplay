@@ -381,6 +381,28 @@ describe('the study bar', () => {
     w.unmount()
   })
 
+  it('B without A does not make a segment from 0:00 nor send the song to the start', async () => {
+    const w = await mountView()
+    held.playback.bridge.setLoop.mockClear()
+    held.playback.bridge.seek.mockClear()
+    await press('b')
+    await flushPromises()
+    expect(held.playback.bridge.setLoop).not.toHaveBeenCalled()
+    expect(held.playback.bridge.seek).not.toHaveBeenCalled()
+    const { useNotices } = await import('../src/composables/useNotices.js')
+    expect(useNotices().notices.value.map((n) => n.message)).toContain(
+      'Marca primero dónde empieza el tramo, con A'
+    )
+    w.unmount()
+  })
+
+  it('the notes cannot grow past what is saved', async () => {
+    const w = await mountView()
+    const field = w.find('.study-notes textarea')
+    expect(field.attributes('maxlength')).toBe('4000')
+    w.unmount()
+  })
+
   it('the ruler shows the minutes and the end', async () => {
     const w = await mountView()
     const labels = w.findAll('.tl-tick-label').map((t) => t.text())

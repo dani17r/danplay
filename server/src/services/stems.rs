@@ -34,7 +34,7 @@ const EVENTS: usize = 50;
 /// Lo que necesita la máxima calidad (medido: 4,5 GB de pico en un
 /// portátil, con los pesos y un trozo de 5 s en vuelo).
 const MAX_MEMORY: u64 = 5 * 1024 * 1024 * 1024;
-const FORMATS: [&str; 2] = ["flac", "opus"];
+const FORMATS: [&str; 3] = ["flac", "ogg", "opus"];
 
 /// Un fallo de separar: previsto (ya explicado en castellano) u otro
 /// cualquiera.
@@ -327,8 +327,12 @@ fn has_opus(app: &App, ffmpeg: &Path) -> bool {
     encoders(app, ffmpeg).contains(" libopus ")
 }
 
-/// En qué se guardan las pistas: FLAC u Opus (si se eligió y este ffmpeg
-/// lo sabe hacer).
+fn has_vorbis(app: &App, ffmpeg: &Path) -> bool {
+    encoders(app, ffmpeg).contains(" libvorbis ")
+}
+
+/// En qué se guardan las pistas: FLAC, o lo que se eligió para que ocupen
+/// menos (Ogg Vorbis u Opus) si este ffmpeg lo sabe hacer.
 pub fn stems_format(app: &App) -> String {
     let chosen = app.config().stems_format.clone();
     let chosen = if FORMATS.contains(&chosen.as_str()) {
@@ -336,10 +340,12 @@ pub fn stems_format(app: &App) -> String {
     } else {
         "flac".into()
     };
-    if chosen == "opus" && !app.tool("ffmpeg").is_some_and(|f| has_opus(app, &f)) {
-        return "flac".into();
+    let can = |has: fn(&App, &Path) -> bool| app.tool("ffmpeg").is_some_and(|f| has(app, &f));
+    match chosen.as_str() {
+        "opus" if !can(has_opus) => "flac".into(),
+        "ogg" if !can(has_vorbis) => "flac".into(),
+        _ => chosen,
     }
-    chosen
 }
 
 /// Si se puede separar, lo que pesa el separador, en qué se guardan las
@@ -381,7 +387,8 @@ pub fn status(app: &App) -> Value {
         "max_pending": max_pending,
         "folder": ls::FOLDER,
         "format": stems_format(app),
-        "opus": ffmpeg.is_some_and(|f| has_opus(app, &f)),
+        "opus": ffmpeg.as_deref().is_some_and(|f| has_opus(app, f)),
+        "ogg": ffmpeg.as_deref().is_some_and(|f| has_vorbis(app, f)),
         "current": current,
         "queue": queue,
         "events": events,
@@ -849,7 +856,7 @@ fn net(app: &App, p: &Part, take: &[String]) -> Value {
 }
 
 /// Si hay algo que mejorar: alguna de las que tienen especialista, o
-/// pasarlas a Opus (que se hace al final, con todas ya buenas).
+/// pasarlas a Ogg u Opus (que se hace al final, con todas ya buenas).
 fn needs_refine(app: &App, tracks: &Value) -> bool {
     REFINE.iter().any(|s| tracks.get(*s).is_some()) || stems_format(app) != "flac"
 }

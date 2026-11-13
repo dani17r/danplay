@@ -130,23 +130,28 @@ fn engine(job: &Value, fail_refine: &AtomicBool) -> Vec<Value> {
     for s in &tracks {
         names.insert(s.clone(), files[s].clone());
     }
-    if job["format"] == "opus" {
+    let compact = match job["format"].as_str() {
+        Some("opus") => Some(("opus", "libopus")),
+        Some("ogg") => Some(("ogg", "libvorbis")),
+        _ => None,
+    };
+    if let Some((ext, codec)) = compact {
         said.push(json!({"step": "encode"}));
         for s in &tracks {
             let flac = file(s);
-            let opus = flac.with_extension("opus");
+            let small = flac.with_extension(ext);
             let ok = std::process::Command::new(&ffmpeg)
                 .args(["-v", "error", "-y", "-i"])
                 .arg(&flac)
-                .args(["-c:a", "libopus"])
-                .arg(&opus)
+                .args(["-c:a", codec])
+                .arg(&small)
                 .status()
                 .is_ok_and(|st| st.success());
-            assert!(ok, "opus");
+            assert!(ok, "{ext}");
             std::fs::remove_file(&flac).expect("flac");
             names.insert(
                 s.clone(),
-                json!(opus.file_name().expect("nombre").to_string_lossy()),
+                json!(small.file_name().expect("nombre").to_string_lossy()),
             );
         }
     }
@@ -496,23 +501,25 @@ fn the_lists_say_which_songs_have_stems_and_whether_they_are_the_best() {
     );
 }
 
-#[test]
-fn the_stems_can_be_kept_in_opus() {
-    let Some((app, _)) = lib() else { return };
+/// Las pistas, en el formato elegido para que ocupen menos (o `None` si este
+/// ffmpeg no sabe hacerlo): las extensiones con que quedan.
+fn kept_in(format: &str) -> Option<HashSet<String>> {
+    let (app, _) = lib()?;
     call(
         &app,
         "POST",
         "/api/settings",
-        Some(json!({"stems_format": "opus"})),
+        Some(json!({"stems_format": format})),
     );
-    if stems::stems_format(&app) != "opus" {
-        return; // este ffmpeg no sabe hacer Opus
+    if stems::stems_format(&app) != format {
+        return None;
     }
+    assert_eq!(stems::status(&app)[format], true);
     let cid = id_of(&app, "Barak - Mi Gozo.mp3");
     assert_eq!(separate(&app, cid)["error"], "");
     let i = info(&app, cid);
     assert!(i["complete"] == true && i["best"] == true);
-    let ext: HashSet<String> = i["tracks"]
+    let ext = i["tracks"]
         .as_array()
         .expect("pistas")
         .iter()
@@ -525,7 +532,23 @@ fn the_stems_can_be_kept_in_opus() {
                 .into_owned()
         })
         .collect();
-    assert_eq!(ext, HashSet::from(["opus".to_owned()]));
+    Some(ext)
+}
+
+#[test]
+fn the_stems_can_be_kept_in_opus() {
+    if let Some(ext) = kept_in("opus") {
+        assert_eq!(ext, HashSet::from(["opus".to_owned()]));
+    }
+}
+
+/// Y en Ogg Vorbis, que el motor lee tal cual: sin esperar a que ffmpeg las
+/// prepare la primera vez, como pasa con Opus.
+#[test]
+fn the_stems_can_be_kept_in_ogg() {
+    if let Some(ext) = kept_in("ogg") {
+        assert_eq!(ext, HashSet::from(["ogg".to_owned()]));
+    }
 }
 
 #[test]

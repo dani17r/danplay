@@ -342,6 +342,7 @@ export function createState() {
       folder: 'Separadas',
       format: 'flac',
       opus: true,
+      ogg: true,
       current: null,
       /** @type {any[]} */
       queue: [],

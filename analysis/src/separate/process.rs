@@ -290,15 +290,34 @@ pub fn close(processes: &mut [(String, Child)], what: &str) -> Result<(), Error>
     }
 }
 
-/// La pista en Opus, en su lugar: a 128 kbps, unas cuatro veces menos que en
-/// FLAC (medido con pistas de verdad; a 96 serían cinco, pero una pista sola
-/// deja oír más lo que el códec quita que la canción entera).
-pub fn a_opus(program: &str, src: &Path) -> Result<PathBuf, Error> {
-    let dest = src.with_extension("opus");
+/// En qué se puede guardar una pista para que ocupe menos, con lo que se le
+/// pide a ffmpeg y su extensión. Las dos, unas cuatro veces menos que en
+/// FLAC (medido con pistas de verdad):
+///
+/// - `ogg` (Ogg Vorbis, calidad 6): lo lee el motor tal cual, y empieza en
+///   su muestra exacta (medido para el `.danpista`). Es lo que se ofrece
+///   primero;
+/// - `opus`, a 128 kbps (a 96 serían cinco veces menos, pero una pista sola
+///   deja oír más lo que el códec quita que la canción entera): algo mejor
+///   a igual tamaño, pero el motor no lo lee y la primera vez que se abren
+///   las pistas hay que pasarlas a FLAC en la caché, con su espera.
+pub fn compact_args(format: &str) -> Option<(&'static str, &'static [&'static str])> {
+    match format {
+        "ogg" => Some(("ogg", &["-c:a", "libvorbis", "-q:a", "6"])),
+        "opus" => Some(("opus", &["-c:a", "libopus", "-b:a", "128k", "-ar", "48000"])),
+        _ => None,
+    }
+}
+
+/// La pista en ese formato (`compact_args`), en su lugar.
+pub fn compacted(program: &str, src: &Path, format: &str) -> Result<PathBuf, Error> {
+    let (ext, args) = compact_args(format)
+        .ok_or_else(|| Error::from(format!("no sé guardar las pistas en {format}")))?;
+    let dest = src.with_extension(ext);
     let r = ffmpeg(program)
         .args(["-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-i"])
         .arg(src)
-        .args(["-c:a", "libopus", "-b:a", "128k", "-ar", "48000"])
+        .args(args)
         .arg(&dest)
         .output()?;
     if !r.status.success() {
@@ -316,7 +335,7 @@ pub fn a_opus(program: &str, src: &Path) -> Result<PathBuf, Error> {
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
-        return Err(format!("ffmpeg no pudo pasar {name} a Opus: {tail}").into());
+        return Err(format!("ffmpeg no pudo pasar {name} a {format}: {tail}").into());
     }
     std::fs::remove_file(src)?;
     Ok(dest)
@@ -425,18 +444,19 @@ fn write_waveforms(path: &Path, waveforms: &Waveforms, order: &[String]) -> Resu
     Ok(())
 }
 
-fn all_to_opus(
+/// Las pistas, en el formato pedido si no es FLAC (`compact_args`).
+fn all_compacted(
     t: &Job,
     written: Vec<(String, PathBuf)>,
     say: &mut dyn FnMut(Warning) -> Result<(), Error>,
 ) -> Result<Vec<(String, PathBuf)>, Error> {
-    if t.format.as_deref() != Some("opus") {
+    let Some(format) = t.format.as_deref().filter(|f| compact_args(f).is_some()) else {
         return Ok(written);
-    }
+    };
     say(Warning::Step("encode"))?;
     written
         .into_iter()
-        .map(|(s, p)| Ok((s, a_opus(&t.ffmpeg, &p)?)))
+        .map(|(s, p)| Ok((s, compacted(&t.ffmpeg, &p, format)?)))
         .collect()
 }
 
@@ -649,7 +669,7 @@ pub fn run(
         .iter()
         .map(|s| Ok((s.clone(), out.join(file(t, s)?))))
         .collect::<Result<_, Error>>()?;
-    let written = all_to_opus(t, written, say)?;
+    let written = all_compacted(t, written, say)?;
     Ok(Outcome {
         segundos: np::round_to(length as f64 / RATE as f64, 2),
         took: np::round_to(started.elapsed().as_secs_f64(), 1),
@@ -883,7 +903,7 @@ pub fn run_max(
         .iter()
         .map(|s| Ok((s.clone(), out.join(file(t, s)?))))
         .collect::<Result<_, Error>>()?;
-    let written = all_to_opus(t, written, say)?;
+    let written = all_compacted(t, written, say)?;
     Ok(Outcome {
         segundos: np::round_to(length as f64 / RATE as f64, 2),
         took: np::round_to(started.elapsed().as_secs_f64(), 1),

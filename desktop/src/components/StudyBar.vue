@@ -572,7 +572,14 @@ function markB() {
   const at = round2(position.value)
   const list = study.value.loops
   const single = !multi.value && list.length === 1
-  const from = pendingA.value ?? (single ? list[0][0] : 0)
+  // B sin A (y sin un tramo que alargar) hacía el tramo desde 0:00 y mandaba
+  // la canción al principio: un dedo en la tecla de al lado, a media
+  // práctica, y se perdía por dónde se iba
+  if (pendingA.value == null && !single) {
+    notify('Marca primero dónde empieza el tramo, con A')
+    return
+  }
+  const from = pendingA.value ?? list[0][0]
   if (at - from < 0.5) {
     notify('El bucle tiene que durar al menos medio segundo')
     return
@@ -791,6 +798,11 @@ const metroStatus = computed(() => {
   if (clickLoading.value) return `cargando el clic de esta canción… ${clickPercent.value} %`
   if (click.error.value) return 'sin compás detectado: va libre'
   if (!m.has_grid) return 'sin compás: va libre'
+  // el detector no pudo con esta canción: lo que suena es el clic de
+  // reserva, a un solo tempo. Antes no se decía y parecía cosa del clic
+  if (click.source.value === 'rust' && click.fallbackWhy.value) {
+    return `clic aproximado, a un solo tempo: el detector no pudo con esta canción (${click.fallbackWhy.value}). «Re-analizar» lo vuelve a intentar`
+  }
   if (m.free) return 'tempo a mano: entra con el pulso de la canción y va a su aire'
   if (clickMode.value === 'own') {
     return hasOwn.value
@@ -3504,6 +3516,7 @@ defineExpose({ close: hide, hide, exit })
           :rows="6"
           width="100%"
           :placeholder="'qué trabajar en «' + selected.label + '»…'"
+          maxlength="2000"
           class="study-notes-field"
           @update:model-value="
             (v) => {
@@ -3520,6 +3533,7 @@ defineExpose({ close: hide, hide, exit })
           width="100%"
           placeholder="cejilla en 2, entrar tras el redoble…"
           :disabled="!track"
+          maxlength="4000"
           class="study-notes-field"
           @update:model-value="
             (v) => {
