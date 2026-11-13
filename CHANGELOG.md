@@ -30,7 +30,9 @@ hecho así, en [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
   canción queda en la biblioteca como una más, con sus pistas separadas, su
   clic, lo del estudio (la mezcla, los tramos, los marcadores y las guías
   habladas), la letra y el cifrado. Si esa canción ya está en la biblioteca
-  no se trae otra vez: se enseña la que hay.
+  no se trae otra vez: se enseña la que hay. En Linux, con el `.deb`, también
+  con doble clic desde el explorador (antes lo abría el gestor de archivos
+  comprimidos: por dentro es un ZIP).
 - **La guía automática, por la letra**: las partes de la canción salían
   solo de cómo suena, y con estrofa y coro sobre los mismos acordes los
   confundía (o llamaba «coro» al puente, por sonar más fuerte). Ahora, si
@@ -142,6 +144,10 @@ hecho así, en [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
   Cuando el detector de pulso no puede con una canción, el estudio dice que
   el clic es el aproximado y por qué, en vez de callarlo. Y las notas no
   dejan escribir más de lo que se guarda.
+- **Una prueba de instalación limpia** (`scripts/test-install.sh`): instala
+  el `.deb` en una Debian y una Ubuntu recién hechas y comprueba que no le
+  falte nada para abrirse y sonar. Con el paquete de la 1.40.1 falla justo
+  donde falló de verdad: no pedía el puente de sonido.
 - **Los fallos del reproductor se quedan a la vista**: lo que no se pudo
   reproducir salía un instante en la barra y se perdía con el siguiente
   cambio; ahora es un aviso que se queda unos segundos.
