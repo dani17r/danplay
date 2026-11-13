@@ -174,13 +174,79 @@ pub fn available_keys() -> Vec<&'static str> {
         .collect()
 }
 
-/// `[(traste, shape)]` para tocar un tono difícil con acordes abiertos.
+/// Cómo se suele escribir cada tono: Bb y no A#, F# y no Gb, C#m y no Dbm.
+/// Para nombrar el tono al que se llega subiendo o bajando por semitonos.
+const USUAL_MAJOR: [&str; 12] = [
+    "C", "Db", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B",
+];
+const USUAL_MINOR: [&str; 12] = [
+    "Cm", "C#m", "Dm", "Ebm", "Em", "Fm", "F#m", "Gm", "G#m", "Am", "Bbm", "Bm",
+];
+
+/// El nombre de siempre del tono de esa posición (0 es Do), mayor o menor.
+pub fn usual_key(index: i64, minor: bool) -> &'static str {
+    let i = index.rem_euclid(12) as usize;
+    if minor {
+        USUAL_MINOR[i]
+    } else {
+        USUAL_MAJOR[i]
+    }
+}
+
+/// Ese tono en el modo que se diga: «G» en menor es «Gm», «Am» en mayor es
+/// «A». Lo que no es un tono, tal cual.
+pub fn in_mode(key: &str, minor: bool) -> String {
+    let root = key_root(key.trim());
+    if index(root).is_none() {
+        return key.to_owned();
+    }
+    format!("{root}{}", if minor { "m" } else { "" })
+}
+
+/// Si un tono se escribe con bemoles: los que lo llevan en el nombre («Bb»,
+/// «Ebm») y los que lo llevan en la armadura («F», «Dm», «Gm»…).
+pub fn uses_flats(key: &str) -> bool {
+    let k = key.trim();
+    key_root(k).chars().skip(1).any(|c| c == 'b') || FLAT_KEYS.contains(&k)
+}
+
+/// Sin saber el tono, cómo escribir unos acordes: con bemoles si entre ellos
+/// (escritos con sostenidos) hay más La# y Re# —que casi siempre son un Sib
+/// y un Mib— que Fa# y Do#, que son los sostenidos de los tonos de siempre
+/// (Re, La, Mi). Subiendo un semitono «A F Gm D» salía «A# F# G#m D#».
+pub fn prefer_flats<'a>(roots: impl IntoIterator<Item = &'a str>) -> bool {
+    let (mut flat, mut sharp) = (0, 0);
+    for r in roots {
+        match index(r) {
+            Some(10 | 3) => flat += 1,
+            Some(6 | 1) => sharp += 1,
+            _ => {}
+        }
+    }
+    flat > sharp
+}
+
+/// La raíz de cada acorde de un texto («Bb/D Gm7» → Bb, G).
+pub fn chord_roots(text: &str) -> Vec<String> {
+    let mut roots = Vec::new();
+    let _ = sub_with(&CHORD, text, |t, g| {
+        roots.push(group(t, g, 1).to_owned());
+        String::new()
+    });
+    roots
+}
+
+/// `[(traste, shape)]` para tocar un tono difícil con acordes abiertos: las
+/// formas de su modo (un tono mayor, con formas mayores; uno menor, con
+/// menores). Antes se mezclaban: para Si bemol mayor se proponía «traste 1
+/// con formas de Am», que suena Si bemol menor; y para un tono menor, nada.
 pub fn suggested_capo(current_key: &str, easy_shapes: &[&str]) -> Vec<(i64, String)> {
-    let Some(tone) = index(current_key) else {
+    let Some((tone, minor)) = split_key(current_key) else {
         return Vec::new();
     };
     let mut outs: Vec<(i64, String)> = easy_shapes
         .iter()
+        .filter(|shape| shape.ends_with('m') == minor)
         .filter_map(|shape| {
             let base = index(shape.strip_suffix('m').unwrap_or(shape))?;
             let fret = (tone as i64 - base as i64).rem_euclid(12);
@@ -312,11 +378,43 @@ mod tests {
     #[test]
     fn latin_names_and_capo() {
         assert_eq!(to_latin("G Em/B Cb"), "Sol Mim/Si Cb");
-        let capo: Vec<(i64, String)> = [(1, "A"), (1, "Am"), (3, "G"), (6, "E"), (6, "Em")]
-            .map(|(f, s)| (f, s.to_string()))
-            .to_vec();
-        assert_eq!(suggested_capo("Bb", &EASY_SHAPES), capo);
-        assert!(suggested_capo("Am", &EASY_SHAPES).is_empty());
+        // un tono mayor, con formas mayores («traste 1 con formas de Am»
+        // sonaba Si bemol menor)
+        let capo = |v: &[(i64, &str)]| -> Vec<(i64, String)> {
+            v.iter().map(|(f, s)| (*f, (*s).to_string())).collect()
+        };
+        assert_eq!(
+            suggested_capo("Bb", &EASY_SHAPES),
+            capo(&[(1, "A"), (3, "G"), (6, "E")])
+        );
+        // y uno menor, con menores (antes, ninguna)
+        assert_eq!(
+            suggested_capo("Gm", &EASY_SHAPES),
+            capo(&[(3, "Em"), (5, "Dm")])
+        );
+        assert_eq!(
+            suggested_capo("Am", &EASY_SHAPES),
+            capo(&[(5, "Em"), (7, "Dm")])
+        );
+        assert!(suggested_capo("H", &EASY_SHAPES).is_empty());
+    }
+
+    #[test]
+    fn keys_by_their_usual_name_and_in_their_mode() {
+        assert_eq!(usual_key(10, false), "Bb");
+        assert_eq!(usual_key(6, false), "F#");
+        assert_eq!(usual_key(1, true), "C#m");
+        assert_eq!(usual_key(-2, true), "Bbm");
+        assert_eq!(in_mode("G", true), "Gm");
+        assert_eq!(in_mode("Am", false), "A");
+        assert_eq!(in_mode("F#m", true), "F#m");
+        assert_eq!(in_mode("nada", true), "nada");
+        assert!(uses_flats("Bb") && uses_flats("F") && uses_flats("Gm") && uses_flats("Ebm"));
+        assert!(!uses_flats("G") && !uses_flats("F#m") && !uses_flats("B"));
+        // sin tono: Sib y Mib (escritos La# y Re#) piden bemoles; Fa# y Do#, no
+        assert!(prefer_flats(["A#", "F", "G", "D#"]));
+        assert!(!prefer_flats(["D", "A", "F#", "B"]));
+        assert_eq!(chord_roots("Bb/D  Gm7 Csus4"), ["Bb", "G", "C"]);
     }
 
     #[test]

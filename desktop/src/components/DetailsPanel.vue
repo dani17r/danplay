@@ -191,7 +191,14 @@ const transposed = ref(null)
 const targetKey = ref('')
 /** el cifrado entero (acordes sobre la letra) en vez de solo los acordes */
 const fullSheet = ref(false)
-const KEYS = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+// Los doce tonos por su nombre de siempre (Bb y no A#, F# y no Gb), en el
+// modo del cifrado. La lista solo tenía sostenidos: no se podía elegir Bb,
+// Eb ni Ab, y un cifrado en menor se llevaba «a G» y quedaba en Sol menor
+// con el título «G».
+const MAJOR_KEYS = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B']
+const MINOR_KEYS = ['Cm', 'C#m', 'Dm', 'Ebm', 'Em', 'Fm', 'F#m', 'Gm', 'G#m', 'Am', 'Bbm', 'Bm']
+/** Si un tono es menor («Em», «F#m», «Amin»; «Edim» no). */
+const isMinorKey = (key) => /m(in)?$/.test(String(key || '').trim()) && !/dim$/.test(key)
 const SEMITONES = [-5, -4, -3, -2, -1, 1, 2, 3, 4, 5, 6]
 
 watch(
@@ -223,6 +230,8 @@ const aiInfo = computed(() => details.value || doc.value)
 /** El cifrado: un objeto, `null` si se busco y no esta, `undefined` si no se ha buscado. */
 const sheet = computed(() => doc.value?.sheet)
 const shown = computed(() => transposed.value || sheet.value)
+/** Los tonos a los que se puede llevar el cifrado: los de su modo. */
+const KEYS = computed(() => (isMinorKey(sheet.value?.key) ? MINOR_KEYS : MAJOR_KEYS))
 const withChords = computed(() => (shown.value?.sections || []).filter((x) => x.chords?.length))
 const searchedIn = computed(
   () => (doc.value?.sheet_tried || []).join(' ni ') || 'las páginas de acordes'

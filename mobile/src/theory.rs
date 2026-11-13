@@ -168,13 +168,45 @@ pub fn distance(from: &str, to: &str) -> Option<i32> {
     Some((h - d).rem_euclid(12))
 }
 
-/// Con cejilla, que formas abiertas tocan ese tono: [(traste, forma)].
+/// El tono sin su «m» (o «min») del final, y si es menor.
+fn split_key(key: &str) -> Option<(i32, bool)> {
+    let k = key.trim();
+    let minor = (k.ends_with('m') || k.ends_with("min")) && !k.ends_with("dim");
+    let root = k
+        .strip_suffix("min")
+        .or_else(|| k.strip_suffix('m'))
+        .unwrap_or(k);
+    index(root).map(|i| (i, minor))
+}
+
+/// Como se suele escribir cada tono (Bb y no A#, C#m y no Dbm): como en la PC.
+fn usual_key(i: i32, minor: bool) -> &'static str {
+    const MAJOR: [&str; 12] = [
+        "C", "Db", "D", "Eb", "E", "F", "F#", "G", "Ab", "A", "Bb", "B",
+    ];
+    const MINOR: [&str; 12] = [
+        "Cm", "C#m", "Dm", "Ebm", "Em", "Fm", "F#m", "Gm", "G#m", "Am", "Bbm", "Bm",
+    ];
+    let i = i.rem_euclid(12) as usize;
+    if minor { MINOR[i] } else { MAJOR[i] }
+}
+
+/// Si un tono se escribe con bemoles (en su nombre o en su armadura).
+fn uses_flats(key: &str) -> bool {
+    key.chars().skip(1).any(|c| c == 'b') || FLAT_KEYS.contains(&key)
+}
+
+/// Con cejilla, que formas abiertas tocan ese tono: [(traste, forma)]. Las
+/// de su modo: un tono mayor con formas mayores, uno menor con menores (como
+/// en la PC: mezcladas, «traste 1 con formas de Am» para Si bemol mayor
+/// suena Si bemol menor).
 fn suggested_capo(key: &str) -> Vec<Value> {
-    let Some(k) = index(key) else {
+    let Some((k, minor)) = split_key(key) else {
         return Vec::new();
     };
     let mut out: Vec<(i32, &str)> = ["G", "C", "D", "A", "E", "Em", "Am", "Dm"]
         .iter()
+        .filter(|shape| shape.ends_with('m') == minor)
         .filter_map(|shape| {
             let base = shape.strip_suffix('m').unwrap_or(shape);
             let fret = (k - index(base)?).rem_euclid(12);
@@ -190,21 +222,36 @@ fn suggested_capo(key: &str) -> Vec<Value> {
 /// es un Re). Como `enrich::transpose_sheet` de la PC.
 pub fn transpose_sheet(sheet: &Value, semitones: i32, to_key: &str) -> Value {
     let from_key = sheet.get("key").and_then(Value::as_str).unwrap_or("");
-    let (n, flats, to_key) = if !to_key.is_empty() && !from_key.is_empty() {
-        let flats = FLAT_KEYS.contains(&to_key);
-        (
-            distance(from_key, to_key).unwrap_or(0),
-            Some(flats),
-            to_key.to_string(),
-        )
+    let from = split_key(from_key);
+    let (n, flats, to_key) = if !to_key.is_empty() && from.is_some() {
+        // el modo es el del cifrado: uno en Mi menor llevado «a Sol» queda
+        // en Sol menor (como en la PC)
+        let minor = from.is_some_and(|(_, m)| m);
+        let n = distance(from_key, to_key).unwrap_or(0);
+        let key = split_key(to_key).map_or_else(
+            || to_key.to_string(),
+            |(i, _)| {
+                let root = to_key
+                    .trim()
+                    .strip_suffix("min")
+                    .or_else(|| to_key.trim().strip_suffix('m'))
+                    .unwrap_or(to_key.trim());
+                let _ = i;
+                format!("{root}{}", if minor { "m" } else { "" })
+            },
+        );
+        (n, Some(uses_flats(&key)), key)
     } else {
         let n = semitones.rem_euclid(12);
-        let key = if from_key.is_empty() {
-            String::new()
-        } else {
-            transpose(from_key, n, None)
-        };
-        (n, None, key)
+        match from {
+            // al tono de llegada, con su nombre de siempre y sus acordes como el
+            Some((i, minor)) if n != 0 => {
+                let key = usual_key(i + n, minor).to_string();
+                (n, Some(uses_flats(&key)), key)
+            }
+            Some(_) => (n, None, from_key.to_string()),
+            None => (n, None, String::new()),
+        }
     };
     let mut out = sheet.clone();
     let sections: Vec<Value> = sheet
@@ -307,5 +354,24 @@ mod tests {
         assert_eq!(up["sections"][0]["lines"][1]["t"], "Dios es bueno");
         let down = transpose_sheet(&json!({"sections": []}), -1, "");
         assert_eq!(down["semitones"], 11);
+    }
+
+    /// Los mismos casos que `the_mode_stays_and_keys_keep_their_usual_names`
+    /// de la PC (`library/src/enrich/tests.rs`).
+    #[test]
+    fn the_mode_stays_and_keys_keep_their_usual_names() {
+        let minor =
+            json!({"key": "Em", "sections": [{"chords": ["Em", "C", "G", "D"], "lines": []}]});
+        let d = transpose_sheet(&minor, 0, "G");
+        assert_eq!((&d["key"], &d["semitones"]), (&json!("Gm"), &json!(3)));
+        assert_eq!(d["sections"][0]["chords"], json!(["Gm", "Eb", "Bb", "F"]));
+        assert_eq!(d["capo_hint"], json!([[3, "Em"], [5, "Dm"]]));
+        let major =
+            json!({"key": "A", "sections": [{"chords": ["A", "E", "F#m", "D"], "lines": []}]});
+        let d = transpose_sheet(&major, 1, "");
+        assert_eq!(d["key"], "Bb");
+        assert_eq!(d["sections"][0]["chords"], json!(["Bb", "F", "Gm", "Eb"]));
+        // un tono mayor, con formas mayores
+        assert_eq!(d["capo_hint"], json!([[1, "A"], [3, "G"], [6, "E"]]));
     }
 }

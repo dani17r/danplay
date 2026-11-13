@@ -717,21 +717,39 @@ fn transposed(x: &Value, n: i64, flats: Option<bool>) -> Value {
 pub fn transpose_sheet(sheet: &Value, semitones: i64, to_key: &str) -> Value {
     let mut out = sheet.as_object().cloned().unwrap_or_default();
     let from_key = text_of(sheet.get("key"));
-    let (n, flats, key) = if !to_key.is_empty() && !from_key.is_empty() {
+    let from = theory::split_key(&from_key);
+    let (n, flats, key) = if !to_key.is_empty() && from.is_some() {
         let n = theory::distance(&from_key, to_key).unwrap_or(0);
-        (
-            n,
-            Some(theory::FLAT_KEYS.contains(&to_key)),
-            to_key.to_owned(),
-        )
+        // El modo es el del cifrado: llevar uno en Mi menor «a Sol» es
+        // subirlo tres semitonos, y queda en Sol MENOR. Se titulaba «G».
+        let key = theory::in_mode(to_key, from.is_some_and(|(_, minor)| minor));
+        (n, Some(theory::uses_flats(&key)), key)
     } else {
         let n = semitones.rem_euclid(12);
-        let key = if from_key.is_empty() || n == 0 {
-            from_key
-        } else {
-            theory::transpose(&from_key, n, None)
-        };
-        (n, None, key)
+        match from {
+            // por semitonos, al tono de llegada con su nombre de siempre (de
+            // La, uno arriba es Si bemol, no «A#») y sus acordes como él
+            Some((i, minor)) if n != 0 => {
+                let key = theory::usual_key(i as i64 + n, minor).to_owned();
+                (n, Some(theory::uses_flats(&key)), key)
+            }
+            Some(_) => (n, None, from_key),
+            // sin tono: como se suelen escribir esos acordes
+            None => {
+                let roots: Vec<String> = sheet
+                    .get("sections")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .flat_map(|s| texts_or_values(s.get("chords")))
+                    .filter_map(|c| c.as_str().map(|c| theory::transpose(c, n, Some(false))))
+                    .flat_map(|c| theory::chord_roots(&c))
+                    .collect();
+                let flats =
+                    (n != 0).then(|| theory::prefer_flats(roots.iter().map(String::as_str)));
+                (n, flats, from_key)
+            }
+        }
     };
     let sections: Vec<Value> = sheet
         .get("sections")
@@ -764,7 +782,7 @@ pub fn transpose_sheet(sheet: &Value, semitones: i64, to_key: &str) -> Value {
             Value::Object(section)
         })
         .collect();
-    let capo: Vec<Value> = if theory::index(&key).is_some() {
+    let capo: Vec<Value> = if theory::split_key(&key).is_some() {
         theory::suggested_capo(&key, &theory::EASY_SHAPES)
             .into_iter()
             .map(|(fret, shape)| json!([fret, shape]))

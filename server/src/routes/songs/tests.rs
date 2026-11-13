@@ -272,10 +272,9 @@ fn transposing_text_and_the_stored_sheet() {
         Some(json!({"text": "Bb", "to_key": "Eb"})),
     );
     assert_eq!(v["text"], "Bb");
-    assert_eq!(
-        v["capo"],
-        json!([[1, "D"], [1, "Dm"], [3, "C"], [6, "A"], [6, "Am"]])
-    );
+    // Mi bemol mayor, con formas mayores (antes iban también las menores,
+    // que con esa cejilla suenan Mi bemol menor)
+    assert_eq!(v["capo"], json!([[1, "D"], [3, "C"], [6, "A"]]));
     let (st, v) = call(
         &app,
         "POST",

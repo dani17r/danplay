@@ -87,6 +87,15 @@ hecho así, en [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
   clic apagado, empezaba siempre en «1» en vez de caer en el pulso de la
   canción; y ajustar pulsos a mano con ×2 o «el 1 es el siguiente» puestos
   los aplicaba dos veces (el clic al cuádruple, con la onda bien pintada).
+- **Cambiar el tono de un cifrado, bien**: la lista de tonos solo tenía
+  sostenidos (no se podía elegir Si bemol, Mi bemol ni La bemol) y era la
+  misma para un cifrado en menor, que llevado «a Sol» quedaba en Sol menor
+  con el título «G». Ahora van los doce tonos con su nombre de siempre y en
+  el modo del cifrado; subiendo o bajando por semitonos, el tono de llegada
+  y sus acordes se escriben como se escriben (de La, uno arriba es «Bb F Gm
+  Eb», no «A# F G#m D#»); y la cejilla sugerida usa formas del modo del
+  tono (para Si bemol mayor se proponían también formas menores) y sale
+  también en tonos menores. En la PC y en el celular.
 - **La salida de audio elegida vale desde que se abre DanPlay**: la salida
   y el reparto (el clic a un lado, la música al otro) solo se ponían al
   abrir el modo estudio; hasta entonces todo sonaba por la del sistema, y

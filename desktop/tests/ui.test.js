@@ -520,6 +520,35 @@ describe('the details panel and late responses', () => {
     expect(w.find('.chords').text()).toBe('D   A')
   })
 
+  it('the keys are offered by their usual names, in the mode of the chart', async () => {
+    // la lista solo tenía sostenidos (no se podía elegir Bb, Eb ni Ab), y la
+    // misma para un cifrado en menor: «a G» lo dejaba en Sol menor
+    const open = async (key) => {
+      const chords = JSON.stringify({ sheet: chordChart(key, ['G', 'C']) })
+      const w = mount(DetailsPanel, { props: { song: { ...song, chords }, aiReady: true } })
+      const field = w.findAll('.field').find((f) => f.text().includes('—'))
+      await field.find('.select-box').trigger('click')
+      return w
+    }
+    let w = await open('G')
+    let offered = w.findAll('.select-opt').map((o) => o.text())
+    expect(offered).toEqual(expect.arrayContaining(['Bb', 'Eb', 'Ab', 'F#', 'Db']))
+    expect(offered).not.toContain('A#')
+    expect(offered.some((k) => k.endsWith('m'))).toBe(false)
+    api.chordsTransposed.mockResolvedValueOnce({ sheet: chordChart('Bb', ['Bb', 'Eb']) })
+    await w
+      .findAll('.select-opt')
+      .find((o) => o.text() === 'Bb')
+      .trigger('click')
+    await flushPromises()
+    expect(api.chordsTransposed).toHaveBeenLastCalledWith(7, { to_key: 'Bb' })
+    w.unmount()
+    w = await open('Em')
+    offered = w.findAll('.select-opt').map((o) => o.text())
+    expect(offered).toEqual(expect.arrayContaining(['Gm', 'Bbm', 'C#m', 'F#m']))
+    expect(offered).not.toContain('G')
+  })
+
   it('the full chart puts the chords over the lyrics', async () => {
     const chords = JSON.stringify({ sheet: chordChart('G', ['G', 'C']) })
     const w = mount(DetailsPanel, { props: { song: { ...song, chords }, aiReady: true } })

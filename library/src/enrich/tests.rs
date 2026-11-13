@@ -367,6 +367,30 @@ fn transposes_only_the_chord_lines() {
     assert_eq!(transpose_sheet(&json!("x"), 2, "")["sections"], json!([]));
 }
 
+/// El modo del cifrado no se pierde, y al tono de llegada se le llama por
+/// su nombre de siempre, con sus acordes escritos como él.
+#[test]
+fn the_mode_stays_and_keys_keep_their_usual_names() {
+    let minor = json!({"key": "Em", "sections": [{"name": "Coro", "chords": ["Em", "C", "G", "D"], "lines": []}]});
+    // «a G»: tres semitonos arriba, en menor (se titulaba «G»)
+    let d = transpose_sheet(&minor, 0, "G");
+    assert_eq!((&d["key"], &d["semitones"]), (&json!("Gm"), &json!(3)));
+    assert_eq!(d["sections"][0]["chords"], json!(["Gm", "Eb", "Bb", "F"]));
+    // y en su cejilla, formas menores
+    assert_eq!(d["capo_hint"], json!([[3, "Em"], [5, "Dm"]]));
+    // de La, un semitono arriba: Si bemol, no «A#» con «D#»
+    let major = json!({"key": "A", "sections": [{"chords": ["A", "E", "F#m", "D"], "lines": []}]});
+    let d = transpose_sheet(&major, 1, "");
+    assert_eq!(d["key"], "Bb");
+    assert_eq!(d["sections"][0]["chords"], json!(["Bb", "F", "Gm", "Eb"]));
+    // sin tono, igual: los acordes como se suelen escribir
+    let unknown = json!({"sections": [{"chords": ["A", "E", "F#m", "D"], "lines": []}]});
+    let d = transpose_sheet(&unknown, 1, "");
+    assert_eq!(d["sections"][0]["chords"], json!(["Bb", "F", "Gm", "Eb"]));
+    let d = transpose_sheet(&unknown, 2, "");
+    assert_eq!(d["sections"][0]["chords"], json!(["B", "F#", "G#m", "E"]));
+}
+
 /// Sin tono en el cifrado se mueve por semitonos, y el tono sigue vacío.
 #[test]
 fn without_a_key_it_transposes_by_semitones() {
