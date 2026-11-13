@@ -16,6 +16,26 @@
 /** @type {Release[]} */
 export const RELEASES = [
   {
+    version: '1.41.0',
+    date: '',
+    summary:
+      'El clic sigue los cambios de tempo, la guía sale de la letra y suena recién instalada.',
+    items: [
+      'El clic sigue a las canciones que cambian de tempo: un final más lento, un popurrí, una subida.',
+      'Arreglado: el clic a contratiempo en toda la canción cuando la intro iba corrida.',
+      'La guía automática sale de la letra: coro, estrofas, pre coro y puente por lo que se canta.',
+      'Un .danpista se abre también en la PC, con doble clic o con «Abrir DanPista».',
+      'Recién instalada en Linux, suena: el paquete trae lo que le hace falta y avisa si falta algo.',
+      '«Re-analizar» el clic ya hace lo que dice, y hay un solo «Exportar…».',
+      'Una secuencia con muchas pistas cabe en el estudio, y sus mandos se ven enteros.',
+      'La ventana grande se aprovecha: Ajustes, Descargas, la ficha y el buscador.',
+      'Cambiar el tono de un cifrado conserva el modo y escribe bien los bemoles.',
+      'Las pistas separadas se pueden guardar en Ogg Vorbis: pequeñas y sin espera.',
+      'Un archivo dañado ya no deja mudo al reproductor: se dice y la lista sigue.',
+      'En el celular, el clic y la guía de una secuencia ya no suenan con la música.'
+    ]
+  },
+  {
     version: '1.40.1',
     date: '2026-10-24',
     summary: 'Por dentro, más ordenada; y unos arreglos que se notan.',

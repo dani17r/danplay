@@ -3,7 +3,7 @@
 Lo que cambia en cada versión que se entrega. El detalle de por qué está
 hecho así, en [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-## Sin publicar
+## 1.41.0 — sin publicar
 
 - **El clic sigue a las canciones que cambian de tempo**: un final en vivo
   más lento, el paso de una canción a otra en un popurrí, una subida. La
