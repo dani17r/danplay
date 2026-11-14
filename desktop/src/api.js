@@ -114,7 +114,8 @@
  * @property {string} error       en castellano, vacío si no hay
  * @property {boolean} has_output false = este equipo no tiene salida de audio
  * @property {any} origin         lo que la interfaz pasó en set_queue
- * @property {boolean} pitch_preserved  la velocidad conserva el tono (ffmpeg)
+ * @property {boolean} [pitch_preserved]  siempre verdadero (la velocidad conserva el tono): la
+ *                                interfaz ya no lo lee; Rust lo sigue mandando
  * @property {number} pitch       el tono corrido, en semitonos (0 = como está grabada; con
  *                                fracciones: 0,5 es un cuarto de tono)
  * @property {MetronomeState} metronome

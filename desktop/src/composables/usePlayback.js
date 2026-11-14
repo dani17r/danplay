@@ -59,10 +59,10 @@ const EMPTY = {
   error: '',
   has_output: true,
   origin: null,
-  // modo estudio: la velocidad conserva el tono, y el bucle A-B (0,0 = sin
-  // bucle); con varios tramos, `loops` los lleva todos y `loop_end` dice qué
-  // pasa al acabar el último: repetir, parar o seguir
-  pitch_preserved: true,
+  // modo estudio: el bucle A-B (0,0 = sin bucle); con varios tramos, `loops`
+  // los lleva todos y `loop_end` dice qué pasa al acabar el último: repetir,
+  // parar o seguir. (La velocidad siempre conserva el tono: Rust aún manda
+  // `pitch_preserved`, siempre verdadero, y aquí ya no se lee.)
   loop_a: 0,
   loop_b: 0,
   loops: [],
@@ -995,7 +995,6 @@ export function usePlayback() {
     output: computed(() => state.output || null),
     /** se está preparando la canción (un formato que se pasa a FLAC) */
     preparing: computed(() => !!state.preparing),
-    pitchPreserved: computed(() => state.pitch_preserved !== false),
     setRepeat,
     cycleRepeat,
     setShuffle,

@@ -80,8 +80,7 @@ const props = defineProps({
 // cerraban antes (el celular)
 const emit = defineEmits(['hide', 'exit', 'close'])
 const player = usePlayback()
-const { track, position, duration, speed, pitch, metronome, pitchPreserved, playing, volume } =
-  player
+const { track, position, duration, speed, pitch, metronome, playing, volume } = player
 
 const SPEEDS = [0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.1, 1.25]
 // `loops`: los tramos que se repiten, [[a, b], …] (uno solo es el bucle A-B);
@@ -2961,9 +2960,7 @@ defineExpose({ close: hide, hide, exit })
           <div class="study-block-head">
             <span class="study-block-name"><Icon n="forward10" :t="12" /> Velocidad</span>
             <span class="mono study-value"
-              >{{ speedPercent }} %
-              <em v-if="speed !== 1 && !pitchPreserved" class="model-warn">cambia el tono</em>
-              <em v-else-if="speed !== 1">mismo tono</em></span
+              >{{ speedPercent }} % <em v-if="speed !== 1">mismo tono</em></span
             >
           </div>
           <div class="btn-row study-speeds">
@@ -3058,7 +3055,6 @@ defineExpose({ close: hide, hide, exit })
             >
               original
             </button>
-            <em v-if="!pitchPreserved && speed === 1" class="model-warn">no se puede aquí</em>
           </div>
         </div>
       </section>

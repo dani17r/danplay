@@ -254,10 +254,6 @@
 .study-clear {
   color: var(--muted);
 }
-.study .model-warn {
-  font-style: normal;
-  font-size: 10px;
-}
 
 /* el metronomo */
 .study-metro.on {

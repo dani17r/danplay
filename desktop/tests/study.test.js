@@ -484,16 +484,20 @@ describe('the study bar', () => {
     w.unmount()
   })
 
-  it('speed is applied and saved; without ffmpeg it warns that the pitch changes', async () => {
+  it('speed is applied and saved, and the pitch stays (even for a Rust that still sends pitch_preserved)', async () => {
     vi.useFakeTimers()
     const w = await mountView()
     await button(w, '0.7×').trigger('click')
     await flushPromises()
     expect(held.playback.bridge.setSpeed).toHaveBeenCalledWith(0.7)
     expect(w.text()).toContain('mismo tono')
+    // el campo que Rust aún manda, siempre verdadero, ya no se lee: ni uno
+    // falso (de un Rust viejo) cambia lo que dice la interfaz
     held.playback.emit({ pitch_preserved: false })
     await flushPromises()
-    expect(w.text()).toContain('cambia el tono')
+    expect(w.text()).toContain('mismo tono')
+    expect(w.text()).not.toContain('cambia el tono')
+    expect(w.text()).not.toContain('no se puede aquí')
     await vi.advanceTimersByTimeAsync(700)
     expect(held.api.setStudy).toHaveBeenLastCalledWith(7, { speed: 0.7 })
     vi.useRealTimers()
