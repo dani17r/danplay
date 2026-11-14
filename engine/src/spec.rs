@@ -203,7 +203,11 @@ mod tests {
         // buena
         let dir = crate::testing::scratch("guias");
         let good = dir.join("coro.wav");
-        std::fs::write(&good, &crate::testing::wav(2, 44_100, &[0.1; 8_820])[..]).expect("wav");
+        std::fs::write(
+            &good,
+            &crate::testing::wav(2, 44_100, &vec![0.1; 8_820])[..],
+        )
+        .expect("wav");
         let text = dir.join("notas.txt");
         std::fs::write(&text, "esto no es un audio").expect("texto");
         let empty = dir.join("vacia.wav");

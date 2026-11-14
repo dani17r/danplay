@@ -158,9 +158,9 @@ mod tests {
     use super::*;
     use std::io::Cursor;
 
-    fn boxed(kind: &[u8; 4], body: &[u8]) -> Vec<u8> {
+    fn boxed(kind: [u8; 4], body: &[u8]) -> Vec<u8> {
         let mut out = ((body.len() + 8) as u32).to_be_bytes().to_vec();
-        out.extend_from_slice(kind);
+        out.extend_from_slice(&kind);
         out.extend_from_slice(body);
         out
     }
@@ -187,17 +187,17 @@ mod tests {
             }
             elst.extend_from_slice(&[0, 1, 0, 0]);
         }
-        let mut body = boxed(b"tkhd", &tkhd);
-        body.extend(boxed(b"edts", &boxed(b"elst", &elst)));
-        body.extend(boxed(b"mdia", &boxed(b"mdhd", &mdhd)));
-        boxed(b"trak", &body)
+        let mut body = boxed(*b"tkhd", &tkhd);
+        body.extend(boxed(*b"edts", &boxed(*b"elst", &elst)));
+        body.extend(boxed(*b"mdia", &boxed(*b"mdhd", &mdhd)));
+        boxed(*b"trak", &body)
     }
 
     fn file(traks: &[Vec<u8>]) -> Cursor<Vec<u8>> {
-        let mut out = boxed(b"ftyp", b"M4A \0\0\0\0M4A mp42isom");
-        out.extend(boxed(b"free", &[0; 40]));
-        out.extend(boxed(b"moov", &traks.concat()));
-        out.extend(boxed(b"mdat", &[1; 100]));
+        let mut out = boxed(*b"ftyp", b"M4A \0\0\0\0M4A mp42isom");
+        out.extend(boxed(*b"free", &[0; 40]));
+        out.extend(boxed(*b"moov", &traks.concat()));
+        out.extend(boxed(*b"mdat", &[1; 100]));
         Cursor::new(out)
     }
 
@@ -234,7 +234,7 @@ mod tests {
             assert_eq!(priming(&mut part, 1, 44_100), None, "cortado en {cut}");
         }
         // un tamaño disparatado no pide memoria
-        let mut huge = boxed(b"ftyp", b"M4A ");
+        let mut huge = boxed(*b"ftyp", b"M4A ");
         huge.extend_from_slice(&[0xff, 0xff, 0xff, 0xf0]);
         huge.extend_from_slice(b"moov");
         assert_eq!(priming(&mut Cursor::new(huge), 1, 44_100), None);
