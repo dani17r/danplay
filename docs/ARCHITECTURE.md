@@ -1269,7 +1269,13 @@ cerrarse, y Enter con el foco en «Cancelar» cancela (antes aceptaba: con
 
 Y la lista llega **entera y ligera**. `/api/search` dice cuántas canciones
 cumplen la consulta (`count`) y la interfaz trae una primera página rápida y
-el resto por detrás: antes se cortaba en 1000 sin avisar. Las filas no llevan
+el resto por detrás: antes se cortaba en 1000 sin avisar. Eso, al pedir
+una lista nueva (otra búsqueda, otro orden, otra vista). Un **refresco** de la
+que ya se ve —cada vez que algo cambia en el núcleo— deja puesta la que hay
+hasta que llega la nueva entera y la cambia de una vez (`useLibrary`,
+`loadSearch`): si no, cada refresco la dejaba en sus 400 primeras, y a media
+lista el panel encogía por debajo de donde se estaba y el desplazamiento
+saltaba. Las filas no llevan
 la letra, los acordes ni el modo estudio (con mil canciones eran megas que no
 pintaba nadie), sino `has_lyrics`, `has_chords`… para los iconos; la ficha
 entera sale de `/api/song/{id}` al abrirla.
