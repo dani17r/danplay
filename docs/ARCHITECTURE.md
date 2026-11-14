@@ -2064,6 +2064,20 @@ frase cabe en él, o en el último pulso en que todavía cabe, siguiendo el
 tempo de su tramo; donde la rejilla no llega (un hueco sin clic) o pisaría a
 la anterior, por segundos como antes.
 
+**Lo que usa el núcleo.** `services::structure::auto_guide` casa el cifrado
+guardado de la canción con su letra (`sheet_parts` lo parte en versos y en los
+acordes de encima de cada uno) y, si `reliable()`, devuelve las partes con
+`source: "sheet"`; si no casa, `lyrics` y `sound` como antes. Y pone la voz
+con `plan_cues_in_time` cuando hay clic (los pulsos y los «1» de la rejilla
+que esperó); con partes dadas o de una secuencia, que no pasan por el clic,
+va por segundos. El compás de 2 y de 6 llega entero: el servidor guarda
+`phase2` y `phase6` (la caché del clic pasa a la versión 5, y se rehace sola
+de lo que oyó la red), `BeatGrid` del motor y `withMeter` de la interfaz los
+usan al elegir a mano un 2/4 o un 6/8 (una rejilla de antes, sin ellos, sigue
+como siempre: el 2 de la fase del 4 y el 6 de la del 3). Los avisos de
+arreglo (`analysis::arrangement`) y el tono por señal (`analysis::key`) están
+hechos y probados pero el núcleo todavía no los ofrece.
+
 **Avisos de arreglo** (`analysis::arrangement`, solo candidatos). Lo que este
 músico escribe a mano en su guía se ve en lo fuerte que suena cada pista en
 cada compás: «Entra batería» (o bajo, guitarra…: tras 4 compases callada la
