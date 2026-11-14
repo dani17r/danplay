@@ -293,6 +293,11 @@ describe('what each method requests from the core', () => {
       'GET',
       '/api/song/7/waveform?start=10.000&end=20.000&buckets=400'
     ],
+    stemWaveformRange: [
+      [7, 'drums', 10, 20, 400],
+      'GET',
+      '/api/song/7/waveform?stem=drums&start=10.000&end=20.000&buckets=400'
+    ],
     reanalyzeBeats: [
       [7, { mode: 'repair' }],
       'POST',

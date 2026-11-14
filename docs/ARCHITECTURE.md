@@ -1046,6 +1046,24 @@ canciones sueltas y, si el índice se pierde, las vuelve a unir con su
 canción (`stems.relink`). En el índice solo va dónde están (`songs.stems`,
 de la migración 4). Se van a la papelera con la canción.
 
+**La onda de cada carril, de cerca.** La onda de cada pista se calcula una
+vez, al separar, a unos cientos de columnas para toda la canción
+(`.danplay-waveforms.json`); acercada la vista, un carril se veía a bloques,
+justo al ajustar guías. `StudyTimeline` pide ahora, con la vista acercada, el
+trozo de cada carril que **suena** (`api.stemWaveformRange`: los que no, van
+apagados y valen con la gruesa), solo de lo que se ve y media vista más a cada
+lado, tras 120 ms sin moverla, de tres en tres, con un tope de doce carriles
+por tanda (una secuencia trae veintitantos) y en trozos de sitio y tamaño
+fijos que se recuerdan (de una vista ya vista no se pide nada, y un fallo
+queda apuntado). Lo que llega se iguala al alto de la gruesa en ese trozo,
+como la onda de la canción. La petición es `GET
+/api/song/{id}/waveform?stem=<source>&start=&end=&buckets=`; **la respuesta
+tiene que repetir `stem`**: un núcleo que ignorara el parámetro daría la
+mezcla entera, y la interfaz no la pinta (se queda con la gruesa y no insiste).
+El núcleo todavía no la implementa (`song_waveform` solo lee el archivo de la
+canción): hace falta que resuelva `stem` con `stems::info` y pase la ruta de esa
+pista a `media::waveform_range`.
+
 **Sonar juntas sin desfasarse.** Cada pista es una parte más de la canción
 para el motor, y un mismo hilo las decodifica a la par, bloque a bloque
 (`engine/src/feeder.rs`): empiezan en la misma muestra, y la velocidad, el

@@ -804,6 +804,16 @@ function answers(state) {
       const peaks = Array.from({ length: n }, (_, i) => (i < n / 2 ? 0.1 : 1))
       return { peaks, rms: peaks.map((p) => p * 0.6), buckets: n }
     },
+    /**
+     * el trozo de una pista, como lo daría el núcleo: repite de cuál es y
+     * viene «a la escala del tope digital» (por eso la interfaz lo iguala a
+     * la onda gruesa); aquí, un diente de sierra reconocible
+     */
+    stemWaveformRange: async (_id, stem, start, end, buckets) => {
+      const n = Math.max(1, Math.min(buckets, 4000))
+      const peaks = Array.from({ length: n }, (_, i) => 0.2 + 0.8 * ((i % 8) / 7))
+      return { peaks, rms: peaks.map((p) => p * 0.5), buckets: n, start, end, stem }
+    },
     // las guías: su onda (lo que dure de verdad), traer un audio y escucharla
     cueWave: async (file) => ({
       seconds: file.includes('larga') ? 8 : 2,

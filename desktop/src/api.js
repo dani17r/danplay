@@ -1190,6 +1190,20 @@ export const api = {
       `/song/${id}/waveform?start=${start.toFixed(3)}&end=${end.toFixed(3)}&buckets=${Math.round(buckets)}`
     ),
   /**
+   * La onda de un trozo de UNA PISTA separada (el carril de un instrumento),
+   * con detalle: como `waveformRange`, pero del archivo de esa pista (`stem`
+   * es su `source`: 'drums', 'vocals'…). La respuesta repite `stem`: sin eso
+   * es de otra cosa (un núcleo que no conociera el parámetro daría la
+   * mezcla entera) y la interfaz no la usa.
+   * @param {number} id @param {string} stem @param {number} start
+   * @param {number} end @param {number} buckets
+   * @returns {Promise<{peaks: number[], rms: number[], stem?: string}>}
+   */
+  stemWaveformRange: (id, stem, start, end, buckets) =>
+    GET(
+      `/song/${id}/waveform?stem=${encodeURIComponent(stem)}&start=${start.toFixed(3)}&end=${end.toFixed(3)}&buckets=${Math.round(buckets)}`
+    ),
+  /**
    * El pulso y el «1» de la canción con Beat This! (la primera vez, unos
    * segundos). 503 si aquí no se puede: la app sigue con su análisis.
    * @param {number} id

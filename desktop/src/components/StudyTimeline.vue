@@ -292,6 +292,27 @@ const canvas = useTemplateRef('canvas')
 const wave = shallowRef(null)
 /** La onda con detalle del trozo que se ve: {from, to, peaks, rms} o null. */
 const detail = shallowRef(null)
+
+// el detalle de cada carril acercado (F12; el resto, más abajo)
+/** Cuántos carriles se piden a la vez. */
+const LANE_BATCH = 3
+/** Con más carriles (una secuencia trae veintitantos) se piden solo los primeros que suenan. */
+const LANE_DETAIL_MAX = 12
+/** Cuántos trozos se recuerdan (de una vista ya vista, no se vuelve a pedir). */
+const LANE_CACHE_MAX = 64
+/** El detalle de cada carril acercado: {clave → {from, to, peaks, rms}}. */
+const laneDetail = shallowRef(/** @type {Record<string, any>} */ ({}))
+/** Lo ya pedido: trozo → detalle, o null si falló (que no se repita en bucle). */
+const laneCache = new Map()
+let laneTimer = null
+/** Cuenta cada tanda: si llega otra, la anterior deja de pedir. */
+let laneRun = 0
+/**
+ * El núcleo no sabe dar el trozo de una pista (no repitió de cuál era): se
+ * deja la onda de siempre y no se vuelve a preguntar mientras dure la ventana.
+ */
+let laneUnsupported = false
+
 const loading = ref(false)
 /** Por qué no hay onda ('' si la hay): lo que dice el núcleo, no una suposición. */
 const failed = ref('')
@@ -299,6 +320,7 @@ const failed = ref('')
 async function load(id) {
   wave.value = null
   detail.value = null
+  forgetLaneDetail()
   failed.value = ''
   if (!id) {
     draw()
@@ -371,11 +393,135 @@ function wantDetail() {
     }
   }, 120)
 }
+// ---- el detalle de las pistas (F12)
+// Con las pistas sonando, cada carril llevaba la onda gruesa de cuando se
+// separó (unos cientos de columnas para toda la canción): al acercar, a
+// bloques, justo al ajustar guías. Ahora, acercada, se pide a la vez el trozo
+// de cada carril que suena, como se hacía con la onda de la canción.
+function forgetLaneDetail() {
+  laneRun++
+  clearTimeout(laneTimer)
+  laneCache.clear()
+  if (Object.keys(laneDetail.value).length) laneDetail.value = {}
+}
+
+/**
+ * Un trozo de un carril, a la escala de su onda gruesa (para que acercar no
+ * cambie el alto de lo que se ve), o null si no hay.
+ */
+async function requestLaneDetail(id, lane, from, to, buckets) {
+  try {
+    const r = await api.stemWaveformRange(id, lane.key, from, to, buckets)
+    // sin decir de cuál es, podría ser la mezcla entera: no se pinta
+    if (r?.stem !== lane.key) {
+      laneUnsupported = true
+      return null
+    }
+    if (!r.peaks?.length) return null
+    const full = lane.wave.peaks
+    const n = full.length
+    const a = Math.floor((from / props.duration) * n)
+    const b = Math.max(a + 1, Math.ceil((to / props.duration) * n))
+    let fullTop = 1e-6
+    for (let i = a; i < Math.min(b, n); i++) fullTop = Math.max(fullTop, full[i] || 0)
+    let partTop = 1e-6
+    for (const v of r.peaks) partTop = Math.max(partTop, v)
+    const k = fullTop / partTop
+    return {
+      from,
+      to,
+      peaks: r.peaks.map((v) => v * k),
+      rms: (r.rms || []).map((v) => v * k)
+    }
+  } catch {
+    return null
+  }
+}
+
+async function fetchLaneDetail(id, lane, from, to, buckets, run) {
+  const key = `${id}|${lane.key}|${from}|${to}|${buckets}`
+  let d = laneCache.get(key)
+  if (d === undefined) {
+    d = await requestLaneDetail(id, lane, from, to, buckets)
+    laneCache.set(key, d)
+    if (laneCache.size > LANE_CACHE_MAX) laneCache.delete(laneCache.keys().next().value)
+  } else {
+    // el más reciente, el último en salir
+    laneCache.delete(key)
+    laneCache.set(key, d)
+  }
+  if (run !== laneRun || id !== props.songId) return
+  if (d) laneDetail.value = { ...laneDetail.value, [lane.key]: d }
+}
+
+/**
+ * Acercada la vista, el detalle de los carriles que suenan y que a esta
+ * escala se ven a bloques. Solo lo que se ve (la vista y la mitad de otra a
+ * cada lado, para desplazarse sin esperar), con un poco de espera por si la
+ * vista sigue moviéndose, de tres en tres, y en trozos de tamaño y sitio
+ * fijos: acercar, alejar y volver a una vista ya vista no pide nada.
+ */
+function wantLaneDetail() {
+  clearTimeout(laneTimer)
+  const id = props.songId
+  if (!id || !props.duration || !laneMode.value) {
+    if (Object.keys(laneDetail.value).length) laneDetail.value = {}
+    return
+  }
+  if (laneUnsupported || typeof api.stemWaveformRange !== 'function') return
+  const W = width.value || 800
+  const need = []
+  let next = laneDetail.value
+  for (const lane of props.lanes) {
+    const w = lane.wave
+    if (!w?.peaks?.length) continue
+    const columns = (span.value / props.duration) * w.peaks.length
+    const d = next[lane.key]
+    if (columns >= W / 2) {
+      // de lejos la gruesa basta: el detalle sobra
+      if (d) {
+        next = { ...next }
+        delete next[lane.key]
+      }
+      continue
+    }
+    if (d && d.from <= view.from && d.to >= view.to && (d.to - d.from) / span.value < 2.2) continue
+    // los que no suenan van apagados: con la gruesa vale
+    if (lane.on && need.length < LANE_DETAIL_MAX) need.push(lane)
+  }
+  if (next !== laneDetail.value) {
+    laneDetail.value = next
+    draw()
+  }
+  if (!need.length) return
+  const run = ++laneRun
+  laneTimer = setTimeout(async () => {
+    const len = span.value
+    // el trozo, en múltiplos de media vista: el mismo para cualquier vista
+    // de por ahí, que es lo que hace que se pueda recordar
+    const q = Math.max(0.5, Math.round(len) / 2)
+    const pad = len * 0.5
+    const from = Math.max(0, Math.floor((view.from - pad) / q) * q)
+    const to = Math.min(props.duration, Math.ceil((view.to + pad) / q) * q)
+    const buckets = clamp(Math.round(((to - from) / len) * W), 64, 4000)
+    for (let i = 0; i < need.length; i += LANE_BATCH) {
+      await Promise.all(
+        need
+          .slice(i, i + LANE_BATCH)
+          .map((lane) => fetchLaneDetail(id, lane, from, to, buckets, run))
+      )
+      if (run !== laneRun || id !== props.songId || laneUnsupported) break
+      draw()
+    }
+  }, 120)
+}
+
 watch(
   () => [view.from, view.to],
   () => {
     draw()
     wantDetail()
+    wantLaneDetail()
   }
 )
 
@@ -488,7 +634,12 @@ function drawLanes(ctx, W, text, accent) {
       ctx.fillRect(0, mid - 0.5, W, 1)
       return
     }
-    const data = columnsOf(w, 0, props.duration, cols)
+    // acercada, el detalle del carril si cubre lo que se ve
+    const d = laneDetail.value[lane.key]
+    const useDetail = d && d.from <= view.from + 1e-6 && d.to >= view.to - 1e-6
+    const data = useDetail
+      ? columnsOf(d, d.from, d.to, cols)
+      : columnsOf(w, 0, props.duration, cols)
     paintWave(ctx, data, { W, top, h: lh, rmsTop, text, accent, dim, style, pad: 3, min: 0.5 })
   })
   ctx.globalAlpha = 1
@@ -498,6 +649,20 @@ const laneLook = computed(() =>
   props.lanes.map((l) => `${l.key}:${l.on ? 1 : 0}:${l.wave?.peaks?.length || 0}`).join('|')
 )
 watch(laneLook, () => nextTick(draw))
+// otras ondas gruesas (una separación nueva con los mismos nombres): lo
+// recordado era de las de antes
+const laneWaves = computed(() =>
+  props.lanes.map((l) => `${l.key}:${l.wave?.peaks?.length || 0}`).join('|')
+)
+watch(laneWaves, () => {
+  forgetLaneDetail()
+  wantLaneDetail()
+})
+// una pista que se calla o se vuelve a oír: su detalle, si hace falta
+watch(
+  () => props.lanes.map((l) => (l.on ? 1 : 0)).join(''),
+  () => wantLaneDetail()
+)
 
 /** El volumen de un carril, para leerlo: «80 %». */
 const pctText = (v) => Math.round((Number(v) || 0) * 100) + ' %'
@@ -552,6 +717,8 @@ onMounted(() => {
 onUnmounted(() => {
   observer?.disconnect()
   clearTimeout(detailTimer)
+  laneRun++
+  clearTimeout(laneTimer)
   stopDrag()
   stopBeatDrag()
 })
