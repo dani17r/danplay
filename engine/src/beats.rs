@@ -740,8 +740,8 @@ fn downbeat_strength(f: &Frames, beats: &[usize]) -> Vec<f64> {
             .fold(0.0, f64::max);
         bass[i] = (lo..head).map(|k| f64::from(f.bass[k])).fold(0.0, f64::max);
         let mut c = [0f64; 12];
-        for k in a..b {
-            for (j, v) in f.chroma[k].iter().enumerate() {
+        for frame in f.chroma.iter().take(b).skip(a) {
+            for (j, v) in frame.iter().enumerate() {
                 c[j] += f64::from(*v);
             }
         }

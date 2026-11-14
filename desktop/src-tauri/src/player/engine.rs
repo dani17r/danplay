@@ -1196,8 +1196,8 @@ impl Engine<'_> {
             }
         }
         // después del estado (que ya lleva el motivo): no se pudo abrir
-        if could_not_open && !(self.notify)(Event::Failed) {
-            return false;
+        if could_not_open {
+            return (self.notify)(Event::Failed);
         }
         true
     }
