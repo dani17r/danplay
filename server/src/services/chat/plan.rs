@@ -576,11 +576,11 @@ fn lookup(app: &App, query: &str, key: &str, cancel: &AtomicBool, blocked: &Atom
     };
     #[cfg(not(test))]
     let res = youtube::info(app, query, 1, Some(LOOKUP_TIMEOUT));
-    SLOTS.release();
     let res = match res {
         Ok(r) => r,
         // una consulta rara no tumba el lote (ni se recuerda)
         Err(e) => {
+            SLOTS.release();
             let mut d = Dict::new();
             d.insert("ok".into(), false.into());
             let why = if e.is_empty() {
@@ -603,6 +603,11 @@ fn lookup(app: &App, query: &str, key: &str, cancel: &AtomicBool, blocked: &Atom
     } else {
         blocked.store(true, Ordering::SeqCst);
     }
+    // la ranura se suelta DESPUÉS de levantar la señal: si fuera antes, un
+    // hilo que espera podía cogerla y preguntar a YouTube justo entre las dos
+    // cosas, y en una máquina cargada esa ventana se alarga lo bastante para
+    // que pasen varias consultas más tras el 429
+    SLOTS.release();
     res
 }
 
