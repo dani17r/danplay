@@ -254,6 +254,137 @@ fn the_one_stays_put_unless_the_song_says_otherwise() {
     assert_eq!((bars[at + 1], bars[bars.len() - 1]), (36, 64), "{bars:?}");
 }
 
+/// Una canción de compás largo o corto: la red oye un pulso cada `period` y
+/// un «1» cada `per_bar` pulsos, desde el pulso `first`.
+fn in_bars_of(per_bar: usize, period: f64, first: usize) -> (Vec<f64>, Vec<f64>) {
+    let beats: Vec<f64> = (0..120).map(|i| 1.0 + period * f64::from(i)).collect();
+    let downbeats: Vec<f64> = beats.iter().skip(first).step_by(per_bar).copied().collect();
+    net(&beats, &downbeats, 60.0)
+}
+
+#[test]
+fn a_six_eight_comes_out_as_bars_of_six() {
+    // la red oye las seis corcheas y un «1» cada seis: salían compases de
+    // cuatro y dos, uno tras otro
+    let (b, d) = in_bars_of(6, 0.3, 0);
+    let g = grid(&b, &d, Options::default()).expect("rejilla");
+    assert_eq!(g.end.meter, 6, "{:?}", g.end.bars);
+    assert!(
+        g.end.bars.windows(2).all(|w| w[1] - w[0] == 6),
+        "{:?}",
+        g.end.bars
+    );
+    // y a mano, con los «1» que dice la red (sin haber detectado el seis)
+    let beats: Vec<f64> = (0..120).map(|i| 1.0 + 0.3 * f64::from(i)).collect();
+    let (_, down) = in_bars_of(6, 0.3, 2);
+    let by_hand = finish(&beats, &down, Some(6)).expect("rejilla");
+    assert_eq!(by_hand.meter, 6);
+    assert_eq!(by_hand.bars, (2..120).step_by(6).collect::<Vec<i64>>());
+}
+
+#[test]
+fn a_two_four_comes_out_as_bars_of_two() {
+    let (b, d) = in_bars_of(2, 0.5, 1);
+    let g = grid(&b, &d, Options::default()).expect("rejilla");
+    assert_eq!(g.end.meter, 2, "{:?}", g.end.bars);
+    assert!(g.end.bars.windows(2).all(|w| w[1] - w[0] == 2));
+}
+
+#[test]
+fn bars_of_three_and_four_stay_as_they_were() {
+    for (per_bar, period) in [(3, 0.5), (4, 0.5), (4, 0.3), (3, 0.3)] {
+        let (b, d) = in_bars_of(per_bar, period, 1);
+        let g = grid(&b, &d, Options::default()).expect("rejilla");
+        assert_eq!(g.end.meter, per_bar as i64, "{per_bar} a {period}");
+        assert!(
+            g.end.bars.windows(2).all(|w| w[1] - w[0] == per_bar as i64),
+            "{:?}",
+            g.end.bars
+        );
+    }
+}
+
+#[test]
+fn the_one_of_a_bar_chosen_by_hand_is_where_the_network_hears_it() {
+    // con solo la fase en 3 y en 4, un compás de seis puesto a mano acertaba
+    // el «1» una de cada dos veces (cae en la mitad en que cae en 3): ahora
+    // se guarda donde cae en 2 y en 6
+    let beats: Vec<f64> = (0..120).map(|i| 1.0 + 0.3 * f64::from(i)).collect();
+    for (meter, per_bar) in [(6, 6usize), (2, 2), (3, 3), (4, 4)] {
+        for first in 0..per_bar {
+            let (_, down) = in_bars_of(per_bar, 0.3, first);
+            let f = finish(&beats, &down, Some(meter)).expect("rejilla");
+            let phase = match meter {
+                2 => f.phase2,
+                3 => f.phase3,
+                4 => f.phase4,
+                _ => f.phase6,
+            };
+            assert_eq!(f.meter, meter, "{meter}, el 1 en {first}");
+            assert_eq!(phase, first as i64, "{meter}, el 1 en {first}");
+            assert_eq!(
+                f.bars,
+                (first as i64..120).step_by(per_bar).collect::<Vec<i64>>(),
+                "{meter}, el 1 en {first}"
+            );
+        }
+    }
+    // un compás que no se sabe poner se queda con el que cuadra
+    let (_, down) = in_bars_of(4, 0.3, 1);
+    assert_eq!(finish(&beats, &down, Some(7)).expect("rejilla").meter, 4);
+}
+
+/// Los «1» de la red con la fuerza que tenga cada uno (en logits: 4 es un
+/// 98 %; 0,2, un 55 %): los pulsos, cada `period`, y en cada uno su altura
+/// según el lugar que ocupa en el compás de `per_bar`.
+fn weighted_downbeats(per_bar: usize, period: f64, heights: &[f64]) -> (Vec<f64>, Vec<f64>) {
+    let beats: Vec<f64> = (0..120).map(|i| 1.0 + period * f64::from(i)).collect();
+    let marks: Vec<(f64, f64)> = beats
+        .iter()
+        .enumerate()
+        .map(|(i, t)| (*t, heights[i % per_bar]))
+        .collect();
+    let frames = (60.0 * FPS) as usize;
+    let down = (0..frames)
+        .map(|i| {
+            let t = i as f64 / FPS;
+            marks.iter().fold(-6.0f64, |m, (b, h)| {
+                m.max(h - 0.5 * ((t - b) * FPS).powi(2))
+            })
+        })
+        .collect();
+    let (beat, _) = net(&beats, &[], 60.0);
+    (beat, down)
+}
+
+#[test]
+fn a_network_that_hears_a_downbeat_on_every_beat_says_nothing_about_the_bar() {
+    // marcar «1» en todos los pulsos hace ganar al compás más corto por
+    // acumulación: no es un 2/4, es una red que no sabe (como cuatro, el de
+    // siempre)
+    let (b, d) = weighted_downbeats(1, 0.5, &[4.0]);
+    let g = grid(&b, &d, Options::default()).expect("rejilla");
+    assert_eq!(g.end.meter, 4);
+}
+
+#[test]
+fn a_slow_four_four_with_a_weak_third_beat_is_not_a_two_four() {
+    // el «1» fuerte cada cuatro pulsos y uno flojo (58 %) en el tercero, como
+    // lo oye la red en un 4/4 lento: el compás de dos puntúa más (acumula
+    // décimas en cada compás), pero los «1» del cuatro destacan más. Con el
+    // tercero por encima del 60 % ya sí es un 2/4
+    let (b, d) = weighted_downbeats(4, 0.5, &[4.0, -4.0, 0.32, -4.0]);
+    let g = grid(&b, &d, Options::default()).expect("rejilla");
+    assert_eq!(g.end.meter, 4, "{:?}", g.end.bars);
+    let (b, d) = weighted_downbeats(4, 0.5, &[4.0, -4.0, 1.5, -4.0]);
+    let g = grid(&b, &d, Options::default()).expect("rejilla");
+    assert_eq!(g.end.meter, 2, "{:?}", g.end.bars);
+    // y un 6/8 con el medio compás flojo sigue siendo de seis
+    let (b, d) = weighted_downbeats(6, 0.3, &[4.0, -4.0, -4.0, 0.2, -4.0, -4.0]);
+    let g = grid(&b, &d, Options::default()).expect("rejilla");
+    assert_eq!(g.end.meter, 6, "{:?}", g.end.bars);
+}
+
 /// Como `net`, con cada pico a su altura (en logits: 4 es un 98 %; 0, un 50 %).
 fn net_with(peaks: &[(f64, f64)], downbeats: &[f64], seconds: f64) -> (Vec<f64>, Vec<f64>) {
     let frames = (seconds * FPS) as usize;

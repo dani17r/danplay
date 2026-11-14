@@ -9,7 +9,10 @@
 //!   inventado) y cuántos máximos claros de la red caen **entre dos pulsos**
 //!   (la rejilla a contratiempo, o a la mitad de lo que oye la red);
 //! - **el mapa de tempo**: cada tramo seguido a un mismo tempo, para ver si
-//!   una canción que cambia de tempo se sigue.
+//!   una canción que cambia de tempo se sigue;
+//! - **el compás** que sale y cómo cuadra cada uno de los que se saben poner
+//!   (2, 3, 4 y 6) con los «1» de la red: `fits`, de cada uno `[compás, ajuste,
+//!   contraste]` (ver `grid::meter_fits`).
 //!
 //! ```text
 //! cargo run --release -p danplay-analysis --example gridlab -- CARPETA [MODO]
@@ -23,7 +26,7 @@
 #![allow(clippy::print_stdout, clippy::print_stderr)]
 
 use analysis::beatgrid::{Heard, whole};
-use analysis::pulse::grid::{Grid, Value, candidates};
+use analysis::pulse::grid::{Grid, Value, candidates, meter_fits};
 use analysis::pulse::raw::{self, Raw};
 use serde_json::{Map, json};
 use std::path::Path;
@@ -242,11 +245,20 @@ fn measure(name: &str, r: &Raw, mode: &str) -> serde_json::Value {
         .filter(|w| w.windows(2).all(|p| p[1] - p[0] < 1.6 * period))
         .map(|w| 60.0 * 8.0 / (w[8] - w[0]))
         .collect();
+    // cómo cuadra cada compás con los «1» de la red: [compás, ajuste, contraste]
+    let fits: Vec<serde_json::Value> = meter_fits(beats, &down)
+        .map(|f| {
+            f.iter()
+                .map(|m| json!([m.meter, tenths(m.fit), (m.contrast * 100.0).round() / 100.0]))
+                .collect()
+        })
+        .unwrap_or_default();
     json!({
         "id": name,
         "seconds": tenths(r.seconds),
         "bpm": g.end.bpm,
         "meter": g.end.meter,
+        "fits": fits,
         "beats": beats.len(),
         "strong": strong.len(),
         "uncovered": tenths(silent),
