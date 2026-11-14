@@ -4,7 +4,7 @@ use super::STATE_EVENT;
 use super::logic::{after_end, compose, is_gone, random_other, reconcile, step_index, without};
 use super::model::{Command, Inner, Planned, PlaybackState, Repeat, Track};
 use super::resolve::{locate, path_of};
-use super::session::{Session, save_session};
+use super::session::{Saver, Session};
 use crate::core::{self, Address};
 use crate::{beats, player};
 use std::collections::HashMap;
@@ -20,6 +20,9 @@ enum Message {
 
 pub struct Playback {
     commands: Sender<Message>,
+    /// Guarda la sesion aparte (ver `Saver`): `flush_session` espera a que
+    /// lo ultimo este en el disco.
+    saver: Saver,
     snapshot: Arc<Mutex<PlaybackState>>,
     listing: Arc<Mutex<(Vec<Track>, Option<serde_json::Value>)>>,
     /// Las rejillas de pulso ya analizadas, por ruta. Analizar son un par de
@@ -45,6 +48,8 @@ impl Playback {
 
         let worker_snapshot = snapshot.clone();
         let worker_listing = listing.clone();
+        let session_saver = Saver::to_disk(&app);
+        let worker_saver = session_saver.clone();
         std::thread::Builder::new()
             .name("danplay-queue".into())
             .spawn(move || {
@@ -124,19 +129,22 @@ impl Playback {
                         *guard = (inner.items.clone(), inner.origin.clone());
                     }
 
-                    // La sesion se guarda cuando cambia la FORMA de la cola,
-                    // no en cada latido: la posicion de la aguja se mueve
-                    // cuatro veces por segundo y escribir el archivo cada vez
-                    // seria disco para nada.
-                    let shape = (inner.revision, inner.index, inner.repeat, inner.shuffle);
-                    if shape != saved {
-                        saved = shape;
-                        save_session(&app, &inner);
-                    }
+                    // Primero se avisa del cambio...
                     if changed {
                         let _ = app.emit(STATE_EVENT, &state);
                         crate::tray::update(&app, &state);
                         crate::media::update(&app, &state);
+                    }
+
+                    // ...y despues se guarda la sesion, aparte (el hilo no
+                    // espera al disco). Se guarda cuando cambia la FORMA de
+                    // la cola, no en cada latido: la posicion de la aguja se
+                    // mueve cuatro veces por segundo y escribir el archivo
+                    // cada vez seria disco para nada.
+                    let shape = (inner.revision, inner.index, inner.repeat, inner.shuffle);
+                    if shape != saved {
+                        saved = shape;
+                        worker_saver.submit(Session::of(&inner));
                     }
                 }
             })
@@ -144,6 +152,7 @@ impl Playback {
 
         Self {
             commands: tx,
+            saver: session_saver,
             snapshot,
             listing,
             grids: Arc::new(Mutex::new(HashMap::new())),
@@ -164,6 +173,14 @@ impl Playback {
 
     pub fn send(&self, command: Command) {
         let _ = self.commands.send(Message::User(command));
+    }
+
+    /// Espera a que la ultima sesion este en el disco. Al salir de la app: la
+    /// sesion se guarda aparte y, si no, se perdia lo ultimo.
+    pub fn flush_session(&self) {
+        if !self.saver.flush(std::time::Duration::from_secs(3)) {
+            log::warn!("la sesion no llego a guardarse antes de salir");
+        }
     }
 
     pub fn state(&self) -> PlaybackState {

@@ -3,7 +3,7 @@
 use super::logic::{after_end, compose, random_other, reconcile, step_index, without};
 use super::model::{Command, Inner, Repeat, Track};
 use super::resolve::path_of;
-use super::session::{Session, write_atomically};
+use super::session::{Saver, Session, write_atomically};
 use super::worker::{
     advance, advance_within, advanced, announce, apply, cross_next, follow_current, next_up, prune, start,
 };
@@ -11,6 +11,8 @@ use crate::core::{self, Address};
 use crate::player;
 use std::collections::HashMap;
 use std::sync::mpsc::channel;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 // ------------------------------------------------------ paso a paso
 #[test]
@@ -662,4 +664,72 @@ fn repeating_one_song_announces_the_same_one() {
     assert_eq!(inner.index, 0);
     announce(&mut inner, &player);
     assert_eq!(inner.tickets, 2, "tras entrar, se anuncia otra vez");
+}
+
+// ------------------------------------------- guardar la sesion, aparte
+
+/// Un guardado de mentira con un disco lento: apunta lo que le llega.
+fn slow_saver(delay: Duration) -> (Saver, Arc<Mutex<Vec<usize>>>) {
+    let written = Arc::new(Mutex::new(Vec::new()));
+    let saver = Saver::start({
+        let written = Arc::clone(&written);
+        move |session: &Session| {
+            std::thread::sleep(delay);
+            written.lock().unwrap().push(session.index);
+        }
+    });
+    (saver, written)
+}
+
+fn session_at(index: usize) -> Session {
+    Session {
+        index,
+        ..Default::default()
+    }
+}
+
+/// El hilo de la cola guardaba la sesion el mismo, esperando al disco, antes
+/// de avisar del cambio de cancion. Ahora la deja y sigue.
+#[test]
+fn leaving_the_session_to_be_saved_does_not_wait_for_the_disk() {
+    let (saver, written) = slow_saver(Duration::from_millis(300));
+    let started = Instant::now();
+    saver.submit(session_at(1));
+    let took = started.elapsed();
+    assert!(took < Duration::from_millis(50), "la cola espero {took:?} al disco");
+    assert!(written.lock().unwrap().is_empty(), "aun no se habia escrito");
+    // y llega al disco
+    assert!(saver.flush(Duration::from_secs(5)));
+    assert_eq!(*written.lock().unwrap(), vec![1]);
+}
+
+/// Si llega otra sesion antes de que se escriba la anterior, manda la ultima.
+#[test]
+fn when_several_sessions_pile_up_the_last_one_wins() {
+    let (saver, written) = slow_saver(Duration::from_millis(300));
+    saver.submit(session_at(1));
+    std::thread::sleep(Duration::from_millis(80)); // la 1 ya se esta escribiendo
+    for index in 2..=4 {
+        saver.submit(session_at(index));
+    }
+    assert!(saver.flush(Duration::from_secs(5)));
+    assert_eq!(
+        *written.lock().unwrap(),
+        vec![1, 4],
+        "la 2 y la 3 no hacia falta escribirlas"
+    );
+}
+
+/// Al salir se espera a que lo ultimo este en el disco, pero no sin limite.
+#[test]
+fn leaving_the_app_waits_for_the_last_session_but_not_forever() {
+    let (saver, written) = slow_saver(Duration::from_millis(400));
+    saver.submit(session_at(9));
+    assert!(!saver.flush(Duration::from_millis(50)), "dijo que estaba escrita y no");
+    assert!(saver.flush(Duration::from_secs(5)));
+    assert_eq!(*written.lock().unwrap(), vec![9]);
+    // sin nada pendiente, al momento
+    let started = Instant::now();
+    assert!(saver.flush(Duration::from_secs(5)));
+    assert!(started.elapsed() < Duration::from_millis(50));
 }

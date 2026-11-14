@@ -379,6 +379,14 @@ las canciones que no están donde creía (`POST /api/songs/locate`); la que se
 movió sigue con su ruta nueva y la que se fue sale. La que está sonando se
 deja terminar: el sistema sigue leyendo un archivo abierto aunque se mueva.
 
+**La sesión se guarda aparte.** La cola escribe `sesion.json` cuando cambia su
+forma (la lista, la posición, repetir o aleatorio), pero no lo hace ella: deja
+la sesión a un hilo (`queue::session::Saver`) y sigue, después de avisar a la
+interfaz del cambio. Antes esperaba al disco (con `sync_all`) ANTES de avisar,
+y en un disco lento o dormido el cambio de canción se notaba tarde. Si se
+acumulan varias sin escribir, manda la última; y al salir de la app
+(`RunEvent::Exit`) se espera, hasta 3 s, a que lo pendiente esté en el disco.
+
 **Lo hecho sigue a la canción** (`services::reuse` y `library/src/reuse.rs`,
 desde 1.28). Pasaba:
 se cambiaba la carpeta de música de sitio, o se volvía a bajar una canción
