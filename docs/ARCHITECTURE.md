@@ -733,8 +733,15 @@ detrás) y dice por dónde va. Con **«Clic automático»** (`useClick`, que viv
 fuera del panel de estudio), cada canción trae su clic y sus ajustes;
 mientras carga, el clic no suena (si venía sonando, se calla), su botón no
 deja ponerlo y la onda se va encendiendo con lo que lleva; al llegar, vuelve
-solo. Con el clic puesto se preparan las tres siguientes de la cola. A mano,
-un tempo para todas, que sigue igual al pasar de canción. Y lo guardado no
+solo. Con el clic puesto se preparan las tres siguientes de la cola. Hay tres
+modos, que en la interfaz se llaman **Automático** (lo que analizó DanPlay),
+**Manual** (lo que mueve él en la onda, guardado con la canción:
+`study.metronome.own`) y **Tempo fijo** (un tempo para todas, que sigue igual
+al pasar de canción); lo guardado conserva sus nombres de siempre (`auto`,
+`own`, `manual`). Cambiar de uno a otro no escribe nada, y cada uno enseña lo
+suyo: Automático, la última rejilla que dio el núcleo (también la de un
+re-análisis hecho desde Manual); Manual, sus pulsos (y, si la canción aún no
+los tiene, lo dice y suena el automático). Y lo guardado no
 se pierde: se reconocía por la fecha del archivo, y DanPlay la cambiaba él
 mismo al escribir cualquier etiqueta (el estudio guarda a menudo): ahora,
 al reescribir una etiqueta o mover el archivo, la rejilla y la onda pasan a
@@ -1060,6 +1067,22 @@ rejilla). «Con la batería separada» ya no pasa la red dentro de la petición:
 `POST …/beats/reanalyze` con `wait: false` deja la batería delante en la cola
 y contesta 202 `{pending, progress}` hasta que sale; el estudio pregunta
 (`useClick.reanalyze`) y enseña «oyendo la batería separada… N %».
+
+**Re-analizar con un clic manual.** El clic manual guarda, con sus pulsos,
+las zonas que movió él: `own = {beats, bars, meter, touched}`, con
+`touched = [[desde, hasta], …]` en segundos (`utils/beats.js`:
+`touchedByEdit` las saca de lo que cambió al soltar un pulso, con un pulso de
+margen por cada lado y las cercanas hechas una; son tiempos, no índices, así
+que añadir o quitar pulsos antes no las mueve). Un `own` de antes, sin ellas,
+vale entero como suyo. En Manual, «Re-analizar» manda ese `own` en la
+petición (`POST …/beats/reanalyze`, campo `own`); el núcleo devuelve `grid`
+(la rejilla automática nueva, que guarda él) y, si recibió `own`, `own`
+mezclado (sus zonas intactas, lo demás del análisis nuevo). El núcleo no
+escribe el estudio: lo guarda el estudio por el camino de siempre y lo aplica.
+En Automático la petición va sin `own`, y el aviso dice que lo manual sigue
+ahí. `report.weak` (`[[desde, hasta], …]`) son las zonas sin apoyo rítmico,
+donde el clic es una suposición: la onda las pinta como una banda ámbar con
+una raya abajo, y el aviso las cuenta.
 
 **La batería mejora el clic sola** (`beats::after_separation`, desde que
 acaba una separación; `DANPLAY_CLICK_DRUMS=off` lo quita). La red oye la

@@ -10,7 +10,16 @@ import {
   formatBpm,
   parseBpm,
   multFactor,
-  clickTimes
+  clickTimes,
+  gridToOwn,
+  ownToGrid,
+  ownTouched,
+  touchedOrAll,
+  touchedByEdit,
+  mergeWindows,
+  beatChanges,
+  cleanOwn,
+  windowsText
 } from '../src/utils/beats.js'
 
 // La misma rejilla que las pruebas de Rust (`beats.rs`): 120 bpm, un pulso
@@ -157,5 +166,209 @@ describe('Beat This! downbeats, bar by bar, as in Rust', () => {
     const g = { ...irregular(), bars: [0, 4, 7, 11] }
     const h = halved(g)
     expect(h.bars.map((b) => h.beats[b])).toEqual(g.bars.map((b) => g.beats[b]))
+  })
+})
+
+// Lo que movió él a mano: el clic manual guarda las zonas de la canción que
+// tocó (en segundos, no en pulsos) para que un re-análisis las respete y
+// rehaga lo demás.
+describe('the windows moved by hand', () => {
+  /** 60 pulsos a 120 bpm desde 0,5 s, el «1» cada cuatro. */
+  const regular = (n = 60) => {
+    const beats = Array.from({ length: n }, (_, i) => 0.5 + i * 0.5)
+    return {
+      bpm: 120,
+      meter: 4,
+      beats,
+      first_downbeat: 0,
+      phase3: 0,
+      phase4: 0,
+      confidence: 1,
+      bars: Array.from({ length: Math.ceil(n / 4) }, (_, i) => i * 4)
+    }
+  }
+  /** Sin acentos: los pulsos añadidos o quitados no mueven ningún «1» de sitio. */
+  const plain = (n = 60) => ({ ...regular(n), meter: 0, bars: [] })
+  const edit = (g, f) => {
+    const out = { ...g, beats: [...g.beats], bars: [...g.bars] }
+    f(out)
+    return out
+  }
+
+  it('moving one beat marks it with one beat of margin on each side', () => {
+    const before = regular()
+    const after = edit(before, (g) => (g.beats[10] += 0.1))
+    // el pulso 10 estaba en 5,5 y queda en 5,6; los de al lado, en 5 y en 6
+    expect(touchedByEdit(before, after)).toEqual([[5, 6]])
+  })
+
+  it('a beat added or removed marks the place where it was', () => {
+    const before = plain()
+    const added = edit(before, (g) => g.beats.splice(22, 0, 11.25))
+    expect(touchedByEdit(before, added)).toEqual([[11, 11.5]])
+    const removed = edit(before, (g) => g.beats.splice(30, 1))
+    // sin el de 15,5 quedan los de 15 y 16 con el hueco en medio
+    expect(touchedByEdit(before, removed)).toEqual([[15, 16]])
+  })
+
+  it('nothing moved, nothing marked: what was marked stays as it was', () => {
+    const before = regular()
+    expect(
+      touchedByEdit(
+        before,
+        edit(before, () => {})
+      )
+    ).toEqual([])
+    expect(
+      touchedByEdit(
+        before,
+        edit(before, () => {}),
+        [[3, 4]]
+      )
+    ).toEqual([[3, 4]])
+  })
+
+  it('edits close together are one window, far apart they are two', () => {
+    const before = regular()
+    const near = edit(before, (g) => {
+      g.beats[10] += 0.1
+      g.beats[13] += 0.1
+    })
+    expect(touchedByEdit(before, near)).toEqual([[5, 7.5]])
+    const far = edit(before, (g) => {
+      g.beats[10] += 0.1
+      g.beats[40] += 0.1
+    })
+    expect(touchedByEdit(before, far)).toEqual([
+      [5, 6],
+      [20, 21]
+    ])
+  })
+
+  it('dragging a beat with Shift (all the ones behind move) marks up to the last one', () => {
+    const before = regular()
+    const after = edit(before, (g) => {
+      for (let k = 40; k < g.beats.length; k++) g.beats[k] += 0.05
+    })
+    expect(touchedByEdit(before, after)).toEqual([[20, 30.05]])
+  })
+
+  it('the windows are times: beats added before them do not move them', () => {
+    const first = edit(plain(), (g) => (g.beats[40] += 0.1))
+    const w1 = touchedByEdit(plain(), first)
+    expect(w1).toEqual([[20, 21]])
+    // después se añade un pulso mucho antes: los índices de todos los de
+    // detrás cambian, la zona de arriba no
+    const second = edit(first, (g) => g.beats.splice(5, 0, 2.75))
+    expect(touchedByEdit(first, second, w1)).toEqual([
+      [2.5, 3],
+      [20, 21]
+    ])
+    // y quitar uno antes de ella tampoco
+    const third = edit(second, (g) => g.beats.splice(1, 1))
+    const w3 = touchedByEdit(second, third, touchedByEdit(first, second, w1))
+    expect(w3.at(-1)).toEqual([20, 21])
+    expect(w3.length).toBe(3)
+  })
+
+  it('an edit inside a window of before grows it instead of adding another', () => {
+    const before = regular()
+    const first = edit(before, (g) => (g.beats[10] += 0.1))
+    const w1 = touchedByEdit(before, first)
+    const second = edit(first, (g) => (g.beats[11] += 0.1))
+    expect(touchedByEdit(first, second, w1)).toEqual([[5, 6.5]])
+  })
+
+  it('making a beat the «1» marks it, although no beat moved', () => {
+    const before = regular()
+    const after = edit(
+      before,
+      (g) =>
+        (g.bars = g.bars
+          .filter((b) => b !== 12)
+          .concat(13)
+          .sort((a, b) => a - b))
+    )
+    const w = touchedByEdit(before, after)
+    expect(w.length).toBeGreaterThan(0)
+    // los pulsos 12 y 13 están en 6,5 y 7
+    for (const t of [6.5, 7]) expect(w.some(([a, b]) => a <= t && t <= b)).toBe(true)
+  })
+
+  it('what is saved as own: the grid with its windows, or without them (before they existed)', () => {
+    const g = regular(8)
+    const withWindows = gridToOwn(g, [
+      [2, 1],
+      [1.0004, 2.5]
+    ])
+    expect(withWindows.touched, 'las malas se descartan y se limpian').toEqual([[1, 2.5]])
+    expect(withWindows.beats.length).toBe(8)
+    expect(withWindows.bars).toEqual([0, 4])
+    // sin ellas, igual que antes: no se inventa un `touched`
+    expect('touched' in gridToOwn(g)).toBe(false)
+    // y vacías sí se guardan: «no moví nada»
+    expect(gridToOwn(g, []).touched).toEqual([])
+  })
+
+  it('an own click from before has no windows: it still plays, and counts as all his', () => {
+    const old = { beats: [1, 1.5, 2, 2.5, 3], bars: [0], meter: 4 }
+    expect(ownToGrid(old).beats).toEqual(old.beats)
+    expect(ownTouched(old)).toBe(null)
+    expect(touchedOrAll(old)).toEqual([[0, 3]])
+    expect(touchedOrAll(old, 200), 'toda la canción').toEqual([[0, 200]])
+    expect(ownTouched({ ...old, touched: [[2, 2.5]] })).toEqual([[2, 2.5]])
+    expect(touchedOrAll({ ...old, touched: [] })).toEqual([])
+    expect(touchedOrAll(null)).toEqual([])
+    // el que llega con zonas, las lleva a la rejilla sin ellas
+    expect(ownToGrid({ ...old, touched: [[2, 2.5]] }).beats).toEqual(old.beats)
+  })
+
+  it('windows: only real pairs, in order, overlapping ones joined', () => {
+    expect(
+      mergeWindows([[5, 6], [1, 2], [1.5, 3], ['x', 2], [4, 4], null, [9, 8], [-1, 2]])
+    ).toEqual([
+      [1, 3],
+      [5, 6]
+    ])
+    expect(
+      mergeWindows(
+        [
+          [1, 2],
+          [2.4, 3]
+        ],
+        0.5
+      )
+    ).toEqual([[1, 3]])
+    expect(mergeWindows('nada')).toEqual([])
+  })
+
+  it('changed beats: a moved one counts once', () => {
+    const a = [1, 2, 3, 4]
+    expect(beatChanges(a, [1, 2, 3.2, 4]).changed).toBe(1)
+    expect(beatChanges(a, [1, 2, 3, 4, 5]).changed).toBe(1)
+    expect(beatChanges(a, [1, 2, 4]).changed).toBe(1)
+    expect(beatChanges(a, [1.0001, 2, 3, 4]).changed, 'menos de un milisegundo no es moverlo').toBe(
+      0
+    )
+  })
+
+  it('what comes back from the core is cleaned, with the windows it brings or the ones sent', () => {
+    const got = { beats: [1, 1.5, 2, 2.5], bars: [0], meter: 4, touched: [[1.5, 2]] }
+    expect(cleanOwn(got, [[0, 9]])).toEqual({ ...got })
+    expect(cleanOwn({ ...got, touched: undefined }, [[1, 2]]).touched).toEqual([[1, 2]])
+    expect(cleanOwn({ beats: [1], bars: [] })).toBe(null)
+  })
+
+  it('windows to read: up to three, and how many more', () => {
+    expect(windowsText([[65, 80]])).toBe('1:05–1:20')
+    expect(
+      windowsText([
+        [65, 80],
+        [130, 150],
+        [200, 210],
+        [300, 310],
+        [320, 330]
+      ])
+    ).toBe('1:05–1:20, 2:10–2:30, 3:20–3:30 y 2 más')
   })
 })

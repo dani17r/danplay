@@ -1951,7 +1951,7 @@ describe('the 1.28 study mode', () => {
     await button(w, 'Ajustar pulsos').trigger('click')
     await flushPromises()
     expect(button(w, 'Listo'), 'se está ajustando').toBeTruthy()
-    expect(w.find('.study-mode.on').text()).toBe('Propio')
+    expect(w.find('.study-mode.on').text()).toBe('Manual')
     const beats = w.findAll('.tl-beat')
     expect(beats.length).toBeGreaterThan(4)
     // arrastrar el tercero que se ve 2 px a la derecha

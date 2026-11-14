@@ -37,8 +37,12 @@
  * **Ajustar pulsos** (`editBeats`): cada pulso del clic es un asa que se
  * arrastra (con Mayús, se llevan también todos los de detrás); doble clic en
  * la onda añade uno; el clic derecho sobre uno lo quita o lo hace el «1».
- * Lo ajustado se manda entero (`update:grid`): es el clic propio de la
+ * Lo ajustado se manda entero (`update:grid`): es el clic manual de la
  * canción.
+ *
+ * **Poco claro** (`weak`): las zonas donde el análisis no encontró pulso con
+ * apoyo en la música y el clic es una suposición, como una banda ámbar con
+ * una raya abajo. Sin el dato, no se pinta nada.
  *
  * La onda la pinta un canvas y solo se vuelve a pintar cuando cambian los
  * datos, el ancho, la vista o el tema. Lo que se mueve (aguja, tramo,
@@ -94,8 +98,10 @@ const props = defineProps({
   selected: { type: Object, default: null },
   /** la rejilla de pulsos del metrónomo tal como suena, para pintarla sobre la onda */
   grid: { type: Object, default: null },
-  /** ajustando los pulsos a mano (el clic propio) */
+  /** ajustando los pulsos a mano (el clic manual) */
   editBeats: Boolean,
+  /** dónde el clic es una suposición, [[desde, hasta], …] en segundos (vacío: nada) */
+  weak: { type: Array, default: () => [] },
   /**
    * lo que lleva (0..1) el clic de la canción mientras se carga, o null si
    * no carga: una barra del color del tema avanza sobre la onda
@@ -164,6 +170,12 @@ const emit = defineEmits([
   'update:seekClick'
 ])
 
+/** Las zonas dudosas que caen en lo que se ve (y bien formadas). */
+const weakShown = computed(() =>
+  (props.weak || []).filter(
+    (w) => Array.isArray(w) && w[1] > w[0] && w[1] >= view.from && w[0] <= view.to
+  )
+)
 /** Con las pistas separadas, un carril por instrumento. */
 const laneMode = computed(() => props.lanes.length > 0)
 /** Los carriles de las guías, debajo de la onda (en el escritorio). */
@@ -1645,6 +1657,17 @@ const lockTitle = computed(() =>
       <!-- fuera de los tramos se atenua; cada tramo lleva sus dos asas, su
            numero (con varios) y su boton de opciones -->
       <div v-for="(g, i) in gaps" :key="'g' + i" class="tl-shade" :style="g"></div>
+      <!-- donde el clic es una suposición: por debajo de todo lo demás; da su
+           aviso al pasar el ratón y los clics y arrastres suben a la onda -->
+      <div
+        v-for="([a, b], i) in weakShown"
+        :key="'w' + i"
+        class="tl-weak"
+        :style="{ left: pct(a), width: pctLen(b - a) }"
+        :title="
+          'Poco claro: aquí el clic es una suposición · ' + formatTime(a) + ' – ' + formatTime(b)
+        "
+      ></div>
       <div
         v-for="([a, b], i) in shown"
         v-show="inView(a, b)"
