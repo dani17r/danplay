@@ -742,12 +742,16 @@ fn failure_key(path: &Path) -> String {
 /// Por dónde va (0..1); 0 si espera en la cola; `None` si no está ni en la
 /// cola ni calculándose.
 pub fn progress(path: &Path) -> Option<f64> {
-    let key = path.to_string_lossy();
     let q = QUEUE.lock().unwrap_or_else(PoisonError::into_inner);
-    if q.busy.as_deref() == Some(key.as_ref()) {
-        return Some(q.progress.get(key.as_ref()).copied().unwrap_or(0.0));
+    progress_in(&q, &path.to_string_lossy())
+}
+
+/// `progress`, con el cerrojo de la cola ya cogido.
+fn progress_in(q: &Queue, key: &str) -> Option<f64> {
+    if q.busy.as_deref() == Some(key) {
+        return Some(q.progress.get(key).copied().unwrap_or(0.0));
     }
-    q.waiting.iter().any(|(p, _)| *p == key).then_some(0.0)
+    q.waiting.iter().any(|(p, _)| p == key).then_some(0.0)
 }
 
 /// La rejilla si ya está guardada; si no, `None` y queda en la cola (delante
@@ -796,6 +800,49 @@ pub fn request(app: &App, path: &Path, first: bool) -> Result<Option<Value>, Bea
     }
     WAKE.notify_all();
     Ok(None)
+}
+
+/// La rejilla por la cola, esperándola: se pide delante de lo que haya y se
+/// espera hasta `limit`. `Ok(None)` si no llegó a tiempo (sigue en la cola);
+/// `BeatsError` como `request`. `tick` recibe por dónde va (0..1) mientras
+/// se espera.
+///
+/// Para quien necesita la rejilla dentro de un trabajo largo (la guía
+/// automática): con `grid_of` pasaba la red él mismo, a la vez que la cola
+/// con esa misma canción (dos detectores estorbándose y escribiendo el
+/// mismo archivo), y sin que nadie viera por dónde iba.
+pub fn wait_for(
+    app: &App,
+    path: &Path,
+    limit: Duration,
+    tick: &mut dyn FnMut(f64),
+) -> Result<Option<Value>, BeatsError> {
+    let until = Instant::now() + limit;
+    let key = path.to_string_lossy().into_owned();
+    loop {
+        // la guardada; si no, queda delante en la cola; si falló, por qué
+        if let Some(grid) = request(app, path, true)? {
+            return Ok(Some(grid));
+        }
+        // mientras esté en la cola o calculándose no se vuelve a pedir:
+        // pedir avisa a todos los que esperan, y dos esperando a la vez se
+        // despertarían el uno al otro sin parar
+        if Instant::now() >= until {
+            return Ok(None);
+        }
+        let mut q = QUEUE.lock().unwrap_or_else(PoisonError::into_inner);
+        while let Some(done) = progress_in(&q, &key) {
+            let left = until.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                return Ok(None);
+            }
+            tick(done);
+            q = WAKE
+                .wait_timeout(q, left.min(Duration::from_millis(250)))
+                .unwrap_or_else(PoisonError::into_inner)
+                .0;
+        }
+    }
 }
 
 /// Detrás en la cola, la de una canción que sonará después. `true` si ya

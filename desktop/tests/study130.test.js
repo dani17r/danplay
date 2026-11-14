@@ -410,6 +410,32 @@ describe('the automatic cue', () => {
     expect(w.findAll('.tl-guide-clip')).toHaveLength(2)
   })
 
+  it('says it is waiting for the click, and when the guide came out without it', async () => {
+    // pulsada antes de que cargue el clic, la guía salía a trozos de 2 s sin
+    // que nada lo dijera
+    const { useNotices } = await import('../src/composables/useNotices.js')
+    prepare()
+    localStorage.setItem('danplay.cues.voice', JSON.stringify('st-F1'))
+    let finish
+    held.api.runJob.mockImplementation(async (start, _name, options) => {
+      await start()
+      options?.onProgress?.({ active: true, message: 'Esperando al clic… 40 %' })
+      options?.onProgress?.({ active: true, message: 'Esperando al clic… 60 %' })
+      await new Promise((r) => (finish = r))
+      return { ...result, source: 'sound', click: false, click_why: 'tarda demasiado' }
+    })
+    const w = await mountView()
+    await w.find('.study-auto-guide').trigger('click')
+    await flushPromises()
+    const said = () => useNotices().notices.value.map((n) => n.message)
+    expect(said().filter((m) => m.includes('Esperando al clic'))).toHaveLength(1)
+    expect(w.find('.study-auto-guide').attributes('title')).toBe('Esperando al clic… 60 %')
+    finish()
+    await flushPromises()
+    expect(said().at(-1)).toContain('Sin el clic de la canción (tarda demasiado)')
+    expect(w.find('.study-auto-guide').attributes('title')).not.toContain('Esperando')
+  })
+
   it('the bars come from the core, not from how the click is accented', async () => {
     // con «sin acento» no se ve ningún «1»: se mandaba uno de cada cuatro
     // pulsos, empezara donde empezara, y las partes caían fuera de su sitio

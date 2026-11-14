@@ -96,6 +96,7 @@ fn cue_auto(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let voice = b.str("voice").min_len(1).max_len(80).required();
     let bars = b.float_list("bars").max_items(20000).opt();
     let beat = b.float("beat").gt(0).le(5).opt();
+    let click_wait = b.float("click_wait").ge(0).le(600).opt();
     let sections = b.objects("sections", false).map(|items| {
         let n = items.len();
         let mut out = Vec::new();
@@ -121,6 +122,7 @@ fn cue_auto(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
         bars,
         beat,
         sections,
+        click_wait,
     };
     let me = ctx.app.clone();
     let (snap, already) = ctx.app.jobs.start_keyed(

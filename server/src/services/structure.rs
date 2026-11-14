@@ -187,32 +187,61 @@ fn analyse(
     Ok(st::name_sections(&chunks, bar))
 }
 
-/// Los «1» de la rejilla del clic de la canción y lo que dura un pulso. La
-/// rejilla es la del análisis (la guardada o, si aún no hay, calculada
-/// ahora), no como se acentúe el clic en el estudio: con «sin acento»
-/// puesto, la interfaz mandaba uno de cada cuatro pulsos, empezara donde
-/// empezara, y las partes caían hasta tres pulsos fuera del «1».
-fn grid_bars(app: &App, song: &Dict) -> Option<(Vec<f64>, f64)> {
+/// Lo que la guía espera al clic de la canción si aún se está calculando
+/// (la red tarda 15-20 s con una canción normal, y puede haber otra
+/// delante). Pasado eso sigue sin él, y lo dice.
+pub const CLICK_WAIT: Duration = Duration::from_secs(180);
+
+/// Los «1» de la rejilla del clic de la canción y lo que dura un pulso, o
+/// por qué no los hay. La rejilla es la del análisis, no como se acentúe el
+/// clic en el estudio: con «sin acento» puesto, la interfaz mandaba uno de
+/// cada cuatro pulsos, empezara donde empezara, y las partes caían hasta
+/// tres pulsos fuera del «1».
+///
+/// Si aún no está, se espera a la cola del clic (`beats::wait_for`, como
+/// mucho `wait`) diciendo por dónde va. Sin compases la canción se parte en
+/// trozos de 2 s y las partes salen distintas, y peor.
+fn grid_bars(
+    app: &App,
+    song: &Dict,
+    wait: Duration,
+    p: &Progress,
+) -> Result<(Vec<f64>, f64), String> {
     let path = song.get("path").map(value::str_of).unwrap_or_default();
     let path = std::path::Path::new(&path);
     if cfg!(test) && !crate::services::beats::safe_in_tests(app, path) {
-        return None;
+        return Err("aquí no hay detector".into());
     }
-    let grid = crate::services::beats::grid_of(app, path).ok()?;
+    let waited = crate::services::beats::wait_for(app, path, wait, &mut |done| {
+        let percent = (done * 100.0).round().clamp(0.0, 100.0);
+        p.message(&format!("Esperando al clic… {percent} %"));
+    });
+    let grid = match waited {
+        Ok(Some(grid)) => grid,
+        Ok(None) => return Err("tarda demasiado".into()),
+        Err(e) => return Err(e.to_string()),
+    };
+    let few = || "el clic tiene muy pocos compases".to_owned();
     let beats: Vec<f64> = grid
-        .get("beats")?
-        .as_array()?
+        .get("beats")
+        .and_then(Value::as_array)
+        .ok_or_else(few)?
         .iter()
         .filter_map(Value::as_f64)
         .collect();
     let bars: Vec<f64> = grid
-        .get("bars")?
-        .as_array()?
+        .get("bars")
+        .and_then(Value::as_array)
+        .ok_or_else(few)?
         .iter()
         .filter_map(|i| i.as_u64().and_then(|i| beats.get(i as usize)).copied())
         .collect();
     let beat = median(beats.windows(2).map(|w| w[1] - w[0]).collect());
-    (bars.len() >= 8 && beat.is_finite() && beat > 0.0).then_some((bars, beat))
+    if bars.len() >= 8 && beat.is_finite() && beat > 0.0 {
+        Ok((bars, beat))
+    } else {
+        Err(few())
+    }
 }
 
 /// Las partes de una secuencia (los localizadores de su proyecto, en
@@ -264,6 +293,9 @@ pub struct AutoGuide {
     pub beat: Option<f64>,
     /// las partes que ya tienen nombre: (inicio, nombre)
     pub sections: Option<Vec<(f64, String)>>,
+    /// lo que se espera al clic si aún se calcula (segundos); sin él,
+    /// `CLICK_WAIT`
+    pub click_wait: Option<f64>,
 }
 
 /// La guía automática de una canción: sus partes y la guía hablada de cada
@@ -273,7 +305,8 @@ pub struct AutoGuide {
 /// De dónde salen las partes (`source`), de lo más fiable a lo menos: las
 /// que se dan hechas (`given`), las de una secuencia (`sequence`), las de la
 /// letra con tiempos (`lyrics`) y, si no hay nada de eso, las del sonido
-/// (`sound`).
+/// (`sound`). Con las dos últimas, `click` dice si se ajustaron a los
+/// compases del clic y, si no, `click_why` por qué no los había.
 pub fn auto_guide(
     app: &App,
     song: &Dict,
@@ -285,6 +318,8 @@ pub fn auto_guide(
         .and_then(value::float_of)
         .unwrap_or(0.0);
     let mut beat = req.beat;
+    // si las partes se ajustaron a los compases del clic (y si no, por qué)
+    let mut click: Option<(bool, String)> = None;
     let (found, source) = if let Some(sections) = req.sections.as_ref().filter(|s| !s.is_empty()) {
         if duration == 0.0 {
             let path = song.get("path").map(value::str_of).unwrap_or_default();
@@ -302,13 +337,21 @@ pub fn auto_guide(
         // los compases: los que mande la interfaz (el clic ajustado a mano)
         // o, lo normal, los de la rejilla del análisis
         let mut bars = req.bars.clone().filter(|b| b.len() >= 8);
+        let mut why = String::new();
         if bars.is_none() {
             p.message("Mirando el clic de la canción…");
-            if let Some((own, pulse)) = grid_bars(app, song) {
-                bars = Some(own);
-                beat = beat.or(Some(pulse));
+            let wait = req
+                .click_wait
+                .map_or(CLICK_WAIT, |s| Duration::from_secs_f64(s.max(0.0)));
+            match grid_bars(app, song, wait, p) {
+                Ok((own, pulse)) => {
+                    bars = Some(own);
+                    beat = beat.or(Some(pulse));
+                }
+                Err(e) => why = e,
             }
         }
+        click = Some((bars.is_some(), why));
         p.message("Buscando la letra…");
         match lyric_parts(app, song, bars.as_deref().unwrap_or(&[]), duration) {
             Some(parts) => (st::given(&parts, duration), "lyrics"),
@@ -357,9 +400,16 @@ pub fn auto_guide(
             })
         })
         .collect();
-    Ok(json!({
+    let mut out = json!({
         "sections": found.iter().map(section).collect::<Vec<_>>(),
         "cues": cues,
         "source": source,
-    }))
+    });
+    if let Some((with_click, why)) = click {
+        out["click"] = with_click.into();
+        if !with_click && !why.is_empty() {
+            out["click_why"] = why.into();
+        }
+    }
+    Ok(out)
 }

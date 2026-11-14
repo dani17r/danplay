@@ -1628,6 +1628,8 @@ function barsAndBeat() {
 }
 /** Haciendo la guía automática. */
 const autoBusy = ref(false)
+/** Por dónde va (lo que dice su trabajo): «Esperando al clic… 40 %». */
+const autoStage = ref('')
 /**
  * La guía automática: DanPlay busca las partes de la canción (intro,
  * estrofas, coros, puente, solos…) y las dice con la voz justo antes de
@@ -1640,9 +1642,11 @@ async function autoGuide() {
   if (!voice) return
   const id = loadedFor.value
   autoBusy.value = true
+  autoStage.value = ''
   notify('Buscando las partes de la canción…', 'info', 4)
   try {
     const { bars, beat } = barsAndBeat()
+    let waiting = false
     const r = await api.runJob(
       () =>
         api.autoCues(id, {
@@ -1651,7 +1655,22 @@ async function autoGuide() {
           ...(beat ? { beat } : {})
         }),
       // un trabajo por canción: el de otra ni se espera ni se confunde
-      `${JOBS.autoGuide}-${id}`
+      `${JOBS.autoGuide}-${id}`,
+      {
+        onProgress: (job) => {
+          autoStage.value = job?.message || ''
+          // pulsada antes de que cargue el clic: el núcleo lo espera (las
+          // partes se ajustan a sus compases), y aquí se dice
+          if (!waiting && autoStage.value.startsWith('Esperando al clic')) {
+            waiting = true
+            notify(
+              'Esperando al clic de la canción para ajustar las partes a sus compases…',
+              'info',
+              6
+            )
+          }
+        }
+      }
     )
     // lo que llega dice de qué canción es: las partes de otra no se colocan
     if (r?.song != null && r.song !== id) {
@@ -1662,6 +1681,7 @@ async function autoGuide() {
     notify('No se pudo hacer la guía automática: ' + errorMessage(e))
   } finally {
     autoBusy.value = false
+    autoStage.value = ''
   }
 }
 /** Las guías de las partes, a su carril (el de la guía automática, o uno nuevo). */
@@ -1707,10 +1727,16 @@ function placeAutoGuide(r, voice) {
       sequence: 'las de la secuencia',
       sound: 'por cómo suena (sin letra con tiempos de esta grabación: es aproximada)'
     }[r.source] || ''
+  // sin los compases del clic (no llegó a tiempo, o aquí no lo hay) las
+  // partes no se ajustan al «1»: se dice, que salen distintas
+  const loose =
+    r.click === false
+      ? `. Sin el clic de la canción${r.click_why ? ' (' + r.click_why + ')' : ''}: las partes no van ajustadas al compás`
+      : ''
   notify(
-    `Guía lista${from ? ', ' + from : ''}: ${names.slice(0, 5).join(', ')}${names.length > 5 ? '…' : ''}`,
+    `Guía lista${from ? ', ' + from : ''}: ${names.slice(0, 5).join(', ')}${names.length > 5 ? '…' : ''}${loose}`,
     'ok',
-    r.source === 'sound' ? 9 : 6
+    r.source === 'sound' || loose ? 9 : 6
   )
 }
 /** Decir otra vez con otra voz las guías escritas (de un carril, o todas). */
@@ -2752,7 +2778,7 @@ defineExpose({ close: hide, hide, exit })
             !track
               ? ''
               : autoBusy
-                ? 'Buscando las partes de la canción…'
+                ? autoStage || 'Buscando las partes de la canción…'
                 : cueEdit
                   ? 'Guía automática: DanPlay busca las partes (intro, estrofas, coros, puente, solos…) y las dice justo antes de cada una'
                   : STOP_FIRST

@@ -2,7 +2,13 @@
 //! batería y volumen distintos por parte) con la voz de mentira de
 //! `services::cues::fake_voice`. (Las cuentas, con
 //! rasgos sintéticos, están en `analysis::structure`.)
+//!
+//! La guía mira el clic de la canción, y la cola del clic y su detector son
+//! de todo el proceso: estas pruebas van una detrás de otra con las del
+//! pulso (`serial`). Sin eso, el detector de mentira de otra prueba podía
+//! darle a esta una rejilla que no es la de su canción.
 use crate::app::App;
+use crate::services::beats::tests::{Detector, Paused, serial};
 use crate::services::{cues, songs};
 use crate::testkit::{call, rows, run_job, scanned_library, text, wait_job};
 use serde_json::{Value, json};
@@ -235,6 +241,7 @@ fn the_automatic_guide_finds_the_parts_and_says_them() {
     let Some((app, cid, _)) = song() else {
         return;
     };
+    let _serial = serial();
     let r = auto(
         &app,
         cid,
@@ -272,6 +279,7 @@ fn with_its_stems_the_intro_and_the_end_are_where_nobody_sings() {
     let Some((app, cid, root)) = song() else {
         return;
     };
+    let _serial = serial();
     let (band, voice) = the_song();
     let folder = root.join(crate::tests::native("Separadas/Prueba - Partes"));
     // la intro y el final, tan fuertes como el resto: sin la voz no se sabría
@@ -317,6 +325,7 @@ fn named_parts_are_used_as_they_are() {
     let Some((app, cid, _)) = song() else {
         return;
     };
+    let _serial = serial();
     let r = auto(
         &app,
         cid,
@@ -365,6 +374,7 @@ fn without_the_voice_it_starts_downloading_it() {
     let Some((app, cid, _)) = song() else {
         return;
     };
+    let _serial = serial();
     cues::fake_voice(&app, false);
     let url = format!("/api/song/{cid}/cues/auto");
     let (st, r) = call(&app, "POST", &url, Some(json!({"voice": "st-F1"})));
@@ -403,6 +413,7 @@ fn a_song_too_short_has_no_parts() {
     let Some((app, _, _)) = song() else {
         return;
     };
+    let _serial = serial();
     let short = rows(&app)
         .into_iter()
         .find(|s| s["file"] == "Barak - Mi Gozo.mp3")
@@ -433,6 +444,7 @@ fn each_song_has_its_own_guide_and_the_result_says_whose_it_is() {
     let Some((app, cid, _)) = song() else {
         return;
     };
+    let _serial = serial();
     let short = rows(&app)
         .into_iter()
         .find(|s| s["file"] == "Barak - Mi Gozo.mp3")
@@ -520,6 +532,7 @@ fn with_the_lyrics_of_this_recording_the_parts_come_from_what_is_sung() {
     let Some((app, cid, _)) = song() else {
         return;
     };
+    let _serial = serial();
     let file = songs::by_id(&app, cid).expect("índice").expect("canción")["path"]
         .as_str()
         .expect("ruta")
@@ -557,4 +570,89 @@ fn with_the_lyrics_of_this_recording_the_parts_come_from_what_is_sung() {
     songs::update_one(&app, cid, "lyrics_synced", Value::from("")).expect("letra");
     songs::update_one(&app, cid, "lyrics", Value::from("")).expect("letra");
     crate::services::enrich::fake_lrclib::put(&file, "");
+}
+
+/// Espera (como mucho 10 s) a que el trabajo diga algo que empiece así.
+fn job_says(app: &App, name: &str, start: &str) -> Value {
+    let limit = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        let job = app.jobs.snapshot(name).expect("trabajo");
+        let said = job["message"].as_str().unwrap_or_default().to_owned();
+        if said.starts_with(start) {
+            return job;
+        }
+        assert!(
+            job["active"] == true && std::time::Instant::now() < limit,
+            "el trabajo no dijo «{start}»: {job}"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+}
+
+#[test]
+fn the_guide_waits_for_the_click_that_is_being_worked_out() {
+    // Pulsada antes de que cargue el clic, la guía no lo esperaba: o partía
+    // la canción en trozos de 2 s (salía distinta, y peor) o pasaba la red
+    // ella misma, a la vez que la cola con esa misma canción. Ahora espera
+    // a la cola, y lo dice.
+    let Some((app, cid, _)) = song() else {
+        return;
+    };
+    let Some(d) = Detector::start(&app) else {
+        return;
+    };
+    let name = format!("auto-cue-{cid}");
+    {
+        // el hilo del clic, parado: la rejilla está pedida y no llega
+        let _paused = Paused::new();
+        let (st, v) = call(
+            &app,
+            "GET",
+            &format!("/api/song/{cid}/beats?wait=false"),
+            None,
+        );
+        assert_eq!((st, &v["pending"]), (202, &json!(true)));
+        let (st, v) = call(
+            &app,
+            "POST",
+            &format!("/api/song/{cid}/cues/auto"),
+            Some(json!({"voice": "st-F1"})),
+        );
+        assert_eq!(st, 202, "{v}");
+        let job = job_says(&app, &name, "Esperando al clic…");
+        assert_eq!(job["active"], true);
+        assert!(d.calls().is_empty(), "nadie más pasa la red");
+    }
+    let job = wait_job(&app, &name);
+    assert_eq!(job["error"], "", "{job}");
+    assert_eq!(job["result"]["click"], true, "{job}");
+    assert!(job["result"].get("click_why").is_none());
+    assert_eq!(d.calls().len(), 1, "la red se pasó una sola vez");
+}
+
+#[test]
+fn if_the_click_does_not_arrive_in_time_the_guide_goes_on_and_says_so() {
+    let Some((app, cid, _)) = song() else {
+        return;
+    };
+    let Some(d) = Detector::start(&app) else {
+        return;
+    };
+    let _paused = Paused::new();
+    let r = auto(&app, cid, json!({"voice": "st-F1", "click_wait": 0.3}));
+    assert_eq!(
+        (&r["click"], &r["click_why"]),
+        (&json!(false), &json!("tarda demasiado"))
+    );
+    // sin compases (trozos de 2 s), las partes de siempre
+    assert!(near(&starts(&r["sections"]), &TRUTH), "{}", r["sections"]);
+    assert!(d.calls().is_empty());
+    // con los compases que manda la interfaz (el clic propio) no se espera
+    // a nada
+    let r = auto(
+        &app,
+        cid,
+        json!({"voice": "st-F1", "bars": every_bar(), "beat": 0.5}),
+    );
+    assert_eq!(r["click"], true);
 }

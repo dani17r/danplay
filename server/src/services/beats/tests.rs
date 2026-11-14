@@ -62,10 +62,10 @@ impl Drop for Serial {
 
 /// El hilo de la cola, parado mientras viva: lo que se pide se queda en la
 /// cola, tal cual.
-struct Paused;
+pub(crate) struct Paused;
 
 impl Paused {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         QUEUE.lock().unwrap_or_else(PoisonError::into_inner).paused = true;
         Self
     }
@@ -112,7 +112,7 @@ fn heard(path: &Path, late: f64) {
 /// avance antes de la respuesta, falla con las «sin-pulso.mp3» y, con las
 /// demás, deja lo que oiría la red (en la batería, 4 ms después). Con su
 /// grafo de mentira.
-struct Detector {
+pub(crate) struct Detector {
     calls: PathBuf,
     dir: PathBuf,
     _serial: Serial,
@@ -120,7 +120,7 @@ struct Detector {
 
 impl Detector {
     /// `None` si aquí no hay ffmpeg (sin él no hay clic: `available`).
-    fn start(app: &App) -> Option<Self> {
+    pub(crate) fn start(app: &App) -> Option<Self> {
         let serial = serial();
         app.tool("ffmpeg")?;
         let dir = crate::tests::scratch("detector");
@@ -160,7 +160,7 @@ impl Detector {
     }
 
     /// Las canciones con que se le llamó, en orden.
-    fn calls(&self) -> Vec<String> {
+    pub(crate) fn calls(&self) -> Vec<String> {
         std::fs::read_to_string(&self.calls)
             .map(|t| t.lines().map(str::to_owned).collect())
             .unwrap_or_default()
