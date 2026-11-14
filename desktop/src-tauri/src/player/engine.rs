@@ -248,7 +248,7 @@ pub(super) fn run(
     if !engine.any_output {
         first.failure = Some(NO_OUTPUT.into());
     }
-    if !engine.publish(first) {
+    if !engine.publish(first, None) {
         return;
     }
     loop {
@@ -268,8 +268,8 @@ pub(super) fn run(
         while let Ok(done) = engine.prepared_rx.try_recv() {
             engine.prepared(done, &mut step);
         }
-        engine.watch(&mut step);
-        if !engine.publish(step) {
+        let seen = engine.watch(&mut step);
+        if !engine.publish(step, Some(seen)) {
             return;
         }
     }
@@ -287,6 +287,14 @@ impl Engine<'_> {
             return IDLE;
         }
         let st = self.audio.state();
+        // una que acaba de acabar y aún no se ha contado (ni se le ha puesto
+        // la siguiente): se mira ya. Si acababa justo entre dos miradas, «ya
+        // no suena» mandaba a dormir el bucle medio segundo, y ese era el
+        // silencio entre las dos canciones.
+        if st.ended && !st.segments_done && !self.was_finished && self.outgoing.is_none() && !self.carry.path.is_empty()
+        {
+            return CLOSE;
+        }
         if !st.playing {
             return IDLE;
         }
@@ -960,7 +968,14 @@ impl Engine<'_> {
 
     // ------------------------------------------- vigilar y contar
 
-    fn watch(&mut self, step: &mut Step) {
+    /// Mira el motor y hace lo que toca (encadenar la siguiente, volver al
+    /// principio de los tramos, soltar la salida). Devuelve el estado con el
+    /// que decidió, para que `publish` cuente lo mismo: si lo volviera a
+    /// leer, una canción que acabara entre las dos lecturas se daría por
+    /// acabada (`Finished`) sin que `chain` hubiera podido ponerle la
+    /// siguiente, y entre las dos quedaba el silencio de ir a preguntar a la
+    /// cola (una vez de cada veinticinco).
+    fn watch(&mut self, step: &mut Step) -> danplay_engine::State {
         let mut st = self.audio.state();
         // la que se iba llegó a su final antes de que la siguiente
         // estuviera preparada: fuera, y se sigue esperando a la otra (no es
@@ -979,6 +994,7 @@ impl Engine<'_> {
             if let Some(&(a, _)) = self.carry.loops.first() {
                 self.audio.seek(a);
                 step.sought = true;
+                st = self.audio.state();
             }
         }
         // en pausa un rato: la salida, fuera
@@ -991,6 +1007,7 @@ impl Engine<'_> {
                 self.audio.release_output();
             }
         }
+        st
     }
 
     /// La siguiente, lista de antemano: mientras suena esta, lo que haya que
@@ -1066,9 +1083,9 @@ impl Engine<'_> {
         true
     }
 
-    fn publish(&mut self, step: Step) -> bool {
+    fn publish(&mut self, step: Step, seen: Option<danplay_engine::State>) -> bool {
         let could_not_open = step.could_not_open;
-        let st = self.audio.state();
+        let st = seen.unwrap_or_else(|| self.audio.state());
         let output = self.audio.output_status();
         // (con la que se va sonando mientras se prepara la siguiente, lo
         // cargado no es «la canción»: ni su posición ni su final se cuentan)

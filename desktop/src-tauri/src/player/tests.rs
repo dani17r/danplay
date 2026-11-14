@@ -951,7 +951,9 @@ fn one_after_another(name: &str, seconds: f64, announced: bool, to_prepare: bool
         |_| card.span(true).is_some_and(|(a, b)| b - a > frames_of(0.3)),
     );
     let (begins, ends) = card.span(false).expect("la primera no sono");
-    let (enters, _) = card.span(true).expect("la segunda no sono");
+    let (enters, _) = card
+        .span(true)
+        .unwrap_or_else(|| panic!("la segunda no sono: {seen:?} {entered:?}"));
     assert!(enters > ends, "la segunda entro encima de la primera");
     let expected = entered.as_ref().map(|_| (7, first.clone(), second.clone()));
     assert_eq!(entered, expected, "entro otra cosa: {seen:?}");
@@ -1255,6 +1257,8 @@ fn far_grid() -> Arc<crate::beats::BeatGrid> {
         first_downbeat: 0,
         phase3: 0,
         phase4: 0,
+        phase2: None,
+        phase6: None,
         confidence: 0.9,
         bars: Vec::new(),
         closed: true,
