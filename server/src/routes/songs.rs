@@ -172,19 +172,22 @@ fn song_beats(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let app = ctx.app;
     let c = resolved_file(app, cid, "archivo no encontrado")?;
     let path = path_of(&c);
+    if !wait {
+        // lo que se pregunta cada 700 ms mientras carga: todo de una vez
+        return match beats::peek(app, &path, true).map_err(beats_error)? {
+            beats::Peek::Ready(grid) => Ok(grid.into()),
+            beats::Peek::Pending(done) => {
+                Ok(Response::json(202, &json!({"pending": true, "progress": done})).into())
+            }
+            beats::Peek::Unavailable(reason) => Err(ApiError::http(503, reason)),
+        };
+    }
     let reason = beats::available(app);
     if !reason.is_empty() && !beats::cached(app, &path) {
         return Err(ApiError::http(503, reason));
     }
-    if wait {
-        let grid = beats::grid_of(app, &path).map_err(beats_error)?;
-        return Ok(grid.into());
-    }
-    if let Some(grid) = beats::request(app, &path, true).map_err(beats_error)? {
-        return Ok(grid.into());
-    }
-    let done = beats::progress(&path).unwrap_or(0.0);
-    Ok(Response::json(202, &json!({"pending": true, "progress": done})).into())
+    let grid = beats::grid_of(app, &path).map_err(beats_error)?;
+    Ok(grid.into())
 }
 
 /// Las que caben en una petición de preparar el clic (una lista entera).

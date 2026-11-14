@@ -28,6 +28,12 @@ pub(crate) fn set_graph(path: &Path) {
     *GRAPH.lock().unwrap_or_else(PoisonError::into_inner) = Some(path.to_path_buf());
 }
 
+/// Cuántas veces se miró si hay detector y cuántas se leyó la rejilla
+/// guardada (`beats::available`, `saved`, `cached`).
+pub(super) static AVAILABLE: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+pub(super) static READS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
 /// Si la prueba que corre quiere que acabar de separar una canción deje la
 /// batería oyéndose (`after_separation`).
 static HOOK: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -626,6 +632,43 @@ fn the_api_without_waiting_and_preparing_the_next() {
         call(&app, "POST", "/api/song/999999/beats/prepare", None).0,
         404
     );
+}
+
+#[test]
+fn asking_how_the_grid_goes_looks_once_for_the_detector_and_once_at_the_file() {
+    // Mientras carga, la interfaz pregunta cada 700 ms: cada pregunta miraba
+    // dos veces si están ONNX, ffmpeg y el grafo (o leía dos veces el JSON
+    // guardado) y hacía la clave del archivo otra vez.
+    use std::sync::atomic::Ordering::SeqCst;
+    let Some(app) = api_library() else {
+        return;
+    };
+    let Some(_d) = Detector::start(&app) else {
+        return;
+    };
+    let ids = first_ids(&app, 1);
+    let url = format!("/api/song/{}/beats?wait=false", ids[0]);
+    let looks = || (AVAILABLE.load(SeqCst), READS.load(SeqCst));
+    let ask = |url: &str| {
+        let before = looks();
+        let (st, v) = call(&app, "GET", url, None);
+        let after = looks();
+        ((st, v), (after.0 - before.0, after.1 - before.1))
+    };
+    {
+        // sin guardar: queda en la cola y dice por dónde va
+        let _paused = Paused::new();
+        for _ in 0..3 {
+            let ((st, v), used) = ask(&url);
+            assert_eq!((st, &v["pending"]), (202, &json!(true)), "{v}");
+            assert_eq!(used, (1, 1), "una vez el detector y una el archivo");
+        }
+    }
+    assert!(idle(Duration::from_secs(30)));
+    // ya guardada: sale de lo guardado, sin mirar el detector siquiera
+    let ((st, v), used) = ask(&url);
+    assert_eq!((st, &v["meter"]), (200, &json!(4)), "{v}");
+    assert_eq!(used, (0, 1));
 }
 
 #[test]

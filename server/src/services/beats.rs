@@ -92,6 +92,8 @@ pub fn graph(app: &App) -> PathBuf {
 
 /// Por qué no se puede calcular aquí, o vacío.
 pub fn available(app: &App) -> String {
+    #[cfg(test)]
+    tests::AVAILABLE.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     // con otro detector (`set_detector`), ONNX Runtime es cosa suya
     let custom = custom_detector().is_some();
     if !custom && crate::services::onnx::library(app).is_none() {
@@ -128,12 +130,25 @@ pub(crate) fn raw_file(app: &App, path: &Path) -> std::io::Result<PathBuf> {
 
 /// Si hay rejilla guardada que valga.
 pub fn cached(app: &App, path: &Path) -> bool {
+    #[cfg(test)]
+    tests::READS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     cache(app, path).is_ok_and(|c| lb::is_valid(&c, VERSION))
 }
 
 /// La rejilla guardada de un archivo.
 fn saved(app: &App, path: &Path) -> Option<Map<String, Value>> {
+    #[cfg(test)]
+    tests::READS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     lb::saved(&cache(app, path).ok()?)
+}
+
+/// La rejilla de lo guardado, si vale: de esta versión (o exacta, la de un
+/// proyecto) y con algo dentro.
+fn valid_grid(entry: &Map<String, Value>) -> Option<&Value> {
+    (entry.get("version").and_then(Value::as_f64) == Some(VERSION as f64)
+        || entry.get("exact").is_some_and(library::value::truthy))
+    .then(|| entry.get("grid").filter(|g| library::value::truthy(g)))
+    .flatten()
 }
 
 /// Guarda la rejilla de un archivo, con lo re-analizado a mano.
@@ -427,11 +442,7 @@ pub fn grid_of(app: &App, path: &Path) -> Result<Value, BeatsError> {
         return Err(beats_err("no encuentro el archivo"));
     }
     let saved = saved(app, path);
-    if let Some(s) = &saved
-        && (s.get("version").and_then(Value::as_i64) == Some(VERSION)
-            || s.get("exact").is_some_and(library::value::truthy))
-        && let Some(g) = s.get("grid").filter(|g| library::value::truthy(g))
-    {
+    if let Some(g) = saved.as_ref().and_then(valid_grid) {
         return Ok(g.clone());
     }
     let raw = match raw_of(app, path) {
@@ -971,21 +982,58 @@ fn enqueue(q: &mut Queue, app: &App, key: String, task: Task, first: bool) -> bo
     fits
 }
 
+/// Lo que da `peek`.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Peek {
+    /// la rejilla guardada
+    Ready(Value),
+    /// queda en la cola, y por dónde va (0..1)
+    Pending(f64),
+    /// aquí no se puede calcular, y por qué
+    Unavailable(String),
+}
+
+/// La rejilla si ya está guardada; si no, queda en la cola (delante con
+/// `first`) y dice por dónde va. `BeatsError` si ya falló con este archivo.
+///
+/// Es lo que se pregunta cada 700 ms mientras carga, así que lo hace todo de
+/// una vez: la clave del archivo, su rejilla guardada y si hay detector,
+/// UNA vez cada cosa (antes eran dos mirando si están ONNX, ffmpeg y el
+/// grafo, y dos leyendo el JSON).
+pub fn peek(app: &App, path: &Path, first: bool) -> Result<Peek, BeatsError> {
+    if !path.is_file() {
+        return Err(beats_err("no encuentro el archivo"));
+    }
+    let key = key_of(path).map_err(|e| BeatsError::Other(e.to_string()))?;
+    #[cfg(test)]
+    tests::READS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    let entry = lb::saved(&folder(app).join(format!("{key}.json")));
+    if let Some(grid) = entry.as_ref().and_then(valid_grid) {
+        return Ok(Peek::Ready(grid.clone()));
+    }
+    let reason = available(app);
+    if !reason.is_empty() {
+        return Ok(Peek::Unavailable(reason));
+    }
+    let text = path.to_string_lossy().into_owned();
+    let mut q = QUEUE.lock().unwrap_or_else(PoisonError::into_inner);
+    // lo recordado se busca por la clave del archivo (`failure_key`)
+    if let Some(why) = remembered(&q, &key) {
+        return Err(beats_err(why));
+    }
+    enqueue(&mut q, app, text.clone(), Task::Grid, first);
+    Ok(Peek::Pending(progress_in(&q, &text).unwrap_or(0.0)))
+}
+
 /// La rejilla si ya está guardada; si no, `None` y queda en la cola (delante
 /// con `first`). `BeatsError` si aquí no se puede o si ya falló con este
 /// mismo archivo.
 pub fn request(app: &App, path: &Path, first: bool) -> Result<Option<Value>, BeatsError> {
-    if !path.is_file() {
-        return Err(beats_err("no encuentro el archivo"));
+    match peek(app, path, first)? {
+        Peek::Ready(grid) => Ok(Some(grid)),
+        Peek::Pending(_) => Ok(None),
+        Peek::Unavailable(reason) => Err(beats_err(reason)),
     }
-    if cached(app, path) {
-        match grid_of(app, path) {
-            Ok(g) => return Ok(Some(g)),
-            Err(BeatsError::Beats(_)) => {}
-            Err(other) => return Err(other),
-        }
-    }
-    line_up(app, path, first).map(|_| None)
 }
 
 /// Deja la rejilla de un archivo en la cola (delante con `first`). `false`
