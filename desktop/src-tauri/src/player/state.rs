@@ -47,6 +47,8 @@ pub struct State {
     /// El tono corrido, en semitonos (0 = como esta grabada). Admite medios
     /// semitonos (cuartos de tono) y cualquier fraccion.
     pub pitch: f32,
+    /// Con el tono corrido, el timbre de la voz se conserva (`Command::Formants`).
+    pub formants: bool,
     /// Como va el metronomo.
     pub metronome: MetronomeState,
     /// Suenan las pistas separadas de la cancion (con su mezclador) en vez

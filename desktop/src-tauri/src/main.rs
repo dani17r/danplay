@@ -182,6 +182,7 @@ fn main() {
             record::preview_clip,
             record::preview_stop,
             queue::commands::set_pitch,
+            queue::commands::set_formants,
             queue::commands::set_metronome,
             queue::commands::set_stems,
             queue::commands::set_crossfade,

@@ -47,6 +47,8 @@ pub enum Command {
     },
     /// El tono corrido, en semitonos (con fracciones).
     Pitch(f32),
+    /// Conservar el timbre de la voz al cambiar el tono.
+    Formants(bool),
     /// Cuanto se funden dos canciones al pasar de una a otra (0 = nada).
     Crossfade(f32),
     /// Las pistas separadas de la cancion `song` en vez de ella, o nada.

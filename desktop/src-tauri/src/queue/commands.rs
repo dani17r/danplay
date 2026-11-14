@@ -73,6 +73,15 @@ pub fn set_pitch(playback: tauri::State<'_, Playback>, semitones: f32) {
     playback.send(Command::Pitch(semitones));
 }
 
+/// Conservar el timbre de la voz al cambiar el tono: los formantes se quedan
+/// donde estaban y la voz no suena a «ardilla» ni a «gigante». Apagado de
+/// fábrica; cuesta un poco más de cálculo en el estirador, y solo con el tono
+/// corrido.
+#[tauri::command]
+pub fn set_formants(playback: tauri::State<'_, Playback>, on: bool) {
+    playback.send(Command::Formants(on));
+}
+
 /// Cuanto se funden dos canciones al pasar de una a otra, en segundos (0 =
 /// sin fundido; hasta 12). Con el clic, la cuenta o
 /// tramos puestos no se funden.

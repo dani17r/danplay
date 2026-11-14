@@ -251,6 +251,24 @@ fn volume_survives_without_output() {
     assert!((s.volume - 0.3).abs() < 1e-6);
 }
 
+/// Conservar el timbre de la voz al cambiar el tono es una preferencia que
+/// se guarda con la sesión (apagada de fábrica) y pasa de una canción a la
+/// siguiente: el motor la lleva consigo y la interfaz la manda una vez.
+#[test]
+fn keeping_the_timbre_of_the_voice_is_off_and_is_remembered() {
+    let (m, _rx) = handle();
+    assert!(!m.state().formants, "de fábrica, apagado");
+    m.send(Command::Formants(true)).unwrap();
+    let on = until(&m, |s| s.formants);
+    assert!(on.formants);
+    // el tono no la toca, ni cargar otra canción
+    m.send(Command::Pitch(3.0)).unwrap();
+    let s = until(&m, |s| (s.pitch - 3.0).abs() < f32::EPSILON);
+    assert!(s.formants && (s.pitch - 3.0).abs() < f32::EPSILON);
+    m.send(Command::Formants(false)).unwrap();
+    assert!(!until(&m, |s| !s.formants).formants);
+}
+
 #[test]
 fn volume_and_speed_are_clamped() {
     let (m, _rx) = handle();

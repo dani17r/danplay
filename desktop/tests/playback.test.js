@@ -252,6 +252,29 @@ describe('usePlayback', () => {
     expect(held.playback.bridge.setCrossfade).toHaveBeenCalledWith(0)
   })
 
+  it('keeping the timbre of the voice is off, chosen, remembered and sent on startup', async () => {
+    let player = usePlayback()
+    await player.ready()
+    // de fábrica apagado: no se manda nada a Rust
+    expect(player.formants.value).toBe(false)
+    expect(held.playback.bridge.setFormants).not.toHaveBeenCalled()
+    await player.setFormants(true)
+    expect(held.playback.bridge.setFormants).toHaveBeenLastCalledWith(true)
+    expect(player.formants.value).toBe(true)
+    expect(localStorage.getItem('danplay.pitch.formants')).toBe('1')
+    // la sesión siguiente arranca con él puesto, mandado a Rust
+    resetPlayback()
+    held.playback.reset()
+    vi.clearAllMocks()
+    player = usePlayback()
+    await player.ready()
+    expect(player.formants.value).toBe(true)
+    expect(held.playback.bridge.setFormants).toHaveBeenCalledWith(true)
+    await player.setFormants(false)
+    expect(held.playback.bridge.setFormants).toHaveBeenLastCalledWith(false)
+    expect(localStorage.getItem('danplay.pitch.formants')).toBe('0')
+  })
+
   it('volume stays in range: up to 50 % above the original level', async () => {
     const player = usePlayback()
     await player.setVolume(9)

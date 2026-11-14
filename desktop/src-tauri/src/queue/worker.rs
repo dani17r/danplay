@@ -560,6 +560,9 @@ pub(super) fn apply(inner: &mut Inner, command: Command, player: &player::Handle
         Command::Cues { song, cues, volume } => {
             let _ = player.send(player::Command::Cues { song, cues, volume });
         }
+        Command::Formants(on) => {
+            let _ = player.send(player::Command::Formants(on));
+        }
         Command::Pitch(n) => {
             let _ = player.send(player::Command::Pitch(n));
         }

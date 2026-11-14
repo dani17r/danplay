@@ -519,6 +519,12 @@ const ACCENT_OPTIONS = [
             :options="CROSSFADE_OPTIONS"
             @update:model-value="(v) => playback.setCrossfade(v)"
           />
+          <ToggleField
+            :model-value="playback.formants.value"
+            title="Conservar el timbre de la voz al cambiar el tono"
+            hint="Con el tono subido o bajado, la voz no suena a «ardilla» ni a «gigante». Cuesta un poco más de cálculo y solo cuenta con el tono cambiado; si algo suena raro, apágalo."
+            @update:model-value="(v) => playback.setFormants(v)"
+          />
         </Card>
 
         <Card

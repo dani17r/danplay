@@ -24,6 +24,7 @@ import {
 
 const VOLUME_KEY = 'danplay.vol'
 const CROSSFADE_KEY = 'danplay.crossfade'
+const FORMANTS_KEY = 'danplay.pitch.formants'
 /** Lo que se puede elegir de fundido entre canciones, en segundos (0 = sin él). */
 export const CROSSFADES = [0, 2, 4, 6, 8, 12]
 /** El de fábrica: se nota la transición sin que se pisen mucho. */
@@ -347,6 +348,9 @@ function createWebBackend() {
     },
     // aquí suena una canción cada vez (un <audio>): sin fundido
     setCrossfade: async () => {},
+    // el navegador cambia la velocidad conservando el tono, y aquí no hay
+    // tono que cambiar
+    setFormants: async () => {},
     setSpeed: async (value) => {
       s.speed = clamp(Number(value) || 1, 0.25, 3)
       // el navegador conserva el tono al cambiar playbackRate
@@ -453,6 +457,16 @@ function savedCrossfade() {
 }
 /** Cuánto se funden dos canciones al pasar de una a otra (0 = nada). */
 const crossfade = ref(savedCrossfade())
+
+/** ¿Se conserva el timbre de la voz al cambiar el tono? No, de fábrica. */
+function savedFormants() {
+  try {
+    return localStorage.getItem(FORMANTS_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+const formants = ref(savedFormants())
 
 /**
  * ¿El clic acentúa el «1» de las canciones que no tienen su compás ajustado?
@@ -589,6 +603,7 @@ async function boot() {
       // guarda con su canción y vuelve con ella; cerrando DanPlay con una
       // canción al 70 %, al día siguiente sonaba todo al 70 %.
       await backend.setCrossfade?.(crossfade.value)
+      if (formants.value) await backend.setFormants?.(true)
       if (REPEAT_MODES.includes(repeat)) await backend.setRepeat(normalizeRepeat(repeat))
     }
     applyState(await backend.state())
@@ -619,6 +634,7 @@ export function resetPlayback() {
   saidError = ''
   queue.value = []
   crossfade.value = savedCrossfade()
+  formants.value = savedFormants()
   accentDefault.value = savedAccent()
   meterIsOwn = false
   Object.assign(metronomeSettings, {
@@ -757,6 +773,16 @@ function setCrossfade(seconds) {
   crossfade.value = v
   remember(CROSSFADE_KEY, v)
   return send((b) => b.setCrossfade?.(v))
+}
+/**
+ * Conservar el timbre de la voz al cambiar el tono (sin el efecto «ardilla»
+ * al subirlo ni «gigante» al bajarlo). Una preferencia general.
+ * @param {boolean} on
+ */
+function setFormants(on) {
+  formants.value = !!on
+  remember(FORMANTS_KEY, on ? '1' : '0')
+  return send((b) => b.setFormants?.(!!on))
 }
 function setPitch(semitones) {
   const n = cleanPitch(semitones)
@@ -962,6 +988,8 @@ export function usePlayback() {
     pitch: computed(() => state.pitch),
     setCrossfade,
     crossfade: computed(() => crossfade.value),
+    setFormants,
+    formants: computed(() => formants.value),
     setMetronome,
     resetMetronomeOverrides,
     /** acentuar el «1» en las canciones sin compás propio (Ajustes) */

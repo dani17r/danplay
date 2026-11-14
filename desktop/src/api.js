@@ -661,6 +661,12 @@ export const playback = {
    * de tono). Solo hace algo con ffmpeg.
    */
   setPitch: (semitones) => invoke('set_pitch', { semitones }),
+  /**
+   * Conservar el timbre de la voz al cambiar el tono (los formantes en su
+   * sitio, sin el efecto «ardilla» ni «gigante»). Apagado de fábrica.
+   * @param {boolean} on
+   */
+  setFormants: (on) => invoke('set_formants', { on }),
   setCrossfade: (seconds) => invoke('set_crossfade', { seconds }),
   /** @param {MetronomeSettings} settings */
   setMetronome: (settings) => invoke('set_metronome', { settings }),

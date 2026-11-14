@@ -169,6 +169,10 @@ pub enum Command {
     /// El tono corrido, en semitonos (-12..12, con fracciones: medio
     /// semitono es un cuarto de tono).
     Pitch(f32),
+    /// Conservar el timbre de la voz al cambiar el tono (los formantes en su
+    /// sitio): sin esto, subir 3 semitonos suena a «ardilla» y bajarlos a
+    /// «gigante». Una preferencia general, apagada de fábrica.
+    Formants(bool),
     /// Cuanto se funden dos canciones al pasar de una a otra, en segundos
     /// (0 = sin fundido, hasta 12).
     Crossfade(f32),

@@ -62,6 +62,8 @@ pub(super) struct Carry {
     pub(super) volume: f32,
     pub(super) speed: f32,
     pub(super) pitch: f32,
+    /// Conservar el timbre al cambiar el tono (`Command::Formants`).
+    pub(super) formants: bool,
     /// La cancion (su ruta de la biblioteca: la de verdad).
     pub(super) path: String,
     pub(super) duration: f64,
@@ -86,6 +88,7 @@ impl Carry {
             volume: 0.9,
             speed: 1.0,
             pitch: 0.0,
+            formants: false,
             path: String::new(),
             duration: 0.0,
             loops: Vec::new(),
@@ -325,6 +328,7 @@ impl Engine<'_> {
     fn apply_session(&mut self) {
         self.audio.set_speed(self.carry.speed);
         self.audio.set_pitch(self.carry.pitch);
+        self.audio.set_formants(self.carry.formants);
         self.audio.set_output_config(self.carry.output.clone());
         self.audio.set_count_in(u32::from(self.carry.metro.settings.count_in));
         self.audio.set_routing(self.routing());
@@ -405,6 +409,10 @@ impl Engine<'_> {
             Command::Pitch(semitones) => {
                 self.carry.pitch = clean_pitch(semitones);
                 self.audio.set_pitch(self.carry.pitch);
+            }
+            Command::Formants(on) => {
+                self.carry.formants = on;
+                self.audio.set_formants(on);
             }
             Command::Relocated { from, to } => self.relocated(&from, to),
             Command::Crossfade(seconds) => {
@@ -1134,6 +1142,7 @@ impl Engine<'_> {
             e.loops = loops.iter().map(|&(a, b)| [a, b]).collect();
             e.loop_end = self.carry.loop_end;
             e.pitch = self.carry.pitch;
+            e.formants = self.carry.formants;
             e.metronome = self.carry.metro.state();
             e.stems = loaded && self.carry.stems.is_some();
             e.counting_in = st.counting > 0;
