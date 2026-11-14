@@ -1203,9 +1203,12 @@ export const api = {
    * Vuelve a analizar el clic: de toda la canción o de un tramo, arreglando
    * los huecos y los saltos de fase ('repair'), a tempo fijo ('steady'),
    * con la batería separada ('drums') o rellenando los silencios ('fill').
-   * Devuelve la rejilla nueva y lo que se arregló.
+   * Devuelve la rejilla nueva y lo que se arregló. Con `wait: false`, lo
+   * que tarda (que la red oiga la batería) va por la cola del núcleo y
+   * mientras contesta `{pending, progress}`: se pide otra vez hasta que sale
+   * (lo hace `useClick().reanalyze`).
    * @param {number} id
-   * @param {{mode: 'repair'|'steady'|'drums'|'fill', start?: number, end?: number}} opts
+   * @param {{mode: 'repair'|'steady'|'drums'|'fill', start?: number, end?: number, wait?: boolean}} opts
    * @returns {Promise<{grid: BeatGrid, report: {fixed: number, bpm: number, notes: string[]}}>}
    */
   reanalyzeBeats: (id, opts) => POST(`/song/${id}/beats/reanalyze`, opts),

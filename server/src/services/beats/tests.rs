@@ -81,7 +81,7 @@ impl Drop for Paused {
 /// Lo que hay en la cola, en orden.
 fn waiting() -> Vec<String> {
     let q = QUEUE.lock().unwrap_or_else(PoisonError::into_inner);
-    q.waiting.iter().map(|(p, _)| p.clone()).collect()
+    q.waiting.iter().map(|w| w.path.clone()).collect()
 }
 
 // ---------------------------------------------------------------- el detector
@@ -282,7 +282,7 @@ fn the_progress_lines_are_not_taken_for_the_answer() {
         assert_eq!(request(&app, &other, true).expect("pedir"), None);
         let q = QUEUE.lock().unwrap_or_else(PoisonError::into_inner);
         assert!(q.progress.is_empty());
-        assert!(q.waiting.iter().any(|(p, _)| *p == text_of(&other)));
+        assert!(q.waiting.iter().any(|w| w.path == text_of(&other)));
     }
     assert!(idle(Duration::from_secs(30)));
     assert_eq!(progress(&other), None);
@@ -648,6 +648,86 @@ fn the_whole_song_with_the_separated_drums() {
     let bpm = g["bpm"].as_f64().expect("tempo");
     assert!((bpm - 120.0).abs() <= 0.1, "{bpm}");
     beats_failure(reanalyze(&app, &song, "magia", None, None, None), "no sé");
+}
+
+/// La canción de la biblioteca con ese id, y su batería separada puesta
+/// aquí (un archivo de mentira con ese nombre, en su carpeta de pistas).
+fn with_drums(app: &App, id: i64, file: &str) -> (PathBuf, PathBuf) {
+    let row = crate::services::songs::by_id(app, id)
+        .expect("base")
+        .expect("canción");
+    let song = PathBuf::from(crate::services::songs::text(&row, "path"));
+    let name = format!("Prueba {id}");
+    let folder = app.config().library.join("Separadas").join(&name);
+    std::fs::create_dir_all(&folder).expect("carpeta");
+    let drums = folder.join(file);
+    std::fs::write(&drums, b"d").expect("batería");
+    let manifest = json!({"tracks": [{"source": "drums", "file": file}]});
+    std::fs::write(library::stems::manifest_path(&folder), manifest.to_string())
+        .expect("manifiesto");
+    let stems = json!({"folder": format!("Separadas/{name}")}).to_string();
+    crate::services::songs::update_one(app, id, "stems", Value::from(stems)).expect("pistas");
+    (song, drums)
+}
+
+#[test]
+fn the_separated_drums_are_heard_through_the_queue_with_progress() {
+    // «Con la batería separada» pasaba la red por la batería dentro de la
+    // petición: 15-20 s sin avance a la vista. Sin esperar (`wait=false`) va
+    // por la cola, delante, y la petición dice por dónde va hasta que sale.
+    let Some(app) = api_library() else {
+        return;
+    };
+    let Some(d) = Detector::start(&app) else {
+        return;
+    };
+    let ids = first_ids(&app, 2);
+    let (song, drums) = with_drums(&app, ids[0], "bateria.flac");
+    grid_of(&app, &song).expect("rejilla");
+    let url = format!("/api/song/{}/beats/reanalyze", ids[0]);
+    let body = json!({"mode": "drums", "wait": false});
+    {
+        let _paused = Paused::new();
+        for _ in 0..2 {
+            let (st, v) = call(&app, "POST", &url, Some(body.clone()));
+            assert_eq!(
+                (st, &v),
+                (202, &json!({"pending": true, "progress": 0.0})),
+                "{v}"
+            );
+        }
+        assert_eq!(
+            waiting(),
+            [text_of(&drums)],
+            "pedirla dos veces no la duplica"
+        );
+        assert_eq!(d.calls(), [text_of(&song)], "la petición no pasa la red");
+    }
+    assert!(idle(Duration::from_secs(30)));
+    assert_eq!(d.calls(), [text_of(&song), text_of(&drums)]);
+    // de la batería se guarda lo que oyó la red, no una rejilla suya
+    assert!(raw_file(&app, &drums).expect("clave").is_file());
+    assert!(!cached(&app, &drums));
+    let (st, v) = call(&app, "POST", &url, Some(body));
+    assert_eq!(st, 200, "{v}");
+    let bpm = v["grid"]["bpm"].as_f64().expect("tempo");
+    assert!((bpm - 120.0).abs() <= 0.1, "{bpm}");
+    assert_eq!(d.calls().len(), 2, "ya oída: no se pasa otra vez");
+    // si la red no puede con la batería, se dice (y no se queda preguntando)
+    let (_, bad) = with_drums(&app, ids[1], "sin-pulso.mp3");
+    let url = format!("/api/song/{}/beats/reanalyze", ids[1]);
+    let body = json!({"mode": "drums", "wait": false});
+    assert_eq!(call(&app, "POST", &url, Some(body.clone())).0, 202);
+    assert!(idle(Duration::from_secs(30)));
+    let (st, v) = call(&app, "POST", &url, Some(body));
+    assert_eq!(st, 422, "{v}");
+    assert!(
+        v["detail"]
+            .as_str()
+            .is_some_and(|m| m.contains("no tiene pulso")),
+        "{v}"
+    );
+    assert_eq!(d.calls().last(), Some(&text_of(&bad)));
 }
 
 #[test]

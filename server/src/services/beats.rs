@@ -693,7 +693,7 @@ pub fn child_main(args: &[OsString]) -> i32 {
 /// se estorbarían.
 #[derive(Default)]
 struct Queue {
-    waiting: VecDeque<(String, App)>,
+    waiting: VecDeque<Waiting>,
     busy: Option<String>,
     failed: HashMap<String, Failed>,
     progress: HashMap<String, f64>,
@@ -702,6 +702,23 @@ struct Queue {
     /// tal cual, para mirarla
     #[cfg(test)]
     paused: bool,
+}
+
+/// Lo que espera en la cola: un archivo y qué se quiere de él.
+struct Waiting {
+    path: String,
+    app: App,
+    task: Task,
+}
+
+/// Lo que se le pide a la cola con un archivo.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Task {
+    /// su rejilla (`grid_of`)
+    Grid,
+    /// solo que la red lo oiga (la batería separada de una canción): queda
+    /// lo que dijo, y la rejilla la saca quien lo pidió
+    Hear,
 }
 
 /// Un fallo del detector con un archivo: por qué, cuándo y cuántas veces.
@@ -751,7 +768,45 @@ fn progress_in(q: &Queue, key: &str) -> Option<f64> {
     if q.busy.as_deref() == Some(key) {
         return Some(q.progress.get(key).copied().unwrap_or(0.0));
     }
-    q.waiting.iter().any(|(p, _)| p == key).then_some(0.0)
+    q.waiting.iter().any(|w| w.path == key).then_some(0.0)
+}
+
+/// El fallo recordado de ese archivo (`failure_key`), si aún no toca volver
+/// a intentarlo.
+fn remembered(q: &Queue, fkey: &str) -> Option<String> {
+    q.failed
+        .get(fkey)
+        .filter(|f| f.tries >= MAX_TRIES || f.at.elapsed() < RETRY_AFTER)
+        .map(|f| f.why.clone())
+}
+
+/// Deja el archivo en la cola (delante con `first`) y despierta al hilo. Lo
+/// que ya espera no se duplica: con `first`, pasa delante.
+fn enqueue(q: &mut Queue, app: &App, key: String, task: Task, first: bool) {
+    if q.busy.as_deref() != Some(key.as_str()) {
+        q.waiting.retain(|w| w.path != key);
+        let item = Waiting {
+            path: key,
+            app: app.clone(),
+            task,
+        };
+        if first {
+            q.waiting.push_front(item);
+        } else {
+            q.waiting.push_back(item);
+        }
+        q.waiting.truncate(MAX_QUEUE);
+    }
+    if !q.worker {
+        q.worker = true;
+        let started = std::thread::Builder::new()
+            .name("danplay-beats".into())
+            .spawn(work);
+        if started.is_err() {
+            q.worker = false;
+        }
+    }
+    WAKE.notify_all();
 }
 
 /// La rejilla si ya está guardada; si no, `None` y queda en la cola (delante
@@ -773,33 +828,38 @@ pub fn request(app: &App, path: &Path, first: bool) -> Result<Option<Value>, Bea
         return Err(beats_err(reason));
     }
     let key = path.to_string_lossy().into_owned();
-    let fkey = failure_key(path);
     let mut q = QUEUE.lock().unwrap_or_else(PoisonError::into_inner);
-    if let Some(failed) = q.failed.get(&fkey)
-        && (failed.tries >= MAX_TRIES || failed.at.elapsed() < RETRY_AFTER)
-    {
-        return Err(beats_err(failed.why.clone()));
+    if let Some(why) = remembered(&q, &failure_key(path)) {
+        return Err(beats_err(why));
     }
-    if q.busy.as_deref() != Some(key.as_str()) {
-        q.waiting.retain(|(p, _)| *p != key);
-        if first {
-            q.waiting.push_front((key, app.clone()));
-        } else {
-            q.waiting.push_back((key, app.clone()));
-        }
-        q.waiting.truncate(MAX_QUEUE);
-    }
-    if !q.worker {
-        q.worker = true;
-        let started = std::thread::Builder::new()
-            .name("danplay-beats".into())
-            .spawn(work);
-        if started.is_err() {
-            q.worker = false;
-        }
-    }
-    WAKE.notify_all();
+    enqueue(&mut q, app, key, Task::Grid, first);
     Ok(None)
+}
+
+/// Lo que le falta a «con la batería separada» para aplicarse al momento:
+/// que la red oiga la batería (15-20 s la primera vez). `Ok(None)` si ya la
+/// oyó; si no, queda delante en la cola y sale por dónde va (0..1).
+///
+/// Antes la red se pasaba dentro de la petición de re-analizar: 15-20 s sin
+/// avance a la vista, y con la cola pasando otra a la vez.
+pub fn drums_pending(app: &App, path: &Path) -> Result<Option<f64>, BeatsError> {
+    let Some(drums) = drums_of(app, path) else {
+        return Err(beats_err("esta canción no tiene la batería separada"));
+    };
+    if raw_file(app, &drums).is_ok_and(|f| f.is_file()) {
+        return Ok(None);
+    }
+    let reason = available(app);
+    if !reason.is_empty() {
+        return Err(beats_err(reason));
+    }
+    let key = drums.to_string_lossy().into_owned();
+    let mut q = QUEUE.lock().unwrap_or_else(PoisonError::into_inner);
+    if let Some(why) = remembered(&q, &failure_key(&drums)) {
+        return Err(beats_err(why));
+    }
+    enqueue(&mut q, app, key.clone(), Task::Hear, true);
+    Ok(Some(progress_in(&q, &key).unwrap_or(0.0)))
 }
 
 /// La rejilla por la cola, esperándola: se pide delante de lo que haya y se
@@ -851,9 +911,19 @@ pub fn prepare(app: &App, path: &Path) -> bool {
     request(app, path, false).is_ok()
 }
 
+/// Lo que hace el hilo con lo que sale de la cola.
+fn perform(app: &App, path: &Path, task: Task) -> Result<(), BeatsError> {
+    match task {
+        Task::Grid => grid_of(app, path).map(|_| ()),
+        // ya oída (se pidió dos veces): nada que hacer
+        Task::Hear if raw_file(app, path).is_ok_and(|f| f.is_file()) => Ok(()),
+        Task::Hear => network(app, path).map(|_| ()),
+    }
+}
+
 fn work() {
     loop {
-        let (path, app) = {
+        let Waiting { path, app, task } = {
             let mut q = QUEUE.lock().unwrap_or_else(PoisonError::into_inner);
             let next = loop {
                 if !held(&q)
@@ -867,13 +937,14 @@ fn work() {
             // momento no estaba ni en la cola ni calculándose (`idle` decía
             // que ya no quedaba nada, `progress` que no se pidió, y pedirla
             // otra vez la volvía a poner en cola)
-            q.busy = Some(next.0.clone());
+            q.busy = Some(next.path.clone());
             next
         };
         let p = PathBuf::from(&path);
-        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| grid_of(&app, &p)));
+        let outcome =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| perform(&app, &p, task)));
         let failed = match outcome {
-            Ok(Ok(_)) => None,
+            Ok(Ok(())) => None,
             Ok(Err(BeatsError::Beats(m))) => Some(m),
             Ok(Err(e)) => {
                 log::warn!("el detector de pulso fallo con {path}: {e}");

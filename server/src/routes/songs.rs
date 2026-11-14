@@ -195,7 +195,10 @@ fn song_beats_prepare(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     Ok(json!({"queued": beats::prepare(ctx.app, &path_of(&c))}).into())
 }
 
-/// «Re-analizar el clic», de toda la canción o de un tramo.
+/// «Re-analizar el clic», de toda la canción o de un tramo. Con
+/// `wait=false`, lo que tarda (pasar la red por la batería separada) no se
+/// espera dentro de la petición: va por la cola, y mientras tanto contesta
+/// 202 con por dónde va; se vuelve a pedir hasta que sale la rejilla.
 fn song_beats_reanalyze(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let cid = ctx.path().int("cid").required();
     let mut b = ctx.body()?;
@@ -203,6 +206,7 @@ fn song_beats_reanalyze(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let start = b.float("start").ge(0).opt();
     let end = b.float("end").gt(0).opt();
     let bpm = b.float("bpm").ge(20).le(300).opt();
+    let wait = b.bool("wait").or(true);
     ctx.done(b)?;
     let c = resolved_file(ctx.app, cid, "archivo no encontrado")?;
     if let (Some(s), Some(e)) = (start, end)
@@ -213,8 +217,14 @@ fn song_beats_reanalyze(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
             "un tramo necesita su principio y su final",
         ));
     }
-    let grid =
-        beats::reanalyze(ctx.app, &path_of(&c), &mode, start, end, bpm).map_err(beats_error)?;
+    let path = path_of(&c);
+    if !wait
+        && mode == "drums"
+        && let Some(done) = beats::drums_pending(ctx.app, &path).map_err(beats_error)?
+    {
+        return Ok(Response::json(202, &json!({"pending": true, "progress": done})).into());
+    }
+    let grid = beats::reanalyze(ctx.app, &path, &mode, start, end, bpm).map_err(beats_error)?;
     let report = grid
         .get("report")
         .filter(|r| value::truthy(r))

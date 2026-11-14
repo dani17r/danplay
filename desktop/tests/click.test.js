@@ -362,6 +362,45 @@ describe('re-analysing the click', () => {
     for (const [sent] of bridge().setMetronome.mock.calls) expect(sent.on).not.toBe(false)
   })
 
+  it('with the separated drums it does not wait inside the request: it asks, and shows how far', async () => {
+    // la red se pasaba por la batería dentro de la petición: 15-20 s sin
+    // avance a la vista
+    const answers = [
+      { pending: true, progress: 0 },
+      { pending: true, progress: 0.5 },
+      { ...FIXED, grid: FIXED, report: { fixed: 4 } }
+    ]
+    const shown = []
+    held.api.reanalyzeBeats = vi.fn(async () => {
+      shown.push(useClick().reanalyzing.value)
+      return answers.shift()
+    })
+    const w = await mountView()
+    vi.useFakeTimers()
+    try {
+      const { menu } = useContextMenu()
+      const button = w.findAll('button').find((b) => b.text().includes('Re-analizar'))
+      await button.trigger('click')
+      const done = menu.value.items.find((i) => i.label === 'Con la batería separada').action()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(w.text()).toContain('oyendo la batería separada… 0 %')
+      await vi.advanceTimersByTimeAsync(POLL_MS)
+      expect(w.text()).toContain('oyendo la batería separada… 50 %')
+      expect(w.find('.tl-click-load').exists()).toBe(true)
+      await vi.advanceTimersByTimeAsync(POLL_MS)
+      await done
+    } finally {
+      vi.useRealTimers()
+    }
+    await settle()
+    expect(held.api.reanalyzeBeats).toHaveBeenCalledTimes(3)
+    expect(held.api.reanalyzeBeats).toHaveBeenCalledWith(7, { mode: 'drums', wait: false })
+    expect(shown).toEqual([null, 0, 0.5])
+    expect(lastGrid().bpm).toBe(120)
+    expect(useClick().reanalyzing.value).toBe(null)
+    expect(w.text()).not.toContain('oyendo la batería')
+  })
+
   it('with a hand-adjusted click, that one keeps playing', async () => {
     const own = { beats: Array.from({ length: 40 }, (_, i) => 1 + i * 0.75), bars: [0], meter: 4 }
     held.state.songs = [

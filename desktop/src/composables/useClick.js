@@ -120,6 +120,11 @@ const error = ref('')
  * es un fallo. Antes no se decía, y el «1» a contrapié parecía cosa del clic.
  */
 const fallbackWhy = ref('')
+/**
+ * Re-analizando con la batería separada: lo que lleva la red con ella
+ * (0..1), o null si no se está en eso.
+ */
+const reanalyzing = ref(/** @type {number|null} */ (null))
 /** Cuándo se empezó a pedir la rejilla de la que suena. */
 let askedAt = 0
 
@@ -331,6 +336,32 @@ async function reload(fresh = null) {
   return true
 }
 
+/**
+ * «Re-analizar el clic» de una canción. Con la batería separada, la red
+ * tiene que oírla antes (15-20 s la primera vez): antes se esperaba dentro
+ * de la petición, sin avance a la vista. Ahora el núcleo la pone en su cola
+ * y contesta por dónde va (`pending`); aquí se pregunta cada poco, se
+ * enseña (`reanalyzing`) y se devuelve la respuesta de verdad cuando llega.
+ * @param {number} id
+ * @param {{mode: string, start?: number, end?: number}} opts
+ */
+async function reanalyze(id, opts) {
+  if (opts.mode !== 'drums') return api.reanalyzeBeats(id, opts)
+  const since = Date.now()
+  try {
+    for (;;) {
+      const r = await api.reanalyzeBeats(id, { ...opts, wait: false })
+      if (!r?.pending) return r
+      // el mismo plazo que la carga del clic: el núcleo corta al detector
+      if (Date.now() - since > LOAD_LIMIT_MS) throw new Error('tarda demasiado')
+      reanalyzing.value = Math.max(reanalyzing.value ?? 0, Number(r.progress) || 0)
+      await new Promise((resolve) => setTimeout(resolve, POLL_MS))
+    }
+  } finally {
+    reanalyzing.value = null
+  }
+}
+
 /** Las siguientes de la cola, preparadas (sin aleatorio: ahí no se sabe cuál). */
 function prepareAhead() {
   const p = player()
@@ -517,7 +548,9 @@ export function useClick() {
     watchGrid,
     songSettings,
     /** la rejilla de la que suena, otra vez: se re-analizó y cambió */
-    reload
+    reload,
+    reanalyze,
+    reanalyzing
   }
 }
 
@@ -535,6 +568,7 @@ export function resetClick() {
   progress.value = 0
   error.value = ''
   fallbackWhy.value = ''
+  reanalyzing.value = null
   askedAt = 0
   forSong = { id: null, path: '' }
   settingsFor = null

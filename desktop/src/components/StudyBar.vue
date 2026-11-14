@@ -796,6 +796,9 @@ const metroStatus = computed(() => {
   if (player.state.counting_in) return 'contando…'
   if (!click.auto.value) return 'a mano: el mismo tempo en todas las canciones'
   if (clickLoading.value) return `cargando el clic de esta canción… ${clickPercent.value} %`
+  if (click.reanalyzing.value != null) {
+    return `oyendo la batería separada… ${Math.round(click.reanalyzing.value * 100)} %`
+  }
   if (click.error.value) return 'sin compás detectado: va libre'
   if (!m.has_grid) return 'sin compás: va libre'
   // el detector no pudo con esta canción: lo que suena es el clic de
@@ -1042,7 +1045,7 @@ async function reanalyze(ev) {
   const run = async (mode, range) => {
     notify('Analizando el clic otra vez…', 'info', 4)
     try {
-      const r = await api.reanalyzeBeats(id, {
+      const r = await click.reanalyze(id, {
         mode,
         ...(range ? { start: range[0], end: range[1] } : {})
       })
@@ -2888,7 +2891,7 @@ defineExpose({ close: hide, hide, exit })
         !isMobileApp && track ? { on: !!metronome.on, volume: metronome.volume ?? 0.8 } : null
       "
       :seek-click="seekClick"
-      :click-loading="clickLoading ? click.progress.value : null"
+      :click-loading="clickLoading ? click.progress.value : click.reanalyzing.value"
       :height="waveHeight"
       :lane-height="laneHeight"
       :locked="locked"
