@@ -24,7 +24,8 @@ use crate::feeder::{self, Block, Feeder, Order, POOL};
 use crate::output::{self, DeviceInfo, Output, OutputConfig, OutputStatus};
 use crate::queue::LoopEnd;
 use crate::render::{
-    ClickPlan, Controls, CuePlan, Gains, Handoff, MAX_PARTS, Mailbox, Msg, Render, Ring, Routing,
+    ClickPlan, Controls, CuePlan, CueProblem, FreeClick, Gains, Handoff, MAX_PARTS, Mailbox, Msg,
+    Render, Ring, Routing,
 };
 use crate::stretch::Stretch;
 use serde::Serialize;
@@ -68,6 +69,16 @@ pub struct State {
     pub failed: bool,
     /// Se esta fundiendo con la anterior.
     pub fading: bool,
+    /// Veces que, con esta cancion, el audio no llego a tiempo (el que
+    /// decodifica no tenia listo lo que tocaba sonar) y se oyo un corte.
+    /// Cuenta desde que se cargo.
+    pub underruns: u64,
+    /// Las voces guia que no suenan porque su archivo no se pudo leer, con
+    /// lo que les pasa (de la ultima vez que se mandaron con `set_cues`).
+    pub cue_problems: Vec<CueProblem>,
+    /// El metronomo suelto esta encendido (suene ahora o no: solo suena
+    /// con la cancion parada).
+    pub free_click: bool,
 }
 
 /// Lo que se sabe de la pista al cargarla.
@@ -80,7 +91,6 @@ pub struct Loaded {
 
 struct Song {
     id: String,
-    frames: u64,
     orders: Sender<Order>,
     sent: AtomicU64,
     /// A donde se pidio saltar la ultima vez (muestra), para decirlo
@@ -93,8 +103,23 @@ struct Song {
 }
 
 impl Song {
+    /// Muestras por canal que dura, por lo que se sabe ahora: lo que decia
+    /// el archivo al cargarla, o lo que dura de verdad en cuanto se llega al
+    /// final de lo decodificado (0: no se sabe).
+    fn frames(&self) -> u64 {
+        self.shared.len.load(Ordering::Acquire)
+    }
+
+    /// `frame` sin pasarse del final, si se sabe.
+    fn bounded(&self, frame: u64) -> u64 {
+        match self.frames() {
+            0 => frame,
+            known => frame.min(known),
+        }
+    }
+
     fn seek_to(&self, frame: u64) {
-        let frame = frame.min(self.frames);
+        let frame = self.bounded(frame);
         self.asked.store(frame, Ordering::Release);
         let n = self.sent.fetch_add(1, Ordering::AcqRel) + 1;
         self.asked_order.store(n, Ordering::Release);
@@ -145,11 +170,16 @@ impl Deck {
 struct Session {
     speed: f32,
     pitch: f32,
+    formants: bool,
     count_in: u32,
     routing: Arc<Routing>,
     config: OutputConfig,
     /// Los tramos, para darselos a las partes que relevan.
     segments: (Vec<(u64, u64)>, LoopEnd),
+    /// Las guias de la cancion que no se pudieron leer.
+    cue_problems: Vec<CueProblem>,
+    /// El metronomo suelto.
+    free_click: FreeClick,
 }
 
 pub struct Engine {
@@ -181,10 +211,13 @@ impl Engine {
             session: Mutex::new(Session {
                 speed: 1.0,
                 pitch: 0.0,
+                formants: false,
                 count_in: 0,
                 routing: Arc::new(Routing::default()),
                 config: OutputConfig::default(),
                 segments: (Vec::new(), LoopEnd::Repeat),
+                cue_problems: Vec::new(),
+                free_click: FreeClick::default(),
             }),
             offline: false,
         }
@@ -311,6 +344,8 @@ impl Engine {
             (self.active.load(Ordering::Acquire) + 1) & 1,
             Ordering::Release,
         );
+        // el metronomo suelto es del plato que manda
+        self.send_free_click();
         if !self.offline {
             self.ensure_output();
         }
@@ -328,20 +363,29 @@ impl Engine {
         fade: f32,
     ) -> Loaded {
         let (song, ring) = spawn_song(id, parts, declared, 0);
-        let frames = song.frames;
+        let frames = song.frames();
         let c = &deck.controls;
         c.playing.store(false, Ordering::Release);
         c.ended.store(false, Ordering::Release);
         c.audible.store(0, Ordering::Release);
+        c.underruns.store(0, Ordering::Relaxed);
+        lock(&self.session).cue_problems.clear();
         c.fade_frames.store(0, Ordering::Release);
         c.fade.store(fade.to_bits(), Ordering::Release);
         c.handed_over.store(false, Ordering::Release);
-        let (speed, pitch, count_in, routing) = {
+        let (speed, pitch, formants, count_in, routing) = {
             let s = lock(&self.session);
-            (s.speed, s.pitch, s.count_in, Arc::clone(&s.routing))
+            (
+                s.speed,
+                s.pitch,
+                s.formants,
+                s.count_in,
+                Arc::clone(&s.routing),
+            )
         };
         c.speed.store(speed.to_bits(), Ordering::Relaxed);
         c.pitch.store(pitch.to_bits(), Ordering::Relaxed);
+        c.formants.store(formants, Ordering::Relaxed);
         c.count_in.store(count_in, Ordering::Release);
         self.send(deck, Msg::Ring(Some(ring)));
         self.send(deck, Msg::Click(Arc::new(ClickPlan::default())));
@@ -401,7 +445,7 @@ impl Engine {
         }
         let loaded = Loaded {
             id: id.to_string(),
-            duration: song.frames as f64 / f64::from(RATE),
+            duration: song.frames() as f64 / f64::from(RATE),
             parts: names,
         };
         deck.controls.handed_over.store(false, Ordering::Release);
@@ -430,16 +474,15 @@ impl Engine {
         let playing = deck.controls.playing.load(Ordering::Acquire);
         let taken = song.shared.consumed_frame.load(Ordering::Acquire);
         if !playing {
-            return Some(
-                deck.controls
-                    .audible
-                    .load(Ordering::Acquire)
-                    .min(song.frames),
-            );
+            return Some(song.bounded(deck.controls.audible.load(Ordering::Acquire)));
         }
         let ahead = (0.35 * f64::from(RATE)) as u64;
         let (segments, end) = lock(&self.session).segments.clone();
-        Some(feeder::advance(&segments, end, taken, ahead, song.frames))
+        let len = match song.frames() {
+            0 => u64::MAX,
+            known => known,
+        };
+        Some(feeder::advance(&segments, end, taken, ahead, len))
     }
 
     /// El otro plato, fuera (un fundido a medias se corta: entra otra).
@@ -493,8 +536,16 @@ impl Engine {
 
     /// Suelta la salida de audio (tras un rato en pausa: que el sistema
     /// pueda dormir y otras aplicaciones usar la tarjeta). Se vuelve a abrir
-    /// sola al sonar.
+    /// sola al sonar. Con el metronomo suelto encendido no se suelta: esta
+    /// sonando.
     pub fn release_output(&self) {
+        if lock(&self.session).free_click.on {
+            return;
+        }
+        self.close_output();
+    }
+
+    fn close_output(&self) {
         if let Some(out) = lock(&self.output).take() {
             out.stop();
         }
@@ -514,7 +565,7 @@ impl Engine {
             changed
         };
         if changed && lock(&self.output).is_some() {
-            self.release_output();
+            self.close_output();
             self.ensure_output();
         }
     }
@@ -604,6 +655,19 @@ impl Engine {
         }
     }
 
+    /// Al cambiar el tono (`set_pitch`), que los formantes no se muevan: la
+    /// voz sigue siendo la misma garganta en vez de sonar a ardilla (subiendo)
+    /// o a gigante (bajando) desde 2 o 3 semitonos. Apagado por defecto, que
+    /// es lo de siempre; vale para lo que suene y para lo que se cargue
+    /// despues. Sin tono que cambiar no hace nada ni cuesta nada; con el,
+    /// cuesta una parte mas de calculo en el estirador.
+    pub fn set_formants(&self, preserve: bool) {
+        lock(&self.session).formants = preserve;
+        for d in &self.decks {
+            d.controls.formants.store(preserve, Ordering::Relaxed);
+        }
+    }
+
     /// Los tramos que se repiten, en segundos, y que pasa al acabar el
     /// ultimo. Vacio: hasta el final.
     pub fn set_segments(&self, list: &[(f64, f64)], end: LoopEnd) {
@@ -626,8 +690,32 @@ impl Engine {
         self.send(self.deck(), Msg::Click(Arc::new(plan)));
     }
 
+    /// El metronomo suelto: un clic al tempo que se diga, sin cancion ni
+    /// rejilla (para tocar a tempo sin musica). Suena cuando la cancion no
+    /// suena (no hay ninguna cargada, o esta en pausa) y se calla en cuanto
+    /// echa a andar; por el bus del clic del enrutado, con su sonido y su
+    /// volumen. Encenderlo abre la salida de audio si no lo estaba, y mientras
+    /// siga encendido `release_output` no la suelta. Aparte de la cancion:
+    /// cargar otra, pausar o sonar no lo apaga ni lo enciende.
+    pub fn set_free_click(&self, free: FreeClick) {
+        let on = free.on;
+        lock(&self.session).free_click = free;
+        self.send_free_click();
+        if on && !self.offline {
+            self.ensure_output();
+        }
+    }
+
+    /// Le dice al plato que manda el metronomo suelto, y al otro que no suene.
+    fn send_free_click(&self) {
+        let free = lock(&self.session).free_click.clone();
+        self.send(self.other(), Msg::FreeClick(Arc::new(FreeClick::default())));
+        self.send(self.deck(), Msg::FreeClick(Arc::new(free)));
+    }
+
     /// Las voces guia de la cancion que suena.
     pub fn set_cues(&self, plan: CuePlan) {
+        lock(&self.session).cue_problems.clone_from(&plan.problems);
         self.send(self.deck(), Msg::Cues(Arc::new(plan)));
     }
 
@@ -643,7 +731,7 @@ impl Engine {
         };
         self.send_routing(self.deck(), routing);
         if reopen && lock(&self.output).is_some() {
-            self.release_output();
+            self.close_output();
             self.ensure_output();
         }
     }
@@ -672,14 +760,17 @@ impl Engine {
         let fading = lock(&self.other().song).is_some();
         let song = lock(&deck.song);
         let error = lock(&self.output).as_ref().and_then(Output::error);
+        let free_click = lock(&self.session).free_click.on;
         let Some(song) = song.as_ref() else {
             return State {
                 error,
+                free_click,
                 ..State::default()
             };
         };
         let rate = f64::from(RATE);
         let shared = &song.shared;
+        let frames = song.frames();
         // un salto que aun no suena: se dice donde va a sonar
         let unread =
             shared.orders_done.load(Ordering::Acquire) < song.asked_order.load(Ordering::Acquire);
@@ -696,14 +787,17 @@ impl Engine {
         State {
             loaded: Some(song.id.clone()),
             playing: c.playing.load(Ordering::Acquire),
-            position: frame.min(song.frames) as f64 / rate,
-            duration: song.frames as f64 / rate,
+            position: song.bounded(frame) as f64 / rate,
+            duration: frames as f64 / rate,
             ended: c.ended.load(Ordering::Acquire),
             segments_done: shared.segments_done.load(Ordering::Acquire),
             counting: c.counting.load(Ordering::Acquire),
             error,
             failed: shared.failed.load(Ordering::Acquire),
             fading,
+            underruns: c.underruns.load(Ordering::Relaxed),
+            cue_problems: lock(&self.session).cue_problems.clone(),
+            free_click,
         }
     }
 }
@@ -737,14 +831,32 @@ fn open_parts(files: &[PartFile]) -> Result<(Vec<Part>, Vec<String>), String> {
 /// Pone a andar el hilo que decodifica una cancion desde `from` y devuelve
 /// lo que la sigue por fuera y los anillos para el render.
 fn spawn_song(id: &str, parts: Vec<Part>, declared: f64, from: u64) -> (Song, Ring) {
-    let frames = parts
-        .iter()
-        .filter_map(Part::frames)
-        .max()
-        .unwrap_or((declared * f64::from(RATE)) as u64);
+    // lo que dura, para empezar: lo que dicen los archivos; si no, lo que
+    // dice quien carga (la PC la mide con ffmpeg); y a falta de las dos, la
+    // cuenta aproximada de un mp3 sin cabecera. Es solo un punto de partida:
+    // el final lo decide lo decodificado (`feeder::Feeder::fill`)
+    let longest = |estimated: bool| {
+        parts
+            .iter()
+            .filter(|p| p.estimated() == estimated)
+            .filter_map(Part::frames)
+            .max()
+    };
+    let frames = longest(false)
+        .or_else(|| (declared > 0.0).then(|| (declared * f64::from(RATE)) as u64))
+        .or_else(|| longest(true))
+        .unwrap_or(0);
     let shared = Arc::new(feeder::Shared::default());
     let n_parts = parts.len();
-    let feeder = Feeder::new(parts, frames, Arc::clone(&shared));
+    let mut feeder = Feeder::new(parts, frames, Arc::clone(&shared));
+    // ya colocado donde empieza, antes de poner a andar el hilo: pidiendoselo
+    // despues por la orden de salto, si el hilo llegaba antes decodificaba
+    // unos bloques «de antes del salto» (de la generacion 0), el render los
+    // tomaba por buenos y, al llegar el salto, volvia a empezar la cancion
+    // unos milisegundos despues de darle a sonar (visto en las pruebas con el
+    // equipo cargado: toda la cancion corrida entre 681 y 1122 muestras)
+    feeder.seek(from);
+    let at = if frames == 0 { from } else { from.min(frames) };
     let (mut free_tx, free_rx) = rtrb::RingBuffer::<Box<Block>>::new(POOL);
     let (full_tx, full_rx) = rtrb::RingBuffer::<Box<Block>>::new(POOL);
     for _ in 0..POOL {
@@ -765,17 +877,14 @@ fn spawn_song(id: &str, parts: Vec<Part>, declared: f64, from: u64) -> (Song, Ri
     };
     let song = Song {
         id: id.to_string(),
-        frames,
         orders,
         sent: AtomicU64::new(0),
-        asked: AtomicU64::new(0),
+        asked: AtomicU64::new(at),
         asked_order: AtomicU64::new(0),
         shared,
         gains,
         thread,
     };
-    // que empiece a decodificar desde ahi
-    song.seek_to(from);
     (song, ring)
 }
 
@@ -1001,6 +1110,189 @@ mod tests {
         let s = wait_for(&e, |s| s.ended);
         assert!(s.ended && s.segments_done && !s.playing, "{s:?}");
         assert!((s.position - 0.9).abs() < 0.05, "{s:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_song_that_has_just_been_loaded_only_ever_decodes_blocks_of_the_good_generation() {
+        // la orden de salto al principio llegaba al hilo que decodifica por el
+        // canal, y si el hilo salia antes decodificaba bloques de la
+        // generacion anterior: el render los tomaba por buenos y la cancion
+        // volvia a empezar al llegar el salto. Muchas veces, a ver si
+        // alguna se adelanta
+        let (bytes, _) = fixture("ogg");
+        for from in [0u64, 10_000] {
+            for _ in 0..200 {
+                let part = Part::open(Arc::clone(&bytes), "ogg").expect("ogg");
+                let (song, mut ring) = spawn_song("prueba", vec![part], 2.0, from);
+                // nada mas volver, sin esperar al hilo: el salto ya esta puesto
+                assert_eq!(ring.shared.generation.load(Ordering::Acquire), 1);
+                assert_eq!(ring.shared.target.load(Ordering::Acquire), from);
+                // da tiempo a que el hilo llene
+                let limit = Instant::now() + Duration::from_secs(2);
+                while ring.full.slots() < 4 && Instant::now() < limit {
+                    std::thread::yield_now();
+                }
+                let good = ring.shared.generation.load(Ordering::Acquire);
+                assert_eq!(good, 1, "el salto inicial ya esta puesto");
+                let blocks = ring.full.slots();
+                let chunk = ring.full.read_chunk(blocks).expect("bloques");
+                let (a, b) = chunk.as_slices();
+                assert!(
+                    a.iter().chain(b).all(|blk| blk.generation == good),
+                    "bloques de otra generacion tras cargar"
+                );
+                assert_eq!(a[0].start, from);
+                song.close();
+            }
+        }
+    }
+
+    #[test]
+    fn the_free_metronome_clicks_with_no_song_and_stays_out_of_the_way() {
+        let e = Engine::offline(44_100);
+        assert!(!e.state().free_click);
+        e.set_free_click(FreeClick {
+            on: true,
+            bpm: 120.0,
+            ..FreeClick::default()
+        });
+        assert!(e.state().free_click);
+        // donde empieza cada clic de lo que suena, sumando los canales (la
+        // musica de prueba se anula; queda el clic)
+        let clicks = |out: &[f32]| -> Vec<usize> {
+            let m: Vec<f32> = out
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|f| f32::midpoint(f[0], f[1]))
+                .collect();
+            // lo que empieza el trozo ya sonando (la cola de un clic) no cuenta
+            let mut found = Vec::new();
+            let mut quiet = 0;
+            for (i, v) in m.iter().enumerate() {
+                if v.abs() > 0.02 {
+                    if quiet >= 2_000 {
+                        found.push(i);
+                    }
+                    quiet = 0;
+                } else {
+                    quiet += 1;
+                }
+            }
+            found
+        };
+        // a 120 por minuto, uno cada 22050 muestras, sin cancion cargada
+        let evenly = |found: &[usize]| {
+            assert!(found.len() >= 3, "{found:?}");
+            for w in found.windows(2) {
+                assert!((w[1] - w[0]).abs_diff(22_050) <= 4, "{found:?}");
+            }
+        };
+        evenly(&clicks(&pull_for(&e, 44_100 * 2)));
+        // la cancion se carga y esta en pausa: sigue
+        let dir = folder("metronomo");
+        e.load(&dir).expect("carga");
+        settle_on(&e);
+        evenly(&clicks(&pull_for(&e, 44_100 * 2)));
+        // suena: queda la musica, y de clic, nada
+        e.play();
+        pull_steady(&e, 4_410);
+        assert_eq!(clicks(&pull_steady(&e, 44_100)), Vec::<usize>::new());
+        // apagarlo lo calla, y la salida se puede soltar
+        e.pause();
+        pull_for(&e, 4_410);
+        e.set_free_click(FreeClick::default());
+        assert!(!e.state().free_click);
+        assert_eq!(clicks(&pull_for(&e, 44_100)), Vec::<usize>::new());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_formants_option_is_off_until_asked_and_follows_the_song() {
+        let dir = folder("formantes");
+        let e = Engine::offline(44_100);
+        e.load(&dir).expect("carga");
+        // apagada: lo de siempre
+        assert!(!e.deck().controls.formants.load(Ordering::Relaxed));
+        e.set_formants(true);
+        assert!(e.deck().controls.formants.load(Ordering::Relaxed));
+        // otra cancion la hereda, como el tono
+        e.load(&dir).expect("carga");
+        assert!(e.deck().controls.formants.load(Ordering::Relaxed));
+        e.set_formants(false);
+        assert!(!e.deck().controls.formants.load(Ordering::Relaxed));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_state_counts_the_times_the_audio_did_not_arrive() {
+        let dir = folder("cortes");
+        let e = Engine::offline(44_100);
+        e.load(&dir).expect("carga");
+        assert_eq!(e.state().underruns, 0);
+        // el render las cuenta (`render::Controls::underruns`) y el estado
+        // las enseña, para la cancion que suena
+        e.deck().controls.underruns.store(3, Ordering::Relaxed);
+        assert_eq!(e.state().underruns, 3);
+        // otra cancion, otra cuenta
+        e.load(&dir).expect("carga");
+        assert_eq!(e.state().underruns, 0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_state_says_which_cues_could_not_be_read() {
+        let dir = folder("guias-rotas");
+        let e = Engine::offline(44_100);
+        e.load(&dir).expect("carga");
+        let mut clips = crate::spec::Clips::default();
+        let spec = crate::spec::CueSpec {
+            at: 1.5,
+            path: dir.join("no-esta.wav").to_string_lossy().into_owned(),
+            gain: 1.0,
+            bus: None,
+        };
+        e.set_cues(clips.plan(&[spec], 1.0));
+        let problems = e.state().cue_problems;
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!((problems[0].at - 1.5).abs() < 1e-9);
+        // y al cargar otra cancion, ya no hay de que avisar
+        e.load(&dir).expect("carga");
+        assert!(e.state().cue_problems.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_song_lasts_what_its_audio_lasts_and_the_duration_is_corrected() {
+        // un mp3 sin cabecera: dice durar 2,3 s (una cuenta por el tamaño),
+        // dura 3,03. Se oye hasta el final y la duracion que se dice, tambien
+        use crate::testing::{encoded, scratch, without_ffmpeg};
+        let dir = scratch("duracion");
+        let args = ["-c:a", "libmp3lame", "-q:a", "4", "-write_xing", "0"];
+        let Some(path) = encoded(&dir, "sin.mp3", &args) else {
+            let _ = std::fs::remove_dir_all(&dir);
+            return without_ffmpeg("la duracion de un mp3 sin cabecera");
+        };
+        let part = PartFile {
+            source: "mp3".into(),
+            name: "MP3".into(),
+            path,
+        };
+        let e = Engine::offline(44_100);
+        let loaded = e.load_files("sin-cabecera", &[part], 0.0).expect("carga");
+        assert!(loaded.duration < 2.5, "al cargar: {}", loaded.duration);
+        settle();
+        e.play();
+        let s = wait_for(&e, |s| s.ended);
+        assert!(s.ended && !s.playing && !s.failed, "{s:?}");
+        let real = 133_632.0 / 44_100.0;
+        assert!(
+            (s.duration - real).abs() < 0.01,
+            "al acabar: {}",
+            s.duration
+        );
+        assert!((s.position - real).abs() < 0.05, "{s:?}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

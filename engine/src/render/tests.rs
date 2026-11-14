@@ -56,6 +56,33 @@ impl Bench {
         }
     }
 
+    /// Con una sola parte hecha de estas muestras (estereo intercalado), a
+    /// 44,1 kHz, en vez del archivo de prueba.
+    fn from_samples(samples: &[f32]) -> Bench {
+        let bytes = crate::testing::wav(2, 44_100, samples);
+        let mut b = Bench::new(1, 44_100);
+        let part = Part::open(bytes, "wav").expect("wav");
+        let (mut free_tx, free_rx) = rtrb::RingBuffer::<Box<Block>>::new(POOL);
+        let (full_tx, full_rx) = rtrb::RingBuffer::<Box<Block>>::new(POOL);
+        for _ in 0..POOL {
+            let _ = free_tx.push(Box::new(Block::new(1)));
+        }
+        let shared = Arc::new(Shared::default());
+        b.feeder = Feeder::new(vec![part], (samples.len() / 2) as u64, Arc::clone(&shared));
+        b.feeder.seek(0);
+        b.render.set_ring(Some(Ring {
+            full: full_rx,
+            free: free_tx,
+            parts: 1,
+            shared: Arc::clone(&shared),
+            gains: Arc::clone(&b.gains),
+        }));
+        b.free_rx = free_rx;
+        b.full_tx = full_tx;
+        b.shared = shared;
+        b
+    }
+
     fn pump(&mut self) {
         while !self.feeder.ended() && !self.full_tx.is_full() {
             let Ok(mut b) = self.free_rx.pop() else { break };
@@ -335,6 +362,199 @@ fn a_segment_loops_and_its_beat_clicks_every_time() {
     }
 }
 
+/// Un segundo en estereo (la musica en un canal y su inverso en el otro, como
+/// el archivo de prueba): silencio y un golpe fuerte de 3 kHz a 68 ms del
+/// final, dentro de lo que el estirador retrasa.
+fn song_with_a_last_hit() -> Vec<f32> {
+    let hit = 44_100usize - 3_000;
+    (0..44_100usize)
+        .flat_map(|i| {
+            let k = i.saturating_sub(hit);
+            let v = if i >= hit && k < 66 {
+                0.8 * (2.0 * std::f32::consts::PI * 3_000.0 * k as f32 / 44_100.0).sin()
+            } else {
+                0.0
+            };
+            [v, -v]
+        })
+        .collect()
+}
+
+/// Lo que suena hasta que la cancion se acaba sola, y cuantas muestras
+/// de salida pasaron.
+fn until_it_ends(b: &mut Bench) -> (Vec<f32>, usize) {
+    let mut out = Vec::new();
+    for _ in 0..400 {
+        out.extend(b.run(1_024));
+        if b.controls.ended.load(Ordering::Acquire) {
+            // y lo que baja la envolvente
+            out.extend(b.run(2_048));
+            break;
+        }
+    }
+    let end = out.len() / 2 - 2_048;
+    (out, end)
+}
+
+#[test]
+fn stretched_the_last_instant_of_the_song_is_heard() {
+    // el estirador retrasa lo que suena unos 150 ms respecto de lo que ha
+    // tomado: al llegar al final, se paraba ahi y esos 150 ms no sonaban nunca
+    // (con un golpe a 68 ms del final, no se oia)
+    // (velocidad, tono): a 1x, el tono es lo que obliga a estirar
+    for (speed, pitch) in [(0.8f32, 0.0f32), (1.0, 1.0)] {
+        let mut b = Bench::from_samples(&song_with_a_last_hit());
+        b.controls.speed.store(speed.to_bits(), Ordering::Relaxed);
+        b.controls.pitch.store(pitch.to_bits(), Ordering::Relaxed);
+        b.play();
+        let (out, end) = until_it_ends(&mut b);
+        let m = music(&out);
+        // el golpe dura 66 muestras de entrada; su energia sale entera, aunque
+        // el estirador la reparta
+        let energy: f64 = m.iter().map(|v| f64::from(*v).powi(2)).sum();
+        let wanted = 0.8f64.powi(2) * 33.0 / f64::from(speed);
+        println!("a {speed}x: energia del ultimo golpe {energy:.2} de {wanted:.2}, acaba en {end}");
+        assert!(
+            energy > 0.5 * wanted,
+            "a {speed}x suena {energy:.3} de {wanted:.3}"
+        );
+        // y la cancion se acaba despues de lo que dura, no antes
+        let nominal = (44_100.0 / f64::from(speed)) as usize;
+        assert!(end >= nominal, "a {speed}x acaba en {end} y dura {nominal}");
+        assert!(end < nominal + 12_000, "a {speed}x acaba en {end}");
+    }
+}
+
+/// Dos segundos de un acorde con varios parciales (estereo, como el archivo
+/// de prueba: la musica en un canal y su inverso en el otro).
+fn chord() -> Vec<f32> {
+    (0..88_200)
+        .flat_map(|i| {
+            let t = i as f32 / 44_100.0;
+            let v: f32 = [
+                (220.0, 0.2),
+                (440.0, 0.15),
+                (660.0, 0.1),
+                (1_310.0, 0.12),
+                (2_650.0, 0.08),
+            ]
+            .iter()
+            .map(|&(hz, a)| a * (2.0 * std::f32::consts::PI * hz * t).sin())
+            .sum();
+            [v, -v]
+        })
+        .collect()
+}
+
+/// Lo que sale del acorde con ese tono, conservando los formantes o no.
+fn shifted_chord(pitch: f32, formants: bool) -> Vec<f32> {
+    let mut b = Bench::from_samples(&chord());
+    b.controls.pitch.store(pitch.to_bits(), Ordering::Relaxed);
+    b.controls.formants.store(formants, Ordering::Relaxed);
+    b.play();
+    music(&b.run(60_000))
+}
+
+#[test]
+fn the_formants_option_reaches_the_stretcher_and_changes_nothing_without_a_pitch_shift() {
+    let worst = |a: &[f32], b: &[f32]| {
+        a.iter()
+            .zip(b)
+            .map(|(x, y)| (x - y).abs())
+            .fold(0f32, f32::max)
+    };
+    // con el tono movido, la opcion cambia lo que suena...
+    let (off, on) = (shifted_chord(4.0, false), shifted_chord(4.0, true));
+    let moved = worst(&off, &on);
+    // ...sin el, no cambia nada (no hay formantes que mover): lo que se
+    // aparta una pasada de otra con lo mismo es el ruido del propio estirador
+    let (still_off, still_on) = (shifted_chord(0.0, false), shifted_chord(0.0, true));
+    let again = shifted_chord(4.0, false);
+    println!(
+        "a +4 st la opcion cambia hasta {moved:.4}; a 0 st, {:.6}; dos pasadas iguales, {:.6}",
+        worst(&still_off, &still_on),
+        worst(&off, &again)
+    );
+    assert!(moved > 0.01, "{moved}");
+    assert!(worst(&still_off, &still_on) <= worst(&off, &again) + 1e-6);
+    assert!(moved > 20.0 * worst(&off, &again).max(1e-5));
+}
+
+fn free(on: bool, bpm: f32, meter: u8) -> Msg {
+    Msg::FreeClick(Arc::new(FreeClick {
+        on,
+        bpm,
+        meter,
+        volume: 1.0,
+        sound: Sound::Stick,
+    }))
+}
+
+/// El pico de cada trozo de `len` muestras.
+fn peaks(x: &[f32], len: usize) -> Vec<f32> {
+    x.chunks(len).map(peak).collect()
+}
+
+#[test]
+fn a_free_metronome_clicks_at_its_tempo_with_no_song() {
+    let mut r = Render::new(44_100, 44_100, Arc::new(Controls::default()));
+    r.apply(free(true, 120.0, 4));
+    let mut out = vec![0f32; 2 * 44_100 * 5];
+    for chunk in out.chunks_mut(1_024) {
+        r.render(chunk);
+    }
+    let m = click(&out);
+    // 120 pulsos por minuto: uno cada 22050 muestras, desde ya
+    let at = onsets(&m, 0.02, 2_000);
+    assert_eq!(at.len(), 10, "{at:?}");
+    for (k, a) in at.iter().enumerate() {
+        assert!(a.abs_diff(k * 22_050) <= 40, "pulso {k} en {a}");
+    }
+    // el primero de cada compas de cuatro, acentuado
+    let loud = peaks(&m, 22_050);
+    assert!(
+        loud[0] > 1.1 * loud[1] && loud[4] > 1.1 * loud[5],
+        "{loud:?}"
+    );
+    assert!((loud[1] - loud[2]).abs() < 0.01, "{loud:?}");
+    // sin compas, todos iguales; y apagado, ni un golpe
+    let mut r = Render::new(44_100, 44_100, Arc::new(Controls::default()));
+    r.apply(free(true, 90.0, 0));
+    let mut out = vec![0f32; 2 * 44_100 * 3];
+    for chunk in out.chunks_mut(1_024) {
+        r.render(chunk);
+    }
+    let loud = peaks(&click(&out), 29_400);
+    assert!(loud.iter().all(|p| (p - loud[0]).abs() < 0.01), "{loud:?}");
+    r.apply(free(false, 90.0, 0));
+    let mut quiet = vec![0f32; 2 * 44_100];
+    for chunk in quiet.chunks_mut(1_024) {
+        r.render(chunk);
+    }
+    assert!(peak(&quiet[2_000..]) < 1e-6);
+}
+
+#[test]
+fn a_free_metronome_gives_way_to_the_song_and_comes_back_when_it_pauses() {
+    let mut b = Bench::new(1, 44_100);
+    b.render.apply(free(true, 120.0, 4));
+    // con la cancion cargada y en pausa, suena el metronomo
+    let paused = click(&b.run(44_100));
+    assert_eq!(onsets(&paused, 0.02, 2_000).len(), 2);
+    assert_eq!(music_hits(&b.run(2_048)).len(), 0);
+    // la cancion echa a andar: su musica, sin el metronomo (el clic de la
+    // cancion esta apagado)
+    b.play();
+    let playing = b.run(44_100 * 2);
+    assert!(peak(&click(&playing[2_000..])) < 0.01, "el metronomo sigue");
+    assert!(!music_hits(&playing).is_empty());
+    // en pausa otra vez, vuelve
+    b.controls.playing.store(false, Ordering::Release);
+    b.run(2_048);
+    let again = click(&b.run(44_100));
+    assert!(onsets(&again, 0.02, 2_000).len() >= 2);
+}
+
 #[test]
 fn at_the_end_it_stops_by_itself() {
     let mut b = Bench::new(1, 44_100);
@@ -492,6 +712,7 @@ fn a_cue_speaks_at_its_time_and_is_not_stretched() {
         });
         // la voz empieza donde la musica da su segundo golpe
         b.render.set_cues(Arc::new(CuePlan {
+            problems: Vec::new(),
             on: true,
             volume: 1.0,
             cues: vec![Cue {
@@ -538,6 +759,7 @@ fn each_lane_of_cues_goes_out_its_own_way() {
         cues: 1,
     });
     b.render.set_cues(Arc::new(CuePlan {
+        problems: Vec::new(),
         on: true,
         volume: 1.0,
         cues: vec![
@@ -760,6 +982,122 @@ fn a_very_late_handoff_waits_in_silence_and_carries_on() {
         assert!(
             *h + 40 >= m && *h <= m + 64 + 40,
             "golpe en {h}, se esperaba en {m} (+64)"
+        );
+    }
+}
+
+/// El render a 4 canales, llenando tambien las partes del relevo.
+fn run4_with(b: &mut Bench, inc: &mut Incoming, frames: usize) -> Vec<f32> {
+    if b.render.channels != 4 {
+        b.render.set_output(44_100, 4);
+    }
+    let mut out = vec![0f32; frames * 4];
+    for chunk in out.chunks_mut(512 * 4) {
+        b.pump();
+        inc.pump();
+        b.render.render_into(chunk, 4);
+    }
+    out
+}
+
+/// Dos buses: la pareja de siempre y la 3-4 (una salida propia).
+fn two_buses(parts: Vec<u8>) -> Routing {
+    Routing {
+        buses: vec![Some(Target::MAIN), Some(Target::pair(2, 3))],
+        parts,
+        click: 0,
+        cues: 0,
+    }
+}
+
+/// Lo que suena por la pareja `pair` (0 o 2) de una salida de 4 canales,
+/// como un estereo intercalado.
+fn pair_of(out: &[f32], pair: usize) -> Vec<f32> {
+    channel(out, 4, pair)
+        .iter()
+        .zip(channel(out, 4, pair + 1))
+        .flat_map(|(a, b)| [*a, b])
+        .collect()
+}
+
+#[test]
+fn parts_relayed_to_an_output_of_their_own_are_heard_from_their_first_instant_when_stretched() {
+    // la cancion suena por la 1-2 y, a mitad, entran por la 3-4 las partes
+    // de un relevo. Estirando a 0,8x, el estirador de la 3-4 no habia visto
+    // nada hasta entonces y lo primero que le llegaba no salia: un golpe a 33 ms
+    // del relevo se perdia por esa salida
+    let speed = 0.8f32;
+    // lo que deberia sonar por la 3-4: las mismas partes, desde el principio
+    let mut control = Bench::new(1, 44_100);
+    control
+        .controls
+        .speed
+        .store(speed.to_bits(), Ordering::Relaxed);
+    control.route(two_buses(vec![1]));
+    control.play();
+    let want = music_hits(&pair_of(&control.run_channels(100_000, 4), 2));
+    assert_eq!(want.len(), 3, "{want:?}");
+    // el relevo
+    let mut b = Bench::new(1, 44_100);
+    b.controls.speed.store(speed.to_bits(), Ordering::Relaxed);
+    b.route(two_buses(vec![0]));
+    b.play();
+    let mut out = b.run_channels(13_230, 4);
+    let start = b.shared.consumed_frame.load(Ordering::Acquire) + 15_435;
+    let (mut inc, ring) = Incoming::new(start);
+    b.render.start_handoff(Box::new(Handoff {
+        ring,
+        start,
+        fade: 2_205,
+        routing: Some(Arc::new(two_buses(vec![1]))),
+    }));
+    out.extend(run4_with(&mut b, &mut inc, 86_770));
+    let got = music_hits(&pair_of(&out, 2));
+    println!("por la 3-4 con el relevo: {got:?}; desde el principio: {want:?}");
+    // el segundo golpe cae a 1458 muestras del relevo (a medias del fundido) y
+    // el tercero ya es de las partes nuevas del todo
+    assert_eq!(got.len(), 2, "{got:?}");
+    for (g, w) in got.iter().zip(&want[1..]) {
+        assert!(g.abs_diff(*w) <= 100, "golpe en {g}, se esperaba en {w}");
+    }
+}
+
+#[test]
+fn stretched_the_song_still_enters_on_the_beat_after_the_count_in() {
+    // el estirador saca lo primero unos 90 ms despues de recibirlo: la cuenta
+    // contaba como si saliera al momento, y la cancion (su «1», y su primer
+    // clic) entraba 90 ms tarde con cualquier velocidad o tono
+    for (speed, pitch) in [(0.8f32, 0.0f32), (0.5, 0.0), (1.25, 0.0), (1.0, 2.0)] {
+        let mut b = Bench::new(1, 44_100);
+        b.controls.speed.store(speed.to_bits(), Ordering::Relaxed);
+        b.controls.pitch.store(pitch.to_bits(), Ordering::Relaxed);
+        b.click((0..8).map(|k| 0.1 + 0.5 * f64::from(k)).collect(), 4);
+        b.controls.count_in.store(1, Ordering::Release);
+        b.controls.count_request.store(true, Ordering::Release);
+        b.play();
+        let out = b.run(44_100 * 6);
+        let clicks = onsets(&click(&out), 0.05, 2_000);
+        let hits = music_hits(&out);
+        // cuatro golpes de cuenta y, donde cae el siguiente pulso, el de la
+        // cancion; la musica, en ese mismo sitio (su golpe esta en el pulso)
+        let wall = 22_050.0 / f64::from(speed);
+        assert!(clicks.len() >= 6 && !hits.is_empty(), "{clicks:?} {hits:?}");
+        for (k, c) in clicks.iter().take(6).enumerate() {
+            let at = (k as f64 * wall).round() as usize;
+            assert!(
+                c.abs_diff(at) <= 150,
+                "a {speed}x, tono {pitch}: clic {k} en {c}, esperado {at}"
+            );
+        }
+        let entry = (4.0 * wall).round() as usize;
+        println!(
+            "a {speed}x, tono {pitch}: clic de la cancion en {} y la musica en {}, esperados en {entry}",
+            clicks[4], hits[0]
+        );
+        assert!(
+            hits[0].abs_diff(entry) <= 150,
+            "a {speed}x, tono {pitch}: la musica entra en {}, esperado {entry}",
+            hits[0]
         );
     }
 }
