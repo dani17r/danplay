@@ -1048,7 +1048,7 @@ pub fn kind_of(label: &str) -> &'static str {
         .collect();
     let words: Vec<&str> = plain.split_whitespace().collect();
     let any = |known: &[&str]| words.iter().any(|w| known.contains(w));
-    let chorus = ["coro", "coros", "chorus", "estribillo", "refrain"];
+    let chorus = ["coro", "coros", "chorus", "estribillo", "refran", "refrain"];
     if any(&["post"]) {
         "" // un «post chorus» no es el coro
     } else if any(&["pre", "precoro", "prechorus", "preestribillo"]) {
@@ -1061,6 +1061,7 @@ pub fn kind_of(label: &str) -> &'static str {
         "interludio",
         "intermedio",
         "solo",
+        "riff",
         "turnaround",
     ]) {
         "Instrumental"
@@ -1256,6 +1257,9 @@ mod tests {
             ("Coro 2", "Coro"),
             ("CHORUS", "Coro"),
             ("Estribillo", "Coro"),
+            ("Refrán", "Coro"),
+            ("Coro final", "Coro"),
+            ("Coro x2", "Coro"),
             ("Verse 1", "Estrofa"),
             ("Verso", "Estrofa"),
             ("Estrofa 3", "Estrofa"),
@@ -1269,6 +1273,7 @@ mod tests {
             ("Interlude", "Instrumental"),
             ("Solo de guitarra", "Instrumental"),
             ("Turnaround", "Instrumental"),
+            ("Riff", "Instrumental"),
             ("Ending", "Final"),
             ("Outro", "Final"),
             // lo que no es de la casa se queda sin clase

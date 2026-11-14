@@ -9,6 +9,8 @@
 //!   del motor, el mismo que suena en el modo estudio);
 //! - `structure`: las partes de la canción y cuándo anunciarlas (la guía
 //!   automática);
+//! - `sheet`: las partes con los nombres del cifrado, casándolo con la letra
+//!   con tiempos;
 //! - `cues`: el sonido de las guías habladas (recortarlas, su volumen, el
 //!   WAV, su onda y el editor);
 //! - `weights`: leer los pesos de un checkpoint de PyTorch sin PyTorch ni
@@ -38,6 +40,7 @@ pub mod mix;
 pub mod onnx;
 pub mod pulse;
 pub mod separate;
+pub mod sheet;
 pub mod structure;
 pub mod voices;
 pub mod weights;

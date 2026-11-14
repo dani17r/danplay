@@ -35,14 +35,21 @@
 //!  "parts": [[0, "Intro"], [19.35, "Verse 1"], [50.3, "Chorus"]],
 //!  "bars": [0.5, 2.43, 4.37],         los «1», o bien:
 //!  "tempo": 124, "meter": 4, "first": 0.5,   compases iguales desde `first`
-//!  "npz": "0123abcd.npz"}             o lo que oyó la red (`DATA_DIR/beats`)
+//!  "npz": "0123abcd.npz",             o lo que oyó la red (`DATA_DIR/beats`)
+//!  "sheet": [{"name": "Verso 1", "lines": ["Desde el alba…"]}],
+//!                                     el cifrado: sus partes con sus versos
+//!  "lyrics": [[12.5, "Desde el alba…"]]}   y la letra con tiempos (o
+//!  "lrc": "letra.lrc"                 un archivo LRC, junto al json)
 //! ```
 //!
 //! La guía se pasa dos veces: solo con la canción (`sound`) y con sus pistas
 //! (`stems`), que en una secuencia se juntan por su nombre en las de siempre
 //! (batería, bajo, voces, guitarra, teclados…) para que la guía las vea como
-//! las ve en una canción separada. Una línea de JSON por canción y una con
-//! el total. No sale ningún título: cada canción va con una clave corta
+//! las ve en una canción separada. Si la canción trae también su cifrado y
+//! su letra, una tercera (`sheet`): las partes con los nombres del cifrado
+//! (`sheet::align`), con su confianza; y `shipped`, lo que saldría en la
+//! app: las del cifrado si se fía de ellas y, si no, las de antes. Una línea
+//! de JSON por canción y una con el total. No sale ningún título: cada canción va con una clave corta
 //! sacada del nombre de su carpeta.
 //!
 //! Aviso: a una secuencia le suele faltar la voz principal (trae los coros);
@@ -52,6 +59,7 @@
 
 use analysis::beatgrid::{Heard, whole};
 use analysis::pulse::raw;
+use analysis::sheet::{self, SheetPart};
 use analysis::structure::{self as st, Chunk, Matrix, Section};
 use serde_json::{Value, json};
 use sha1::{Digest, Sha1};
@@ -273,6 +281,33 @@ struct Song {
     /// si los «1» salen de su tempo
     tempo: Option<Tempo>,
     npz: Option<PathBuf>,
+    /// el cifrado y la letra con tiempos, si los trae
+    sheet: Vec<SheetPart>,
+    lyrics: Vec<(f64, String)>,
+}
+
+/// Los versos de una LRC con su segundo, en orden. Una marca sin texto se
+/// queda (es «aquí deja de cantarse»); las cabeceras (`[ar:…]`) no.
+fn lrc(text: &str) -> Vec<(f64, String)> {
+    let mut out = Vec::new();
+    for raw in text.lines() {
+        let mut rest = raw.trim_start();
+        let mut stamps = Vec::new();
+        while let Some(inner) = rest.strip_prefix('[').and_then(|r| r.split_once(']')) {
+            let Some((minutes, seconds)) = inner.0.split_once(':') else {
+                break;
+            };
+            let (Ok(minutes), Ok(seconds)) = (minutes.parse::<f64>(), seconds.parse::<f64>())
+            else {
+                break;
+            };
+            stamps.push(minutes * 60.0 + seconds);
+            rest = inner.1.trim_start();
+        }
+        out.extend(stamps.into_iter().map(|at| (at, rest.trim().to_owned())));
+    }
+    out.sort_by(|a, b| a.0.total_cmp(&b.0));
+    out
 }
 
 /// El tempo de una canción a clic: los pulsos por minuto, sus cambios de
@@ -501,6 +536,29 @@ fn from_sidecar(dir: &Path, side: &Value, song: &mut Song) {
             first: side["first"].as_f64().unwrap_or(0.0),
         });
     song.npz = side["npz"].as_str().map(|n| dir.join(n));
+    song.sheet = side["sheet"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|p| SheetPart {
+            name: p["name"].as_str().unwrap_or("").to_owned(),
+            lines: p["lines"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|l| l.as_str().map(str::to_owned))
+                .collect(),
+        })
+        .collect();
+    song.lyrics = match side["lrc"].as_str() {
+        Some(file) => lrc(&std::fs::read_to_string(dir.join(file)).unwrap_or_default()),
+        None => side["lyrics"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|l| Some((l[0].as_f64()?, l[1].as_str()?.to_owned())))
+            .collect(),
+    };
 }
 
 /// La secuencia abierta en DanPlay: las partes de su manifiesto, en pulsos.
@@ -958,6 +1016,8 @@ fn measure(song: &Song, totals: &mut BTreeMap<&'static str, Score>) -> Value {
         "parts": want.len(),
         "tracks": song.tracks.len(),
     });
+    // lo que haría la guía sin el cifrado: con las pistas si las hay
+    let mut fallback: Option<Vec<Span>> = None;
     for (pass, with_stems) in [("sound", false), ("stems", true)] {
         if with_stems && song.tracks.is_empty() {
             continue;
@@ -973,8 +1033,47 @@ fn measure(song: &Song, totals: &mut BTreeMap<&'static str, Score>) -> Value {
         let s = score(&want, &got, bar);
         totals.entry(pass).or_default().add(&s);
         out[pass] = s.json();
+        fallback = Some(got);
+    }
+    if !song.sheet.is_empty() && !song.lyrics.is_empty() {
+        let aligned = sheet::align(&song.sheet, &song.lyrics, duration, &bars);
+        let got = by_sheet(&aligned, duration);
+        if verbose {
+            show("sheet", &got);
+        }
+        let s = score(&want, &got, bar);
+        totals.entry("sheet").or_default().add(&s);
+        out["sheet"] = s.json();
+        out["sheet"]["confidence"] = json!(aligned.confidence);
+        out["sheet"]["reliable"] = json!(aligned.reliable());
+        out["sheet"]["lines"] = json!([aligned.matched, aligned.sung]);
+        let shipped = if aligned.reliable() {
+            Some(got)
+        } else {
+            fallback
+        };
+        if let Some(got) = shipped {
+            let s = score(&want, &got, bar);
+            totals.entry("shipped").or_default().add(&s);
+            out["shipped"] = s.json();
+        }
     }
     out
+}
+
+/// Las partes del cifrado casado, cada una hasta la siguiente.
+fn by_sheet(aligned: &sheet::Aligned, duration: f64) -> Vec<Span> {
+    aligned
+        .parts
+        .iter()
+        .enumerate()
+        .map(|(i, (start, label))| Span {
+            start: *start,
+            end: aligned.parts.get(i + 1).map_or(duration, |n| n.0),
+            name: label.clone(),
+            kind: st::kind_of(label),
+        })
+        .collect()
 }
 
 fn main() {
