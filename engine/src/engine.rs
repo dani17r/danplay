@@ -1143,7 +1143,6 @@ mod tests {
                     "bloques de otra generacion tras cargar"
                 );
                 assert_eq!(a[0].start, from);
-                drop(chunk);
                 song.close();
             }
         }
