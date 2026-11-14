@@ -1170,6 +1170,18 @@ fn smooth(beats: &[f64]) -> Vec<f64> {
     out
 }
 
+/// Los compases que se saben poner: de dos, tres, cuatro y seis tiempos (un
+/// 2/4 o un 6/8, que la red oye a corcheas, seis pulsos por compás). Salvo
+/// que se diga otro, el de cuatro, y uno de los otros solo si cuadra
+/// claramente mejor (`finish`).
+pub const METERS: [i64; 4] = [2, 3, 4, 6];
+/// Un compás distinto de 4 solo se elige solo si sus «1» destacan al menos esto
+/// (en probabilidad de «1» de la red) sobre los demás pulsos, y al menos lo
+/// que destacan los del 4: una red que marca el «1» fuerte cada cuatro
+/// pulsos y uno más flojo en el tercero (un 4/4 lento) no es un 2/4, aunque
+/// el compás de dos puntúe más acumulando décimas.
+pub const MIN_CONTRAST: f64 = 0.3;
+
 /// El «1» de cada compás (Viterbi): los estados son el tiempo del compás
 /// (0..compás-1) y uno más para un compás con un tiempo de más; lo normal es
 /// pasar al siguiente, y cortar o alargar un compás cuesta
@@ -1246,6 +1258,11 @@ pub struct Final {
     pub first_downbeat: i64,
     pub phase3: i64,
     pub phase4: i64,
+    /// Dónde cae el «1» si el compás es de dos o de seis (los «1» de cada
+    /// compás de esos, módulo 2 o 6). Con solo `phase3` y `phase4`, un compás
+    /// de seis puesto a mano acertaba el «1» una de cada dos veces.
+    pub phase2: i64,
+    pub phase6: i64,
     pub confidence: f64,
     pub bars: Vec<i64>,
 }
@@ -1429,18 +1446,15 @@ pub fn grid(beat: &[f64], down: &[f64], op: Options<'_>) -> Result<Grid, String>
     })
 }
 
-/// La rejilla con sus pulsos ya puestos: el «1» de cada compás (con el compás
-/// que se diga, o el que cuadre: 4 salvo que el 3 cuadre claramente mejor),
-/// el tempo y lo demás que espera la app.
-pub fn finish(beats: &[f64], down: &[f64], meter: Option<i64>) -> Result<Final, String> {
-    // la probabilidad de «1» en cada pulso (la mejor de su trama y las de al
-    // lado)
+/// La probabilidad de «1» en cada pulso (la mejor de su trama y las de al
+/// lado).
+fn downbeat_probs(beats: &[f64], down: &[f64]) -> Result<Vec<f64>, String> {
     let dp: Vec<f64> = down.iter().map(|x| np::sigmoid(*x)).collect();
     if dp.is_empty() {
         return Err("la red no dijo nada de esta canción".into());
     }
     let cap = dp.len() as i64 - 1;
-    let down_p: Vec<f64> = beats
+    Ok(beats
         .iter()
         .map(|t| {
             let f = (t * FPS).round_ties_even() as i64;
@@ -1456,21 +1470,81 @@ pub fn finish(beats: &[f64], down: &[f64], meter: Option<i64>) -> Result<Final, 
                     }
                 })
         })
-        .collect();
-    let three = bars(&down_p, 3)?;
-    let four = bars(&down_p, 4)?;
-    let meter = match meter {
-        Some(m @ (3 | 4)) => m,
-        // 4 salvo que el 3 cuadre claramente mejor
-        _ => {
-            if three.1 > four.1 + 0.05 * beats.len() as f64 {
-                3
-            } else {
-                4
+        .collect())
+}
+
+/// Cómo cuadra un compás de `meter` tiempos con los «1» que dijo la red.
+#[derive(Clone, Debug, PartialEq)]
+pub struct MeterFit {
+    pub meter: i64,
+    /// Lo bien que cuadra (log-verosimilitud del camino de Viterbi).
+    pub fit: f64,
+    /// Cuánto destacan los «1» de ese compás sobre los demás pulsos: la media
+    /// de la probabilidad de «1» donde los pone, menos la de los otros
+    /// pulsos. Si la red marca «1» en todos los pulsos (o en ninguno) no
+    /// dice nada del compás, y sale cerca de 0.
+    pub contrast: f64,
+    /// El índice del pulso de cada «1».
+    pub bars: Vec<usize>,
+}
+
+/// Cómo cuadra cada compás que se sabe poner (`METERS`) con lo que dijo la red.
+pub fn meter_fits(beats: &[f64], down: &[f64]) -> Result<Vec<MeterFit>, String> {
+    let down_p = downbeat_probs(beats, down)?;
+    METERS
+        .iter()
+        .map(|&meter| {
+            let (bars, fit) = bars(&down_p, meter as usize)?;
+            let mut on = vec![false; down_p.len()];
+            for &b in &bars {
+                on[b] = true;
             }
+            let mean = |wanted: bool| {
+                let v: Vec<f64> = down_p
+                    .iter()
+                    .zip(&on)
+                    .filter(|(_, o)| **o == wanted)
+                    .map(|(p, _)| *p)
+                    .collect();
+                if v.is_empty() { 0.0 } else { np::media(&v) }
+            };
+            Ok(MeterFit {
+                meter,
+                fit,
+                contrast: mean(true) - mean(false),
+                bars,
+            })
+        })
+        .collect()
+}
+
+/// La rejilla con sus pulsos ya puestos: el «1» de cada compás (con el compás
+/// que se diga, o el que cuadre: 4 salvo que el 2, el 3 o el 6 cuadren
+/// claramente mejor), el tempo y lo demás que espera la app.
+pub fn finish(beats: &[f64], down: &[f64], meter: Option<i64>) -> Result<Final, String> {
+    let down_p = downbeat_probs(beats, down)?;
+    let fits = meter_fits(beats, down)?;
+    let fit_of = |m: i64| fits.iter().find(|f| f.meter == m).unwrap_or(&fits[2]);
+    let four = fit_of(4);
+    let meter = match meter {
+        Some(m) if METERS.contains(&m) => m,
+        // 4 salvo que otro cuadre claramente mejor (y sus «1» destaquen más
+        // que los del 4: con la red marcando «1» en todos los pulsos, el
+        // compás más corto siempre puntúa más); si cuadran varios (un 6
+        // también cuadra a medias como 3), el que más
+        _ => {
+            fits.iter()
+                .filter(|f| {
+                    f.meter != 4
+                        && f.fit > four.fit + 0.05 * beats.len() as f64
+                        && f.contrast >= MIN_CONTRAST
+                        && f.contrast >= four.contrast
+                })
+                .fold(four, |best, f| if f.fit > best.fit { f } else { best })
+                .meter
         }
     };
-    let downbeats = if meter == 3 { &three.0 } else { &four.0 };
+    let downbeats = &fit_of(meter).bars;
     let phase = |c: &[usize], m: usize| -> i64 {
         if c.is_empty() {
             return 0;
@@ -1497,8 +1571,10 @@ pub fn finish(beats: &[f64], down: &[f64], meter: Option<i64>) -> Result<Final, 
         meter,
         beats: beats.iter().map(|t| np::round_to(*t, 4)).collect(),
         first_downbeat: downbeats.first().map_or(0, |b| *b as i64),
-        phase3: phase(&three.0, 3),
-        phase4: phase(&four.0, 4),
+        phase3: phase(&fit_of(3).bars, 3),
+        phase4: phase(&four.bars, 4),
+        phase2: phase(&fit_of(2).bars, 2),
+        phase6: phase(&fit_of(6).bars, 6),
         confidence: np::round_to(confidence, 3),
         bars: downbeats.iter().map(|b| *b as i64).collect(),
     })
