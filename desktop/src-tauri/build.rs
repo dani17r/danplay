@@ -33,6 +33,7 @@ const COMMANDS: &[&str] = &[
     "preview_stop",
     "set_pitch",
     "set_crossfade",
+    "set_formants",
     "set_metronome",
     "set_stems",
     "analyze_beats",
