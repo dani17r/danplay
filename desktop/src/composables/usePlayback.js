@@ -29,6 +29,7 @@ export const CROSSFADES = [0, 2, 4, 6, 8, 12]
 /** El de fábrica: se nota la transición sin que se pisen mucho. */
 const DEFAULT_CROSSFADE = 4
 const REPEAT_KEY = 'danplay.repeat'
+const ACCENT_KEY = 'danplay.click.accent'
 
 /**
  * Las velocidades que se ofrecen: las mismas en el reproductor y en el modo
@@ -454,6 +455,31 @@ function savedCrossfade() {
 /** Cuánto se funden dos canciones al pasar de una a otra (0 = nada). */
 const crossfade = ref(savedCrossfade())
 
+/**
+ * ¿El clic acentúa el «1» de las canciones que no tienen su compás ajustado?
+ * Sí, de fábrica. En la biblioteca de quien lo pidió, «sin acento» estaba
+ * puesto a mano en 16 de las 22 canciones que ajustó: una preferencia general
+ * lo ahorra. Lo que se ajuste en una canción manda siempre.
+ */
+function savedAccent() {
+  try {
+    return localStorage.getItem(ACCENT_KEY) !== 'false'
+  } catch {
+    return true
+  }
+}
+const accentDefault = ref(savedAccent())
+/**
+ * El compás que se manda al motor para una canción sin el suyo: `null` (el
+ * que detectó el análisis, con su «1» acentuado) o 0 (sin acento).
+ */
+const defaultMeter = () => (accentDefault.value ? null : 0)
+/**
+ * Si el compás que va ahora es uno puesto por alguien (para la canción o a
+ * mano) y no el de por defecto: ese no lo toca un cambio de preferencia.
+ */
+let meterIsOwn = false
+
 function remember(key, value) {
   try {
     localStorage.setItem(key, String(value))
@@ -594,10 +620,12 @@ export function resetPlayback() {
   saidError = ''
   queue.value = []
   crossfade.value = savedCrossfade()
+  accentDefault.value = savedAccent()
+  meterIsOwn = false
   Object.assign(metronomeSettings, {
     on: false,
     bpm: null,
-    meter: null,
+    meter: defaultMeter(),
     shift: 0,
     mult: 0,
     volume: 0.8,
@@ -746,7 +774,7 @@ function setPitch(semitones) {
 const metronomeSettings = {
   on: false,
   bpm: null,
-  meter: null,
+  meter: defaultMeter(),
   shift: 0,
   mult: 0,
   volume: 0.8,
@@ -758,6 +786,23 @@ const metronomeSettings = {
  */
 function setMetronome(patch) {
   Object.assign(metronomeSettings, patch)
+  // `null` es «el de la canción»: sin compás propio, el de por defecto
+  if ('meter' in patch) {
+    meterIsOwn = patch.meter != null
+    if (!meterIsOwn) metronomeSettings.meter = defaultMeter()
+  }
+  return send((b) => b.setMetronome({ ...metronomeSettings }))
+}
+/**
+ * La preferencia de acento. Con el cambio, lo que suena sin compás propio lo
+ * sigue al momento; lo que lo tiene (la canción o el modo a mano), no.
+ * @param {boolean} on  acentuar el «1»
+ */
+function setDefaultAccent(on) {
+  accentDefault.value = !!on
+  remember(ACCENT_KEY, !!on)
+  if (meterIsOwn || metronomeSettings.meter === defaultMeter()) return Promise.resolve()
+  metronomeSettings.meter = defaultMeter()
   return send((b) => b.setMetronome({ ...metronomeSettings }))
 }
 /** Los ajustes por canción (lo guardado con ella, o nada), sin tocar on/volumen. */
@@ -766,7 +811,10 @@ function resetMetronomeOverrides(overrides = {}) {
   // a Rust como rejilla, y aquí viajaba entero, miles de números, en cada
   // cambio de volumen del clic)
   const { own: _own, ...settings } = /** @type {any} */ (overrides)
-  Object.assign(metronomeSettings, { bpm: null, meter: null, shift: 0, mult: 0 }, settings)
+  // el compás de la canción si lo tiene; si no, el de la preferencia general
+  meterIsOwn = settings.meter != null
+  Object.assign(metronomeSettings, { bpm: null, shift: 0, mult: 0 }, settings)
+  if (!meterIsOwn) metronomeSettings.meter = defaultMeter()
   return send((b) => b.setMetronome({ ...metronomeSettings }))
 }
 /**
@@ -917,6 +965,11 @@ export function usePlayback() {
     crossfade: computed(() => crossfade.value),
     setMetronome,
     resetMetronomeOverrides,
+    /** acentuar el «1» en las canciones sin compás propio (Ajustes) */
+    accentDefault: computed(() => accentDefault.value),
+    setDefaultAccent,
+    /** el compás de las canciones sin el suyo: null (el detectado) o 0 (sin acento) */
+    defaultMeter: computed(() => (accentDefault.value ? null : 0)),
     metronomeSent,
     metronome: computed(() => state.metronome),
     analyzeBeats,

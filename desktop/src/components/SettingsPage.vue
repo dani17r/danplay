@@ -419,6 +419,11 @@ const CROSSFADE_OPTIONS = CROSSFADES.map((s) => ({
   v: s,
   n: s ? `${s} segundos` : 'Sin transición: una detrás de otra'
 }))
+// el clic de las canciones que no tienen su compás ajustado
+const ACCENT_OPTIONS = [
+  { v: 'accent', n: 'Acento en el «1» (como viene)' },
+  { v: 'plain', n: 'Sin acento: todos los golpes iguales' }
+]
 </script>
 
 <template>
@@ -513,6 +518,19 @@ const CROSSFADE_OPTIONS = CROSSFADES.map((s) => ({
             label="Transición entre canciones"
             :options="CROSSFADE_OPTIONS"
             @update:model-value="(v) => playback.setCrossfade(v)"
+          />
+        </Card>
+
+        <Card
+          title="Clic del metrónomo"
+          note="Cómo suena el clic en las canciones que no tienen su compás ajustado. Lo que pongas en una canción, en el modo estudio, manda siempre; las que ya ajustaste no cambian."
+        >
+          <SelectField
+            :model-value="playback.accentDefault.value ? 'accent' : 'plain'"
+            width="260px"
+            label="Acento del clic por defecto"
+            :options="ACCENT_OPTIONS"
+            @update:model-value="(v) => playback.setDefaultAccent(v === 'accent')"
           />
         </Card>
 

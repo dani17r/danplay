@@ -764,6 +764,18 @@ canción y en un bucle entra igual en cada vuelta. La onda pinta la rejilla
 tal como suena —con el doble, el compás y el «1» corrido—, que la interfaz
 rehace igual que Rust (`utils/beats.js`).
 
+**El compás de las canciones sin el suyo** es una preferencia general
+(Ajustes › «Clic del metrónomo», `danplay.click.accent`): acento en el «1»,
+como siempre, o sin acento. Solo vale para las canciones que no guardaron un
+compás (`study.metronome.meter` ausente; el que detectó el análisis no se
+guarda): `usePlayback` manda 0 en vez de «el detectado» al motor, y la onda lo
+pinta igual. Lo que se ajuste en una canción, también «sin acento», manda
+siempre, y cambiar la preferencia con una sonando la sigue al momento si no
+tiene compás propio. Con «sin acento» por defecto, elegir el compás detectado
+se guarda con la canción (si no, volvería a «sin acento» al tocarlo). Medido
+en la biblioteca de quien lo pidió: «sin acento» estaba puesto a mano en 16
+de las 22 canciones ajustadas.
+
 **Volumen.** La canción sube hasta un 150 % (también desde el reproductor)
 y el clic hasta el triple (300 %, `metro::MAX_VOLUME`): para las
 grabaciones flojas y para oír el clic por encima de una mezcla cargada, con

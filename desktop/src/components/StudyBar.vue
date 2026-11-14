@@ -770,7 +770,8 @@ const shownGrid = computed(() => {
   const m = study.value.metronome || {}
   return effectiveGrid(grid.value, {
     mult: m.mult || 0,
-    meter: m.meter ?? null,
+    // sin compás propio, el de la preferencia general (Ajustes)
+    meter: m.meter ?? player.defaultMeter.value,
     shift: m.shift || 0
   })
 })
@@ -899,7 +900,12 @@ const followSong = () => metroPatch({ bpm: null })
  */
 const setMeter = (v) =>
   clickAuto.value
-    ? metroPatch({ meter: grid.value?.meter === v ? null : v, shift: 0 })
+    ? metroPatch({
+        // (con «sin acento» por defecto, el detectado SÍ se guarda: no
+        // guardarlo lo devolvería a «sin acento» al tocarlo)
+        meter: grid.value?.meter === v && player.accentDefault.value ? null : v,
+        shift: 0
+      })
     : click.setManual({ meter: v })
 const shiftOne = () =>
   metroPatch({ shift: ((metronome.value.shift || 0) + 1) % (metronome.value.meter || 4) })
