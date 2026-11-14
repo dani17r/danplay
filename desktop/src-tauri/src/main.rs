@@ -227,6 +227,11 @@ fn main() {
         // salida, y con `prevent_exit` eso dejaria la aplicacion viva pero
         // sin nucleo.
         tauri::RunEvent::Exit => {
+            // la sesion de la cola se guarda aparte: que lo ultimo este en el
+            // disco antes de irse
+            if let Some(playback) = app.try_state::<queue::Playback>() {
+                playback.flush_session();
+            }
             if let Some(core) = app.try_state::<core::Core>() {
                 core.stop();
             }

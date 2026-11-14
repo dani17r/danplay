@@ -196,6 +196,24 @@ calculó el núcleo. Opus, WMA y compañía no los lee, y el AAC (M4A) lo lee
 (`player/formats.rs`, con tope de 3 GB), y suena el FLAC: la primera vez tarda
 un par de segundos; las demás, nada.
 
+El FLAC se llama como el **audio** del original (`<huella>.flac`, el MD5 de
+sus paquetes: `ffmpeg -c copy -f md5`, 150 ms para un M4A de cinco minutos), y
+no como su ruta, su tamaño o su fecha: marcar una estrella o guardar el
+estudio reescribe las etiquetas del archivo y cambia las tres cosas, y no hay
+que convertirlo otra vez ni dejar el FLAC de antes huérfano. Un `<ruta>.src`
+por archivo apunta tamaño y fecha de cuando se sacó la huella, para no
+repetirla en cada reproducción; si el archivo cambia se vuelve a mirar, y si
+el audio es otro el FLAC de antes se tira (salvo que lo use otro archivo con
+el mismo audio). La limpieza de la caché quita además los apuntes de lo que
+ya no está y los convertidos con el nombre de antes de la huella.
+
+Qué se lee tal cual y qué se convierte se decide **por lo que tiene dentro**,
+no por la extensión (`formats::sniff`, los primeros 192 bytes): un MP4 es un
+MP4 aunque se llame `.mp3` (en la biblioteca de Daniel, 18 de 319), y un Opus
+dentro de un `.ogg` también; un FLAC con nombre de M4A, en cambio, suena tal
+cual. Lo que el principio no dice (un MP3 empieza con su etiqueta ID3 o con
+una trama, igual que un AAC suelto) lo decide la extensión como siempre.
+
 ## Lo descargado se llama como en YouTube
 
 La cascada de identificación reconoce una canción por cómo suena. Para lo que
@@ -360,6 +378,14 @@ del núcleo pone la cola al día (`queue::prune`): Rust pregunta de una vez por
 las canciones que no están donde creía (`POST /api/songs/locate`); la que se
 movió sigue con su ruta nueva y la que se fue sale. La que está sonando se
 deja terminar: el sistema sigue leyendo un archivo abierto aunque se mueva.
+
+**La sesión se guarda aparte.** La cola escribe `sesion.json` cuando cambia su
+forma (la lista, la posición, repetir o aleatorio), pero no lo hace ella: deja
+la sesión a un hilo (`queue::session::Saver`) y sigue, después de avisar a la
+interfaz del cambio. Antes esperaba al disco (con `sync_all`) ANTES de avisar,
+y en un disco lento o dormido el cambio de canción se notaba tarde. Si se
+acumulan varias sin escribir, manda la última; y al salir de la app
+(`RunEvent::Exit`) se espera, hasta 3 s, a que lo pendiente esté en el disco.
 
 **Lo hecho sigue a la canción** (`services::reuse` y `library/src/reuse.rs`,
 desde 1.28). Pasaba:
@@ -1771,11 +1797,36 @@ un buzón sin candados para las órdenes: el hilo de audio nunca espera.
 - **Entre canciones**, dos «decks»: la que se va baja mientras sube la
   siguiente, con la misma potencia. Con el clic, la cuenta o tramos puestos,
   no se funden.
+- **La siguiente se prepara antes de hacer falta.** La cola decide de
+  antemano cuál viene detrás (con aleatorio, la que se eligió es la que
+  suena) y se la anuncia al reproductor (`Command::Upcoming`). Mientras suena
+  la de ahora, el reproductor pasa a FLAC lo que haga falta (ffmpeg) y, en
+  los últimos 20 s, lee su archivo para que el disco no la retrase. Al acabar
+  la que suena, la anunciada entra **desde el propio hilo de audio**
+  (`Event::Advanced`), sin la vuelta por la cola de `Finished` y `Play`; el
+  motor se mira cada 2 ms en el último cuarto de segundo. Lo que queda entre
+  canción y canción es lo que tarda en abrirse: de 3 a 8 ms medidos con una
+  tarjeta de pruebas (antes, hasta 40 ms de sondeo más la vuelta por la cola,
+  y medio segundo o más si había que pasarla a FLAC). Sin anunciar (la cola
+  no sabe dónde está el archivo) todo sigue como antes. No es sin una sola
+  muestra de silencio: para eso el motor tendría que encadenar la siguiente
+  en la misma muestra del final.
+- **Con fundido, la que suena llega a su final.** Si la siguiente aún hay que
+  prepararla cuando la cola la manda, la que suena sigue (`Engine::outgoing`)
+  y la otra entra fundiéndose en cuanto esté, o sola si tarda más de lo que
+  le queda a la primera; antes se cortaba la que sonaba en ese momento, hasta
+  doce segundos antes de su final. Igual si la siguiente no se puede abrir:
+  se dice, y la que suena no se corta.
 - **De la canción a sus pistas** (o al cambiar una pista): el relevo
   (`handoff`) abre el conjunto nuevo y lo cruza a la par, en la misma
   muestra, antes del estirador de tiempo: no hay salto ni eco.
 - **El clic y las guías habladas** se renderizan en tiempo de canción, sin
   estirar: caen en el pulso también a 0,7× y en la vuelta de un tramo.
+  Al abrir una canción con el clic puesto siguiendo a la canción (sin tempo a
+  mano) y sin la rejilla de esa, el clic **calla hasta que la interfaz diga
+  algo** (`Command::Metronome`, que manda siempre al cambiar de canción): la
+  rejilla que había era de la anterior, y sin ella el clic va libre a 100 bpm,
+  lo que se oía como un golpe suelto al empezar cada canción.
 
 ## El hilo de audio no se rinde
 
