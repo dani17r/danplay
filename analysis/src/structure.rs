@@ -1116,6 +1116,83 @@ pub fn plan_cues(
     out
 }
 
+/// Lo justo que puede quedar una guía de su parte, y lo que se puede apartar
+/// una parte de la raya de su compás sin dejar de estar en ella.
+pub const TIGHT: f64 = 0.05;
+/// Un compás (o un pulso) de más de esto de lo normal es un hueco de la
+/// rejilla (una parte libre, sin clic): ahí no hay «compás de antes».
+pub const STRETCH: f64 = 1.6;
+
+/// Cuándo suena la guía de cada parte, **a tempo**: (t, texto).
+///
+/// Como las guías de una secuencia: la voz entra en un pulso y acaba antes
+/// de que empiece su parte. Si la frase cabe en el compás de antes, entra en
+/// su «1»; si no (una frase larga, un tempo rápido), en el último pulso en
+/// que todavía cabe. `plan_cues` la ponía por segundos (lo que dura la frase
+/// y un pulso antes), y caía entre dos pulsos.
+///
+/// `beats`: los pulsos de la rejilla del clic; `bars`: sus «1» (cualquiera
+/// de los dos puede venir vacío). `beat`: lo que dura un pulso, si se sabe.
+/// Donde la rejilla no llega (antes del primer pulso, un hueco sin clic) o
+/// la guía pisaría a la anterior, como `plan_cues`: por segundos, justo
+/// detrás de la anterior y como mucho acabando al empezar su parte; si ni
+/// así cabe, esa parte no se anuncia. Sin pulsos ni compases da lo mismo
+/// que `plan_cues`.
+pub fn plan_cues_in_time(
+    sections: &[(f64, String)],
+    clips: &[(String, f64)],
+    beats: &[f64],
+    bars: &[f64],
+    beat: Option<f64>,
+) -> Vec<(f64, String)> {
+    let period = beat
+        .filter(|b| *b > 0.0)
+        .or_else(|| (beats.len() >= 2).then(|| np::median(&np::diff(beats))));
+    let bar = (bars.len() >= 2).then(|| np::median(&np::diff(bars)));
+    let air = period.unwrap_or(AIR);
+    let mut out = Vec::new();
+    let mut end: Option<f64> = None;
+    for (start, label) in sections {
+        let Some(clip) = clips.iter().find(|(k, _)| k == label).map(|(_, v)| *v) else {
+            continue;
+        };
+        if *start < FIRST {
+            continue;
+        }
+        // desde cuándo puede sonar sin pisar a la anterior
+        let free = end.map_or(0.0, |e| e + GAP);
+        // lo más tarde que puede entrar para acabar antes de su parte
+        let latest = start - clip - TIGHT;
+        // el «1» del compás de antes, si la frase cabe en él
+        let one = bar.and_then(|size| {
+            let before = bars.partition_point(|b| *b < start - TIGHT);
+            let b = *bars.get(before.checked_sub(1)?)?;
+            (start - b <= STRETCH * size && b <= latest && b >= free).then_some(b)
+        });
+        // si no, el último pulso en el que todavía cabe
+        let last_beat = || {
+            let before = beats.partition_point(|b| *b <= latest);
+            let b = *beats.get(before.checked_sub(1)?)?;
+            (latest - b <= STRETCH * period? && b >= free).then_some(b)
+        };
+        let t = one.or_else(last_beat).unwrap_or_else(|| {
+            let t = (start - clip - air).max(0.0);
+            if end.is_some() && t < free {
+                free.max(start - clip)
+            } else {
+                t
+            }
+        });
+        let t = np::round_to(t, 3);
+        if t + clip > start + 0.01 {
+            continue; // ya no cabe antes de su parte
+        }
+        out.push((t, label.clone()));
+        end = Some(t + clip);
+    }
+    out
+}
+
 /// Las partes que ya tienen nombre (los marcadores), tal cual: en orden,
 /// cada una hasta la siguiente y la última hasta el final. `sections`:
 /// (inicio, nombre) ya en texto.
@@ -1535,6 +1612,154 @@ mod tests {
             "{loudest}"
         );
         assert_eq!(frames(&[0.0; 100], RATE).rms.len(), 1);
+    }
+
+    /// Una rejilla a `bpm` desde `from`: sus pulsos y sus «1» (cada `meter`).
+    fn click(from: f64, bpm: f64, beats: usize, meter: usize) -> (Vec<f64>, Vec<f64>) {
+        let all: Vec<f64> = (0..beats).map(|i| from + 60.0 / bpm * i as f64).collect();
+        let ones = all.iter().copied().step_by(meter).collect();
+        (all, ones)
+    }
+
+    fn part(label: &str, at: f64) -> (f64, String) {
+        (at, label.to_owned())
+    }
+
+    fn clip(label: &str, seconds: f64) -> (String, f64) {
+        (label.to_owned(), seconds)
+    }
+
+    /// Las guías, en esos segundos (al milisegundo).
+    fn assert_plan(plan: &[(f64, String)], want: &[(f64, &str)]) {
+        let labels: Vec<&str> = plan.iter().map(|(_, l)| l.as_str()).collect();
+        let wanted: Vec<&str> = want.iter().map(|(_, l)| *l).collect();
+        assert_eq!(labels, wanted, "{plan:?}");
+        for ((t, label), (w, _)) in plan.iter().zip(want) {
+            assert!((t - w).abs() < 1e-3, "{label}: {t} y no {w}");
+        }
+    }
+
+    /// Lo que se aparta `t` del pulso más cercano.
+    fn off_beat(t: f64, beats: &[f64]) -> f64 {
+        beats
+            .iter()
+            .map(|b| (b - t).abs())
+            .fold(f64::INFINITY, f64::min)
+    }
+
+    #[test]
+    fn a_guide_enters_on_the_one_of_the_bar_before_its_part() {
+        // a 120 desde 0,3: un pulso cada medio segundo, un compás cada dos
+        let (beats, bars) = click(0.3, 120.0, 200, 4);
+        let sections = [part("Coro", bars[8]), part("Solo de guitarra", bars[16])];
+        let clips = [clip("Coro", 0.62), clip("Solo de guitarra", 1.37)];
+        let plan = plan_cues_in_time(&sections, &clips, &beats, &bars, None);
+        assert_plan(&plan, &[(bars[7], "Coro"), (bars[15], "Solo de guitarra")]);
+        // por segundos caían entre dos pulsos: a 120 ms y a 130 ms del más
+        // cercano
+        let loose = plan_cues(&sections, &clips, Some(0.5));
+        assert!(
+            loose.iter().all(|(t, _)| off_beat(*t, &beats) > 0.1),
+            "{loose:?}"
+        );
+        // solo con los «1» (los que manda la interfaz con el clic a mano)
+        let plan = plan_cues_in_time(&sections, &clips, &[], &bars, Some(0.5));
+        assert_plan(&plan, &[(bars[7], "Coro"), (bars[15], "Solo de guitarra")]);
+    }
+
+    #[test]
+    fn a_long_guide_enters_on_the_last_beat_where_it_still_fits() {
+        // a 180 el compás dura 1,33 s: una frase de 1,5 s no cabe en él
+        let (beats, bars) = click(0.0, 180.0, 300, 4);
+        let sections = [part("Pre coro 2", bars[12])];
+        let clips = [clip("Pre coro 2", 1.5)];
+        let plan = plan_cues_in_time(&sections, &clips, &beats, &bars, None);
+        // cinco pulsos antes: acaba a 167 ms de su parte
+        assert_plan(&plan, &[(beats[43], "Pre coro 2")]);
+        assert!(plan[0].0 + 1.5 <= bars[12]);
+        // solo con los pulsos (sin saber el compás), lo mismo
+        let plan = plan_cues_in_time(&sections, &clips, &beats, &[], None);
+        assert_plan(&plan, &[(beats[43], "Pre coro 2")]);
+        // y una corta, en el último pulso en que cabe
+        let plan = plan_cues_in_time(&sections, &[clip("Pre coro 2", 0.4)], &beats, &[], None);
+        assert_plan(&plan, &[(beats[46], "Pre coro 2")]);
+    }
+
+    #[test]
+    fn a_guide_follows_the_tempo_of_its_own_stretch() {
+        // 40 pulsos a 120 y luego a 80 (un final más lento): el compás de
+        // antes de una parte del final dura 3 s, no 2
+        let (mut beats, _) = click(0.0, 120.0, 40, 4);
+        beats.extend(click(20.0, 80.0, 40, 4).0);
+        let bars: Vec<f64> = beats.iter().copied().step_by(4).collect();
+        let sections = [part("Coro", 16.0), part("Final", 32.0)];
+        let clips = [clip("Coro", 0.6), clip("Final", 0.7)];
+        let plan = plan_cues_in_time(&sections, &clips, &beats, &bars, None);
+        assert_plan(&plan, &[(14.0, "Coro"), (29.0, "Final")]);
+    }
+
+    #[test]
+    fn where_the_click_does_not_reach_the_guide_goes_by_seconds() {
+        // la rejilla se corta en el 20 y vuelve en el 60 (una parte libre):
+        // el «1» de antes queda a 40 s, y no es el compás de antes
+        let (mut beats, mut bars) = click(0.0, 120.0, 41, 4);
+        let (later_beats, later_bars) = click(60.0, 120.0, 40, 4);
+        beats.extend(later_beats);
+        bars.extend(later_bars);
+        let sections = [part("Coro", 60.0)];
+        let clips = [clip("Coro", 0.6)];
+        let plan = plan_cues_in_time(&sections, &clips, &beats, &bars, None);
+        // lo que dura y un pulso antes, como siempre
+        assert_plan(&plan, &[(58.9, "Coro")]);
+        // sin rejilla, lo mismo que `plan_cues`
+        let sections = [part("Estrofa 1", 8.0), part("Pre coro", 9.5)];
+        let clips = [clip("Estrofa 1", 0.8), clip("Pre coro", 0.6)];
+        assert_eq!(
+            plan_cues_in_time(&sections, &clips, &[], &[], Some(0.5)),
+            plan_cues(&sections, &clips, Some(0.5))
+        );
+    }
+
+    #[test]
+    fn guides_in_time_never_overlap_and_a_part_too_close_is_not_announced() {
+        let (beats, bars) = click(0.0, 120.0, 100, 4);
+        let sections = [
+            part("Estrofa 2", 16.0),
+            part("Pre coro", 17.0),
+            part("Coro", 17.5),
+            part("Puente", 20.0),
+        ];
+        let clips = [
+            clip("Estrofa 2", 1.9),
+            clip("Pre coro", 0.8),
+            clip("Coro", 0.8),
+            clip("Puente", 1.2),
+        ];
+        let plan = plan_cues_in_time(&sections, &clips, &beats, &bars, None);
+        assert_plan(
+            &plan,
+            &[
+                (14.0, "Estrofa 2"),
+                // el «1» de su compás lo pisa la anterior: justo detrás de
+                // ella, acabando al empezar su parte
+                (16.2, "Pre coro"),
+                // «Coro» ya no cabe: no se anuncia
+                (18.0, "Puente"),
+            ],
+        );
+        for pair in plan.windows(2) {
+            let ends = pair[0].0 + clips.iter().find(|c| c.0 == pair[0].1).expect("guía").1;
+            assert!(pair[1].0 >= ends + GAP - 1e-9, "{plan:?}");
+        }
+        // la que empieza en el primer segundo (la intro) no se anuncia
+        let plan = plan_cues_in_time(
+            &[part("Intro", 0.0), part("Coro", 0.5)],
+            &[clip("Intro", 0.3), clip("Coro", 0.3)],
+            &beats,
+            &bars,
+            None,
+        );
+        assert_eq!(plan, []);
     }
 
     #[test]
