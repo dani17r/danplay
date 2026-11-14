@@ -33,6 +33,12 @@ pub const MISSING_DAYS: f64 = 30.0;
 /// índice: son cosas que puso la persona y no deben perderse por un traslado.
 const KEEP_IF_EMPTY: [&str; 6] = ["stars", "favorite", "blur", "key", "bpm", "lyrics"];
 
+/// Lo que se corrige a mano en la ficha. En un archivo que no admite
+/// etiquetas (un wma, un mp4 que no se puede reescribir) no hay dónde
+/// guardarlo: vive solo en el índice, y lo que salga al releerlo (del nombre
+/// del archivo, de su carpeta) no lo pisa.
+const KEEP_IF_UNTAGGABLE: [&str; 6] = ["artist", "title", "album", "year", "genre", "feat"];
+
 /// Cuántas canciones se leen de una vez (en paralelo): bastantes para
 /// aprovechar todos los núcleos y pocas para no tener en memoria las
 /// etiquetas de toda la biblioteca a la vez.
@@ -184,6 +190,88 @@ fn differs(a: &Value, b: &Value) -> bool {
         (Some(x), Some(y)) if a.is_number() && b.is_number() => x != y,
         _ => a != b,
     }
+}
+
+/// Pone al día la fila `id` con lo que se acaba de leer de su archivo
+/// (`row`, en el orden de `COLUMNS`). Dice si cambió algo de lo que se
+/// enseña: releer un archivo no es cambiarlo, y si solo se movió la fecha (la
+/// app acaba de escribirle una estrella) no hay que avisar a nadie. No hace
+/// commit.
+///
+/// Lo que solo vive en la base no se pierde por releer: si el archivo no trae
+/// las estrellas, el favorito, el tono... (`KEEP_IF_EMPTY`: no admite
+/// etiquetas, estaban desactivadas, no se pudo escribir) se quedan los del
+/// índice; antes, bastaba que la fecha del archivo cambiara por fuera para
+/// que un escaneo las dejara a cero. Y en un archivo que no admite etiquetas,
+/// tampoco lo corregido a mano (`KEEP_IF_UNTAGGABLE`).
+fn refresh_row(conn: &Connection, id: i64, path: &str, row: &[Value]) -> rusqlite::Result<bool> {
+    let before = fetch_one(
+        conn,
+        &format!("SELECT {} FROM songs WHERE id=?", COLUMNS.join(",")),
+        [id],
+    )?;
+    let mut row = row.to_vec();
+    if let Some(before) = &before {
+        let kept = |c: &str| before.get(c).filter(|v| value::truthy(v));
+        for (c, v) in COLUMNS.iter().zip(row.iter_mut()) {
+            if KEEP_IF_EMPTY.contains(c)
+                && !value::truthy(v)
+                && let Some(old) = kept(c)
+            {
+                *v = old.clone();
+            }
+        }
+        // mirar si admite etiquetas es abrir el archivo: solo si hay algo
+        // corregido a mano que se iría
+        let edited = COLUMNS.iter().zip(&row).any(|(c, v)| {
+            KEEP_IF_UNTAGGABLE.contains(c) && kept(c).is_some_and(|old| differs(old, v))
+        });
+        if edited && !tags::writable(Path::new(path)) {
+            for (c, v) in COLUMNS.iter().zip(row.iter_mut()) {
+                if KEEP_IF_UNTAGGABLE.contains(c)
+                    && let Some(old) = kept(c)
+                {
+                    *v = old.clone();
+                }
+            }
+        }
+    }
+    let differing: Vec<&str> = COLUMNS
+        .iter()
+        .zip(&row)
+        .filter(|(c, v)| {
+            before
+                .as_ref()
+                .is_none_or(|b| differs(b.get(**c).unwrap_or(&Value::Null), v))
+        })
+        .map(|(c, _)| *c)
+        .collect();
+    let moved = differing.iter().any(|c| !matches!(*c, "mtime" | "size"));
+    if differing.is_empty() {
+        return Ok(false);
+    }
+    begin(conn)?;
+    if moved {
+        let query = format!(
+            "UPDATE songs SET {} WHERE id=?",
+            COLUMNS.map(|c| format!("{c}=?")).join(",")
+        );
+        let mut values: Vec<_> = row.iter().map(super::sql).collect();
+        values.push(rusqlite::types::Value::Integer(id));
+        conn.prepare_cached(&query)?
+            .execute(rusqlite::params_from_iter(values))?;
+    } else {
+        // solo la fecha y el tamaño: sin tocar las columnas que se buscan
+        // (su índice de texto se rehace con cada UPDATE que las nombra)
+        let at = |c: &str| COLUMNS.iter().position(|k| *k == c).map(|i| &row[i]);
+        conn.prepare_cached("UPDATE songs SET mtime=?, size=? WHERE id=?")?
+            .execute(rusqlite::params![
+                super::sql(at("mtime").unwrap_or(&Value::Null)),
+                super::sql(at("size").unwrap_or(&Value::Null)),
+                id
+            ])?;
+    }
+    Ok(moved)
 }
 
 /// Cómo se reconoce una canción sin mirar el archivo: su artista y su
@@ -667,27 +755,8 @@ pub fn scan(
         let result: rusqlite::Result<()> = (|| {
             if let Some(v) = v {
                 let id = v.get("id").and_then(Value::as_i64).unwrap_or(0);
-                let before = fetch_one(conn, "SELECT * FROM songs WHERE id=?", [id])?;
-                begin(conn)?;
-                let query = format!(
-                    "UPDATE songs SET {} WHERE id=?",
-                    COLUMNS.map(|c| format!("{c}=?")).join(",")
-                );
-                let mut values: Vec<_> = row.iter().map(super::sql).collect();
-                values.push(rusqlite::types::Value::Integer(id));
-                conn.prepare_cached(&query)?
-                    .execute(rusqlite::params_from_iter(values))?;
                 out.updated += 1;
-                // releer un archivo no es cambiarlo: si solo se movió la fecha
-                // (la app acaba de escribirle una estrella), no hay que avisar
-                let moved = before.as_ref().is_none_or(|b| {
-                    COLUMNS
-                        .iter()
-                        .zip(&row)
-                        .filter(|(c, _)| !matches!(**c, "mtime" | "size"))
-                        .any(|(c, value)| differs(b.get(*c).unwrap_or(&Value::Null), value))
-                });
-                if moved {
+                if refresh_row(conn, id, path, &row)? {
                     out.changed = true;
                 }
             } else {
@@ -863,15 +932,8 @@ pub fn index_file(
         // si ya estaba, se actualiza en sitio: un INSERT OR REPLACE le daría un
         // id nuevo y las listas que lo tuvieran lo perderían
         if let Some(old) = fetch_one(conn, "SELECT id FROM songs WHERE path=?", [&path])? {
-            begin(conn)?;
-            let query = format!(
-                "UPDATE songs SET {} WHERE id=?",
-                COLUMNS.map(|c| format!("{c}=?")).join(",")
-            );
-            let mut values: Vec<_> = row.iter().map(super::sql).collect();
-            values.push(super::sql(&old["id"]));
-            conn.prepare_cached(&query)?
-                .execute(rusqlite::params_from_iter(values))?;
+            let id = old.get("id").and_then(Value::as_i64).unwrap_or(0);
+            refresh_row(conn, id, &path, &row)?;
         } else {
             // una canción apartada que vuelve (restaurada de la papelera, la
             // copia que queda al resolver duplicados) recupera su id
@@ -908,7 +970,155 @@ pub fn index_file(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testkit::{Scratch, make_audio};
+    use crate::testkit::{Scratch, make_audio, make_mp3, without_ffmpeg};
+    use std::path::PathBuf;
+
+    /// Una biblioteca vacía en una carpeta temporal, con su índice: la
+    /// conexión y la carpeta de música (ya dada de alta).
+    fn library(dir: &Scratch) -> (Connection, PathBuf) {
+        let root = dir.join("Musica");
+        std::fs::create_dir_all(root.join("Artistas")).expect("carpeta");
+        let conn = crate::index::schema::connect(&dir.join("indice.db")).expect("índice");
+        assert!(folders::add_folder(&conn, &root.to_string_lossy(), "", "library").expect("alta"));
+        commit(&conn).expect("commit");
+        let root = PathBuf::from(folders::roots(&conn).expect("carpetas").remove(0));
+        (conn, root)
+    }
+
+    fn rescan(conn: &Connection, root: &Path) -> ScanReport {
+        let extensions: Vec<String> = crate::config::EXTENSIONS
+            .iter()
+            .map(|e| (*e).to_owned())
+            .collect();
+        scan(
+            conn,
+            &root.join("Artistas"),
+            &extensions,
+            false,
+            &mut |_, _| {},
+        )
+        .expect("escaneo")
+    }
+
+    /// La fila de la canción con ese nombre de archivo.
+    fn song(conn: &Connection, file: &str) -> Dict {
+        fetch_one(conn, "SELECT * FROM songs WHERE file=?", [file])
+            .expect("base")
+            .unwrap_or_else(|| panic!("no está {file}"))
+    }
+
+    /// La fecha del archivo cambia por fuera (otro programa lo tocó, una
+    /// copia de seguridad lo devolvió), sin cambiar lo que tiene dentro.
+    fn touched_outside(path: &Path) {
+        let earlier = std::time::SystemTime::now() - std::time::Duration::from_secs(3600);
+        std::fs::File::options()
+            .write(true)
+            .open(path)
+            .and_then(|f| f.set_modified(earlier))
+            .expect("fecha");
+    }
+
+    /// Un archivo que no admite etiquetas (un wma): sus estrellas, su tono
+    /// y lo corregido a mano viven solo en el índice. Bastaba que su fecha
+    /// cambiara por fuera para que el siguiente escaneo lo dejara todo a cero.
+    #[test]
+    fn what_only_the_index_knows_survives_a_rescan() {
+        let dir = Scratch::new("solo-en-la-base");
+        let (conn, root) = library(&dir);
+        let file = root
+            .join("Artistas")
+            .join("Barak")
+            .join("Barak - Vieja.wma");
+        std::fs::create_dir_all(file.parent().expect("carpeta")).expect("carpeta");
+        std::fs::write(&file, b"no admite etiquetas").expect("escribir");
+        assert_eq!(rescan(&conn, &root).added_count, 1);
+        let before = song(&conn, "Barak - Vieja.wma");
+        assert_eq!(
+            (get_str(&before, "artist"), get_str(&before, "title")),
+            ("Barak", "Vieja")
+        );
+        conn.execute(
+            "UPDATE songs SET stars=4, favorite=1, blur=1, key='Bb', bpm=72, lyrics='una letra', \
+             title='Corregida', album='A mano' WHERE file='Barak - Vieja.wma'",
+            [],
+        )
+        .expect("lo que puso la persona");
+        touched_outside(&file);
+        let r = rescan(&conn, &root);
+        assert_eq!(
+            (r.updated, r.changed),
+            (1, false),
+            "se relee, y nada cambia"
+        );
+        let after = song(&conn, "Barak - Vieja.wma");
+        for (column, expected) in [
+            ("stars", Value::from(4)),
+            ("favorite", Value::from(1)),
+            ("blur", Value::from(1)),
+            ("key", Value::from("Bb")),
+            ("bpm", Value::from(72.0)),
+            ("lyrics", Value::from("una letra")),
+            ("title", Value::from("Corregida")),
+            ("album", Value::from("A mano")),
+            ("artist", Value::from("Barak")),
+        ] {
+            assert!(
+                !differs(&after[column], &expected),
+                "{column}: {}",
+                after[column]
+            );
+        }
+        // y la fecha nueva queda apuntada: no se relee otra vez
+        assert_ne!(after["mtime"], before["mtime"]);
+        let again = rescan(&conn, &root);
+        assert_eq!((again.updated, again.reused), (0, 1));
+    }
+
+    /// En un archivo que sí admite etiquetas, lo que el archivo dice manda;
+    /// lo que no dice (las etiquetas estaban desactivadas, no se pudo
+    /// escribir) se queda como estaba en el índice.
+    #[test]
+    fn a_rescan_takes_what_the_file_says_and_keeps_what_it_does_not() {
+        let dir = Scratch::new("lo-que-dice-el-archivo");
+        let (conn, root) = library(&dir);
+        let file = root
+            .join("Artistas")
+            .join("Barak")
+            .join("Barak - Mi Gozo.mp3");
+        if make_mp3(&file, "Barak", "Mi Gozo", "", 1.0, None).is_none() {
+            return without_ffmpeg("lo que un reescaneo conserva");
+        }
+        rescan(&conn, &root);
+        conn.execute("UPDATE songs SET stars=3, key='Am'", [])
+            .expect("solo en la base");
+        // otro programa le cambia el álbum
+        let album = tags::Changes {
+            album: Some("Radical".into()),
+            ..tags::Changes::default()
+        };
+        tags::write(&file, &album).expect("etiquetas");
+        touched_outside(&file);
+        let r = rescan(&conn, &root);
+        assert_eq!((r.updated, r.changed), (1, true));
+        let row = song(&conn, "Barak - Mi Gozo.mp3");
+        assert_eq!(get_str(&row, "album"), "Radical");
+        assert_eq!(
+            (row["stars"].as_i64(), get_str(&row, "key")),
+            (Some(3), "Am")
+        );
+        // y cuando el archivo sí dice sus estrellas, son las suyas
+        let stars = tags::Changes {
+            stars: Some(5),
+            ..tags::Changes::default()
+        };
+        tags::write(&file, &stars).expect("etiquetas");
+        touched_outside(&file);
+        rescan(&conn, &root);
+        assert_eq!(
+            song(&conn, "Barak - Mi Gozo.mp3")["stars"].as_i64(),
+            Some(5)
+        );
+    }
 
     /// Lo que lee el escaneo por adelantado: las etiquetas leídas a la vez,
     /// por tandas y en paralelo, son las mismas que de una en una; lo que no
