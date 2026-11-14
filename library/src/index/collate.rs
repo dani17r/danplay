@@ -42,12 +42,12 @@ fn lower(c: char) -> char {
 fn weight(c: char) -> u32 {
     let c = plain(lower(c));
     match c {
-        'a'..='z' => (3 << 24) | ((c as u32 - 'a' as u32) * 2),
+        'a'..='z' => 0x0300_0000 | ((c as u32 - 'a' as u32) * 2),
         // entre la n (26) y la o (28)
-        'ñ' => (3 << 24) | 27,
-        '0'..='9' => (2 << 24) | (c as u32 - '0' as u32),
-        c if c.is_alphabetic() => (4 << 24) | c as u32,
-        c if c.is_numeric() => (2 << 24) | 0x100 | (c as u32 & 0xff),
+        'ñ' => 0x0300_0000 | 0x1b,
+        '0'..='9' => 0x0200_0000 | (c as u32 - '0' as u32),
+        c if c.is_alphabetic() => 0x0400_0000 | c as u32,
+        c if c.is_numeric() => 0x0200_0000 | 0x100 | (c as u32 & 0xff),
         c => (c as u32).min(0x00ff_ffff),
     }
 }

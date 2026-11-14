@@ -337,13 +337,13 @@ fn the_diary_thread_sleeps_until_something_changes_and_wakes_up_to_write_it() {
     }
     assert!(wait_for(json!(2)), "no volvió a despertar");
     // apagar lo despierta: se va sin esperar sus segundos
-    let start = std::time::Instant::now();
+    let quitting = std::time::Instant::now();
     crate::startup::stop(&app);
-    while journal::running(&app) && start.elapsed() < std::time::Duration::from_secs(5) {
+    while journal::running(&app) && quitting.elapsed() < std::time::Duration::from_secs(5) {
         std::thread::sleep(std::time::Duration::from_millis(20));
     }
     assert!(!journal::running(&app), "no se fue al apagar");
-    assert!(start.elapsed() < std::time::Duration::from_secs(2));
+    assert!(quitting.elapsed() < std::time::Duration::from_secs(2));
 }
 
 /// Los despertares del hilo del diario con la app en reposo, contados en el
@@ -370,7 +370,7 @@ fn idle_journal_thread_wake_ups() {
                     .is_ok_and(|n| n.trim() == "danplay-journal")
             })
             .filter_map(|t| std::fs::read_to_string(t.path().join("status")).ok())
-            .flat_map(|status| {
+            .filter_map(|status| {
                 status
                     .lines()
                     .find_map(|l| l.strip_prefix("voluntary_ctxt_switches:"))

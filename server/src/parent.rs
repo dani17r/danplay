@@ -81,11 +81,12 @@ mod tests {
         cmd.spawn().expect("hijo")
     }
 
-    fn exit_within(child: &mut std::process::Child, wait: Duration) -> Option<Option<i32>> {
+    /// El código con que acabó (-1 si fue por una señal), si acabó a tiempo.
+    fn exit_within(child: &mut std::process::Child, wait: Duration) -> Option<i32> {
         let end = Instant::now() + wait;
         while Instant::now() < end {
             if let Ok(Some(status)) = child.try_wait() {
-                return Some(status.code());
+                return Some(status.code().unwrap_or(-1));
             }
             std::thread::sleep(Duration::from_millis(20));
         }
@@ -110,7 +111,7 @@ mod tests {
         let started = Instant::now();
         assert_eq!(
             exit_within(&mut watching, Duration::from_secs(10)),
-            Some(Some(ORPHAN_EXIT)),
+            Some(ORPHAN_EXIT),
             "el hijo no se fue con su padre"
         );
         assert!(started.elapsed() < Duration::from_secs(5));

@@ -174,12 +174,12 @@ fn a_thumbnail_and_a_missing_cover_do_not_reopen_the_audio() {
     library::tags::write_cover(&with, &image, "image/jpeg").expect("portada");
     let folder = media::thumbnails_folder(&app);
     let meta = std::fs::metadata(&with).expect("meta");
-    let ready = folder.join(format!(
+    let stored = folder.join(format!(
         "{}_96_{}.jpg",
         library::thumbnails::key(&with),
         library::thumbnails::version(&meta)
     ));
-    std::fs::write(&ready, b"miniatura").expect("miniatura");
+    std::fs::write(&stored, b"miniatura").expect("miniatura");
     media::forget_cover(&with);
     let reads = media::cover_reads();
     let (data, mime) = media::thumbnail(&app, &with, 96).expect("la miniatura");

@@ -392,12 +392,11 @@ mod tests {
         std::fs::remove_file(&files["gozo"]).expect("borrar");
         super::scan(&app, &mut |_, _| {}).expect("escaneo");
         assert!(!orphan.exists(), "no podó al irse una canción");
-        // y pasadas horas, también
+        // y si cambia cuántos archivos se conocen (las pistas separadas)
         std::fs::write(&orphan, b"viejo").expect("huérfano");
-        *app.last_prune.lock().expect("cerrojo") =
-            Some((std::time::Instant::now() - super::PRUNE_EVERY * 2, 2));
+        *app.last_prune.lock().expect("cerrojo") = Some((std::time::Instant::now(), 999));
         super::scan(&app, &mut |_, _| {}).expect("escaneo");
-        assert!(!orphan.exists(), "no podó pasadas horas");
+        assert!(!orphan.exists(), "no podó al cambiar lo que se conoce");
     }
 
     /// Lo que cuesta podar las cachés con una biblioteca grande: una onda

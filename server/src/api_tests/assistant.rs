@@ -528,14 +528,17 @@ fn the_revision_goes_up_with_every_visible_change() {
     );
     let r2 = revision(&app);
     assert!(r2 > r1, "añadir a una lista cuenta");
+    // (puntuar no cuenta: la interfaz que puntúa ya tiene la canción en la
+    // respuesta, y recargarlo todo por ello era trabajo en balde; lo
+    // comprueba `watcher::what_the_app_writes_is_not_scanned_again`)
     call(
         &app,
         "POST",
-        &format!("/api/song/{cid}/stars"),
-        Some(json!({"stars": 3})),
+        &format!("/api/song/{cid}/favorite"),
+        Some(json!({"favorite": true})),
     );
     let r3 = revision(&app);
-    assert!(r3 > r2, "puntuar cuenta");
+    assert!(r3 > r2, "marcar una favorita cuenta");
     call(&app, "DELETE", &format!("/api/playlists/{lid}"), None);
     assert!(revision(&app) > r3, "borrar la lista cuenta");
 }
