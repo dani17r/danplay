@@ -5,7 +5,7 @@
 use crate::app::{App, VERSION};
 use crate::error::ApiError;
 use crate::services::{folders, playlists};
-use library::index::{Dict, touch, writes};
+use library::index::{Dict, pause, touch, wait_for_write, wake_waiters, writes};
 use library::journal;
 use serde_json::{Value, json};
 use std::path::PathBuf;
@@ -13,8 +13,12 @@ use std::sync::atomic::Ordering;
 use std::sync::{Mutex, PoisonError};
 use std::time::Duration;
 
-/// Cada cuánto mira el hilo si hay algo nuevo que escribir.
+/// Cuánto espera el hilo, tras un cambio, antes de escribir el diario.
 pub const EVERY: Duration = Duration::from_secs(3);
+
+/// Lo más que duerme el hilo sin cambios (despierta antes si los hay, o si se
+/// apaga): solo para no depender de un aviso perdido.
+const IDLE: Duration = Duration::from_secs(600);
 
 #[derive(Debug, Default)]
 struct Inner {
@@ -36,6 +40,13 @@ impl State {
     fn with<T>(&self, f: impl FnOnce(&mut Inner) -> T) -> T {
         f(&mut self.inner.lock().unwrap_or_else(PoisonError::into_inner))
     }
+}
+
+/// Ya se recuperó (o se intentó): el hilo del diario puede empezar a
+/// escribir, y se le avisa, que duerme hasta que pase algo.
+fn mark_restored(app: &App) {
+    app.journal.with(|s| s.restored = true);
+    wake_waiters();
 }
 
 /// Las carpetas gestionadas que existen.
@@ -86,7 +97,7 @@ pub fn write(app: &App) -> Result<usize, ApiError> {
 pub fn reconcile(app: &App) -> Result<Value, ApiError> {
     let mut told = json!({"songs": 0, "lists": 0, "entries": 0, "ghosts": 0, "fresh": false});
     let Some(latest) = journal::latest(&targets(app)?) else {
-        app.journal.with(|s| s.restored = true);
+        mark_restored(app);
         return Ok(told);
     };
     let uid = uid(app)?;
@@ -124,6 +135,7 @@ pub fn reconcile(app: &App) -> Result<Value, ApiError> {
             s.report = Some(report);
         }
     });
+    wake_waiters();
     if r.songs > 0 || r.entries > 0 || r.lists > 0 {
         log::info!("diario: recuperado {told}");
     }
@@ -182,13 +194,16 @@ pub fn after_scan(app: &App, result: Option<&Value>, first: bool) {
         && let Err(e) = reconcile(app)
     {
         log::warn!("el diario no pudo recuperar: {e}");
-        app.journal.with(|s| s.restored = true);
+        mark_restored(app);
     }
 }
 
 /// El hilo que escribe el diario unos segundos después de cada cambio (y
 /// nunca antes de haber recuperado: una base nueva y vacía no puede pisar
 /// el diario que la va a rellenar).
+///
+/// Sin cambios, duerme hasta que los haya (`index::wait_for_write`): antes
+/// despertaba cada 100 ms para mirar si había algo, con la app en reposo.
 pub fn start(app: &App) {
     if app
         .journal
@@ -202,25 +217,28 @@ pub fn start(app: &App) {
         .spawn(move || {
             let app = worker;
             loop {
-                // en trocitos, para que parar no espere tres segundos enteros
-                let mut waited = Duration::ZERO;
-                while waited < EVERY {
-                    if app.stopping.load(Ordering::SeqCst) {
-                        app.journal.with(|s| s.running = false);
-                        return;
-                    }
-                    std::thread::sleep(Duration::from_millis(100));
-                    waited += Duration::from_millis(100);
-                }
-                if !app.journal.with(|s| s.restored) {
-                    continue;
+                if app.stopping.load(Ordering::SeqCst) {
+                    app.journal.with(|s| s.running = false);
+                    return;
                 }
                 // todo lo escrito, también lo que no avisa a la interfaz
                 // (una estrella puesta desde ella)
-                let rev = writes();
-                if app.journal.with(|s| s.revision == Some(rev)) {
+                let seen = writes();
+                if !app.journal.with(|s| s.restored)
+                    || app.journal.with(|s| s.revision == Some(seen))
+                {
+                    // nada que escribir (o aún sin recuperar): hasta que
+                    // haya un cambio, que se recupere o que se apague
+                    wait_for_write(seen, IDLE);
                     continue;
                 }
+                // algo cambió: se deja pasar un rato por si siguen los
+                // cambios, y se escribe de una vez (no a cada uno)
+                pause(EVERY);
+                if app.stopping.load(Ordering::SeqCst) {
+                    continue;
+                }
+                let rev = writes();
                 app.journal.with(|s| s.revision = Some(rev));
                 let _ = write(&app);
             }
@@ -228,6 +246,12 @@ pub fn start(app: &App) {
     if spawned.is_err() {
         app.journal.with(|s| s.running = false);
     }
+}
+
+/// Si el hilo del diario está en marcha (para las pruebas).
+#[cfg(test)]
+pub fn running(app: &App) -> bool {
+    app.journal.with(|s| s.running)
 }
 
 /// Al cerrar: escribe lo último (si ya se recuperó).

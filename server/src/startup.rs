@@ -379,6 +379,8 @@ pub fn start(app: &App) {
 /// hubiera, el vigilante) y el diario escribe lo último.
 pub fn stop(app: &App) {
     app.stopping.store(true, Ordering::SeqCst);
+    // los hilos que esperan un cambio (el diario) miran si tienen que irse
+    library::index::wake_waiters();
     crate::services::youtube::cancel(app);
     watcher::stop(app);
     journal::stop(app);

@@ -289,6 +289,102 @@ fn the_diary_is_written_next_to_the_music() {
     );
 }
 
+/// El hilo del diario duerme hasta que hay algo que escribir (antes miraba
+/// cada 100 ms): lo escribe a los pocos segundos de un cambio, aunque el
+/// cambio no avise a la interfaz, y se va al apagar sin esperar.
+#[test]
+fn the_diary_thread_sleeps_until_something_changes_and_wakes_up_to_write_it() {
+    let Some((app, _)) = scanned_library() else {
+        return;
+    };
+    let b = id(&app, "Barak - Mi Gozo.mp3");
+    let at = app.config().data_dir.join("journal.json");
+    let stars = || {
+        std::fs::read_to_string(&at)
+            .ok()
+            .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+            .and_then(|d| {
+                d["songs"]
+                    .as_array()?
+                    .iter()
+                    .find(|s| s["id"] == b)
+                    .map(|s| s["stars"].clone())
+            })
+    };
+    journal::reconcile(&app).expect("recuperar");
+    journal::start(&app);
+    assert!(journal::running(&app));
+    let wait_for = |wanted: Value| {
+        let end = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while std::time::Instant::now() < end {
+            if stars().as_ref() == Some(&wanted) {
+                return true;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        false
+    };
+    // un cambio que la interfaz ya tiene delante (no mueve la revisión)...
+    {
+        let _quiet = library::index::quietly();
+        assert!(songs::rate(&app, b, 4).expect("estrellas"));
+    }
+    assert!(wait_for(json!(4)), "no escribió el cambio");
+    // ...y otro, después de haber vuelto a dormir
+    {
+        let _quiet = library::index::quietly();
+        assert!(songs::rate(&app, b, 2).expect("estrellas"));
+    }
+    assert!(wait_for(json!(2)), "no volvió a despertar");
+    // apagar lo despierta: se va sin esperar sus segundos
+    let start = std::time::Instant::now();
+    crate::startup::stop(&app);
+    while journal::running(&app) && start.elapsed() < std::time::Duration::from_secs(5) {
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    assert!(!journal::running(&app), "no se fue al apagar");
+    assert!(start.elapsed() < std::time::Duration::from_secs(2));
+}
+
+/// Los despertares del hilo del diario con la app en reposo, contados en el
+/// sistema (`voluntary_ctxt_switches`). Se corre solo, que otras pruebas
+/// tienen sus propios hilos: `cargo test idle_journal -- --ignored --nocapture`.
+#[cfg(target_os = "linux")]
+#[test]
+#[ignore = "mide despertares del sistema: solo, con --ignored"]
+fn idle_journal_thread_wake_ups() {
+    let Some((app, _)) = scanned_library() else {
+        return;
+    };
+    journal::reconcile(&app).expect("recuperar");
+    journal::start(&app);
+    // el hilo escribe una vez al arrancar (aún no había escrito nada): se
+    // deja pasar, que lo que se mide es el reposo
+    std::thread::sleep(journal::EVERY + std::time::Duration::from_millis(1500));
+    let switches = || -> u64 {
+        std::fs::read_dir("/proc/self/task")
+            .expect("hilos")
+            .flatten()
+            .filter(|t| {
+                std::fs::read_to_string(t.path().join("comm"))
+                    .is_ok_and(|n| n.trim() == "danplay-journal")
+            })
+            .filter_map(|t| std::fs::read_to_string(t.path().join("status")).ok())
+            .flat_map(|status| {
+                status
+                    .lines()
+                    .find_map(|l| l.strip_prefix("voluntary_ctxt_switches:"))
+                    .and_then(|n| n.trim().parse::<u64>().ok())
+            })
+            .sum()
+    };
+    let before = switches();
+    std::thread::sleep(std::time::Duration::from_secs(5));
+    let woke = switches() - before;
+    println!("el hilo del diario, en reposo: {woke} despertares en 5 s");
+    assert!(woke <= 1, "{woke} despertares en 5 s");
+}
+
 #[test]
 fn the_diary_of_before_1_31_is_still_read_and_then_replaced() {
     // hasta la 1.30 era `.danplay/journal.json`, con el formato

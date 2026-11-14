@@ -167,6 +167,7 @@ pub struct Watcher {
     observer: Mutex<Option<Observer>>,
     wake: Signal,
     scans: std::sync::atomic::AtomicU64,
+    loops: std::sync::atomic::AtomicU64,
     stop: AtomicBool,
     /// mirar las carpetas ya, sin esperar
     recheck: AtomicBool,
@@ -196,6 +197,7 @@ impl Watcher {
             observer: Mutex::new(None),
             wake: Signal::default(),
             scans: std::sync::atomic::AtomicU64::new(0),
+            loops: std::sync::atomic::AtomicU64::new(0),
             stop: AtomicBool::new(false),
             recheck: AtomicBool::new(false),
             started: AtomicBool::new(false),
@@ -239,8 +241,13 @@ impl Watcher {
         let mut last_check = monotonic();
         let mut last_full = last_check;
         while !self.stopped(app) {
-            self.wake.wait(Duration::from_secs(1));
+            // hasta lo próximo que toque, no cada segundo (con la app en
+            // reposo, despertaba para no hacer nada); `mark`, las carpetas
+            // que cambian y `stop` lo despiertan antes
+            let wait = self.next_wait(monotonic(), last_check, last_full);
+            self.wake.wait(wait);
             self.wake.clear();
+            self.loops.fetch_add(1, Ordering::Relaxed);
             if self.stopped(app) {
                 break;
             }
@@ -259,6 +266,38 @@ impl Watcher {
                 last_full = monotonic();
             }
         }
+    }
+
+    /// Cuánto puede dormir el hilo hasta lo próximo que le toca: mirar si las
+    /// carpetas siguen donde estaban, el repaso entero, o escanear lo
+    /// apuntado cuando haya calma.
+    fn next_wait(&self, now: f64, last_check: f64, last_full: f64) -> Duration {
+        // lo más que duerme sin que nada lo despierte: por si se perdió un aviso
+        const LONGEST: f64 = 60.0;
+        let mut secs = last_check + self.check_every - now;
+        if self.rescan_every > 0.0 {
+            secs = secs.min(last_full + self.rescan_every - now);
+        }
+        if let Some(due) = self.due_in(now) {
+            secs = secs.min(due);
+        }
+        // un mínimo, para que un reloj raro no lo ponga a dar vueltas
+        Duration::from_secs_f64(secs.clamp(0.05, LONGEST))
+    }
+
+    /// Cuánto falta para que lo apuntado esté en calma (ver `due`), o `None`
+    /// si no hay nada apuntado.
+    fn due_in(&self, now: f64) -> Option<f64> {
+        let t = lock(&self.timing);
+        let since = t.pending_since?;
+        let calm = self.quiet.max(t.last_scan_took.min(MAX_WAIT));
+        let limit = MAX_WAIT.max(2.0 * t.last_scan_took);
+        Some(((t.last_event + calm).min(since + limit) - now).max(0.0))
+    }
+
+    /// Cuántas vueltas ha dado el hilo (para medir y para las pruebas).
+    pub fn loops(&self) -> u64 {
+        self.loops.load(Ordering::Relaxed)
     }
 
     // ------------------------------------------------------------ escanear

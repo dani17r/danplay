@@ -351,8 +351,20 @@ pub fn wait_for_write(seen: u64, timeout: Duration) -> u64 {
     writes()
 }
 
-/// Despierta a los que esperan en `wait_for_write` sin que haya cambiado
-/// nada (al apagar: que miren si tienen que irse).
+/// Duerme `timeout` (o hasta que alguien llame a `wake_waiters`). Como
+/// `std::thread::sleep`, pero se puede interrumpir: un hilo que espera un rato
+/// largo no tiene que despertar cada poco para ver si hay que irse.
+pub fn pause(timeout: Duration) {
+    let wakes = WAKES.load(Ordering::SeqCst);
+    let guard = WAITERS.0.lock().unwrap_or_else(PoisonError::into_inner);
+    let _ = WAITERS
+        .1
+        .wait_timeout_while(guard, timeout, |()| WAKES.load(Ordering::SeqCst) == wakes)
+        .unwrap_or_else(PoisonError::into_inner);
+}
+
+/// Despierta a los que esperan en `wait_for_write` o en `pause` sin que haya
+/// cambiado nada (al apagar: que miren si tienen que irse).
 pub fn wake_waiters() {
     WAKES.fetch_add(1, Ordering::SeqCst);
     notify_waiters();
@@ -454,6 +466,69 @@ mod tests {
         b.execute("INSERT INTO t VALUES (3)", []).expect("ahora sí");
         drop((a, b));
         std::fs::remove_dir_all(&dir).expect("borrar");
+    }
+
+    /// La espera de los hilos de fondo: no consume nada mientras no pase
+    /// nada, y se entera al momento de lo que se escribe o de que hay que irse.
+    #[test]
+    fn waiting_for_a_write_wakes_up_on_it_and_on_shutdown() {
+        let seen = writes();
+        // sin cambios, espera todo lo que se le da (el contador es de todo el
+        // proceso: si otra prueba escribe a la vez, se vuelve antes)
+        let start = Instant::now();
+        let now = wait_for_write(seen, Duration::from_millis(150));
+        assert!(start.elapsed() >= Duration::from_millis(140) || now != seen);
+        // un cambio lo despierta al momento (con mucho margen de espera)
+        let writer = std::thread::spawn(|| {
+            std::thread::sleep(Duration::from_millis(100));
+            touch();
+        });
+        let start = Instant::now();
+        assert_ne!(wait_for_write(seen, Duration::from_secs(30)), seen);
+        assert!(
+            start.elapsed() < Duration::from_secs(5),
+            "{:?}",
+            start.elapsed()
+        );
+        writer.join().expect("hilo");
+        // quien ya vio todo lo escrito sigue esperando; apagar lo despierta
+        let seen = writes();
+        let waiter = std::thread::spawn(move || {
+            let start = Instant::now();
+            wait_for_write(seen, Duration::from_secs(30));
+            start.elapsed()
+        });
+        std::thread::sleep(Duration::from_millis(100));
+        wake_waiters();
+        assert!(waiter.join().expect("hilo") < Duration::from_secs(5));
+        // y `pause` es un `sleep` que se puede interrumpir
+        let napper = std::thread::spawn(|| {
+            let start = Instant::now();
+            pause(Duration::from_secs(30));
+            start.elapsed()
+        });
+        std::thread::sleep(Duration::from_millis(100));
+        wake_waiters();
+        assert!(napper.join().expect("hilo") < Duration::from_secs(5));
+    }
+
+    /// `quietly` calla la revisión (lo que hace recargar la interfaz) pero no
+    /// las escrituras (lo que mira el diario), y solo en el hilo que lo pide.
+    #[test]
+    fn a_quiet_write_moves_the_writes_but_not_the_revision() {
+        let written = writes();
+        {
+            let _quiet = quietly();
+            touch();
+        }
+        assert_eq!(writes(), written + 1);
+        // (la revisión es de todo el proceso y otras pruebas la mueven a la
+        // vez: no se puede afirmar que no se movió; sí que el hilo que
+        // calla no cuenta en el de al lado)
+        let before = revision();
+        let _quiet = quietly();
+        std::thread::spawn(touch).join().expect("hilo");
+        assert!(revision() > before, "otro hilo sí avisa");
     }
 
     #[test]

@@ -172,6 +172,67 @@ fn the_watcher_waits_for_calm_before_scanning() {
     assert!(w.due(now + 10.5));
 }
 
+/// Con la app en reposo, el vigilante no da vueltas por darlas (antes
+/// despertaba cada segundo): duerme hasta lo próximo que le toca, y se
+/// despierta al momento con un aviso.
+#[test]
+fn an_idle_watcher_sleeps_until_something_happens() {
+    let app = app();
+    library_of_three(&app);
+    // sin repaso y sin mirar las carpetas en un buen rato
+    let w = Watcher::new(&app, 0.3, 3600.0, Some(0.0), false);
+    w.start(&app);
+    assert!(until(|| w.scans() >= 1, Duration::from_secs(15)));
+    std::thread::sleep(Duration::from_millis(300));
+    let (loops, scans) = (w.loops(), w.scans());
+    std::thread::sleep(Duration::from_millis(2500));
+    println!(
+        "el vigilante, en reposo: {} vueltas en 2,5 s",
+        w.loops() - loops
+    );
+    assert_eq!(w.loops(), loops, "dio vueltas sin nada que hacer");
+    // un aviso lo despierta, y escanea cuando hay calma (0,3 s), no al cabo
+    // de un rato
+    let start = Instant::now();
+    w.mark();
+    assert!(until(|| w.scans() > scans, Duration::from_secs(5)));
+    assert!(
+        start.elapsed() < Duration::from_millis(1500),
+        "tardó {:?} en escanear lo apuntado",
+        start.elapsed()
+    );
+    // una carpeta que cambia desde la app también lo despierta
+    let loops = w.loops();
+    w.folders_changed();
+    assert!(until(|| w.loops() > loops, Duration::from_secs(5)));
+    w.stop();
+}
+
+#[test]
+fn how_long_the_watcher_can_sleep() {
+    let app = app();
+    let w = Watcher::new(&app, 2.0, 5.0, Some(600.0), false);
+    // lo próximo: mirar las carpetas, a los 5 s
+    assert_eq!(w.next_wait(100.0, 100.0, 100.0), Duration::from_secs(5));
+    assert_eq!(w.next_wait(103.0, 100.0, 100.0), Duration::from_secs(2));
+    // ya tocaba: un mínimo, no cero
+    assert_eq!(w.next_wait(110.0, 100.0, 100.0), Duration::from_millis(50));
+    // con algo apuntado, hasta que haya calma (2 s tras el último aviso)
+    w.mark();
+    let at = lock(&w.timing).last_event;
+    assert_eq!(w.next_wait(at, at, at), Duration::from_secs(2));
+    assert_eq!(
+        w.next_wait(at + 1.5, at + 1.5, at),
+        Duration::from_millis(500)
+    );
+    // sin mirar las carpetas ni repasar, lo más que duerme es un minuto
+    let lazy = Watcher::new(&app, 2.0, 3600.0, Some(0.0), false);
+    assert_eq!(lazy.next_wait(0.0, 0.0, 0.0), Duration::from_secs(60));
+    // y el repaso entero cuenta
+    let rescan = Watcher::new(&app, 2.0, 3600.0, Some(10.0), false);
+    assert_eq!(rescan.next_wait(0.0, 0.0, 0.0), Duration::from_secs(10));
+}
+
 #[test]
 fn a_folder_added_in_settings_is_indexed_without_asking() {
     // Ajustes añade la carpeta sin analizarla: el vigilante la ve y la indexa
