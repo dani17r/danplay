@@ -1018,6 +1018,65 @@ pub fn name_sections(segments: &[Chunk], bar: f64) -> Vec<Section> {
     merged
 }
 
+/// Las clases de parte que conoce la casa, con su nombre.
+pub const KINDS: [&str; 7] = [
+    "Intro",
+    "Estrofa",
+    "Pre coro",
+    "Coro",
+    "Puente",
+    "Instrumental",
+    "Final",
+];
+
+/// La clase de una parte por su nombre, venga de donde venga: los de la
+/// guía («Coro 2», «Solo de guitarra»), los de un cifrado («Verso 1»,
+/// «Pre-Coro», «Chorus») o los marcadores de una secuencia («Verse 2»,
+/// «Bridge», «Ending»). Una de `KINDS`, o vacía si no es ninguna (un «Tag»,
+/// un «Vamp», una «Parte»): así se comparan nombres de fuentes distintas, y
+/// lo que viene en inglés se puede decir en castellano.
+pub fn kind_of(label: &str) -> &'static str {
+    use unicode_normalization::UnicodeNormalization;
+    use unicode_normalization::char::is_combining_mark;
+    // sin tildes, en minúsculas y solo las letras: «Pre-Coro 2» son «pre» y
+    // «coro»
+    let plain: String = label
+        .nfd()
+        .filter(|c| !is_combining_mark(*c))
+        .flat_map(char::to_lowercase)
+        .map(|c| if c.is_alphabetic() { c } else { ' ' })
+        .collect();
+    let words: Vec<&str> = plain.split_whitespace().collect();
+    let any = |known: &[&str]| words.iter().any(|w| known.contains(w));
+    let chorus = ["coro", "coros", "chorus", "estribillo", "refrain"];
+    if any(&["post"]) {
+        "" // un «post chorus» no es el coro
+    } else if any(&["pre", "precoro", "prechorus", "preestribillo"]) {
+        "Pre coro"
+    } else if any(&["intro", "introduccion", "introduction", "count", "cuenta"]) {
+        "Intro"
+    } else if any(&[
+        "instrumental",
+        "interlude",
+        "interludio",
+        "intermedio",
+        "solo",
+        "turnaround",
+    ]) {
+        "Instrumental"
+    } else if any(&chorus) {
+        "Coro"
+    } else if any(&["estrofa", "estrofas", "verso", "versos", "verse"]) {
+        "Estrofa"
+    } else if any(&["puente", "bridge"]) {
+        "Puente"
+    } else if any(&["final", "fin", "ending", "end", "outro", "coda"]) {
+        "Final"
+    } else {
+        ""
+    }
+}
+
 /// Cuándo suena la guía de cada parte: (t, texto).
 ///
 /// Acaba un pulso (`beat`, o medio segundo) antes de que empiece su parte;
@@ -1112,6 +1171,39 @@ mod tests {
         assert_eq!(phase, None);
         assert_eq!(u.len(), 5);
         assert_eq!(u[4], (8.0, 10.0));
+    }
+
+    #[test]
+    fn a_part_is_known_by_its_name_in_either_language() {
+        for (label, kind) in [
+            ("Coro 2", "Coro"),
+            ("CHORUS", "Coro"),
+            ("Estribillo", "Coro"),
+            ("Verse 1", "Estrofa"),
+            ("Verso", "Estrofa"),
+            ("Estrofa 3", "Estrofa"),
+            ("Pre-Coro", "Pre coro"),
+            ("Pre Chorus 2", "Pre coro"),
+            ("Precoro", "Pre coro"),
+            ("Bridge", "Puente"),
+            ("Puente 1", "Puente"),
+            ("Count Off", "Intro"),
+            ("Introducción", "Intro"),
+            ("Interlude", "Instrumental"),
+            ("Solo de guitarra", "Instrumental"),
+            ("Turnaround", "Instrumental"),
+            ("Ending", "Final"),
+            ("Outro", "Final"),
+            // lo que no es de la casa se queda sin clase
+            ("Tag", ""),
+            ("Vamp", ""),
+            ("Post Chorus", ""),
+            ("Parte", ""),
+            ("", ""),
+        ] {
+            assert_eq!(kind_of(label), kind, "{label}");
+        }
+        assert!(KINDS.contains(&kind_of("coro")));
     }
 
     #[test]
