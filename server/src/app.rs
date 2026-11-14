@@ -78,7 +78,7 @@ impl App {
     /// nombres de antes) y el índice (su esquema, sus migraciones y las
     /// guías de antes). No arranca nada de fondo: eso es `start`.
     pub fn new(config: Config, guard: Guard) -> Self {
-        crate::startup::rename_old_data(&config.data_dir);
+        let renamed = crate::startup::rename_old_data(&config.data_dir);
         let app = Self(Arc::new(State {
             config: RwLock::new(Arc::new(config)),
             jobs: Jobs::new(),
@@ -95,7 +95,7 @@ impl App {
             reuse: crate::services::reuse::State::default(),
             watcher: crate::services::watcher::Slot::default(),
         }));
-        if let Err(e) = crate::startup::prepare_index(&app) {
+        if let Err(e) = crate::startup::prepare_index(&app, renamed) {
             log::warn!("no pude preparar el indice: {e}");
         }
         app
