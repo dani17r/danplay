@@ -425,6 +425,61 @@ fn stretched_the_last_instant_of_the_song_is_heard() {
     }
 }
 
+/// Dos segundos de un acorde con varios parciales (estereo, como el archivo
+/// de prueba: la musica en un canal y su inverso en el otro).
+fn chord() -> Vec<f32> {
+    (0..88_200)
+        .flat_map(|i| {
+            let t = i as f32 / 44_100.0;
+            let v: f32 = [
+                (220.0, 0.2),
+                (440.0, 0.15),
+                (660.0, 0.1),
+                (1_310.0, 0.12),
+                (2_650.0, 0.08),
+            ]
+            .iter()
+            .map(|&(hz, a)| a * (2.0 * std::f32::consts::PI * hz * t).sin())
+            .sum();
+            [v, -v]
+        })
+        .collect()
+}
+
+/// Lo que sale del acorde con ese tono, conservando los formantes o no.
+fn shifted_chord(pitch: f32, formants: bool) -> Vec<f32> {
+    let mut b = Bench::from_samples(&chord());
+    b.controls.pitch.store(pitch.to_bits(), Ordering::Relaxed);
+    b.controls.formants.store(formants, Ordering::Relaxed);
+    b.play();
+    music(&b.run(60_000))
+}
+
+#[test]
+fn the_formants_option_reaches_the_stretcher_and_changes_nothing_without_a_pitch_shift() {
+    let worst = |a: &[f32], b: &[f32]| {
+        a.iter()
+            .zip(b)
+            .map(|(x, y)| (x - y).abs())
+            .fold(0f32, f32::max)
+    };
+    // con el tono movido, la opcion cambia lo que suena...
+    let (off, on) = (shifted_chord(4.0, false), shifted_chord(4.0, true));
+    let moved = worst(&off, &on);
+    // ...sin el, no cambia nada (no hay formantes que mover): lo que se
+    // aparta una pasada de otra con lo mismo es el ruido del propio estirador
+    let (still_off, still_on) = (shifted_chord(0.0, false), shifted_chord(0.0, true));
+    let again = shifted_chord(4.0, false);
+    println!(
+        "a +4 st la opcion cambia hasta {moved:.4}; a 0 st, {:.6}; dos pasadas iguales, {:.6}",
+        worst(&still_off, &still_on),
+        worst(&off, &again)
+    );
+    assert!(moved > 0.01, "{moved}");
+    assert!(worst(&still_off, &still_on) <= worst(&off, &again) + 1e-6);
+    assert!(moved > 20.0 * worst(&off, &again).max(1e-5));
+}
+
 #[test]
 fn at_the_end_it_stops_by_itself() {
     let mut b = Bench::new(1, 44_100);

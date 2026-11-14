@@ -167,6 +167,7 @@ impl Deck {
 struct Session {
     speed: f32,
     pitch: f32,
+    formants: bool,
     count_in: u32,
     routing: Arc<Routing>,
     config: OutputConfig,
@@ -205,6 +206,7 @@ impl Engine {
             session: Mutex::new(Session {
                 speed: 1.0,
                 pitch: 0.0,
+                formants: false,
                 count_in: 0,
                 routing: Arc::new(Routing::default()),
                 config: OutputConfig::default(),
@@ -363,12 +365,19 @@ impl Engine {
         c.fade_frames.store(0, Ordering::Release);
         c.fade.store(fade.to_bits(), Ordering::Release);
         c.handed_over.store(false, Ordering::Release);
-        let (speed, pitch, count_in, routing) = {
+        let (speed, pitch, formants, count_in, routing) = {
             let s = lock(&self.session);
-            (s.speed, s.pitch, s.count_in, Arc::clone(&s.routing))
+            (
+                s.speed,
+                s.pitch,
+                s.formants,
+                s.count_in,
+                Arc::clone(&s.routing),
+            )
         };
         c.speed.store(speed.to_bits(), Ordering::Relaxed);
         c.pitch.store(pitch.to_bits(), Ordering::Relaxed);
+        c.formants.store(formants, Ordering::Relaxed);
         c.count_in.store(count_in, Ordering::Release);
         self.send(deck, Msg::Ring(Some(ring)));
         self.send(deck, Msg::Click(Arc::new(ClickPlan::default())));
@@ -627,6 +636,19 @@ impl Engine {
         lock(&self.session).pitch = v;
         for d in &self.decks {
             d.controls.pitch.store(v.to_bits(), Ordering::Relaxed);
+        }
+    }
+
+    /// Al cambiar el tono (`set_pitch`), que los formantes no se muevan: la
+    /// voz sigue siendo la misma garganta en vez de sonar a ardilla (subiendo)
+    /// o a gigante (bajando) desde 2 o 3 semitonos. Apagado por defecto, que
+    /// es lo de siempre; vale para lo que suene y para lo que se cargue
+    /// despues. Sin tono que cambiar no hace nada ni cuesta nada; con el,
+    /// cuesta una parte mas de calculo en el estirador.
+    pub fn set_formants(&self, preserve: bool) {
+        lock(&self.session).formants = preserve;
+        for d in &self.decks {
+            d.controls.formants.store(preserve, Ordering::Relaxed);
         }
     }
 
@@ -1040,6 +1062,23 @@ mod tests {
         let s = wait_for(&e, |s| s.ended);
         assert!(s.ended && s.segments_done && !s.playing, "{s:?}");
         assert!((s.position - 0.9).abs() < 0.05, "{s:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_formants_option_is_off_until_asked_and_follows_the_song() {
+        let dir = folder("formantes");
+        let e = Engine::offline(44_100);
+        e.load(&dir).expect("carga");
+        // apagada: lo de siempre
+        assert!(!e.deck().controls.formants.load(Ordering::Relaxed));
+        e.set_formants(true);
+        assert!(e.deck().controls.formants.load(Ordering::Relaxed));
+        // otra cancion la hereda, como el tono
+        e.load(&dir).expect("carga");
+        assert!(e.deck().controls.formants.load(Ordering::Relaxed));
+        e.set_formants(false);
+        assert!(!e.deck().controls.formants.load(Ordering::Relaxed));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

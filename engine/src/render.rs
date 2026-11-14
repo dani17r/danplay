@@ -69,6 +69,9 @@ pub struct Controls {
     pub speed: AtomicU32,
     /// Tono en semitonos (f32 en bits).
     pub pitch: AtomicU32,
+    /// Al cambiar el tono, que los formantes no se muevan (para las voces).
+    /// Apagado por defecto: es lo de siempre.
+    pub formants: AtomicBool,
     /// Compases de cuenta antes de entrar (0: sin cuenta).
     pub count_in: AtomicU32,
     /// Al darle a sonar se pide la cuenta (si hay compases).
@@ -100,6 +103,7 @@ impl Default for Controls {
             playing: AtomicBool::new(false),
             speed: AtomicU32::new(one),
             pitch: AtomicU32::new(0),
+            formants: AtomicBool::new(false),
             count_in: AtomicU32::new(0),
             count_request: AtomicBool::new(false),
             ended: AtomicBool::new(false),
@@ -486,6 +490,8 @@ pub struct Render {
     frac: f64,
     /// El tono que tienen puesto los estiradores (nada: hay que ponerselo).
     pitch_now: Option<f32>,
+    /// Y si conservan los formantes (nada: hay que decirselo).
+    formants_now: Option<bool>,
     /// Los canales de la salida y su tasa.
     channels: usize,
     resampler: Option<Resampler>,
@@ -546,6 +552,7 @@ impl Render {
             primed: false,
             frac: 0.0,
             pitch_now: None,
+            formants_now: None,
             channels: 2,
             resampler: None,
             fed: 0,
@@ -684,6 +691,7 @@ impl Render {
         }
         self.primed = false;
         self.pitch_now = None;
+        self.formants_now = None;
         self.click_cursor = self.fed as f64;
         let old = std::mem::replace(&mut self.routing, routing);
         (old, old_stretches)
@@ -1025,6 +1033,7 @@ impl Render {
         self.stretching = !self.stretching;
         self.primed = false;
         self.pitch_now = None;
+        self.formants_now = None;
         for s in &mut self.stretches {
             s.reset();
         }
@@ -1048,6 +1057,13 @@ impl Render {
                     self.stretches[b].set_pitch(pitch);
                 }
                 self.pitch_now = Some(pitch);
+            }
+            let formants = self.controls.formants.load(Ordering::Relaxed);
+            if self.formants_now != Some(formants) {
+                for b in self.stretched_buses() {
+                    self.stretches[b].set_formants(formants);
+                }
+                self.formants_now = Some(formants);
             }
             if !self.primed {
                 // lo primero que va a sonar, por delante: asi sale justo desde ahi
