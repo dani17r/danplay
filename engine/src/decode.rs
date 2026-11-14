@@ -21,6 +21,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use symphonia::core::audio::{Channels, Position};
 use symphonia::core::codecs::audio::{AudioDecoder, AudioDecoderOptions};
+use symphonia::core::errors::Error;
 use symphonia::core::formats::probe::Hint;
 use symphonia::core::formats::{FormatOptions, FormatReader, SeekMode, SeekTo, TrackType};
 use symphonia::core::io::{MediaSourceStream, MediaSourceStreamOptions};
@@ -32,6 +33,10 @@ use symphonia::core::units::Timestamp;
 /// cada bloque con el de antes: empezando justo ahi, lo primero sale mal
 /// (medido: un MP3 salia con diferencias de 0,76 en las primeras muestras).
 const PREROLL: u64 = 4_096;
+
+/// El hueco mas largo que se rellena con silencio, en segundos: mas que eso
+/// no es un trozo dañado, es media cancion (o una marca de tiempo rota).
+const LONGEST_GAP: i64 = 30;
 
 /// De donde lee: de memoria o del archivo.
 #[derive(Clone)]
@@ -151,6 +156,12 @@ impl Part {
         }
     }
 
+    /// Se acabo, pero no porque llegara al final: el archivo dejo de poder
+    /// leerse (esta cortado o dañado). Lo que habia hasta ahi ya se leyo.
+    pub fn failed(&self) -> bool {
+        self.inner.broken && self.done()
+    }
+
     /// Se coloca en la muestra `frame` (por canal, a la tasa a la que suena).
     pub fn seek(&mut self, frame: u64) {
         match &mut self.conv {
@@ -221,7 +232,17 @@ struct Decoded {
     /// por la marca de tiempo de cada paquete. Medido: contando desde donde
     /// dejo el salto, todo salia 1024 muestras corrido.
     want: i64,
+    /// Ya colocada (`want` cumplido): la muestra de la parte de lo proximo
+    /// que entra en `fifo`. Si el paquete que llega empieza mas tarde, lo de
+    /// en medio no se pudo leer y va en silencio.
+    next: i64,
     eof: bool,
+    /// Se acabo antes de tiempo: el contenedor esta roto, o lo que quedaba
+    /// no se decodifica.
+    broken: bool,
+    /// Los ultimos paquetes no se han podido decodificar: desde que muestra
+    /// y hasta cual (mas o menos). Si el siguiente si, su hueco se rellena.
+    lost: Option<(i64, i64)>,
     scratch: Vec<f32>,
     /// Con mas de dos canales (un 5.1): cuanto de cada uno va a cada lado, y
     /// de que reparto de canales se saco.
@@ -242,7 +263,10 @@ impl Decoded {
             frames,
             fifo: VecDeque::new(),
             want: 0,
+            next: 0,
             eof: false,
+            broken: false,
+            lost: None,
             scratch: Vec::new(),
             mix: Vec::new(),
             mix_of: Channels::None,
@@ -259,6 +283,9 @@ impl Decoded {
         self.fifo.clear();
         self.want = frame as i64;
         self.eof = false;
+        // un salto es otra oportunidad
+        self.broken = false;
+        self.lost = None;
         if frame == 0 {
             // desde el principio, lo mas seguro: abrirla otra vez
             if let Ok((format, decoder, ..)) = open_reader(&self.media, &self.ext) {
@@ -281,7 +308,10 @@ impl Decoded {
                         self.format = format;
                         self.decoder = decoder;
                     }
-                    Err(_) => self.eof = true,
+                    Err(_) => {
+                        self.eof = true;
+                        self.broken = true;
+                    }
                 }
             }
         }
@@ -301,22 +331,61 @@ impl Decoded {
         n
     }
 
+    /// Ya no hay mas paquetes. `broken`: no porque se acabe, sino porque el
+    /// archivo no se puede seguir leyendo.
+    fn finish(&mut self, broken: bool) {
+        self.eof = true;
+        // lo ultimo no se decodificaba y ya no hay nada detras: si era mas
+        // que un paquete suelto, la parte se queda sin su final
+        let lost = self.lost.take().map_or(0, |(from, to)| to - from);
+        self.broken = broken || lost >= i64::from(self.rate / 2);
+    }
+
+    /// El archivo se acaba un poco antes de lo que dice su cabecera (un WAV
+    /// con la cuenta mal, una grabacion cortada en el ultimo instante): eso
+    /// es el final y no merece aviso. Mas lejos, es un archivo cortado.
+    fn cut_at_the_end(&self, e: &Error) -> bool {
+        let eof = matches!(e, Error::IoError(io) if io.kind() == std::io::ErrorKind::UnexpectedEof);
+        let near = self.want == i64::MIN
+            && self
+                .frames
+                .is_some_and(|f| self.next + i64::from(self.rate) >= f as i64);
+        eof && near
+    }
+
     fn decode_packet(&mut self) {
         let packet = loop {
             match self.format.next_packet() {
                 Ok(Some(p)) if p.track_id == self.track_id => break p,
                 Ok(Some(_)) => {}
-                // el final, o el contenedor roto: se acaba aqui
-                Ok(None) | Err(_) => {
-                    self.eof = true;
-                    return;
-                }
+                // el final (o detras viene otra cancion encadenada)
+                Ok(None) | Err(Error::ResetRequired) => return self.finish(false),
+                // el contenedor roto: no es el final, es que no se puede
+                // seguir. Antes se tomaba por el final y la cancion seguia
+                // en silencio hasta lo que decia durar
+                Err(e) => return self.finish(!self.cut_at_the_end(&e)),
             }
         };
-        // un paquete que no se decodifica se salta (como hace la PC)
-        let Ok(audio) = self.decoder.decode(&packet) else {
-            return;
+        // lo que sale empieza en la marca del paquete, mas lo que el
+        // decodificador recorta del principio (el retraso del codificador)
+        let start = packet.pts.get() + packet.trim_start.get() as i64;
+        let audio = match self.decoder.decode(&packet) {
+            Ok(audio) => audio,
+            Err(e) => {
+                // un paquete que no se decodifica no da audio, pero su sitio
+                // sigue ahi: se apunta, y si el siguiente si se decodifica,
+                // el hueco va en silencio. Antes se saltaba sin mas y todo lo
+                // de despues sonaba un paquete antes que las demas partes y
+                // que el clic
+                if matches!(e, Error::ResetRequired) {
+                    self.decoder.reset();
+                }
+                let end = start.saturating_add(packet.dur.get() as i64);
+                self.lost = Some((self.lost.map_or(start, |l| l.0), end));
+                return;
+            }
         };
+        self.lost = None;
         let layout = audio.spec().channels();
         let channels = layout.count().max(1);
         if channels > 2 && *layout != self.mix_of {
@@ -325,13 +394,31 @@ impl Decoded {
         }
         self.scratch.resize(audio.samples_interleaved(), 0.0);
         audio.copy_to_slice_interleaved(&mut self.scratch);
-        // lo que sale empieza en la marca del paquete, menos lo que el
-        // decodificador recorta del principio (el retraso del codificador)
-        let start = packet.pts.get() + packet.trim_start.get() as i64;
-        let drop = self.want.saturating_sub(start).max(0) as usize;
-        if drop < self.scratch.len() / channels {
-            self.want = i64::MIN; // ya llego: lo siguiente va seguido
+        let frames = self.scratch.len() / channels;
+        let mut drop = 0;
+        if self.want == i64::MIN {
+            // seguido de lo anterior. Si empieza mas tarde de lo que tocaba,
+            // en medio falta un trozo (paquetes que no se decodificaron, o
+            // que el contenedor se salto por estar dañados): silencio, para
+            // que lo de despues siga en su sitio
+            let gap = start.saturating_sub(self.next);
+            if gap > LONGEST_GAP * i64::from(self.rate.max(1)) {
+                return self.finish(true);
+            }
+            for _ in 0..gap.max(0) * 2 {
+                self.fifo.push_back(0.0);
+            }
+            self.next += gap.max(0);
+        } else {
+            drop = self.want.saturating_sub(start).max(0) as usize;
+            if drop >= frames {
+                return; // aun no llega a donde se pidio
+            }
+            // ya llego: lo siguiente va seguido
+            self.next = start.max(self.want);
+            self.want = i64::MIN;
         }
+        self.next += (frames - drop) as i64;
         for frame in self.scratch.chunks_exact(channels).skip(drop) {
             // mono a los dos lados; mas de dos canales, bajados a estereo
             let (l, r) = match channels {
@@ -473,7 +560,7 @@ fn open_reader(media: &Media, ext: &str) -> Result<Reader, String> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::testing::{ffmpeg, ffmpeg_pcm, fixture, scratch, wav, without_ffmpeg};
 
@@ -714,6 +801,138 @@ mod tests {
         assert!(worst < 1e-3, "difieren en {worst}");
         // y el central esta: medido, 0,2636 por cada lado
         assert!(tone_in(&ours, 0, 500.0) > 0.25);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// El mp3 de prueba con sesenta bytes cambiados dentro de un cuadro (el
+    /// que va de la muestra 32303 a la 33455): ese paquete no se decodifica.
+    fn with_a_bad_packet() -> Arc<[u8]> {
+        let (bytes, _) = fixture("mp3");
+        let mut bytes = bytes.to_vec();
+        // tras la etiqueta (44 bytes), cuadros de 417: dentro del numero 30
+        let at = 44 + 417 * 30 + 40;
+        for b in &mut bytes[at..at + 60] {
+            *b ^= 0xff;
+        }
+        Arc::from(bytes)
+    }
+
+    #[test]
+    fn a_packet_that_does_not_decode_moves_nothing_that_comes_after() {
+        // antes el paquete se saltaba sin dejar su hueco: todo lo de despues
+        // salia 1152 muestras antes que las demas partes y que el clic
+        let (good, marks) = fixture("mp3");
+        let whole = all(&mut Part::open(good, "mp3").expect("mp3"));
+        let mut part = Part::open(with_a_bad_packet(), "mp3").expect("mp3");
+        let pcm = all(&mut part);
+        assert_eq!(pcm.len(), whole.len(), "dura lo mismo");
+        assert!(!part.failed(), "un paquete suelto no corta la cancion");
+        let at = pulse_near(&pcm, marks[2]);
+        assert!(at.abs_diff(marks[2]) <= 2, "golpe en {at}");
+        // lo de antes del paquete malo y lo de bastante despues, igual que
+        // en el archivo sano
+        let same = |from: usize, to: usize| {
+            pcm[from * 2..to * 2]
+                .iter()
+                .zip(&whole[from * 2..to * 2])
+                .all(|(a, b)| (a - b).abs() < 1e-3)
+        };
+        assert!(same(0, 30_000), "antes");
+        assert!(same(40_000, 88_200), "despues");
+        // y un salto a despues del hueco cae en su sitio
+        part.seek(marks[2] as u64 - 500);
+        let mut buf = vec![0f32; 2_000];
+        part.read(&mut buf);
+        assert!(pulse_near(&buf, 500).abs_diff(500) <= 2);
+    }
+
+    /// El ogg de prueba con una pagina dañada a la mitad (la que va del
+    /// primer segundo al final): el contenedor no puede seguir.
+    pub(crate) fn cut_in_the_middle() -> Arc<[u8]> {
+        let (bytes, _) = fixture("ogg");
+        let mut bytes = bytes.to_vec();
+        for b in &mut bytes[20_000..20_040] {
+            *b ^= 0x5a;
+        }
+        Arc::from(bytes)
+    }
+
+    #[test]
+    fn a_file_that_cannot_be_read_further_is_not_taken_for_its_end() {
+        let mut part = Part::open(cut_in_the_middle(), "ogg").expect("ogg");
+        let pcm = all(&mut part);
+        // lo que habia antes del daño sale entero
+        assert_eq!(pcm.len() / 2, 44_096);
+        assert!(part.done() && part.failed());
+        // un salto es otra oportunidad
+        part.seek(10_000);
+        assert!(!part.failed());
+        // y el archivo sano acaba sin mas
+        let (good, _) = fixture("ogg");
+        let mut part = Part::open(good, "ogg").expect("ogg");
+        all(&mut part);
+        assert!(part.done() && !part.failed());
+    }
+
+    #[test]
+    fn a_wav_a_little_shorter_than_it_says_just_ends() {
+        // dos segundos de tono; la cabecera dice 88200 muestras
+        let tone: Vec<f32> = (0..88_200)
+            .flat_map(|i| {
+                let v = 0.3 * (f64::from(i) * 0.05).sin() as f32;
+                [v, v]
+            })
+            .collect();
+        let whole = wav(2, 44_100, &tone);
+        // le faltan las ultimas cien muestras: es el final, sin aviso
+        let mut part = Part::open(Arc::from(&whole[..whole.len() - 400]), "wav").expect("wav");
+        assert_eq!(all(&mut part).len() / 2, 88_100);
+        assert!(part.done() && !part.failed());
+        // le falta la mitad: esta cortado
+        let mut part = Part::open(Arc::from(&whole[..whole.len() / 2]), "wav").expect("wav");
+        let got = all(&mut part).len() / 2;
+        assert!((44_000..44_200).contains(&got), "{got}");
+        assert!(part.failed());
+    }
+
+    #[test]
+    fn what_a_damaged_flac_skips_stays_as_silence_in_its_place() {
+        // un FLAC con doscientos bytes dañados a la mitad: el contenedor se
+        // salta el cuadro (4608 muestras) y sigue. Antes, lo de despues
+        // sonaba esas 4608 muestras antes de tiempo
+        let dir = scratch("flac-roto");
+        let (src, flac) = (dir.join("tono.wav"), dir.join("tono.flac"));
+        let tone: Vec<f32> = (0..132_300)
+            .flat_map(|i| {
+                let v = 0.4 * (f64::from(i) * 0.031).sin() as f32;
+                [v, -v]
+            })
+            .collect();
+        std::fs::write(&src, &wav(2, 44_100, &tone)[..]).expect("wav");
+        let args = ["-i", src.to_str().expect("ruta"), "-c:a", "flac"];
+        if !ffmpeg(&[&args[..], &[flac.to_str().expect("ruta")]].concat()) {
+            let _ = std::fs::remove_dir_all(&dir);
+            return without_ffmpeg("un FLAC dañado a la mitad");
+        }
+        let good: Arc<[u8]> = Arc::from(std::fs::read(&flac).expect("flac"));
+        let mut bad = good.to_vec();
+        let mid = bad.len() / 2;
+        for b in &mut bad[mid..mid + 200] {
+            *b ^= 0x5a;
+        }
+        let whole = all(&mut Part::open(good, "flac").expect("flac"));
+        let mut part = Part::open(Arc::from(bad), "flac").expect("flac");
+        let pcm = all(&mut part);
+        assert_eq!(pcm.len(), whole.len(), "dura lo mismo");
+        assert!(!part.failed());
+        let differ: Vec<usize> = (0..pcm.len() / 2)
+            .filter(|&i| pcm[i * 2].to_bits() != whole[i * 2].to_bits())
+            .collect();
+        let (first, last) = (differ[0], differ[differ.len() - 1]);
+        // sin perdida: fuera del cuadro dañado, cada muestra es la misma
+        assert!(last - first < 4_608, "difieren de {first} a {last}");
+        // y dentro, silencio
+        assert!(pcm[first * 2..=last * 2].iter().all(|v| *v == 0.0));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

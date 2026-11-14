@@ -75,7 +75,7 @@ pub struct Shared {
     /// no la cancion: quien lo vea la deja en pausa al principio del primero.
     pub segments_done: AtomicBool,
     /// La cancion se corto antes de tiempo: su archivo dejo de poder leerse
-    /// (un archivo dañado que hace *panic* al decodificarse).
+    /// (esta cortado o dañado, o hace *panic* al decodificarse).
     pub failed: AtomicBool,
 }
 
@@ -237,15 +237,19 @@ impl Feeder {
             }
         }
         let limit = limit.min(self.len);
-        let frames = (limit.saturating_sub(self.pos) as usize).min(BLOCK);
+        let mut frames = (limit.saturating_sub(self.pos) as usize).min(BLOCK);
         block.generation = self.generation;
         block.start = self.pos;
-        block.frames = frames;
         block.last = false;
         let data = &mut block.data[..frames * n_parts * 2];
         data.fill(0.0);
+        // hasta donde llega la parte que deja de poder leerse, si alguna
+        let mut broken: Option<usize> = None;
         for (p, part) in self.parts.iter_mut().enumerate() {
             let got = part.read(&mut self.scratch[..frames * 2]);
+            if part.failed() {
+                broken = Some(broken.map_or(got, |b| b.min(got)));
+            }
             for (i, frame) in self.scratch[..got * 2]
                 .as_chunks::<2>()
                 .0
@@ -257,6 +261,11 @@ impl Feeder {
                 data[at + 1] = frame[1];
             }
         }
+        if let Some(cut) = broken {
+            frames = cut;
+        }
+        block.frames = frames;
+        let data = &mut block.data[..frames * n_parts * 2];
         // las costuras: baja al acercarse al final de un tramo que salta (o
         // donde se para), y sube al empezar el tramo al que se salto
         let jumps_at = seam.filter(|&b| self.seam_cuts(b));
@@ -280,6 +289,14 @@ impl Feeder {
         self.pos += frames as u64;
         if self.landed.is_some_and(|a| self.pos >= a + FADE) {
             self.landed = None;
+        }
+        if broken.is_some() {
+            // un archivo que deja de poder leerse a media cancion (cortado,
+            // o dañado) no es el final: la cancion se acaba ahi, y se dice.
+            // Antes seguia en silencio hasta lo que decia durar
+            self.shared.failed.store(true, Ordering::Release);
+            self.finish(block, false);
+            return;
         }
         if let Some(b) = seam.filter(|&b| self.pos >= b) {
             if self.stops_at(b) {
@@ -492,6 +509,34 @@ mod tests {
         f.seek(0);
         assert!(!f.ended() && !f.shared.failed.load(Ordering::Acquire));
         assert!(f.fill_safely(&mut b) && b.frames == BLOCK);
+    }
+
+    #[test]
+    fn a_part_that_can_no_longer_be_read_ends_the_song_there_and_says_so() {
+        // dos partes, y el archivo de la segunda esta dañado a la mitad: no
+        // es que se acabe. Antes esa parte callaba y la cancion seguia hasta
+        // lo que decia durar, sin avisar de nada
+        let (good, _) = fixture("ogg");
+        let parts = vec![
+            Part::open(good, "ogg").expect("ogg"),
+            Part::open(crate::decode::tests::cut_in_the_middle(), "ogg").expect("ogg"),
+        ];
+        let mut f = Feeder::new(parts, 88_200, Arc::new(Shared::default()));
+        let mut b = Block::new(2);
+        let mut total = 0;
+        while !f.ended() && total < 200_000 {
+            f.fill(&mut b);
+            total += b.frames;
+        }
+        assert_eq!(total, 44_096, "hasta donde se pudo leer");
+        assert!(b.last);
+        assert!(f.shared.failed.load(Ordering::Acquire));
+        assert!(!f.shared.segments_done.load(Ordering::Acquire));
+        // un salto atras la deja sonar otra vez hasta ahi
+        f.seek(40_000);
+        assert!(!f.ended() && !f.shared.failed.load(Ordering::Acquire));
+        f.fill(&mut b);
+        assert_eq!((b.start, b.frames), (40_000, BLOCK));
     }
 
     #[test]
