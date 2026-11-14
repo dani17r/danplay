@@ -3,7 +3,172 @@
 Lo que cambia en cada versión que se entrega. El detalle de por qué está
 hecho así, en [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-## 1.41.0 — sin publicar
+## 1.42.0 — sin publicar
+
+La 1.41.0 no llegó a publicarse: todo lo suyo está aquí, con lo que se hizo
+después.
+
+### Lo que suena
+
+- **Un MP4 suena tal cual, sin esperar a ffmpeg**: los M4A, y los `.mp3`
+  que en realidad son MP4 (el audio que baja de YouTube: 18 de los 319 de
+  una biblioteca), se pasaban a FLAC la primera vez que se abrían, con su
+  espera. Ahora los lee el motor empezando en la misma muestra que ffmpeg
+  (salta el retraso del codificador que el archivo dice en su lista de
+  ediciones), y el clic cae donde lo calculó el núcleo. Comprobado con esos
+  18 archivos de verdad: la misma longitud que con ffmpeg, el mismo encaje
+  y entre 46 y 87 dB de relación señal/error. Lo que el motor no sabe leer
+  (HE-AAC, un AAC de 5.1) se sigue pasando a FLAC. Y de probarlo con
+  archivos reales salió un fallo que no veía ninguna prueba: tras llegar al
+  final, un MP4 de esos se quedaba mudo al volver a empezar o al repetir un
+  tramo del final.
+- **Entre canciones ya no hay hueco**: la cola decía cuál venía después
+  cuando la de ahora ya había acabado, y entre una y otra pasaba lo que
+  tardara ir a preguntar (con algo que pasar por ffmpeg, más de medio
+  segundo). Ahora la siguiente se prepara mientras suena la anterior y entra
+  sola al acabar: de 33-38 ms de silencio a 3-8 en lo medido, y de 500 a
+  1,5 ms si había que preparar la siguiente. Y con el fundido puesto, la
+  canción que suena ya no se corta hasta doce segundos antes de acabar
+  cuando la siguiente hay que preparar.
+- **Conservar el timbre de la voz al cambiar el tono** (Ajustes ›
+  Reproducción, apagado de fábrica): subir un tono 3 semitonos hace sonar la
+  voz a «ardilla», y bajarlo, a «gigante». Con el interruptor, el estirador
+  mantiene las resonancias de la voz en su sitio (medido con una voz
+  sintética: a +4 semitonos, de ×1,25 a un 0-10 %). Cuesta algo más de
+  cálculo y no se ha podido oír: si suena raro, se apaga.
+- **Un FLAC 5.1 ya suena con su canal central** (la voz, casi siempre):
+  solo sonaban los dos primeros canales. Baja a estéreo como lo hace ffmpeg.
+- **Un archivo dañado ya no corre la canción ni pasa por acabado**: un
+  trozo que no se puede decodificar queda en silencio y lo de después sigue
+  en su sitio (antes se adelantaba hasta el golpe, con el clic corrido); un
+  corte a mitad de archivo se dice en vez de darse por el final.
+- **El final de la canción es el del audio y no el que dice el archivo**: un
+  mp3 sin cabecera de duración se cortaba antes de su final (se perdía el
+  último golpe), y una canción estirada perdía sus últimos 150 ms.
+- **Los golpes del clic ya no acaban con un chasquido** (el cencerro, las
+  claves y el charles acababan cortados en seco).
+- **A otra velocidad, la canción entra a tiempo tras la cuenta**: con la
+  velocidad distinta de 1× o el tono cambiado, la música entraba unos 90 ms
+  tarde tras la cuenta de entrada. Y al pasar de la canción a sus pistas con
+  salidas propias, el golpe que caía justo en el cambio se perdía.
+- **Arreglado, una carrera al cargar una canción**: una de cada seis veces
+  (en una prueba), el hilo que decodifica arrancaba antes de saber a dónde
+  ir y toda la canción salía corrida entre 15 y 25 ms.
+- **Se acabó el clic suelto al empezar cada canción**: con el clic en
+  automático sonaba un golpe a 100 por minuto entre que cambiaba la canción
+  y llegaba su rejilla.
+- **Arreglado, entre una canción y otra**: la siguiente a veces no entraba
+  sola, y la prueba que lo vigila fallaba una de cada veinte veces: el bucle
+  del reproductor leía el estado del motor tres veces por vuelta y, si la
+  canción acababa entre dos lecturas, se daba por acabada sin encadenar la
+  siguiente o se dormía medio segundo.
+- **Marcar una estrella o guardar el estudio en un M4A u Opus ya no lo
+  convierte otra vez**: el convertido se llama como el audio del archivo, no
+  como su tamaño y su fecha, que cambian al reescribir las etiquetas; y el
+  de antes ya no queda huérfano.
+- **Instalar ffmpeg con DanPlay abierto vale al momento**, sin reiniciar. Y
+  **empezar a grabar una guía no congela la ventana** (hasta 5 s).
+
+### El clic y la guía
+
+- **Compás de 6/8 y de 2/4**: el detector solo sabía de 3 y de 4, así que un
+  6/8 salía como 3 o como 4+2. Ahora prueba también el 2 y el 6, y para
+  elegir otro que el 4 pide que sus «1» destaquen. En la biblioteca de
+  referencia, 21 canciones que salían en 3 (a 134-172 por minuto) pasan a 6
+  con más confianza (0,75-0,99) y 6 de las de 4 también; los pulsos y los
+  huecos no cambian. Al elegir a mano un 6/8 o un 2/4, el «1» cae donde lo
+  encontró el análisis. Las rejillas guardadas se rehacen solas.
+- **La guía automática, con los nombres del cifrado**: lo que más se repite
+  no es siempre el coro (en alabanza suele ser el puente). Si la canción
+  tiene cifrado guardado y letra con tiempos, las partes salen con los
+  nombres del cifrado, casados verso a verso con la letra («Puente» donde
+  el cifrado dice «Puente»); si no casa con confianza, como antes. La voz de
+  la guía ya no entra entre dos pulsos: entra en el «1» del compás anterior
+  (o en el último pulso donde cabe), siguiendo el tempo.
+- **Arreglado, en la guía automática**: no confunde las partes de una
+  canción con las de otra si se cambia deprisa (cada canción tiene su
+  propio trabajo), y espera al clic de la canción diciendo cuánto lleva en
+  vez de partirla a ciegas en trozos de 2 s; si sale sin él, lo avisa.
+  Además lee las pistas a la vez y recuerda lo leído (6 pistas de una
+  canción de 6 minutos: de 1,24 s a 0,65 s, y a 0 al repetirla).
+- **«Con la batería separada» enseña su avance**: pasaba la red por la
+  batería dentro de la petición, 15-20 s sin decir nada. Ahora va por la
+  cola, como el clic de siempre, y lo dice.
+- **Al separar una canción, la batería rellena sola los huecos del clic**
+  donde la banda sigue tocando (sin mover nada de lo que ya sonaba, ni tocar
+  un tempo exacto, un clic propio ni lo que se ajustó a mano). En las diez
+  baterías separadas de la biblioteca de referencia, una mejora (49 pulsos
+  más en los últimos 21 s) y nueve quedan igual. Se deshace con
+  «Re-analizar» › «Solo con la canción», y se apaga con
+  `DANPLAY_CLICK_DRUMS=off`. Nadie lo ha oído.
+- **El clic de un repertorio entero se prepara de una vez**, en segundo
+  plano: antes la cola cabía seis y tiraba el resto sin avisar, y solo se
+  preparaban las tres siguientes.
+- **Con el tempo puesto a mano**, la onda, el imán de las guías, «Ajustar a
+  los pulsos» y la guía automática siguen el clic que suena, y no la rejilla
+  detectada (que es justo la que falló).
+- **La carpeta del pulso se limpia sola** al escanear: lo que oyó la red de
+  canciones borradas o cambiadas por fuera.
+
+### La biblioteca
+
+- **Poner una estrella o guardar el estudio ya no recarga toda la lista ni
+  escanea la biblioteca**: cada escritura propia reescribía el archivo, dos
+  segundos después la interfaz recargaba todo y el vigilante escaneaba. Con
+  una estrella: de 2 recargas y 1 escaneo a ninguno. (Con la lista ordenada
+  por estrellas, una canción puntuada se reordena en el siguiente refresco y
+  no a los dos segundos.)
+- **Un escaneo ya no pone a cero las estrellas, el tono ni lo corregido a
+  mano** de los archivos que no admiten etiquetas.
+- **Los `.mp3` que son MP4 ya guardan sus estrellas, listas y estudio en el
+  archivo** (como un m4a, sin renombrarlos); los pocos que no se pueden
+  escribir sin riesgo dicen que lo que se cambia queda solo en DanPlay.
+  Guardar el estudio avisa, una vez por canción, si la etiqueta no se pudo
+  escribir.
+- **El tono, deducido de los acordes** cuando el cifrado no lo dice (se
+  prueban los 24 tonos, pesando el primer acorde, el último y el más
+  repetido, y la cejilla), y se enseña como «deducido». Acierta 52 de 54 en
+  una tabla de canciones conocidas; no se ha podido medir con cifrados
+  reales, y nunca pisa un tono dicho por el cifrado, la ficha o el archivo.
+- **La lista sin agrupar ordena en castellano**, como la agrupada («Álvaro»
+  con las A, la ñ después de la n).
+- **Más ligera**: las canciones sin artista ya no se releen en cada escaneo,
+  las carátulas ya hechas se sirven sin abrir el audio y «sin carátula» se
+  recuerda, la migración de las guías de la 1.30 ya no recorre la base en
+  cada arranque (con 20.000 estudios, de 95 ms a 0,8), el diario y el
+  vigilante no despiertan varias veces por segundo con la app en reposo, un
+  escaneo sin cambios no recorre las cachés de ondas y miniaturas (más de un
+  segundo con 20.000 canciones), el estado de la app no se pide entero cada
+  2 s, la sesión de la cola se guarda sin hacer esperar el cambio de
+  canción, y el registro apunta las peticiones al núcleo que tardan medio
+  segundo o más.
+- **Si DanPlay se cierra de golpe, el detector de pulso y el separador se
+  van con él**; y salir ya para el separador.
+
+### La interfaz
+
+- **Cada salida de audio recuerda su reparto**: había uno para todas, y lo
+  que se había puesto para la interfaz de la iglesia se aplicaba a los
+  cascos de casa (con la música por 3-4 en una salida de dos canales, no
+  sonaba nada, y solo lo decía el cajón de «Salidas»). Ahora una salida sin
+  reparto suena «todo junto», y si a la que suena le faltan canales para el
+  suyo, suena todo junto y se avisa donde se está tocando.
+- **Los tramos se guardan al milisegundo** (se redondeaban a la centésima,
+  y «Ajustar a los pulsos» dejaba cada borde hasta 5 ms fuera de su pulso).
+- **Con las pistas sonando, la onda de cada una se ve con detalle al
+  acercar** (se veían a bloques justo al ajustar guías).
+- **El clic derecho de una canción ya no ofrece pasarla a DanPista** (está
+  en «Exportar…»); con varias elegidas, «Preparar N para el celular».
+- **Una preferencia para el acento del clic** (Ajustes): «sin acento» estaba
+  puesto a mano en 16 de las 22 canciones ajustadas. Vale para las que no
+  tienen su compás ajustado; lo que se ponga en una canción manda siempre.
+- **Con listas largas, los refrescos de fondo ya no mueven la lista**, y la
+  lista se pide tras una sola ida y vuelta al núcleo al arrancar (antes,
+  tres).
+- **Las tarjetas del tono y del clic caben enteras en ventanas de 768 px de
+  alto** (aprieta espacios, no texto; a 1536×864 y más, igual que antes).
+
+### De la 1.41.0 (sin publicar)
 
 - **El clic sigue a las canciones que cambian de tempo**: un final en vivo
   más lento, el paso de una canción a otra en un popurrí, una subida. La

@@ -16,22 +16,26 @@
 /** @type {Release[]} */
 export const RELEASES = [
   {
-    version: '1.41.0',
+    version: '1.42.0',
     date: '',
     summary:
-      'El clic sigue los cambios de tempo, la guía sale de la letra y suena recién instalada.',
+      'El clic sigue los cambios de tempo, la guía sale de la letra y el cifrado, y suena recién instalada.',
     items: [
       'El clic sigue a las canciones que cambian de tempo: un final más lento, un popurrí, una subida.',
-      'Arreglado: el clic a contratiempo en toda la canción cuando la intro iba corrida.',
-      'La guía automática sale de la letra: coro, estrofas, pre coro y puente por lo que se canta.',
+      'Los compases de 6/8 y de 2/4 se detectan, y el «1» cae donde toca al elegirlos a mano.',
+      'La guía automática sale de la letra y del cifrado, con los nombres de las partes, y la voz entra a tempo.',
       'Un .danpista se abre también en la PC, con doble clic o con «Abrir DanPista».',
       'Recién instalada en Linux, suena: el paquete trae lo que le hace falta y avisa si falta algo.',
-      '«Re-analizar» el clic ya hace lo que dice, y hay un solo «Exportar…».',
-      'Una secuencia con muchas pistas cabe en el estudio, y sus mandos se ven enteros.',
-      'La ventana grande se aprovecha: Ajustes, Descargas, la ficha y el buscador.',
-      'Cambiar el tono de un cifrado conserva el modo y escribe bien los bemoles.',
+      'Un M4A, y los .mp3 que son MP4 de YouTube, suenan al momento, sin esperar a ffmpeg.',
+      'Entre canciones ya no hay hueco: la siguiente se prepara mientras suena la anterior.',
+      'Ajustes: conservar el timbre de la voz al cambiar el tono (sin el efecto «ardilla»).',
+      'Cada salida de audio recuerda su reparto, y si faltan canales no se queda muda.',
+      'Poner una estrella o guardar el estudio ya no recarga la lista ni escanea la biblioteca.',
+      '«Re-analizar» el clic ya hace lo que dice, y la batería separada rellena sola los huecos del clic.',
+      'Un FLAC 5.1 suena con su canal central, y un archivo dañado ya no corre la canción.',
       'Las pistas separadas se pueden guardar en Ogg Vorbis: pequeñas y sin espera.',
-      'Un archivo dañado ya no deja mudo al reproductor: se dice y la lista sigue.',
+      'La ventana grande se aprovecha, y el modo estudio cabe entero también a 768 px de alto.',
+      'Si un cifrado no dice el tono, se deduce de sus acordes y se enseña como «deducido».',
       'En el celular, el clic y la guía de una secuencia ya no suenan con la música.'
     ]
   },
