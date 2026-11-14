@@ -632,6 +632,41 @@ fn a_file_ffmpeg_cannot_prepare_says_so_and_stops_trying() {
     let _ = std::fs::remove_file(path);
 }
 
+/// Un M4A suena tal cual, sin pasar por ffmpeg: el motor lo lee empezando en
+/// la muestra exacta, y no hay que esperar a que se prepare (unos segundos la
+/// primera vez) ni se deja nada en la caché.
+#[test]
+fn an_m4a_plays_as_it_is_without_being_prepared() {
+    let Some(file) = tone_in_m4a("directo", 1.5) else {
+        return;
+    };
+    let (m, rx, card) = measured();
+    m.send(Command::Play {
+        path: file.clone(),
+        duration: 1.5,
+    })
+    .unwrap();
+    let seen = attend(
+        &rx,
+        PATIENCE,
+        |_| {},
+        |_| card.span(true).is_some_and(|(a, b)| b - a > frames_of(0.3)),
+    );
+    assert!(
+        card.span(true).is_some_and(|(a, b)| b - a > frames_of(0.3)),
+        "no sonó: {seen:?}"
+    );
+    assert!(
+        !seen.contains(&"preparing") && !seen.contains(&"failed"),
+        "se preparó o falló lo que el motor lee: {seen:?}"
+    );
+    assert!(
+        super::formats::cached(std::path::Path::new(&file)).is_none(),
+        "se convirtió con ffmpeg lo que el motor lee"
+    );
+    let _ = std::fs::remove_file(file);
+}
+
 /// Lo que esperaba a ffmpeg se olvida al pedir otra cosa: cuando ffmpeg
 /// acababa, la orden vieja entraba sobre lo que se hubiera pedido después.
 #[test]
@@ -843,6 +878,24 @@ fn tone_to_prepare(name: &str, seconds: f64, right: bool) -> Option<String> {
     assert!(made, "ffmpeg no pudo hacer la cancion de las pruebas");
     // que no venga ya preparada de otra vez
     forget_prepared(&file.to_string_lossy());
+    Some(file.to_string_lossy().into_owned())
+}
+
+/// El mismo tono en un M4A (AAC), que el motor lee tal cual. `None` si no
+/// hay ffmpeg.
+fn tone_in_m4a(name: &str, seconds: f64) -> Option<String> {
+    let ffmpeg = tools::ffmpeg()?;
+    let wav = tone(&format!("{name}-origen"), seconds, true);
+    let file = std::env::temp_dir().join(format!("danplay-test-{}-{name}.m4a", std::process::id()));
+    let made = tools::command(ffmpeg)
+        .args(["-y", "-hide_banner", "-loglevel", "error", "-i"])
+        .arg(&wav)
+        .args(["-c:a", "aac", "-b:a", "192k"])
+        .arg(&file)
+        .status()
+        .is_ok_and(|s| s.success());
+    let _ = std::fs::remove_file(wav);
+    assert!(made, "ffmpeg no pudo hacer el M4A de las pruebas");
     Some(file.to_string_lossy().into_owned())
 }
 

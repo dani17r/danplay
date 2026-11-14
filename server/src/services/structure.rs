@@ -418,8 +418,8 @@ fn lyric_parts(
     }
     let written = sheet_parts(song);
     if !written.is_empty() {
-        let sung: Vec<(f64, String)> = lines.iter().map(|l| (l.at, l.text.clone())).collect();
-        let aligned = sheet::align(&written, &sung, duration, bars);
+        let timed: Vec<(f64, String)> = lines.iter().map(|l| (l.at, l.text.clone())).collect();
+        let aligned = sheet::align(&written, &timed, duration, bars);
         if aligned.reliable() && aligned.parts.len() >= 3 {
             return Some((aligned.parts, "sheet"));
         }
@@ -540,18 +540,7 @@ pub fn auto_guide(
     // sin ellos (partes dadas o de una secuencia), por segundos
     let bar_starts = click_bars.as_deref().unwrap_or(&[]);
     let plan = st::plan_cues_in_time(&starts, &clips, &beats, bar_starts, beat);
-    let cues: Vec<Value> = plan
-        .iter()
-        .map(|(t, text)| {
-            json!({
-                "t": t,
-                "text": text,
-                "voice": req.voice,
-                "file": said[text]["file"],
-                "seconds": said[text]["seconds"],
-            })
-        })
-        .collect();
+    let cues = spoken_cues(&plan, &said, &req.voice);
     let mut out = json!({
         "sections": found.iter().map(section).collect::<Vec<_>>(),
         "cues": cues,
@@ -564,6 +553,22 @@ pub fn auto_guide(
         }
     }
     Ok(out)
+}
+
+/// Las guías habladas ya puestas en el tiempo: cuándo entra cada una, qué dice
+/// y el archivo que se hizo.
+fn spoken_cues(plan: &[(f64, String)], said: &Map<String, Value>, voice: &str) -> Vec<Value> {
+    plan.iter()
+        .map(|(t, text)| {
+            json!({
+                "t": t,
+                "text": text,
+                "voice": voice,
+                "file": said[text]["file"],
+                "seconds": said[text]["seconds"],
+            })
+        })
+        .collect()
 }
 
 /// Las pistas que se decodificaron, para las pruebas.

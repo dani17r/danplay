@@ -53,6 +53,8 @@ pub mod spec;
 pub mod stretch;
 
 #[cfg(all(test, feature = "engine"))]
+mod real_files;
+#[cfg(all(test, feature = "engine"))]
 mod testing;
 
 #[cfg(feature = "engine")]

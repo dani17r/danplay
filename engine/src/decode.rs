@@ -304,16 +304,23 @@ impl Decoded {
     fn seek(&mut self, frame: u64) {
         self.fifo.clear();
         self.want = frame as i64;
+        // llegó al final: un MP4 en fragmentos (audio de YouTube) contesta al
+        // salto con un «bien» y no entrega nada más, así que se vuelve a abrir
+        // (como desde el principio); el resto de formatos no lo necesitan,
+        // pero tampoco les cuesta nada
+        let finished = self.eof;
         self.eof = false;
         // un salto es otra oportunidad
         self.broken = false;
         self.lost = None;
-        if frame == 0 {
+        if frame == 0 || finished {
             // desde el principio, lo mas seguro: abrirla otra vez
             if let Ok(again) = open_reader(&self.media, &self.ext) {
                 self.format = again.format;
                 self.decoder = again.decoder;
-                return;
+                if frame == 0 {
+                    return;
+                }
             }
         }
         let to = SeekTo::Timestamp {
@@ -1120,6 +1127,48 @@ pub(crate) mod tests {
         }
         // y es lo que se dijo: 1088 muestras mas pronto que con 1024
         assert!((moved[1] + 1_088).abs_diff(a[1]) <= 1, "{moved:?} y {a:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Un MP4 en fragmentos (el audio de YouTube, lo que dejan los `.mp3` que
+    /// en realidad son MP4): tras llegar al final, volver atrás tiene que
+    /// seguir sonando. El lector de symphonia, ya en el final de sus
+    /// fragmentos, contestaba al salto con un «bien» y no entregaba nada más:
+    /// la canción se quedaba muda al repetir un tramo del final o al volver
+    /// a empezar tras acabar.
+    #[test]
+    fn a_fragmented_mp4_keeps_playing_when_it_seeks_back_after_the_end() {
+        let dir = scratch("fragmentado");
+        let Some(file) = encoded(
+            &dir,
+            "f.mp4",
+            &[
+                "-c:a",
+                "aac",
+                "-b:a",
+                "192k",
+                "-movflags",
+                "frag_keyframe+empty_moov+default_base_moof",
+            ],
+        ) else {
+            let _ = std::fs::remove_dir_all(&dir);
+            return without_ffmpeg("un MP4 en fragmentos");
+        };
+        let mut part = Part::open_file(&file, 44_100, u64::MAX).expect("mp4");
+        let ours = all(&mut part);
+        assert!(ours.len() > 100_000, "decodificó {}", ours.len());
+        // ya en el final: saltos hacia atrás, a varios sitios y de nuevo al
+        // final
+        for at in [1u64, 4_095, 30_000, 61_234, 120_000, 4_095] {
+            part.seek(at);
+            let mut buf = vec![0f32; 4_000];
+            let n = part.read(&mut buf);
+            assert!(n > 0, "salto a {at}: no leyó nada");
+            let from = at as usize * 2;
+            let expected = &ours[from..(from + n * 2).min(ours.len())];
+            let diff = worst(expected, &buf[..expected.len()]);
+            assert!(diff < 1e-3, "salto a {at}, diferencia {diff}");
+        }
         let _ = std::fs::remove_dir_all(&dir);
     }
 

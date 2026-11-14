@@ -1,12 +1,17 @@
 //! Lo que el motor no lee, pasado a FLAC con ffmpeg, una vez por archivo.
 //!
-//! El motor decodifica con symphonia MP3, Vorbis, FLAC, WAV y AIFF, y todos
-//! empiezan en la muestra exacta: es lo que hace falta para que el clic caiga
-//! donde lo calculo el nucleo (que decodifica con ffmpeg). Opus, WMA, APE,
-//! WavPack o Matroska no los lee; y el AAC (M4A) lo lee, pero 1024 muestras
-//! tarde. Esos se pasan aqui a FLAC con ffmpeg —el mismo decodificador que
-//! uso el nucleo para el pulso—, en la cache, y suena el FLAC: la primera vez
-//! tarda un par de segundos; las demas, nada.
+//! El motor decodifica con symphonia MP3, Vorbis, FLAC, WAV, AIFF y, desde la
+//! 1.42, también el AAC y el ALAC de un MP4 (M4A, y los `.mp3` que en realidad
+//! son MP4): empiezan en la muestra exacta (para el AAC, saltando el retraso
+//! del codificador que dice el propio archivo), que es lo que hace falta para
+//! que el clic caiga donde lo calculó el núcleo (que decodifica con ffmpeg). Se
+//! comprobó con los 18 MP4 de la biblioteca de Daniel: misma longitud que
+//! ffmpeg, la misma muestra de salida y entre 46 y 87 dB de relación
+//! señal/error. Opus, WMA, APE, WavPack o Matroska no los lee; y un MP4 con lo
+//! que symphonia no sabe (HE-AAC, un AAC de más de dos canales) tampoco: se
+//! pasa aquí a FLAC con ffmpeg —el mismo decodificador que usó el núcleo para
+//! el pulso—, en la caché, y suena el FLAC: la primera vez tarda un par de
+//! segundos; las demás, nada.
 //!
 //! El convertido se llama como el AUDIO del original (`<huella>.flac`: el MD5
 //! de sus paquetes, que ffmpeg saca sin decodificar), no como su ruta, su
@@ -46,6 +51,9 @@ fn extension_of(path: &Path) -> String {
 enum Content {
     /// Algo que el motor lee tal cual (lo dice una marca que no se confunde).
     Readable,
+    /// Un MP4 o QuickTime: el motor lo lee si lo que lleva dentro es AAC de
+    /// uno o dos canales o ALAC, y eso solo lo dice abrirlo.
+    Mp4,
     /// Algo que no lee, sea lo que sea lo que diga la extension.
     Foreign,
     /// No se sabe: manda la extension.
@@ -60,12 +68,12 @@ fn sniff(head: &[u8]) -> Content {
     let at = |from: usize, mark: &[u8]| head.get(from..from + mark.len()) == Some(mark);
     let has = |mark: &[u8]| head.windows(mark.len()).any(|w| w == mark);
     // MP4 y QuickTime (M4A, M4B, AAC en un .mp3): el tamaño de la primera caja
-    // y su nombre
-    if [&b"ftyp"[..], b"moov", b"mdat", b"free", b"wide", b"skip"]
+    // y su nombre (un MP4 en fragmentos puede empezar por `styp`)
+    if [&b"ftyp"[..], b"moov", b"mdat", b"free", b"wide", b"skip", b"styp"]
         .iter()
         .any(|name| at(4, name))
     {
-        return Content::Foreign;
+        return Content::Mp4;
     }
     // Matroska y WebM; ASF (WMA); WavPack y Monkey's Audio
     if at(0, &[0x1A, 0x45, 0xDF, 0xA3])
@@ -103,19 +111,58 @@ fn read_head(path: &Path) -> Vec<u8> {
     head
 }
 
-/// Si el motor lee tal cual lo que hay en esos bytes, con esa extension.
+/// Si el motor lee tal cual lo que hay en esos bytes, con esa extension. Un
+/// MP4 no se decide por sus bytes: hay que abrirlo (`is_native`).
 fn native_by(head: &[u8], ext: &str) -> bool {
     match sniff(head) {
         Content::Readable => true,
-        Content::Foreign => false,
+        Content::Foreign | Content::Mp4 => false,
         Content::Unknown => NATIVE.contains(&ext),
     }
 }
 
+/// Lo que se sabe de cada MP4 que se miró: su tamaño y fecha de entonces y si
+/// el motor lo abre. Mirarlo es abrirlo, y `is_native` se pregunta en cada
+/// vuelta del reproductor por la canción que viene.
+static MP4_OPENS: Mutex<Option<Mp4Opens>> = Mutex::new(None);
+
+/// De cada MP4: tamaño, fecha (en nanosegundos) y si el motor lo abre.
+type Mp4Opens = std::collections::HashMap<PathBuf, (u64, u128, bool)>;
+
+/// Cuántos se recuerdan como mucho (una biblioteca de miles de M4A cabe de
+/// sobra; pasado esto se empieza de cero).
+const MP4_REMEMBERED: usize = 20_000;
+
+/// Si el motor abre ese MP4: si lo que lleva dentro es de lo que symphonia
+/// sabe leer (el HE-AAC y el AAC de más de dos canales no lo son).
+fn engine_opens_mp4(path: &Path) -> bool {
+    let Some((len, mtime)) = stat_of(path) else {
+        return false;
+    };
+    let mut known = MP4_OPENS.lock().unwrap_or_else(PoisonError::into_inner);
+    let known = known.get_or_insert_default();
+    if let Some(&(l, m, opens)) = known.get(path)
+        && (l, m) == (len, mtime)
+    {
+        return opens;
+    }
+    // del disco por trozos (nada en memoria): se mira cómo es, no se lee entero
+    let opens = danplay_engine::decode::Part::open_file(path, 44_100, 0).is_ok();
+    if known.len() >= MP4_REMEMBERED {
+        known.clear();
+    }
+    known.insert(path.to_path_buf(), (len, mtime, opens));
+    opens
+}
+
 /// Si el motor lo lee tal cual: por lo que tiene dentro y, si eso no lo
-/// dice, por la extension.
+/// dice, por la extension. Un MP4 se lee tal cual si el motor lo abre.
 pub fn is_native(path: &Path) -> bool {
-    native_by(&read_head(path), &extension_of(path))
+    let head = read_head(path);
+    if sniff(&head) == Content::Mp4 {
+        return engine_opens_mp4(path);
+    }
+    native_by(&head, &extension_of(path))
 }
 
 /// Donde se guardan los convertidos.
@@ -440,7 +487,7 @@ mod tests {
         dir
     }
 
-    /// Un tono de `freq` Hz en `file` (Opus o M4A, por la extension). False
+    /// Un tono de `freq` Hz en `file` (Opus, M4A o Matroska, por la extension). False
     /// si este ffmpeg no sabe hacerlo.
     fn tone_in(file: &Path, freq: u32) -> bool {
         let Some(ffmpeg) = tools::ffmpeg() else {
@@ -512,26 +559,84 @@ mod tests {
         assert!(!native_by(b"no soy audio", "opus"));
     }
 
+    /// Un AAC de 5.1 en un MP4: de lo que symphonia no sabe leer. `false` si
+    /// este ffmpeg no sabe hacerlo.
+    fn surround_aac_in(file: &Path) -> bool {
+        let Some(ffmpeg) = tools::ffmpeg() else {
+            return false;
+        };
+        tools::command(ffmpeg)
+            .args(["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i"])
+            .arg("sine=frequency=440:duration=1")
+            .args([
+                "-af",
+                "pan=5.1(side)|FL=c0|FR=c0|FC=c0|LFE=c0|SL=c0|SR=c0",
+                "-c:a",
+                "aac",
+                "-f",
+                "mp4",
+            ])
+            .arg(file)
+            .status()
+            .is_ok_and(|s| s.success())
+    }
+
     /// Un M4A guardado como `.mp3` (hay quien lo renombra, y alguna descarga
-    /// lo hace sola): no es de lo que el motor lee, y suena el FLAC.
+    /// lo hace sola, como los 18 de la biblioteca de Daniel): el motor lo lee
+    /// tal cual, que empieza en la muestra exacta y no hay que esperar a
+    /// ffmpeg. Lo que de un MP4 no sabe leer (un AAC de 5.1) se sigue pasando
+    /// a FLAC, y un mp3 de verdad suena tal cual.
     #[test]
-    fn an_mp4_called_mp3_is_prepared_like_any_other_mp4() {
+    fn an_mp4_called_mp3_is_read_by_the_engine_and_what_it_cannot_read_is_prepared() {
         let dir = scratch("mp4-as-mp3");
         let real = dir.join("tone.m4a");
         if !tone_in(&real, 440) {
+            println!("sin ffmpeg: no se comprueba");
             return;
         }
         let liar = dir.join("tone.mp3");
         std::fs::rename(&real, &liar).unwrap();
-        assert!(!is_native(&liar), "se tomo por mp3 por la extension");
-        let out = playable_in(&dir, &liar).expect("convertido");
-        assert_eq!(out.extension().and_then(|e| e.to_str()), Some("flac"));
-        // y un mp3 de verdad sigue sonando tal cual
+        assert!(is_native(&liar), "un MP4 con AAC estéreo lo abre el motor");
+        assert_eq!(playable_in(&dir, &liar).unwrap(), liar, "suena tal cual");
+        // y lo es de verdad: el motor lo abre y da audio
+        let mut part = danplay_engine::decode::Part::open_file(&liar, 44_100, 0).expect("abre");
+        let mut block = vec![0f32; 2048];
+        assert!(part.read(&mut block) > 0);
+        // uno que el motor no sabe leer, con el nombre que tenga, se convierte
+        let surround = dir.join("surround.mp3");
+        if surround_aac_in(&surround) {
+            assert!(!is_native(&surround), "un AAC de 5.1 no lo lee el motor");
+            let out = playable_in(&dir, &surround).expect("convertido");
+            assert_eq!(out.extension().and_then(|e| e.to_str()), Some("flac"));
+        } else {
+            println!("este ffmpeg no hace un AAC de 5.1: esa parte no se comprueba");
+        }
+        // un mp3 de verdad sigue sonando tal cual
         let honest = dir.join("honest.mp3");
         if tone_in(&honest, 440) {
             assert!(is_native(&honest));
             assert_eq!(playable_in(&dir, &honest).unwrap(), honest);
         }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Mirar si el motor abre un MP4 se recuerda mientras el archivo no
+    /// cambie: se pregunta en cada vuelta del reproductor por la siguiente.
+    #[test]
+    fn what_the_engine_opens_of_an_mp4_is_remembered_until_the_file_changes() {
+        let dir = scratch("mp4-remembered");
+        let file = dir.join("tone.m4a");
+        if !tone_in(&file, 440) {
+            println!("sin ffmpeg: no se comprueba");
+            return;
+        }
+        assert!(is_native(&file));
+        // cambia por dentro sin cambiar de nombre: se vuelve a mirar
+        std::fs::write(&file, [&[0, 0, 0, 0x20][..], b"ftypM4A     M4A mp42isom"].concat()).unwrap();
+        assert!(!is_native(&file), "ya no es un MP4 que se abra");
+        // sin archivo, no
+        std::fs::remove_file(&file).unwrap();
+        assert!(!is_native(&file));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -590,7 +695,8 @@ mod tests {
     /// segundos por cada estrella, y el FLAC de antes quedaba huerfano).
     #[test]
     fn tagging_a_file_again_keeps_its_conversion() {
-        for ext in ["opus", "m4a"] {
+        // (Matroska y no un M4A: ese el motor ya lo lee tal cual)
+        for ext in ["opus", "mka"] {
             let dir = scratch(&format!("retag-{ext}"));
             let src = dir.join(format!("tone.{ext}"));
             if !tone_in(&src, 440) {
