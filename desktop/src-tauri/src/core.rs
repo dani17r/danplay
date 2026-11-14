@@ -13,7 +13,7 @@
 //! argumento (ver el principio de `main`).
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
 
 pub const READY: &str = "danplay://core";
@@ -164,9 +164,36 @@ pub async fn request_within(
             Address::Hung => std::future::pending().await,
         }
     };
-    tokio::time::timeout(timeout, exchange)
-        .await
-        .unwrap_or_else(|_| Err("el nucleo no contesta".into()))
+    let started = Instant::now();
+    let answer = tokio::time::timeout(timeout, exchange).await;
+    let outcome = match &answer {
+        Ok(Ok((code, ..))) => format!("contesto {code}"),
+        Ok(Err(why)) => format!("fallo: {why}"),
+        Err(_) => format!("no contesto en {} s", timeout.as_secs_f32()),
+    };
+    if let Some(line) = slow_note(method, path, started.elapsed(), &outcome) {
+        log::warn!("{line}");
+    }
+    answer.unwrap_or_else(|_| Err("el nucleo no contesta".into()))
+}
+
+/// A partir de cuanto una peticion al nucleo se apunta en el registro. El 1 y
+/// el 2 de noviembre hubo 28 «el nucleo no contesta» sin nada que dijera que
+/// peticion se habia quedado esperando ni cuanto: con esto, la proxima vez
+/// la causa esta en el registro.
+const SLOW: Duration = Duration::from_millis(500);
+
+/// La linea del registro de una peticion lenta, si lo fue. Sin la consulta
+/// (`?q=...`): lo que se busca no es cosa del registro, y la ruta basta para
+/// saber de que peticion se trata.
+fn slow_note(method: &str, path: &str, took: Duration, outcome: &str) -> Option<String> {
+    (took >= SLOW).then(|| {
+        let route = path.split('?').next().unwrap_or(path);
+        format!(
+            "peticion lenta al nucleo: {method} {route} tardo {} ms ({outcome})",
+            took.as_millis()
+        )
+    })
 }
 
 impl Core {
@@ -194,14 +221,16 @@ impl Core {
 
     /// El nucleo contesta.
     pub async fn ready(&self) -> bool {
-        self.status().await.is_some()
+        self.status().await.is_ok()
     }
 
-    /// El estado del nucleo si contesta: `Some(revision)`. Ver `CHANGED`.
-    async fn status(&self) -> Option<u64> {
+    /// Si el nucleo contesta a `/api/status`; si no, por que (para el
+    /// registro: el «no contesta» a secas no decia nada).
+    async fn status(&self) -> Result<(), String> {
         match request_within(&self.address, "GET", "/api/status", None, STATUS_TIMEOUT).await {
-            Ok((200, bytes, _)) => Some(revision_of(&bytes)),
-            _ => None,
+            Ok((200, ..)) => Ok(()),
+            Ok((code, ..)) => Err(format!("contesto {code}")),
+            Err(why) => Err(why),
         }
     }
 
@@ -214,18 +243,31 @@ impl Core {
     }
 }
 
-/// El contador de cambios que trae `/api/status`. Sin el, cero: nunca cambia
-/// y nunca avisa.
-pub fn revision_of(bytes: &[u8]) -> u64 {
-    serde_json::from_slice::<serde_json::Value>(bytes)
-        .ok()
-        .and_then(|v| v.get("revision").and_then(serde_json::Value::as_u64))
-        .unwrap_or(0)
+/// Cada cuanto se mira el contador de cambios. Es tambien el retraso maximo
+/// con que se ve un cambio hecho por detras: dos segundos se sienten «al
+/// momento». Mirarlo es leer un numero de este mismo proceso.
+const WATCH_EVERY: Duration = Duration::from_secs(2);
+
+/// Cada cuanto se le pregunta de verdad al nucleo si contesta, una vez que
+/// contesta. `/api/status` no es barata (cuenta la biblioteca, mira las
+/// carpetas, el diario, las herramientas) y se pedia entera cada dos segundos
+/// solo para leer un contador que esta en este proceso (`server::revision`).
+const HEALTH_EVERY: Duration = Duration::from_secs(30);
+
+/// Si toca preguntarle al nucleo si contesta: siempre mientras no contesta (el
+/// arranque: la interfaz espera ese aviso), y de vez en cuando despues.
+fn health_due(was_ready: bool, since_last: Duration) -> bool {
+    !was_ready || since_last >= HEALTH_EVERY
 }
 
-/// Cada cuanto se mira el nucleo. Es tambien el retraso maximo con que se ve
-/// un cambio hecho por detras: dos segundos se sienten «al momento».
-const WATCH_EVERY: Duration = Duration::from_secs(2);
+/// Si hay que avisar de un cambio. La primera lectura fija el punto de
+/// partida: al arrancar, la interfaz ya carga todo por su cuenta. Salvo que
+/// el nucleo ya haya cambiado algo nada mas levantarse (apartar las
+/// canciones de una carpeta que se movio, su primer escaneo): si la interfaz
+/// cargo antes, no lo habria visto.
+fn changed_since(seen: Option<u64>, now: u64) -> bool {
+    seen.map_or(now > 0, |before| before != now)
+}
 
 /// Mira el nucleo en segundo plano y avisa a la interfaz: `READY` cuando
 /// contesta (o deja de hacerlo) y `CHANGED` cuando cambia su `revision`.
@@ -235,6 +277,7 @@ pub fn watch(app: AppHandle) {
         .spawn(move || {
             let mut was_ready = false;
             let mut seen: Option<u64> = None;
+            let mut asked = Instant::now();
             loop {
                 std::thread::sleep(WATCH_EVERY);
                 let Some(core) = app.try_state::<Core>() else {
@@ -243,32 +286,30 @@ pub fn watch(app: AppHandle) {
                 if core.stopping() {
                     return;
                 }
-                let status = tauri::async_runtime::block_on(core.status());
-                if core.stopping() {
-                    return;
-                }
-                let ready = status.is_some();
-                if ready != was_ready {
-                    was_ready = ready;
-                    if ready {
-                        log::info!("el nucleo contesta");
-                    } else {
-                        log::warn!("el nucleo no contesta");
+                if health_due(was_ready, asked.elapsed()) {
+                    asked = Instant::now();
+                    let answer = tauri::async_runtime::block_on(core.status());
+                    if core.stopping() {
+                        return;
                     }
-                    let _ = app.emit(READY, serde_json::json!({"ready": ready, "message": ""}));
-                    if ready {
-                        // la cola que se restauro antes: ahora ya se puede
-                        // preguntar por lo que no se sabia donde estaba
-                        prune_queue(&app);
+                    let ready = answer.is_ok();
+                    if ready != was_ready {
+                        was_ready = ready;
+                        match &answer {
+                            Ok(()) => log::info!("el nucleo contesta"),
+                            Err(why) => log::warn!("el nucleo no contesta: {why}"),
+                        }
+                        let _ = app.emit(READY, serde_json::json!({"ready": ready, "message": ""}));
+                        if ready {
+                            // la cola que se restauro antes: ahora ya se puede
+                            // preguntar por lo que no se sabia donde estaba
+                            prune_queue(&app);
+                        }
                     }
                 }
-                if let Some(revision) = status {
-                    // La primera lectura fija el punto de partida: al arrancar,
-                    // la interfaz ya carga todo por su cuenta. Salvo que el
-                    // nucleo ya haya cambiado algo nada mas levantarse (apartar
-                    // las canciones de una carpeta que se movio, su primer
-                    // escaneo): si la interfaz cargo antes, no lo habria visto.
-                    if seen.map_or(revision > 0, |s| s != revision) {
+                if was_ready {
+                    let revision = server::revision();
+                    if changed_since(seen, revision) {
                         let _ = app.emit(CHANGED, serde_json::json!({"revision": revision}));
                         prune_queue(&app);
                     }
@@ -324,12 +365,85 @@ mod tests {
     use super::*;
     use std::time::Instant;
 
+    /// La app lee el contador de cambios en su propio proceso, sin pedirle a
+    /// la API el estado entero: tiene que ser el mismo numero que da la API.
     #[test]
-    fn the_revision_is_read_from_the_status() {
-        assert_eq!(revision_of(br#"{"stats":{},"revision":42}"#), 42);
-        // sin ella no se avisa nunca: cero es «sin cambios»
-        assert_eq!(revision_of(br#"{"stats":{}}"#), 0);
-        assert_eq!(revision_of(b"no es json"), 0);
+    fn the_revision_read_in_process_is_the_one_the_status_gives() {
+        let dir = std::env::temp_dir().join(format!("danplay-app-revision-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let cfg = server::Config::isolated(dir.join("data"), dir.join("config"), dir.join("Musica"));
+        let address = Address::InProcess(server::App::new(cfg, server::Guard::default()));
+        // (otras pruebas pueden tocar el contador a la vez: solo sube)
+        let before = server::revision();
+        let (code, bytes, _) =
+            tauri::async_runtime::block_on(request_within(&address, "GET", "/api/status", None, QUICK))
+                .expect("estado");
+        let after = server::revision();
+        assert_eq!(code, 200);
+        let given = serde_json::from_slice::<serde_json::Value>(&bytes).expect("json")["revision"]
+            .as_u64()
+            .expect("el estado lleva su revision");
+        assert!((before..=after).contains(&given), "{given} fuera de {before}..={after}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn once_the_core_answers_it_is_not_asked_for_the_whole_status_all_the_time() {
+        // mientras no contesta (el arranque), en cada vuelta
+        assert!(health_due(false, Duration::ZERO));
+        // despues, de vez en cuando; no cada dos segundos
+        assert!(!health_due(true, WATCH_EVERY));
+        assert!(!health_due(true, Duration::from_secs(29)));
+        assert!(health_due(true, HEALTH_EVERY));
+    }
+
+    #[test]
+    fn a_change_is_told_once_per_new_revision() {
+        // la primera lectura es el punto de partida, salvo que ya haya cambiado algo
+        assert!(!changed_since(None, 0));
+        assert!(changed_since(None, 5));
+        assert!(!changed_since(Some(5), 5));
+        assert!(changed_since(Some(5), 6));
+    }
+
+    /// Lo que tarda mas de medio segundo queda en el registro con que
+    /// peticion era y cuanto: el «no contesta» de noviembre no decia nada.
+    #[test]
+    fn a_slow_request_leaves_a_note_with_what_it_was_and_how_long() {
+        let quick = slow_note("GET", "/api/status", Duration::from_millis(120), "contesto 200");
+        assert_eq!(quick, None);
+        let note = slow_note("GET", "/api/status", Duration::from_millis(3000), "no contesto en 3 s").expect("lenta");
+        assert!(
+            note.contains("GET /api/status") && note.contains("3000 ms") && note.contains("no contesto en 3 s"),
+            "{note}"
+        );
+        // lo que se busca no va al registro
+        let search = slow_note(
+            "GET",
+            "/api/search?q=mi%20gozo&limit=5",
+            Duration::from_millis(900),
+            "contesto 200",
+        )
+        .expect("lenta");
+        assert!(search.contains("/api/search ") && !search.contains("gozo"), "{search}");
+        // justo en el limite, ya cuenta
+        assert!(slow_note("POST", "/api/x", SLOW, "contesto 200").is_some());
+    }
+
+    /// Una peticion que se queda colgada hasta el tope tambien se apunta (el
+    /// registro es lo unico que queda despues).
+    #[test]
+    fn a_request_that_hits_the_timeout_is_slow_by_definition() {
+        let started = Instant::now();
+        let answer = tauri::async_runtime::block_on(request_within(
+            &Address::Hung,
+            "GET",
+            "/api/status",
+            None,
+            Duration::from_millis(600),
+        ));
+        assert_eq!(answer, Err("el nucleo no contesta".into()));
+        assert!(started.elapsed() >= SLOW);
     }
 
     /// Un nucleo que no contesta no puede dejar la peticion colgada: el tope

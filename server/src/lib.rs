@@ -105,6 +105,14 @@ pub use http::{Body, Request, Response};
 pub use library::config::Config;
 pub use router::{Ctx, Reply, Route};
 
+/// El contador de cambios de la biblioteca (el mismo que da `/api/status`).
+/// La app de escritorio lo lee aquí, en su propio proceso, en vez de pedirle a
+/// la API el estado entero cada pocos segundos solo para ver este número.
+#[must_use]
+pub fn revision() -> u64 {
+    library::index::revision()
+}
+
 use std::sync::OnceLock;
 
 /// Las rutas, en su orden (se montan una vez).
