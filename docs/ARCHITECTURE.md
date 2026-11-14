@@ -898,6 +898,62 @@ guarda aunque la canción no tenga pulso claro (`pulse::hear` no hace la
 rejilla: la hace quien la pide), y la interfaz tiene plazo y recuerda por
 qué va el clic aproximado (`useClick.fallbackWhy`).
 
+### El clic en cola, con la batería y la guía que lo espera (1.41)
+
+**La cola del clic** (`services::beats`) cabe un repertorio entero (512
+rutas; eran 6 y lo que no cabía se tiraba diciendo que quedaba en cola). Lo
+que hace falta ya (`first`: la que suena, lo que pide el estudio) va delante
+y entra siempre; lo de después (`prepare`) va detrás y, si no cabe, lo dice.
+`POST /api/song/{id}/beats/prepare` acepta `ids` (una lista entera, en su
+orden) y contesta `left` con las que no se pudieron dejar; la interfaz pide
+hasta 60 siguientes de la lista de una vez (`useClick.AHEAD`). Lo que se
+pregunta cada 700 ms mientras carga (`GET …/beats?wait=false`) lo hace
+`beats::peek`: la clave del archivo, su rejilla guardada y si hay detector,
+una vez cada cosa.
+
+**Lo que la cola hace con un archivo** (`Task`): sacar su rejilla, o solo que
+la red lo oiga (la batería separada: de ella se guarda lo que dijo, no una
+rejilla). «Con la batería separada» ya no pasa la red dentro de la petición:
+`POST …/beats/reanalyze` con `wait: false` deja la batería delante en la cola
+y contesta 202 `{pending, progress}` hasta que sale; el estudio pregunta
+(`useClick.reanalyze`) y enseña «oyendo la batería separada… N %».
+
+**La batería mejora el clic sola** (`beats::after_separation`, desde que
+acaba una separación; `DANPLAY_CLICK_DRUMS=off` lo quita). La red oye la
+batería en segundo plano y `analysis::beatgrid::fill_with_drums` +
+`drums_verdict` deciden. No sustituye la rejilla (con la batería, una
+canción de diez movía un tercio de sus pulsos): **solo rellena los huecos con
+música**. Un hueco es un trozo sin pulso de más de 3 periodos y 4 s donde la
+batería da 6 golpes fuertes o más (si calla, es un corte). Se rellena si la
+rejilla con la batería pasa por el pulso de cada lado (a 40 ms), y vale si los
+segundos con música sin clic bajan al menos 4, con el mismo compás y el 99 %
+de los pulsos y de los «1» que ya había. Nunca toca el clic de quien toca: un
+tempo exacto de proyecto, su clic propio, sus ajustes (tempo, compás, ×2/÷2,
+el «1» corrido) ni lo re-analizado a mano. Queda guardado como un
+re-análisis más (`{"mode": "fill-drums", "auto": true}`, que se vuelve a
+aplicar al subir la versión) y se deshace con «Re-analizar» › «Solo con la
+canción» (`mode: "mix"`, que ya no vuelve solo). La batería ya no entra en una
+rejilla solo porque la red la oyera: la usa lo que se hizo con ella (cada
+re-análisis guarda en `edits` si la usó). En las 10 canciones con batería
+separada de una biblioteca real, una mejora (21,4 s finales con la banda
+tocando) y nueve quedan igual.
+
+**La guía automática** es un trabajo por canción (`auto-cue-<id>`,
+`Jobs::start_keyed`) y su resultado dice de cuál es (`song`); con el nombre
+de la familia a secas (`auto-cue`) se contesta el último arrancado. Sin los
+compases del clic en la petición, espera a la cola del clic
+(`beats::wait_for`, hasta 3 min, diciendo «Esperando al clic… N %») y
+contesta si las partes se ajustaron a ellos (`click`, `click_why`): sin
+ellos parte la canción en trozos de 2 s y salen distintas, y peores. Lo fuerte
+de cada pista separada en cada compás se lee a la vez (hasta cuatro
+ffmpeg) y se recuerda en memoria por pista y compases. Con el tempo puesto a
+mano, la onda, el imán de las guías y los compases que se mandan a la guía son
+los del clic que suena (`StudyBar.soundingGrid`), no los detectados.
+
+**La carpeta del pulso** (`DATA_DIR/beats`) se limpia al escanear
+(`beats::prune`): lo que no tiene la clave de un archivo que hay (canciones y
+pistas) se borra pasados 30 días sin tocarse.
+
 ## Separar en pistas
 
 Una canción se separa en sus instrumentos —batería, voces, bajo, guitarra,
