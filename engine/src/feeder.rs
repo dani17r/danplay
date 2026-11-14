@@ -287,24 +287,7 @@ impl Feeder {
         let data = &mut block.data[..frames * n_parts * 2];
         // las costuras: baja al acercarse al final de un tramo que salta (o
         // donde se para), y sube al empezar el tramo al que se salto
-        let jumps_at = seam.filter(|&b| self.seam_cuts(b));
-        if jumps_at.is_some() || self.landed.is_some() {
-            for i in 0..frames {
-                let f = self.pos + i as u64;
-                let mut g = 1.0f32;
-                if let Some(b) = jumps_at {
-                    g = g.min((b - f) as f32 / FADE as f32);
-                }
-                if let Some(a) = self.landed {
-                    g = g.min((f.saturating_sub(a) + 1) as f32 / FADE as f32);
-                }
-                if g < 1.0 {
-                    for v in &mut data[i * n_parts * 2..(i + 1) * n_parts * 2] {
-                        *v *= g;
-                    }
-                }
-            }
-        }
+        self.fade_seams(data, seam.filter(|&b| self.seam_cuts(b)));
         self.pos += frames as u64;
         if self.landed.is_some_and(|a| self.pos >= a + FADE) {
             self.landed = None;
@@ -347,6 +330,31 @@ impl Feeder {
                 }
                 (Some(_), LoopEnd::Stop) => self.finish(block, true),
                 _ => self.finish(block, false),
+            }
+        }
+    }
+
+    /// Las costuras de este bloque: baja al acercarse a `jumps_at` (el final
+    /// de un tramo que salta, o donde se para) y sube al empezar el tramo al
+    /// que se acaba de saltar.
+    fn fade_seams(&self, data: &mut [f32], jumps_at: Option<u64>) {
+        if jumps_at.is_none() && self.landed.is_none() {
+            return;
+        }
+        let stride = self.parts.len() * 2;
+        for (i, frame) in data.chunks_exact_mut(stride).enumerate() {
+            let f = self.pos + i as u64;
+            let mut g = 1.0f32;
+            if let Some(b) = jumps_at {
+                g = g.min((b - f) as f32 / FADE as f32);
+            }
+            if let Some(a) = self.landed {
+                g = g.min((f.saturating_sub(a) + 1) as f32 / FADE as f32);
+            }
+            if g < 1.0 {
+                for v in frame {
+                    *v *= g;
+                }
             }
         }
     }

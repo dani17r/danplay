@@ -319,15 +319,12 @@ impl Decoded {
             Err(_) => {
                 // no se pudo saltar (mas alla del final, o un contenedor que
                 // no sabe): desde el principio, tirando lo de antes
-                match open_reader(&self.media, &self.ext) {
-                    Ok(again) => {
-                        self.format = again.format;
-                        self.decoder = again.decoder;
-                    }
-                    Err(_) => {
-                        self.eof = true;
-                        self.broken = true;
-                    }
+                if let Ok(again) = open_reader(&self.media, &self.ext) {
+                    self.format = again.format;
+                    self.decoder = again.decoder;
+                } else {
+                    self.eof = true;
+                    self.broken = true;
                 }
             }
         }
@@ -748,15 +745,15 @@ pub(crate) mod tests {
     /// Cuanto hay de un tono de `hz` en ese canal (`side`: 0 o 1) de un
     /// segundo entero a 44,1 kHz: la amplitud de ese seno.
     fn tone_in(pcm: &[f32], side: usize, hz: f64) -> f64 {
-        let n = 44_100;
-        let w = 2.0 * std::f64::consts::PI * hz / 44_100.0;
-        let (mut s, mut c) = (0f64, 0f64);
-        for i in 0..n {
-            let v = f64::from(pcm[i * 2 + side]);
-            s += v * (w * i as f64).sin();
-            c += v * (w * i as f64).cos();
+        let frames = 44_100;
+        let step = 2.0 * std::f64::consts::PI * hz / 44_100.0;
+        let (mut sin_sum, mut cos_sum) = (0f64, 0f64);
+        for i in 0..frames {
+            let sample = f64::from(pcm[i * 2 + side]);
+            sin_sum += sample * (step * i as f64).sin();
+            cos_sum += sample * (step * i as f64).cos();
         }
-        2.0 * s.hypot(c) / n as f64
+        2.0 * sin_sum.hypot(cos_sum) / frames as f64
     }
 
     /// Un segundo en 5.1, con un tono distinto en cada canal (izquierdo,
@@ -782,7 +779,8 @@ pub(crate) mod tests {
         assert_eq!(pcm.len(), 88_200);
         // frontal 1, central y atras a -3 dB, y todo entre 2,414 (lo que
         // suma un lado): 0,4142 y 0,2929 de cada uno
-        let (front, side) = (0.9 / 2.414_213_6, 0.9 * 0.707_106_8 / 2.414_213_6);
+        let diagonal = std::f64::consts::FRAC_1_SQRT_2;
+        let (front, side) = (0.9 / 2.414_213_6, 0.9 * diagonal / 2.414_213_6);
         let expected = [
             [front, 0.0], // izquierdo
             [0.0, front], // derecho

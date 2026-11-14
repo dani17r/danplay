@@ -462,6 +462,10 @@ pub struct Render {
     music_bus: [bool; MAX_BUSES],
     stretches: Vec<Stretch>,
     stretching: bool,
+    /// Se tomo lo ultimo de la cancion y el estirador aun tiene dentro lo
+    /// que retrasa (unos 150 ms): muestras de salida que faltan por sacar, con
+    /// silencio de entrada, antes de darla por acabada.
+    drain: Option<usize>,
     primed: bool,
     /// Lo que sobra de muestra al pedir entrada a otra velocidad.
     frac: f64,
@@ -523,6 +527,7 @@ impl Render {
             music_bus: [false; MAX_BUSES],
             stretches: vec![stretch],
             stretching: false,
+            drain: None,
             primed: false,
             frac: 0.0,
             pitch_now: None,
@@ -599,6 +604,7 @@ impl Render {
         self.envelope = 0.0;
         self.pending = None;
         self.count = None;
+        self.drain = None;
         self.primed = false;
         self.runs.clear();
         self.voices = [Voice::default(); VOICES];
@@ -851,8 +857,17 @@ impl Render {
             }
         }
         let old_fading = self.pending == Some(Pending::Switch);
+        let draining = self.drain.is_some();
         if music_from < n && (self.generation == good || old_fading) {
             self.music(music_from, n, speed, pitch);
+        }
+        // la cola del estirador va saliendo; al acabar, la cancion se acaba
+        // (el que se acaba de poner en este trozo cuenta desde el siguiente)
+        if draining && let Some(left) = self.drain.as_mut() {
+            *left = left.saturating_sub(n - music_from);
+            if *left == 0 {
+                self.finish_song();
+            }
         }
         self.mix_voices(n);
         self.mix_cues(n);
@@ -957,6 +972,7 @@ impl Render {
             self.promote(None);
         }
         self.catch_up = None;
+        self.drain = None;
         let Some(ring) = &mut self.ring else { return };
         let good = ring.shared.generation.load(Ordering::Acquire);
         if let Some(b) = self.current.take() {
@@ -987,6 +1003,10 @@ impl Render {
     }
 
     fn toggle_stretch(&mut self) {
+        // cambiar de velocidad en la cola del final: ya no hay nada que vaciar
+        if self.drain.take().is_some() {
+            self.finish_song();
+        }
         self.stretching = !self.stretching;
         self.primed = false;
         self.pitch_now = None;
@@ -1096,6 +1116,11 @@ impl Render {
             self.bus_in[b * cap * 2..][..frames * 2].fill(0.0);
         }
         self.n_pieces = 0;
+        if self.drain.is_some() {
+            // no queda cancion: el estirador sigue recibiendo silencio
+            self.fed += frames as u64;
+            return;
+        }
         let Some(ring) = &mut self.ring else {
             return;
         };
@@ -1202,9 +1227,7 @@ impl Render {
                 }
                 if last {
                     self.fed += (frames - i) as u64;
-                    self.controls.ended.store(true, Ordering::Release);
-                    self.controls.playing.store(false, Ordering::Release);
-                    self.pending = Some(Pending::Stop);
+                    self.end_of_song();
                     break;
                 }
             }
@@ -1213,6 +1236,29 @@ impl Render {
         if self.incoming.is_some() {
             self.blend();
         }
+    }
+
+    /// Se tomo lo ultimo de la cancion. Estirando, lo que suena va por
+    /// detras de lo tomado lo que retrasa el estirador (unos 150 ms): parar
+    /// aqui dejaba sin sonar el final de la cancion, o del ultimo tramo con
+    /// «Parar». Se le sigue dando silencio hasta que sale todo.
+    fn end_of_song(&mut self) {
+        if !self.stretching || self.stretches.is_empty() {
+            return self.finish_song();
+        }
+        let speed = f64::from(load_f32(&self.controls.speed).clamp(0.25, 3.0));
+        let s = &self.stretches[0];
+        // lo que tarda en salir lo ultimo que entro, en muestras de salida
+        // (y diez milisegundos mas, por si acaso)
+        let latency = s.input_latency() as f64 / speed + s.output_latency() as f64;
+        self.drain = Some(latency.ceil() as usize + self.rate as usize / 100);
+    }
+
+    /// La cancion se acabo (y se para, con su envolvente).
+    fn finish_song(&mut self) {
+        self.controls.ended.store(true, Ordering::Release);
+        self.controls.playing.store(false, Ordering::Release);
+        self.pending = Some(Pending::Stop);
     }
 
     /// Empieza un relevo (ver `Handoff`). Si no esta sonando, las partes
@@ -1616,6 +1662,10 @@ impl Render {
         if self.envelope <= 0.0 {
             match self.pending.take() {
                 Some(Pending::Stop) => {
+                    // parado en plena cola del final: la cancion si se acabo
+                    if self.drain.take().is_some() {
+                        self.controls.ended.store(true, Ordering::Release);
+                    }
                     self.running = false;
                     self.count = None;
                     self.controls.counting.store(0, Ordering::Release);
