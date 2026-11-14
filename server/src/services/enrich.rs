@@ -143,6 +143,7 @@ fn sheet_value(s: &library::chord_sheets::ChordSheet) -> Value {
         "title": s.title,
         "key": s.key,
         "key_from": s.key_from,
+        "key_deduced": s.key_deduced,
         "capo": s.capo,
         "votes": s.votes,
         "rating": s.rating.map_or(Value::from(0), Value::from),

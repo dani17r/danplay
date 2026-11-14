@@ -954,6 +954,71 @@ fn filled_key_comes_from_the_chord_sheet_not_the_ai() {
     assert!(reason.contains("no dice el tono"), "{reason}");
 }
 
+/// El tono que se deduce de los acordes nunca pasa por el dicho por el
+/// cifrado, por quien hizo la ficha o por el archivo: va aparte
+/// (`key_deduced`), no se rellena en la ficha y no pisa nada.
+#[test]
+fn a_key_deduced_from_the_chords_is_kept_apart_from_the_stated_one() {
+    let am = json!([{"name": "", "chords": ["Am", "F", "C", "G", "Am", "E", "Am"]}]);
+    let sheet = |extra: Value| {
+        let mut base = json!({"source": "LaCuerda", "key": "", "capo": 0, "sections": am});
+        for (k, v) in extra.as_object().expect("objeto") {
+            base[k] = v.clone();
+        }
+        base
+    };
+    assert_eq!(deduced_key(&sheet(json!({}))), "Am");
+    // con cejilla, el tono que suena
+    assert_eq!(deduced_key(&sheet(json!({"capo": 2}))), "Bm");
+    // si el cifrado dice el suyo, no hay nada que deducir
+    assert_eq!(deduced_key(&sheet(json!({"key": "C"}))), "");
+    // lo ya deducido se respeta
+    assert_eq!(deduced_key(&sheet(json!({"key_deduced": "Dm"}))), "Dm");
+    // sin cifrado, o sin acordes de sobra, nada
+    assert_eq!(deduced_key(&Value::Null), "");
+    assert_eq!(deduced_key(&json!({"key": "", "sections": []})), "");
+
+    // la ficha de la canción: solo si no tiene tono
+    let doc = |key: &str| {
+        obj(json!({"key": key, "chords": json!({"sheet": sheet(json!({}))}).to_string()}))
+    };
+    assert_eq!(song_deduced_key(&doc("")), "Am");
+    assert_eq!(
+        song_deduced_key(&doc("Bb")),
+        "",
+        "no se pisa el tono de la ficha"
+    );
+
+    // rellenar la ficha NO pone el deducido, y dice por qué
+    let mut f = Fake::default();
+    f.songs.insert(
+        5,
+        obj(json!({
+            "id": 5, "artist": "Barak", "title": "Mi Gozo", "album": "A",
+            "year": "2018", "genre": "X", "key": "", "chords": "",
+        })),
+    );
+    f.sheet = json!({"sheet": sheet(json!({})), "tried": [], "failed": []});
+    let r = autofill(&mut f, 5).expect("vale");
+    assert_eq!(r["filled"], json!({}));
+    assert!(
+        f.edits.is_empty(),
+        "el tono deducido no se escribe en la ficha"
+    );
+    let reason = r["reason"].as_str().expect("motivo");
+    assert!(reason.contains("no dice el tono"), "{reason}");
+    assert!(
+        reason.contains("Am") && reason.contains("deducci"),
+        "{reason}"
+    );
+
+    // un cifrado guardado antes de saber deducir lo lleva al leerlo
+    let stored = json!({"sheet": sheet(json!({}))}).to_string();
+    let again = chords(&mut f, &song(&stored), false).expect("vale");
+    assert_eq!(again["sheet"]["key"], "");
+    assert_eq!(again["sheet"]["key_deduced"], "Am");
+}
+
 #[test]
 fn durations_read_as_minutes_and_seconds() {
     assert_eq!(duration_text(185.5), "3:05");

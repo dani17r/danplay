@@ -6,6 +6,8 @@
 use crate::names::{Re, group, rx, sub_with};
 use std::sync::LazyLock;
 
+pub mod guess;
+
 pub const SHARPS: [&str; 12] = [
     "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
 ];

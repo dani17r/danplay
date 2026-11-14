@@ -464,7 +464,17 @@ async function transpose() {
       <dt>Calidad</dt>
       <dd class="mono">{{ song.bitrate ? Math.round(song.bitrate / 1000) + ' kbps' : '—' }}</dd>
       <dt>Tono</dt>
-      <dd class="mono">{{ song.key || '—' }}</dd>
+      <dd class="mono">
+        {{ song.key || (song.key_deduced ? '' : '—') }}
+        <!-- sin tono propio, el que sale de los acordes de su cifrado: una
+             deducción, no un dato, y se dice -->
+        <span
+          v-if="!song.key && song.key_deduced"
+          class="deduced"
+          title="Deducido de los acordes del cifrado: puede no ser el tono de la canción"
+          >{{ song.key_deduced }} <i>(deducido)</i></span
+        >
+      </dd>
       <dt>BPM</dt>
       <dd class="mono">{{ song.bpm ? Math.round(song.bpm) : '—' }}</dd>
       <dt>Carpeta</dt>
@@ -616,6 +626,12 @@ async function transpose() {
         >
         <span v-else title="Solo se pone el tono que dice el cifrado"
           >El cifrado no dice el tono</span
+        >
+        <span
+          v-if="!shown.key && sheet.key_deduced"
+          class="deduced"
+          title="Por los acordes del cifrado; no se guarda como el tono de la canción"
+          >· por sus acordes, <b>{{ sheet.key_deduced }}</b> <i>(deducido)</i></span
         >
         <span v-if="sheet.capo"> · cejilla en el traste {{ sheet.capo }}</span>
       </div>

@@ -116,6 +116,42 @@ fn the_card_and_its_errors() {
     );
 }
 
+/// La ficha dice el tono que se deduce de los acordes de su cifrado, aparte
+/// del tono de la canción (`key_deduced`), y solo si la canción no tiene el
+/// suyo: no se completa, no se pisa.
+#[test]
+fn the_card_says_the_key_deduced_from_the_chords_apart_from_its_own() {
+    let app = app();
+    let ids = songs(&app, &["Artistas/Ana/Ana - Uno.wav"]);
+    let url = format!("/api/song/{}", ids[0]);
+    let sheet = json!({"sheet": {
+        "source": "LaCuerda", "key": "", "capo": 0,
+        "sections": [{"name": "", "chords": ["Am", "F", "C", "G", "Am", "E", "Am"], "lines": []}],
+    }});
+    crate::services::songs::update_one(&app, ids[0], "chords", sheet.to_string().into())
+        .expect("cifrado");
+    let (st, v) = call(&app, "GET", &url, None);
+    assert_eq!(
+        (st, &v["key"], &v["key_deduced"]),
+        (200, &json!(""), &json!("Am")),
+        "{v}"
+    );
+    // con tono propio, no se enseña ninguno deducido
+    let (st, v) = call(&app, "PATCH", &url, Some(json!({"key": "Gm"})));
+    assert_eq!(st, 200, "{v}");
+    let (_, v) = call(&app, "GET", &url, None);
+    assert_eq!(
+        (&v["key"], v.get("key_deduced")),
+        (&json!("Gm"), None),
+        "{v}"
+    );
+    // y sin cifrado, tampoco
+    crate::services::songs::update_one(&app, ids[0], "chords", "".into()).expect("sin cifrado");
+    crate::services::songs::update_one(&app, ids[0], "key", "".into()).expect("sin tono");
+    let (_, v) = call(&app, "GET", &url, None);
+    assert_eq!(v.get("key_deduced"), None, "{v}");
+}
+
 #[test]
 fn editing_writes_the_index_and_the_file() {
     let app = app();

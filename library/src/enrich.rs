@@ -593,6 +593,56 @@ pub fn stored_sheet(song: &Dict) -> Option<Value> {
     doc(song).remove("sheet").filter(Value::is_object)
 }
 
+/// El tono que se DEDUCE de los acordes de un cifrado (ver
+/// `theory::guess`), o vacío: si el cifrado dice el suyo, si ya lo trae
+/// deducido (se respeta) o si no se puede. Nunca es el tono de la canción:
+/// quien lo enseña tiene que decir que es una deducción.
+pub fn deduced_key(sheet: &Value) -> String {
+    if !truthy(sheet) || sheet.get("key").is_some_and(truthy) {
+        return String::new();
+    }
+    if let Some(k) = sheet.get("key_deduced").and_then(Value::as_str)
+        && !k.is_empty()
+    {
+        return k.to_owned();
+    }
+    let chords: Vec<String> = sheet
+        .get("sections")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .flat_map(|s| texts_or_values(s.get("chords")))
+        .filter_map(|c| c.as_str().map(str::to_owned))
+        .collect();
+    let capo = number(sheet.get("capo")) as i64;
+    theory::guess::key_of(&chords, capo)
+        .map(|g| g.key.to_owned())
+        .unwrap_or_default()
+}
+
+/// El tono deducido de una canción (de su cifrado guardado), o vacío si la
+/// ficha ya tiene su tono: lo que puso quien la hizo, o el archivo, no se
+/// toca ni se «completa».
+pub fn song_deduced_key(song: &Dict) -> String {
+    if !field(song, "key").trim().is_empty() {
+        return String::new();
+    }
+    stored_sheet(song).map_or_else(String::new, |sheet| deduced_key(&sheet))
+}
+
+/// El cifrado con su tono deducido apuntado (`key_deduced`), si no lo trae y
+/// se puede deducir: los guardados antes de saber deducirlo.
+fn with_deduced_key(sheet: &Value) -> Value {
+    let mut out = sheet.clone();
+    let deduced = deduced_key(sheet);
+    if !deduced.is_empty()
+        && let Some(map) = out.as_object_mut()
+    {
+        map.insert("key_deduced".into(), Value::String(deduced));
+    }
+    out
+}
+
 /// Guarda la columna `chords`.
 pub fn save_doc<O: Outside>(o: &mut O, id: i64, doc: &Dict) -> Result<(), O::Error> {
     let mut fields = Dict::new();
@@ -668,7 +718,7 @@ pub fn chords<O: Outside>(o: &mut O, song: &Dict, refresh: bool) -> Result<Value
     let mut d = doc(song);
     if !refresh && let Some(sheet) = d.get("sheet") {
         return Ok(json!({
-            "sheet": sheet,
+            "sheet": with_deduced_key(sheet),
             "cached": true,
             "checked": d.get("sheet_checked").cloned().unwrap_or_else(|| json!("")),
             "tried": d.get("sheet_tried").cloned().unwrap_or_else(|| json!([])),
@@ -855,8 +905,14 @@ fn key_from_sheet<O: Outside>(o: &mut O, song: &Dict, out: &mut Filling) -> Resu
             .push("el cifrado va con cejilla: su tono no es el que suena".into());
     } else if truthy(&sheet) {
         let source = text_of(sheet.get("source"));
-        out.reasons
-            .push(format!("el cifrado de {source} no dice el tono"));
+        let guess = deduced_key(&sheet);
+        out.reasons.push(if guess.is_empty() {
+            format!("el cifrado de {source} no dice el tono")
+        } else {
+            format!(
+                "el cifrado de {source} no dice el tono (por sus acordes sería {guess}, pero es una deducción y no se pone)"
+            )
+        });
     } else if r.get("failed").is_some_and(truthy) {
         out.failures += 1;
         let failed = texts(r.get("failed")).join(" ni ");

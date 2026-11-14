@@ -350,6 +350,18 @@ pub fn parse_lacuerda(page: &str) -> ParsedSheet {
     }
 }
 
+/// El tono que se deduce de los acordes de un cifrado (con su cejilla), o
+/// vacío si no se puede. Solo para cuando el cifrado no dice el suyo.
+fn deduced_key(sections: &[Section], capo: i64) -> String {
+    let chords: Vec<String> = sections
+        .iter()
+        .flat_map(|s| s.chords.iter().cloned())
+        .collect();
+    crate::theory::guess::key_of(&chords, capo)
+        .map(|g| g.key.to_owned())
+        .unwrap_or_default()
+}
+
 /// El tono si es un tono que se puede usar (para transponer), o vacío.
 pub fn valid_key(key: &str) -> String {
     let key = key.trim();
@@ -592,6 +604,10 @@ pub struct ChordSheet {
     /// De dónde sale el tono: «datos» (lo dice la fuente), «texto» (una línea
     /// del cifrado) o vacío.
     pub key_from: &'static str,
+    /// El tono que se DEDUCE de los acordes (`theory::guess`), solo si el
+    /// cifrado no dice el suyo. Va aparte de `key`: no es un dato, y quien lo
+    /// guarda o lo enseña tiene que decir que es una deducción.
+    pub key_deduced: String,
     pub capo: i64,
     pub votes: i64,
     /// La valoración de Ultimate Guitar; LaCuerda no la tiene (`None`: un 0
@@ -674,6 +690,11 @@ pub fn ultimate_guitar<E: FetchFailure>(
         } else {
             "datos"
         },
+        key_deduced: if key.is_empty() {
+            deduced_key(&sheet.sections, capo)
+        } else {
+            String::new()
+        },
         key,
         capo,
         votes,
@@ -751,6 +772,11 @@ pub fn lacuerda<E: FetchFailure>(
         artist: Value::String(artist),
         title: Value::String(title),
         key_from: if key.is_empty() { "" } else { "texto" },
+        key_deduced: if key.is_empty() {
+            deduced_key(&sheet.sections, sheet.capo)
+        } else {
+            String::new()
+        },
         key,
         capo: sheet.capo,
         votes: 0,

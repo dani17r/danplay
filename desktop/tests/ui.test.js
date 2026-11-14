@@ -534,6 +534,37 @@ describe('the details panel and late responses', () => {
     expect(w.find('.chords').text()).toBe('D   A')
   })
 
+  it('a key deduced from the chords is shown as deduced, never as the key of the song', async () => {
+    // sin tono en el cifrado ni en la ficha: lo que sale de los acordes se
+    // enseña aparte y dicho
+    const chords = JSON.stringify({
+      sheet: { ...chordChart('', ['Am', 'F', 'C', 'G']), key_deduced: 'Am' }
+    })
+    const w = mount(DetailsPanel, {
+      props: { song: { ...song, key: '', key_deduced: 'Am', chords }, aiReady: true }
+    })
+    expect(w.text()).toContain('El cifrado no dice el tono')
+    const facts = w.find('.facts').text()
+    expect(facts).toContain('Am (deducido)')
+    expect(w.find('.sheet-facts').text()).toContain('por sus acordes, Am (deducido)')
+    // con el tono de la ficha, o dicho por el cifrado, no se enseña ninguno deducido
+    const own = mount(DetailsPanel, {
+      props: { song: { ...song, key: 'Gm', key_deduced: 'Am', chords }, aiReady: true }
+    })
+    expect(own.find('.facts').text()).not.toContain('deducido')
+    const stated = mount(DetailsPanel, {
+      props: {
+        song: {
+          ...song,
+          key: '',
+          chords: JSON.stringify({ sheet: { ...chordChart('G', ['G', 'C']), key_deduced: 'Em' } })
+        },
+        aiReady: true
+      }
+    })
+    expect(stated.find('.sheet-facts').text()).not.toContain('deducido')
+  })
+
   it('the keys are offered by their usual names, in the mode of the chart', async () => {
     // la lista solo tenía sostenidos (no se podía elegir Bb, Eb ni Ab), y la
     // misma para un cifrado en menor: «a G» lo dejaba en Sol menor

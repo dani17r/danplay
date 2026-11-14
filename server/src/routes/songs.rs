@@ -84,6 +84,12 @@ fn song(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     c.insert("playlists".into(), Value::Array(lists));
     let exists = songs::exists(&c);
     c.insert("existe".into(), Value::Bool(exists));
+    // sin tono en la ficha, el que se deduce de los acordes de su cifrado
+    // (aparte: no es el tono de la canción, y la interfaz lo dice «deducido»)
+    let deduced = library::enrich::song_deduced_key(&c);
+    if !deduced.is_empty() {
+        c.insert("key_deduced".into(), Value::String(deduced));
+    }
     // si el archivo no admite etiquetas, lo que se cambie de la canción se
     // guarda solo en DanPlay: la ficha lo dice (solo las de la biblioteca,
     // que a las de fuera no se les escribe nada)
