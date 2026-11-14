@@ -36,8 +36,9 @@ pub struct State {
     pub speed: f32,
     pub error: String,
     pub has_output: bool,
-    /// La velocidad conserva el tono. Siempre, desde que estira el motor
-    /// (Signalsmith Stretch); antes, sin ffmpeg, el tono iba detras.
+    /// La velocidad conserva el tono. Siempre: lo estira el motor
+    /// (Signalsmith Stretch). Queda por el contrato con la interfaz, que lo
+    /// lee; ya no hay un camino en que sea falso.
     pub pitch_preserved: bool,
     /// Bucle A-B para estudiar un trozo, en segundos; 0,0 = sin bucle. Con
     /// varios tramos, del principio del primero al final del ultimo.
@@ -48,7 +49,7 @@ pub struct State {
     /// Que pasa al acabar el ultimo tramo: repetir, parar o seguir.
     pub loop_end: LoopEnd,
     /// El tono corrido, en semitonos (0 = como esta grabada). Admite medios
-    /// semitonos (cuartos de tono) y cualquier fraccion. Solo con ffmpeg.
+    /// semitonos (cuartos de tono) y cualquier fraccion.
     pub pitch: f32,
     /// Como va el metronomo.
     pub metronome: MetronomeState,

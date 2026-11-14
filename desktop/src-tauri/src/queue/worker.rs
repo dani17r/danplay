@@ -361,7 +361,7 @@ fn start_within(
 /// La actual se movio (su ruta en la cola ya es la nueva y la de antes ya no
 /// esta): su ruta nueva para la sesion, y se le dice al reproductor, que la
 /// tiene en memoria y sigue sonando pero la volveria a abrir de la vieja
-/// (un salto con ffmpeg, las pistas, otra velocidad).
+/// (tras un rato en pausa, o al abrir sus pistas).
 pub(super) fn follow_current(inner: &mut Inner, player: &player::Handle) {
     let here = |p: &str| std::path::Path::new(p).is_file();
     let Some(path) = inner.current().and_then(|t| t.path.clone()) else {

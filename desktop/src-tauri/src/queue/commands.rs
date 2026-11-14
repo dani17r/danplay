@@ -67,7 +67,7 @@ pub fn set_speed(playback: tauri::State<'_, Playback>, value: f32) {
 }
 
 /// El tono corrido, en semitonos (-12..12, con fracciones: 0,5 es un cuarto
-/// de tono). Solo hace algo con ffmpeg.
+/// de tono). Lo estira el propio motor, sin ffmpeg.
 #[tauri::command]
 pub fn set_pitch(playback: tauri::State<'_, Playback>, semitones: f32) {
     playback.send(Command::Pitch(semitones));
