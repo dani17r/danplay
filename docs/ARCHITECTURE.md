@@ -1120,6 +1120,71 @@ los del clic que suena (`StudyBar.soundingGrid`), no los detectados.
 (`beats::prune`): lo que no tiene la clave de un archivo que hay (canciones y
 pistas) se borra pasados 30 días sin tocarse.
 
+### «Re-analizar» mira el audio, y conserva lo que se movió a mano
+
+Antes, re-analizar volvía a decodificar **lo mismo que oyó la red** con otra
+opción, sin ninguna evidencia nueva: en una canción con el tiempo mal salía
+`fixed: 0`. Ahora, tras sacar la rejilla (todas las opciones menos «como
+antes»), se mira el propio audio, con números y sin opinar:
+
+- **`analysis::onset`**: una envolvente de ataques cada 5 ms (la diferencia
+  primera del audio, su energía por bloques, en log). Se calibró con audio
+  sintético (impulsos, cajas, bombos, fuertes y flojos): un golpe puesto en
+  `t` se mide en `t` ±1 ms. Es de la batería separada si la canción la tiene
+  **y va donde la mezcla** (`fit::choose`: se mide cuánto se aparta de la
+  mezcla; una batería 25 ms corrida, que se ha visto, se ignora), y si no, de
+  la mezcla. `services::beats::evidence` la saca con el mismo ffmpeg del
+  detector; sin él o sin poder leer el archivo, re-analizar sigue como antes.
+- **`analysis::fit`** mide cada pulso contra su golpe más fuerte a ±50 ms
+  (desvío con signo y si es claro: fuerza frente a la mediana de la
+  envolvente a ±2 s), y de ahí `report.fit = {before, after}` (`offset_ms`,
+  `spread_ms`, `supported`; positivo = el clic suena antes que los golpes),
+  `report.weak` (tramos de al menos dos compases sin golpes claros que apoyen
+  el clic, o con golpes que no caen donde él, o una regla perfecta sobre algo
+  que no lo es: donde el clic es solo una suposición) y `report.evidence`
+  (`drums` o `mix`). Es evidencia, no verdad.
+- **`fit::snap`** mueve cada pulso hacia su golpe con el desvío **mediano** de
+  los ocho pulsos de alrededor (un toque a contratiempo no arrastra un
+  pulso), solo si al menos tres golpes claros se ponen de acuerdo (12 ms),
+  con tope de 50 ms, sin cruzarse y con el desvío entrando y saliendo a
+  8 ms por pulso (que un intervalo no salte de golpe). Donde no hay
+  evidencia, el pulso se queda. Un tempo fijo se mueve entero, con un solo
+  desvío. **`fit::mend`** (solo «Arreglar» y «Con intro y final») arregla los
+  intervalos sueltos que ningún tempo explica: uno de 1,6 veces los de al
+  lado (si suena algo en medio), un pulso corrido o uno de más, siempre que
+  el tempo sea el mismo a los dos lados; un cambio de tempo (120 a 90) se
+  deja.
+- El informe dice además `snapped` (cuántos pulsos se movieron más de 4 ms),
+  `shift_ms` (lo que, de mediana) y `mended` (los tramos arreglados);
+  `fixed` cuenta ahora cada 4 ms y no cada 40 cuando se afinó, que un clic
+  corrido 10 ms en toda la canción ya es un cambio.
+- Lo re-analizado guarda `"refine": true` en sus `edits` (si se pudo leer el
+  audio), así que al subir la versión se vuelve a aplicar igual; los de antes
+  no lo llevan y salen como salieron.
+
+**Lo medido** (`analysis/examples/fitlab.rs`, y `real_click_bench` en
+`services/beats/tests.rs` por la ruta de verdad; los dos de solo lectura, con
+copias de 25 canciones de una biblioteca real): el clic de la red cae
+**de 5 a 18 ms después** de los golpes en 19 de ellas (la mediana, 8 ms; las
+de estudio con secuencias, 1-3 ms). Tras «Arreglar», medido con audio que NO
+se usó para afinar (la mezcla, si se afinó con la batería; la mitad de los
+pulsos, si no), la mediana de lo que queda es 0,5 ms (antes 7,8), a ±2 ms en
+20 de 25, y ninguna sale peor; las que mejoran poco (259, 253, 320, 110) son
+las de poca evidencia: la mezcla apenas tiene golpes claros. La batería
+separada de una canción (28) iba 25 ms corrida de su mezcla y se ignoró. No
+se hace sola al sacar la rejilla (`grid_of`): cambiaría el clic de todas las
+canciones sin que nadie lo oiga; haría falta subir `beats::VERSION` y dejar
+el mismo paso como un re-análisis más.
+
+**Lo que se movió a mano se conserva.** `POST …/beats/reanalyze` acepta
+`own` = `{beats, bars, meter, touched: [[desde, hasta], …]}` (el clic propio y
+los tramos que se tocaron; sin `touched`, un clic propio de antes, no se
+conserva nada) y contesta además `own`: los pulsos NUEVOS en todas partes
+menos dentro de cada tramo tocado, donde quedan los suyos, cosidos a los de
+los lados (`beatgrid::stitch`), con el «1» y el compás sacados otra vez
+(`finish`). `grid` es siempre la automática nueva, sin un pulso suyo, y el
+servidor no escribe el estudio ni el clic propio: lo guarda quien lo pide.
+
 ## Separar en pistas
 
 Una canción se separa en sus instrumentos —batería, voces, bajo, guitarra,

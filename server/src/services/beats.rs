@@ -16,6 +16,8 @@
 use crate::app::App;
 use crate::services::songs;
 use analysis::beatgrid::{self as ab, Failure, Heard, Mode};
+use analysis::fit;
+use analysis::onset::{self, Onsets};
 use analysis::pulse::{grid, raw::Raw};
 use library::beatgrid as lb;
 use serde_json::{Map, Value, json};
@@ -351,6 +353,173 @@ fn merge(
     Ok(Value::Object(out))
 }
 
+// ---------------------------------------------------------------- el audio
+
+/// Lo que dice el propio audio de dónde golpea la música (`analysis::onset`),
+/// para afinar el clic con ello (`analysis::fit`).
+struct Evidence {
+    onsets: Onsets,
+    /// si son los de la batería separada (y no los de la mezcla)
+    drums: bool,
+    /// lo que va la batería respecto a la mezcla (s), si se pudo medir
+    delay: Option<f64>,
+}
+
+/// Los ataques del audio de una canción: la batería separada si la tiene y
+/// se pide (`stem`) y va donde la mezcla (`fit::choose`), y si no la mezcla.
+/// `None` si no hay ffmpeg o no se puede leer el archivo: re-analizar sigue
+/// como siempre, sin afinar.
+fn evidence(app: &App, path: &Path, stem: bool, beats: &[f64]) -> Option<Evidence> {
+    let ffmpeg = app.tool("ffmpeg")?;
+    let hear = |file: &Path| -> Option<Onsets> {
+        let mono = analysis::pulse::decode(&ffmpeg, file).ok()?;
+        Some(onset::envelope(&mono, analysis::pulse::RATE))
+    };
+    let mix = hear(path)?;
+    let drums = if stem {
+        drums_of(app, path).and_then(|d| hear(&d))
+    } else {
+        None
+    };
+    let (use_drums, delay) = {
+        let c = fit::choose(&mix, drums.as_ref(), beats);
+        (c.drums, c.delay)
+    };
+    Some(Evidence {
+        onsets: if use_drums { drums? } else { mix },
+        drums: use_drums,
+        delay,
+    })
+}
+
+/// Los pulsos de `all` movidos hacia sus golpes (y, en «arreglar», con los
+/// intervalos sueltos arreglados). Un tempo fijo se mueve entero, que si no
+/// dejaría de serlo. Si cambia cuántos pulsos hay, el «1» se saca otra vez;
+/// si no, se queda donde estaba.
+fn refine_all(
+    all: &mut grid::Grid,
+    ev: &Evidence,
+    mode: Mode,
+    down: &[f64],
+) -> Result<fit::Refined, BeatsError> {
+    let steady = mode == Mode::Steady
+        || all
+            .report
+            .iter()
+            .any(|(k, v)| *k == "steady" && *v == grid::Value::Boolean(true));
+    let way = if steady {
+        fit::Way::Constant
+    } else {
+        fit::Way::Local
+    };
+    let r = fit::refine(
+        &all.end.beats,
+        &ev.onsets,
+        all.end.meter,
+        fit::Options {
+            way,
+            mend: mode.mends(),
+        },
+    );
+    if r.beats.len() == all.end.beats.len() {
+        all.end.beats = r
+            .beats
+            .iter()
+            .map(|t| library::num::round_to(*t, 4))
+            .collect();
+        // el tempo, como lo saca `grid::finish`: de la mediana de los intervalos
+        let ibi: Vec<f64> = all.end.beats.windows(2).map(|w| w[1] - w[0]).collect();
+        if let Some(m) = median(&ibi).filter(|m| *m > 0.0) {
+            all.end.bpm = library::num::round_to(60.0 / m, 2);
+        }
+    } else {
+        all.end = grid::finish(&r.beats, down, Some(all.end.meter)).map_err(grid_error)?;
+    }
+    Ok(r)
+}
+
+/// La mediana de unos números.
+fn median(v: &[f64]) -> Option<f64> {
+    if v.is_empty() {
+        return None;
+    }
+    let mut s = v.to_vec();
+    s.sort_by(f64::total_cmp);
+    Some(if s.len() % 2 == 1 {
+        s[s.len() / 2]
+    } else {
+        f64::midpoint(s[s.len() / 2 - 1], s[s.len() / 2])
+    })
+}
+
+/// Un ajuste (`fit::Fit`) como lo cuenta la API.
+fn fit_json(f: &fit::Fit) -> Value {
+    json!({
+        "offset_ms": f.median_ms,
+        "spread_ms": f.spread_ms,
+        "supported": f.supported,
+    })
+}
+
+/// De `beats` y sus `hits`, los de dentro del tramo (todo, sin tramo).
+fn inside<T: Copy>(beats: &[f64], items: &[T], range: Option<(f64, f64)>) -> Vec<T> {
+    beats
+        .iter()
+        .zip(items)
+        .filter(|(t, _)| range.is_none_or(|(a, b)| **t >= a && **t <= b))
+        .map(|(_, x)| *x)
+        .collect()
+}
+
+/// Lo que se cuenta del audio frente a la rejilla que sale (`report.fit`,
+/// `report.weak`, `report.evidence`...): el ajuste de la rejilla de antes
+/// (`base`) y el de la nueva, con los golpes del audio, y los tramos donde
+/// el clic es solo una suposición. Con un tramo, solo lo que cae dentro.
+fn annotate(
+    out: &mut Value,
+    base: &Value,
+    ev: &Evidence,
+    refined: &fit::Refined,
+    range: Option<(f64, f64)>,
+) -> Result<(), BeatsError> {
+    let before_beats = floats(base.get("beats"))?;
+    let after_beats = floats(out.get("beats"))?;
+    let meter = out.get("meter").and_then(Value::as_i64).unwrap_or(4);
+    let before = fit::fit(&inside(
+        &before_beats,
+        &fit::hits(&before_beats, &ev.onsets),
+        range,
+    ));
+    let hits = fit::hits(&after_beats, &ev.onsets);
+    let after = fit::fit(&inside(&after_beats, &hits, range));
+    let weak: Vec<Value> = fit::weak(&after_beats, &hits, meter)
+        .into_iter()
+        .filter_map(|(a, b)| match range {
+            None => Some((a, b)),
+            Some((s, e)) => (b > s && a < e).then(|| (a.max(s), b.min(e))),
+        })
+        .map(|(a, b)| json!([a, b]))
+        .collect();
+    let report = out
+        .as_object_mut()
+        .map(|o| o.entry("report").or_insert_with(|| json!({})))
+        .filter(|r| r.is_object());
+    let Some(report) = report else {
+        return Ok(());
+    };
+    report["fit"] = json!({"before": fit_json(&before), "after": fit_json(&after)});
+    report["weak"] = Value::Array(weak);
+    report["evidence"] = Value::from(if ev.drums { "drums" } else { "mix" });
+    if let Some(d) = ev.delay {
+        report["evidence_delay_ms"] = Value::from(library::num::round_to(d * 1000.0, 1));
+    }
+    // cuántos pulsos se movieron más de 4 ms, y lo que se movieron (mediana)
+    report["snapped"] = Value::from(refined.moved);
+    report["shift_ms"] = Value::from(refined.shift_ms);
+    report["mended"] = Value::Array(refined.mended.iter().map(|(a, b)| json!([a, b])).collect());
+    Ok(())
+}
+
 /// El re-análisis de dentro (no sale en el menú ni lo acepta la API): rellenar
 /// con lo que dijo la red sobre la batería separada los huecos con música de
 /// la rejilla (`analysis::beatgrid::fill_with_drums`), y nada más. Es lo que
@@ -457,31 +626,56 @@ fn apply(
         .ok_or_else(|| BeatsError::Value(format!("no sé analizar así: {mode_name}")))?;
     let extra = extra.filter(|_| mode.uses_drums());
     let bpm = nonzero(edit.get("bpm"));
-    let all = whole(raw, mode.engine(), mode.edges(), bpm, extra)?;
-    let (Some(start), Some(end)) = (
+    let mut all = whole(raw, mode.engine(), mode.edges(), bpm, extra)?;
+    let decoded_bpm = all.end.bpm;
+    // afinar con el audio solo si el re-análisis lo pidió (`refine`: los de
+    // antes no lo llevan, y al volver a aplicarlos salen como salieron) y se
+    // puede leer el audio
+    let wants_audio = edit.get("refine") == Some(&Value::Bool(true)) && mode.snaps();
+    let before = floats(base.get("beats")).ok();
+    let evidence = before
+        .as_deref()
+        .filter(|_| wants_audio)
+        .and_then(|b| evidence(app, path, mode != Mode::Mix, b));
+    let refined = match &evidence {
+        Some(ev) => Some(refine_all(&mut all, ev, mode, &f64s(&raw.down))?),
+        None => None,
+    };
+    let range = match (
         edit.get("start").filter(|v| !v.is_null()),
         edit.get("end").filter(|v| !v.is_null()),
-    ) else {
-        return Ok(grid_json(&all));
-    };
-    let bad = || BeatsError::Value("el tramo no es de números".into());
-    let (start, end) = (
-        start.as_f64().ok_or_else(bad)?,
-        end.as_f64().ok_or_else(bad)?,
-    );
-    let beats = floats(base.get("beats"))?;
-    if mode == Mode::Steady
-        && let Some((a, b)) = ab::sides(&beats, start, end)
-    {
-        // tempo fijo entre los dos pulsos de los lados: cabe justo
-        let bpm = bpm.unwrap_or(all.end.bpm);
-        if bpm == 0.0 {
-            return Err(BeatsError::Other("un tempo de 0 bpm".into()));
+    ) {
+        (Some(start), Some(end)) => {
+            let bad = || BeatsError::Value("el tramo no es de números".into());
+            Some((
+                start.as_f64().ok_or_else(bad)?,
+                end.as_f64().ok_or_else(bad)?,
+            ))
         }
-        let inner = ab::steady_between(a, b, 60.0 / bpm).map_err(failure)?;
-        return merge(base, &beats, &inner, (a + 1e-6, b - 1e-6), raw);
+        _ => None,
+    };
+    let mut out = match range {
+        None => grid_json(&all),
+        Some((start, end)) => {
+            let beats = floats(base.get("beats"))?;
+            match ab::sides(&beats, start, end) {
+                // tempo fijo entre los dos pulsos de los lados: cabe justo
+                Some((a, b)) if mode == Mode::Steady => {
+                    let bpm = bpm.unwrap_or(decoded_bpm);
+                    if bpm == 0.0 {
+                        return Err(BeatsError::Other("un tempo de 0 bpm".into()));
+                    }
+                    let inner = ab::steady_between(a, b, 60.0 / bpm).map_err(failure)?;
+                    merge(base, &beats, &inner, (a + 1e-6, b - 1e-6), raw)?
+                }
+                _ => merge(base, &beats, &all.end.beats, (start, end), raw)?,
+            }
+        }
+    };
+    if let (Some(ev), Some(r)) = (&evidence, &refined) {
+        annotate(&mut out, base, ev, r, range)?;
     }
-    merge(base, &beats, &all.end.beats, (start, end), raw)
+    Ok(out)
 }
 
 /// La rejilla de un archivo: la guardada si la hay, o calculada ahora (de lo
@@ -572,6 +766,81 @@ fn fixed_by_hand(app: &App, path: &Path, saved: Option<&Map<String, Value>>) -> 
         .any(|k| metronome.get(*k).is_some_and(library::value::truthy))
 }
 
+/// El clic que puso a mano quien toca (`study.metronome.own`), con los
+/// tramos que tocó: lo que `reanalyze_with` conserva dentro de ellos.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Own {
+    pub beats: Vec<f64>,
+    pub bars: Vec<i64>,
+    pub meter: i64,
+    /// los tramos (desde, hasta, en s) que cambió a mano; un clic propio de
+    /// antes, que no los guardaba, trae ninguno y no se conserva nada
+    pub touched: Vec<(f64, f64)>,
+}
+
+/// Los tramos tocados en orden, sin los vacíos y con los que se pisan juntos.
+fn windows(touched: &[(f64, f64)]) -> Vec<(f64, f64)> {
+    let mut all: Vec<(f64, f64)> = touched
+        .iter()
+        .copied()
+        .filter(|(a, b)| a.is_finite() && b.is_finite() && b > a)
+        .map(|(a, b)| (a.max(0.0), b))
+        .collect();
+    all.sort_by(|x, y| x.0.total_cmp(&y.0));
+    let mut out: Vec<(f64, f64)> = Vec::new();
+    for (a, b) in all {
+        match out.last_mut() {
+            Some(last) if a <= last.1 => last.1 = last.1.max(b),
+            _ => out.push((a, b)),
+        }
+    }
+    out
+}
+
+/// El compás de un clic propio, si es de los que se saben poner.
+fn meter_hint(meter: i64) -> Option<i64> {
+    library::value::number_in(&Value::from(meter), &[2, 3, 4, 6])
+}
+
+/// El clic propio puesto al día con la rejilla nueva: los pulsos NUEVOS
+/// (`grid`, la automática de ahora) en todas partes, menos dentro de cada
+/// tramo que tocó quien toca, donde se quedan SUS pulsos, cosidos a los de los
+/// lados (`ab::stitch`), y el «1» y el compás sacados otra vez (`finish`). El
+/// informe dice qué tramos se conservaron y cómo cosen.
+fn merge_own(grid: &Value, own: &Own, raw: &Raw) -> Result<Value, BeatsError> {
+    let mut current = grid.clone();
+    // el compás de quien lo puso, si se sabe poner
+    if let (Some(m), Value::Object(o)) = (meter_hint(own.meter), &mut current) {
+        o.insert("meter".into(), Value::from(m));
+    }
+    let mut kept = Vec::new();
+    let mut seams = Vec::new();
+    for (start, end) in windows(&own.touched) {
+        let beats = floats(current.get("beats"))?;
+        let merged = merge(&current, &beats, &own.beats, (start, end), raw)?;
+        seams.push(merged.get("report").cloned().unwrap_or(Value::Null));
+        kept.push(json!([
+            library::num::round_to(start, 2),
+            library::num::round_to(end, 2)
+        ]));
+        current = merged;
+    }
+    let mut out = if kept.is_empty() {
+        // nada tocado: la automática entera
+        let beats = floats(current.get("beats"))?;
+        let meter = current
+            .get("meter")
+            .and_then(Value::as_i64)
+            .and_then(meter_hint);
+        let end = grid::finish(&beats, &f64s(&raw.down), meter).map_err(grid_error)?;
+        Value::Object(final_json(&end))
+    } else {
+        current
+    };
+    out["report"] = json!({"kept": kept, "seams": seams});
+    Ok(out)
+}
+
 /// La rejilla otra vez, de otra manera, de toda la canción o de un tramo;
 /// se guarda (y se vuelve a aplicar si cambia la versión) y sale con
 /// `report.fixed`.
@@ -583,6 +852,23 @@ pub fn reanalyze(
     end: Option<f64>,
     bpm: Option<f64>,
 ) -> Result<Value, BeatsError> {
+    reanalyze_with(app, path, mode, start, end, bpm, None).map(|(grid, _)| grid)
+}
+
+/// `reanalyze`, y con `own` (el clic que puso a mano quien toca) además el
+/// clic propio puesto al día (`merge_own`). La rejilla que se guarda y la
+/// que sale primero es SIEMPRE la automática nueva, sin pulsos de nadie:
+/// escribir el clic propio es cosa de quien lo guarda (el estudio de la
+/// canción), no de aquí.
+pub fn reanalyze_with(
+    app: &App,
+    path: &Path,
+    mode: &str,
+    start: Option<f64>,
+    end: Option<f64>,
+    bpm: Option<f64>,
+    own: Option<&Own>,
+) -> Result<(Value, Option<Value>), BeatsError> {
     if !REANALYZE_MODES.contains(&mode) {
         return Err(beats_err(format!("no sé analizar así: {mode}")));
     }
@@ -619,15 +905,31 @@ pub fn reanalyze(
     if with_drums {
         edit.insert("drums".into(), Value::Bool(true));
     }
-    let edit = Value::Object(edit);
+    // y afinan con el audio (cada pulso hacia su golpe), salvo «como antes»
+    let afina = Mode::from_name(mode).is_some_and(Mode::snaps);
+    if afina {
+        edit.insert("refine".into(), Value::Bool(true));
+    }
+    let mut edit = Value::Object(edit);
     let extra = with_drums
         .then(|| drums_of(app, path).and_then(|d| raw_of(app, &d)))
         .flatten();
     let mut grid = apply(app, path, &current, &raw, &edit, extra.as_ref())?;
+    // sin poder leer el audio no se afinó nada: lo que se guarda no lo dice,
+    // y al volver a aplicarlo sale lo mismo
+    let refined = grid.get("report").is_some_and(|r| r.get("fit").is_some());
+    if afina
+        && !refined
+        && let Value::Object(e) = &mut edit
+    {
+        e.remove("refine");
+    }
+    // un pulso movido unos ms no es «un sitio donde suena distinto» para el
+    // oído, pero sí lo es si se afinó con el audio: ahí se cuenta cada 4 ms
     let fixed = ab::changes(
         &floats(current.get("beats"))?,
         &floats(grid.get("beats"))?,
-        0.04,
+        if refined { 0.004 } else { 0.04 },
     );
     if let Value::Object(g) = &mut grid {
         let report = g.entry("report").or_insert_with(|| json!({}));
@@ -642,7 +944,8 @@ pub fn reanalyze(
     }
     edits.push(edit);
     save(app, path, &grid, Value::Array(edits))?;
-    Ok(grid)
+    let own = own.map(|o| merge_own(&grid, o, &raw)).transpose()?;
+    Ok((grid, own))
 }
 
 // ---------------------------------------------------------------- el detector
