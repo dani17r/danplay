@@ -191,6 +191,34 @@ fn the_study_mode_is_saved_in_the_index_and_in_the_file() {
     );
 }
 
+/// Los tramos y los marcadores se guardan al milisegundo: a la centésima, un
+/// borde ajustado a un pulso se iba hasta 5 ms de él al volver a abrir.
+#[test]
+fn loops_and_markers_keep_their_milliseconds() {
+    let Some(app) = api_library() else { return };
+    let cid = get(&app, "/api/search?limit=1")["songs"][0]["id"]
+        .as_i64()
+        .expect("id");
+    let study = study_of(
+        &app,
+        cid,
+        json!({
+            "loops": [[50.1234, 99.8766], [120.4567, 130.0004]],
+            "markers": [{"t": 12.3456, "end": 20.9876, "label": "puente"}],
+        }),
+    );
+    assert_eq!(
+        study["loops"],
+        json!([[50.123, 99.877], [120.457, 130.0]]),
+        "el tramo conserva los milisegundos"
+    );
+    assert_eq!(
+        study["markers"],
+        json!([{"t": 12.346, "end": 20.988, "label": "puente"}]),
+        "el marcador, igual"
+    );
+}
+
 /// Un mp3 de dos segundos: uno callado y otro con un tono de 440 Hz.
 fn quiet_then_loud(path: &Path) {
     std::fs::create_dir_all(path.parent().expect("carpeta")).expect("carpeta");

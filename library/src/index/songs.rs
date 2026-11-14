@@ -158,6 +158,8 @@ fn num(x: f64) -> Value {
 
 /// Tramos [a, b] válidos (0 <= a < b), en orden y juntando los que se
 /// pisan: la forma en que el reproductor los recorre uno detrás de otro.
+/// Se guardan al milisegundo: a la centésima, «Ajustar a los pulsos» dejaba
+/// cada borde hasta 5 ms fuera del pulso al volver a abrir la canción.
 pub fn segments(raw: Option<&Value>, limit: usize) -> Vec<[f64; 2]> {
     let items = raw
         .filter(|v| value::truthy(v))
@@ -172,7 +174,7 @@ pub fn segments(raw: Option<&Value>, limit: usize) -> Vec<[f64; 2]> {
             continue;
         };
         if 0.0 <= a && a < b && b < f64::INFINITY {
-            out.push([num::round_to(a, 2), num::round_to(b, 2)]);
+            out.push([num::round_to(a, 3), num::round_to(b, 3)]);
         }
     }
     out.sort_by(|x, y| by_number(x[0], y[0]).then(by_number(x[1], y[1])));
@@ -488,14 +490,14 @@ fn marker(m: &Dict) -> Option<Dict> {
         return None;
     }
     let mut item = Dict::new();
-    item.insert("t".into(), num(num::round_to(t, 2)));
+    item.insert("t".into(), num(num::round_to(t, 3)));
     item.insert("label".into(), text_of(m.get("label"), 60).into());
     let end = m
         .get("end")
         .filter(|v| !v.is_null())
         .and_then(value::float_of);
     if let Some(end) = end.filter(|&e| e > t) {
-        item.insert("end".into(), num(num::round_to(end, 2)));
+        item.insert("end".into(), num(num::round_to(end, 3)));
     }
     // un marcador de varios tramos: `t` y `end` abarcan todos, para que una
     // versión anterior lo vea como un tramo largo
