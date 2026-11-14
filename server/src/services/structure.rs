@@ -10,6 +10,7 @@ use serde_json::{Map, Value, json};
 use std::ffi::OsString;
 
 use library::value;
+use std::sync::PoisonError;
 use std::time::Duration;
 
 /// La familia de los trabajos de la guía automática: uno por canción
@@ -80,6 +81,91 @@ fn median(mut v: Vec<f64>) -> f64 {
 
 type Levels = (Option<Vec<f64>>, Vec<(String, Vec<f64>)>);
 
+/// Cuántas pistas se decodifican a la vez: cada ffmpeg ya es corto, y con
+/// más de cuatro el disco y el procesador no dan más.
+const DECODE_AT_ONCE: usize = 4;
+
+/// Lo fuerte de una pista en cada unidad, recordado: la guía se repite (otra
+/// voz, otra vez, tras mover un compás) con las mismas pistas y los mismos
+/// compases, y decodificar todo de nuevo no cambia nada. La clave es la pista
+/// (ruta, tamaño y fecha) y las unidades (con lo que dan los compases, el
+/// resultado es el mismo número a número).
+static LEVELS: std::sync::LazyLock<std::sync::Mutex<Kept>> =
+    std::sync::LazyLock::new(Default::default);
+type Kept = Vec<(LevelKey, Vec<f64>)>;
+/// Cuántas se recuerdan (por pista y canción: unos pocos KB cada una).
+const LEVELS_KEPT: usize = 128;
+
+type LevelKey = (String, u64, i64, u64);
+
+/// La clave de una pista con unas unidades, o `None` si no se puede mirar.
+fn level_key(path: &str, units: &[(f64, f64)]) -> Option<LevelKey> {
+    use std::hash::{Hash, Hasher};
+    let (size, mtime) = crate::services::tags::stamp(std::path::Path::new(path))?;
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    for (a, b) in units {
+        a.to_bits().hash(&mut h);
+        b.to_bits().hash(&mut h);
+    }
+    Some((path.to_owned(), size, mtime as i64, h.finish()))
+}
+
+fn remembered(key: &LevelKey) -> Option<Vec<f64>> {
+    let kept = LEVELS.lock().unwrap_or_else(PoisonError::into_inner);
+    kept.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone())
+}
+
+fn remember(key: LevelKey, rms: &[f64]) {
+    let mut kept = LEVELS.lock().unwrap_or_else(PoisonError::into_inner);
+    kept.retain(|(k, _)| *k != key);
+    kept.push((key, rms.to_vec()));
+    let over = kept.len().saturating_sub(LEVELS_KEPT);
+    kept.drain(..over);
+}
+
+/// Lo fuerte que suena cada pista (`paths`) en cada unidad, en el mismo
+/// orden: lo recordado, y lo demás decodificado de a `DECODE_AT_ONCE`. `None`
+/// si alguna no se pudo leer.
+fn levels_of(app: &App, paths: &[String], units: &[(f64, f64)]) -> Option<Vec<Vec<f64>>> {
+    let keys: Vec<Option<LevelKey>> = paths.iter().map(|p| level_key(p, units)).collect();
+    let mut out: Vec<Option<Vec<f64>>> = keys
+        .iter()
+        .map(|k| k.as_ref().and_then(remembered))
+        .collect();
+    let missing: Vec<usize> = (0..paths.len()).filter(|i| out[*i].is_none()).collect();
+    for group in missing.chunks(DECODE_AT_ONCE) {
+        let done: Vec<Option<Vec<f64>>> = std::thread::scope(|scope| {
+            let jobs: Vec<_> = group
+                .iter()
+                .map(|&i| {
+                    let path = &paths[i];
+                    scope.spawn(move || {
+                        #[cfg(test)]
+                        DECODED
+                            .lock()
+                            .unwrap_or_else(PoisonError::into_inner)
+                            .push(path.clone());
+                        let Ok(x) = decode(app, path, st::STEM_RATE, st::MAX_SECONDS) else {
+                            log::warn!("no se pudo leer la pista {path}");
+                            return None;
+                        };
+                        Some(st::unit_rms(&x, st::STEM_RATE, units))
+                    })
+                })
+                .collect();
+            jobs.into_iter().map(|j| j.join().ok().flatten()).collect()
+        });
+        for (&i, rms) in group.iter().zip(done) {
+            let rms = rms?;
+            if let Some(key) = keys[i].clone() {
+                remember(key, &rms);
+            }
+            out[i] = Some(rms);
+        }
+    }
+    out.into_iter().collect()
+}
+
 /// Lo fuerte de la voz y de cada instrumento en cada unidad, si la canción
 /// tiene sus pistas separadas enteras.
 fn stem_levels(app: &App, song: &Dict, units: &[(f64, f64)]) -> Option<Levels> {
@@ -88,6 +174,7 @@ fn stem_levels(app: &App, song: &Dict, units: &[(f64, f64)]) -> Option<Levels> {
     }
     let data = stems::info(app, song).filter(|d| d.get("complete").is_some_and(value::truthy))?;
     let mut levels: Vec<(String, Vec<f64>)> = Vec::new();
+    let mut wanted: Vec<(String, String)> = Vec::new();
     for t in data.get("tracks").map(value::list_of).unwrap_or_default() {
         let source = t.get("source").map(value::str_of).unwrap_or_default();
         if !library::stems::SOURCES.iter().any(|(k, _, _)| *k == source)
@@ -95,12 +182,11 @@ fn stem_levels(app: &App, song: &Dict, units: &[(f64, f64)]) -> Option<Levels> {
         {
             continue;
         }
-        let path = t.get("path").map(value::str_of).unwrap_or_default();
-        let Ok(x) = decode(app, &path, st::STEM_RATE, st::MAX_SECONDS) else {
-            log::warn!("no se pudo leer la pista {path}");
-            return None;
-        };
-        let rms = st::unit_rms(&x, st::STEM_RATE, units);
+        wanted.push((source, t.get("path").map(value::str_of).unwrap_or_default()));
+    }
+    let paths: Vec<String> = wanted.iter().map(|(_, p)| p.clone()).collect();
+    let found = levels_of(app, &paths, units)?;
+    for ((source, _), rms) in wanted.into_iter().zip(found) {
         if let Some(slot) = levels.iter_mut().find(|(k, _)| *k == source) {
             slot.1 = rms;
         } else {
@@ -413,3 +499,7 @@ pub fn auto_guide(
     }
     Ok(out)
 }
+
+/// Las pistas que se decodificaron, para las pruebas.
+#[cfg(test)]
+pub(crate) static DECODED: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());

@@ -320,6 +320,72 @@ fn with_its_stems_the_intro_and_the_end_are_where_nobody_sings() {
     assert_eq!(labels(sections), NAMES);
 }
 
+/// Las pistas de esta carpeta que se decodificaron hasta ahora.
+fn stems_read(folder: &str) -> usize {
+    crate::services::structure::DECODED
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .iter()
+        .filter(|p| p.contains(folder))
+        .count()
+}
+
+#[test]
+fn the_stems_are_read_together_and_the_same_guide_again_reads_nothing() {
+    // La guía decodificaba todas las pistas cada vez, una detrás de otra, y
+    // no guardaba nada: pedirla otra vez (con otra voz, tras un cambio) lo
+    // repetía todo.
+    let Some((app, cid, root)) = song() else {
+        return;
+    };
+    let (band, voice) = the_song();
+    let folder = root.join(crate::tests::native("Separadas/Pistas leidas"));
+    for (name, x) in [
+        ("Otros.wav", band),
+        ("Voces.wav", voice),
+        ("Bajo.wav", band),
+    ] {
+        write(&folder.join(name), x);
+    }
+    let manifest = json!({
+        "tracks": [
+            {"source": "vocals", "file": "Voces.wav"},
+            {"source": "other", "file": "Otros.wav"},
+            {"source": "bass", "file": "Bajo.wav"},
+        ],
+        "quality": "mejor",
+    });
+    std::fs::write(library::stems::manifest_path(&folder), manifest.to_string())
+        .expect("manifiesto");
+    let stems = json!({"folder": "Separadas/Pistas leidas"}).to_string();
+    songs::update_one(&app, cid, "stems", Value::from(stems)).expect("pistas");
+    let body = json!({"voice": "st-F1", "bars": every_bar(), "beat": 0.5});
+    assert_eq!(stems_read("Pistas leidas"), 0);
+    let first = auto(&app, cid, body.clone());
+    assert_eq!(stems_read("Pistas leidas"), 3, "las tres, una vez");
+    // otra vez, con lo mismo: sale igual y sin leer nada
+    let again = auto(&app, cid, body);
+    assert_eq!(stems_read("Pistas leidas"), 3, "ya estaban");
+    assert_eq!(again["sections"], first["sections"]);
+    assert_eq!(labels(&first["sections"]), NAMES);
+    // otros compases: otra cuenta, y se leen otra vez
+    let fewer: Vec<f64> = (0..20).map(|i| f64::from(i) * 2.0 * BAR).collect();
+    auto(
+        &app,
+        cid,
+        json!({"voice": "st-F1", "bars": fewer, "beat": 0.5}),
+    );
+    assert_eq!(stems_read("Pistas leidas"), 6);
+    // una pista que cambia (otra fecha o tamaño) no se da por leída
+    write(&folder.join("Bajo.wav"), &band[..band.len() / 2]);
+    auto(
+        &app,
+        cid,
+        json!({"voice": "st-F1", "bars": every_bar(), "beat": 0.5}),
+    );
+    assert_eq!(stems_read("Pistas leidas"), 7, "solo la que cambió");
+}
+
 #[test]
 fn named_parts_are_used_as_they_are() {
     let Some((app, cid, _)) = song() else {
