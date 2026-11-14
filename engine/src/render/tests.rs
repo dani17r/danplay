@@ -910,3 +910,119 @@ fn a_very_late_handoff_waits_in_silence_and_carries_on() {
         );
     }
 }
+
+/// El render a 4 canales, llenando tambien las partes del relevo.
+fn run4_with(b: &mut Bench, inc: &mut Incoming, frames: usize) -> Vec<f32> {
+    if b.render.channels != 4 {
+        b.render.set_output(44_100, 4);
+    }
+    let mut out = vec![0f32; frames * 4];
+    for chunk in out.chunks_mut(512 * 4) {
+        b.pump();
+        inc.pump();
+        b.render.render_into(chunk, 4);
+    }
+    out
+}
+
+/// Dos buses: la pareja de siempre y la 3-4 (una salida propia).
+fn two_buses(parts: Vec<u8>) -> Routing {
+    Routing {
+        buses: vec![Some(Target::MAIN), Some(Target::pair(2, 3))],
+        parts,
+        click: 0,
+        cues: 0,
+    }
+}
+
+/// Lo que suena por la pareja `pair` (0 o 2) de una salida de 4 canales,
+/// como un estereo intercalado.
+fn pair_of(out: &[f32], pair: usize) -> Vec<f32> {
+    channel(out, 4, pair)
+        .iter()
+        .zip(channel(out, 4, pair + 1))
+        .flat_map(|(a, b)| [*a, b])
+        .collect()
+}
+
+#[test]
+fn parts_relayed_to_an_output_of_their_own_are_heard_from_their_first_instant_when_stretched() {
+    // la cancion suena por la 1-2 y, a mitad, entran por la 3-4 las partes
+    // de un relevo. Estirando a 0,8x, el estirador de la 3-4 no habia visto
+    // nada hasta entonces y lo primero que le llegaba no salia: un golpe a 33 ms
+    // del relevo se perdia por esa salida
+    let speed = 0.8f32;
+    // lo que deberia sonar por la 3-4: las mismas partes, desde el principio
+    let mut control = Bench::new(1, 44_100);
+    control
+        .controls
+        .speed
+        .store(speed.to_bits(), Ordering::Relaxed);
+    control.route(two_buses(vec![1]));
+    control.play();
+    let want = music_hits(&pair_of(&control.run_channels(100_000, 4), 2));
+    assert_eq!(want.len(), 3, "{want:?}");
+    // el relevo
+    let mut b = Bench::new(1, 44_100);
+    b.controls.speed.store(speed.to_bits(), Ordering::Relaxed);
+    b.route(two_buses(vec![0]));
+    b.play();
+    let mut out = b.run_channels(13_230, 4);
+    let start = b.shared.consumed_frame.load(Ordering::Acquire) + 15_435;
+    let (mut inc, ring) = Incoming::new(start);
+    b.render.start_handoff(Box::new(Handoff {
+        ring,
+        start,
+        fade: 2_205,
+        routing: Some(Arc::new(two_buses(vec![1]))),
+    }));
+    out.extend(run4_with(&mut b, &mut inc, 86_770));
+    let got = music_hits(&pair_of(&out, 2));
+    println!("por la 3-4 con el relevo: {got:?}; desde el principio: {want:?}");
+    // el segundo golpe cae a 1458 muestras del relevo (a medias del fundido) y
+    // el tercero ya es de las partes nuevas del todo
+    assert_eq!(got.len(), 2, "{got:?}");
+    for (g, w) in got.iter().zip(&want[1..]) {
+        assert!(g.abs_diff(*w) <= 100, "golpe en {g}, se esperaba en {w}");
+    }
+}
+
+#[test]
+fn stretched_the_song_still_enters_on_the_beat_after_the_count_in() {
+    // el estirador saca lo primero unos 90 ms despues de recibirlo: la cuenta
+    // contaba como si saliera al momento, y la cancion (su «1», y su primer
+    // clic) entraba 90 ms tarde con cualquier velocidad o tono
+    for (speed, pitch) in [(0.8f32, 0.0f32), (0.5, 0.0), (1.25, 0.0), (1.0, 2.0)] {
+        let mut b = Bench::new(1, 44_100);
+        b.controls.speed.store(speed.to_bits(), Ordering::Relaxed);
+        b.controls.pitch.store(pitch.to_bits(), Ordering::Relaxed);
+        b.click((0..8).map(|k| 0.1 + 0.5 * f64::from(k)).collect(), 4);
+        b.controls.count_in.store(1, Ordering::Release);
+        b.controls.count_request.store(true, Ordering::Release);
+        b.play();
+        let out = b.run(44_100 * 6);
+        let clicks = onsets(&click(&out), 0.05, 2_000);
+        let hits = music_hits(&out);
+        // cuatro golpes de cuenta y, donde cae el siguiente pulso, el de la
+        // cancion; la musica, en ese mismo sitio (su golpe esta en el pulso)
+        let wall = 22_050.0 / f64::from(speed);
+        assert!(clicks.len() >= 6 && !hits.is_empty(), "{clicks:?} {hits:?}");
+        for (k, c) in clicks.iter().take(6).enumerate() {
+            let at = (k as f64 * wall).round() as usize;
+            assert!(
+                c.abs_diff(at) <= 150,
+                "a {speed}x, tono {pitch}: clic {k} en {c}, esperado {at}"
+            );
+        }
+        let entry = (4.0 * wall).round() as usize;
+        println!(
+            "a {speed}x, tono {pitch}: clic de la cancion en {} y la musica en {}, esperados en {entry}",
+            clicks[4], hits[0]
+        );
+        assert!(
+            hits[0].abs_diff(entry) <= 150,
+            "a {speed}x, tono {pitch}: la musica entra en {}, esperado {entry}",
+            hits[0]
+        );
+    }
+}

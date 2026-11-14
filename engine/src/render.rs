@@ -864,7 +864,19 @@ impl Render {
         // la cuenta: golpes solos hasta que entra la cancion
         let mut music_from = 0;
         if let Some(mut c) = self.count.take() {
-            music_from = (c.song_in.saturating_sub(c.elapsed) as usize).min(n);
+            // estirando, el estirador saca lo primero que recibe unos 90 ms
+            // despues: la cancion se le da esos 90 ms antes, para que su
+            // primera muestra suene donde cae el pulso. Antes la cuenta
+            // contaba como si saliera al momento y entraba tarde
+            let lead = if self.stretching {
+                self.stretches
+                    .first()
+                    .map_or(0, |s| s.output_latency() as u64)
+            } else {
+                0
+            };
+            let entry = c.song_in.saturating_sub(lead);
+            music_from = (entry.saturating_sub(c.elapsed) as usize).min(n);
             let end = c.elapsed + n as u64;
             while c.next < c.hits.len() && c.hits[c.next].0 < end {
                 let (at, accent) = c.hits[c.next];
@@ -1040,11 +1052,14 @@ impl Render {
         self.click_cursor = self.fed as f64;
     }
 
-    /// Los buses que llevan musica y tienen estirador.
+    /// Los buses que tienen estirador: todos, lleven musica ahora o no. Un
+    /// estirador que solo recibe lo que le llega, al entrar musica por un bus
+    /// nuevo (un relevo a una salida propia) estaba en frio: no habia visto
+    /// nada, y lo primero que entraba (medido: un golpe a 33 ms del relevo)
+    /// no salia. Con silencio de entrada no cuesta nada (Signalsmith lo
+    /// reconoce y lo copia) y se queda a la par de los demas.
     fn stretched_buses(&self) -> impl Iterator<Item = usize> + use<> {
-        let music = self.music_bus;
-        let count = self.routing.bus_count().min(self.stretches.len());
-        (0..count).filter(move |&b| music[b])
+        0..self.routing.bus_count().min(self.stretches.len())
     }
 
     /// La musica de este trozo, de `from` a `n` de cada bus.

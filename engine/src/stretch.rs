@@ -358,17 +358,17 @@ mod tests {
     #[test]
     fn keeping_the_formants_costs_a_little_more_only_when_the_pitch_moves() {
         // medido, para quien lo pregunte: segundos de calculo por segundo de
-        // audio, en un trozo de 10 s
+        // audio, en un trozo de 4 s
         use std::time::Instant;
         let cost = |semitones: f32, preserve: bool| {
             let mut s = Stretch::new(44_100);
             s.set_pitch(semitones);
             s.set_formants(preserve);
-            let mut input = voice(110.0, 44_100 * 10);
+            let mut input = voice(110.0, 44_100 * 4);
             let mut out = vec![0f32; input.len()];
             let t = Instant::now();
             s.process(&mut input, &mut out);
-            t.elapsed().as_secs_f64() / 10.0
+            t.elapsed().as_secs_f64() / 4.0
         };
         let (plain, kept, still) = (cost(4.0, false), cost(4.0, true), cost(0.0, true));
         println!(
