@@ -19,6 +19,7 @@ use std::collections::VecDeque;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use symphonia::core::audio::{Channels, Position};
 use symphonia::core::codecs::audio::{AudioDecoder, AudioDecoderOptions};
 use symphonia::core::formats::probe::Hint;
 use symphonia::core::formats::{FormatOptions, FormatReader, SeekMode, SeekTo, TrackType};
@@ -222,6 +223,10 @@ struct Decoded {
     want: i64,
     eof: bool,
     scratch: Vec<f32>,
+    /// Con mas de dos canales (un 5.1): cuanto de cada uno va a cada lado, y
+    /// de que reparto de canales se saco.
+    mix: Vec<[f32; 2]>,
+    mix_of: Channels,
 }
 
 impl Decoded {
@@ -239,6 +244,8 @@ impl Decoded {
             want: 0,
             eof: false,
             scratch: Vec::new(),
+            mix: Vec::new(),
+            mix_of: Channels::None,
         })
     }
 
@@ -310,7 +317,12 @@ impl Decoded {
         let Ok(audio) = self.decoder.decode(&packet) else {
             return;
         };
-        let channels = audio.spec().channels().count().max(1);
+        let layout = audio.spec().channels();
+        let channels = layout.count().max(1);
+        if channels > 2 && *layout != self.mix_of {
+            self.mix = downmix(layout);
+            self.mix_of = layout.clone();
+        }
         self.scratch.resize(audio.samples_interleaved(), 0.0);
         audio.copy_to_slice_interleaved(&mut self.scratch);
         // lo que sale empieza en la marca del paquete, menos lo que el
@@ -321,16 +333,91 @@ impl Decoded {
             self.want = i64::MIN; // ya llego: lo siguiente va seguido
         }
         for frame in self.scratch.chunks_exact(channels).skip(drop) {
-            // mono a los dos lados; mas de dos canales, los dos primeros
-            let (l, r) = if channels == 1 {
-                (frame[0], frame[0])
-            } else {
-                (frame[0], frame[1])
+            // mono a los dos lados; mas de dos canales, bajados a estereo
+            let (l, r) = match channels {
+                1 => (frame[0], frame[0]),
+                2 => (frame[0], frame[1]),
+                _ => frame
+                    .iter()
+                    .zip(&self.mix)
+                    .fold((0.0, 0.0), |(l, r), (v, g)| (l + v * g[0], r + v * g[1])),
             };
             self.fifo.push_back(l);
             self.fifo.push_back(r);
         }
     }
+}
+
+/// Como baja a estereo una parte de mas de dos canales (un FLAC 5.1): cuanto
+/// de cada canal va al lado izquierdo y cuanto al derecho, en el orden en que
+/// salen del decodificador.
+///
+/// Los coeficientes de siempre (ITU-R BS.775, los que usa ffmpeg con
+/// `-ac 2`): los frontales tal cual, el central y los de atras a -3 dB, y el
+/// de graves fuera. Antes sonaban solo los dos primeros, y el central, que
+/// suele ser la voz, se perdia. Y todo dividido por lo que suma un lado
+/// (2,41 en un 5.1): asi, ni con todos los canales al tope a la vez pasa de
+/// 1, y no hay nada que recortar.
+///
+/// Sin posiciones (canales sueltos, ambisonico), los dos primeros como antes.
+fn downmix(channels: &Channels) -> Vec<[f32; 2]> {
+    const SIDE: f32 = std::f32::consts::FRAC_1_SQRT_2;
+    let left = Position::FRONT_LEFT | Position::FRONT_LEFT_CENTER;
+    let right = Position::FRONT_RIGHT | Position::FRONT_RIGHT_CENTER;
+    let center = Position::FRONT_CENTER;
+    let lfe = Position::LFE1 | Position::LFE2;
+    let around_left = Position::REAR_LEFT
+        | Position::SIDE_LEFT
+        | Position::TOP_FRONT_LEFT
+        | Position::TOP_REAR_LEFT
+        | Position::TOP_SIDE_LEFT
+        | Position::BOTTOM_FRONT_LEFT
+        | Position::FRONT_LEFT_WIDE;
+    let around_right = Position::REAR_RIGHT
+        | Position::SIDE_RIGHT
+        | Position::TOP_FRONT_RIGHT
+        | Position::TOP_REAR_RIGHT
+        | Position::TOP_SIDE_RIGHT
+        | Position::BOTTOM_FRONT_RIGHT
+        | Position::FRONT_RIGHT_WIDE;
+    let Channels::Positioned(set) = channels else {
+        return (0..channels.count())
+            .map(|c| [f32::from(c == 0), f32::from(c == 1)])
+            .collect();
+    };
+    // en el bufer van por el orden de sus bits (el de un WAV)
+    let mut out: Vec<[f32; 2]> = (0..u64::BITS)
+        .map(|bit| Position::from_bits_retain(set.bits() & (1 << bit)))
+        .filter(|p| !p.is_empty())
+        .map(|p| {
+            if left.contains(p) {
+                [1.0, 0.0]
+            } else if right.contains(p) {
+                [0.0, 1.0]
+            } else if p == center {
+                [SIDE, SIDE]
+            } else if lfe.contains(p) {
+                [0.0, 0.0]
+            } else if around_left.contains(p) {
+                [SIDE, 0.0]
+            } else if around_right.contains(p) {
+                [0.0, SIDE]
+            } else {
+                // los de en medio que quedan (atras, arriba): la mitad a cada lado
+                [0.5, 0.5]
+            }
+        })
+        .collect();
+    let most = out
+        .iter()
+        .fold([0f32; 2], |s, g| [s[0] + g[0], s[1] + g[1]])
+        .into_iter()
+        .fold(1.0, f32::max);
+    for g in &mut out {
+        g[0] /= most;
+        g[1] /= most;
+    }
+    out
 }
 
 type Reader = (
@@ -388,7 +475,7 @@ fn open_reader(media: &Media, ext: &str) -> Result<Reader, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::testing::fixture;
+    use crate::testing::{ffmpeg, ffmpeg_pcm, fixture, scratch, wav, without_ffmpeg};
 
     fn all(part: &mut Part) -> Vec<f32> {
         let mut out = Vec::new();
@@ -528,5 +615,105 @@ mod tests {
             part.read(&mut buf);
             assert!(pulse_near(&buf, 600).abs_diff(600) <= 2, "{ext}");
         }
+    }
+
+    /// Cuanto hay de un tono de `hz` en ese canal (`side`: 0 o 1) de un
+    /// segundo entero a 44,1 kHz: la amplitud de ese seno.
+    fn tone_in(pcm: &[f32], side: usize, hz: f64) -> f64 {
+        let n = 44_100;
+        let w = 2.0 * std::f64::consts::PI * hz / 44_100.0;
+        let (mut s, mut c) = (0f64, 0f64);
+        for i in 0..n {
+            let v = f64::from(pcm[i * 2 + side]);
+            s += v * (w * i as f64).sin();
+            c += v * (w * i as f64).cos();
+        }
+        2.0 * s.hypot(c) / n as f64
+    }
+
+    /// Un segundo en 5.1, con un tono distinto en cada canal (izquierdo,
+    /// derecho, central, graves, atras izquierdo y atras derecho), a 0,9.
+    const SURROUND: [f64; 6] = [200.0, 300.0, 500.0, 60.0, 700.0, 1_100.0];
+
+    fn surround(level: f32) -> Vec<f32> {
+        (0..44_100)
+            .flat_map(|i| {
+                SURROUND.map(|hz| {
+                    level * (2.0 * std::f64::consts::PI * hz * f64::from(i) / 44_100.0).sin() as f32
+                })
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_surround_file_keeps_its_centre_when_it_comes_down_to_stereo() {
+        // antes sonaban solo los dos primeros canales: el central (la voz)
+        // y los de atras se perdian
+        let mut part = Part::open(wav(6, 44_100, &surround(0.9)), "wav").expect("wav");
+        let pcm = all(&mut part);
+        assert_eq!(pcm.len(), 88_200);
+        // frontal 1, central y atras a -3 dB, y todo entre 2,414 (lo que
+        // suma un lado): 0,4142 y 0,2929 de cada uno
+        let (front, side) = (0.9 / 2.414_213_6, 0.9 * 0.707_106_8 / 2.414_213_6);
+        let expected = [
+            [front, 0.0], // izquierdo
+            [0.0, front], // derecho
+            [side, side], // central: a los dos
+            [0.0, 0.0],   // graves: fuera
+            [side, 0.0],  // atras izquierdo
+            [0.0, side],  // atras derecho
+        ];
+        for (hz, want) in SURROUND.iter().zip(expected) {
+            for (lado, want) in want.iter().enumerate() {
+                let got = tone_in(&pcm, lado, *hz);
+                assert!(
+                    (got - want).abs() < 2e-3,
+                    "{hz} Hz por el lado {lado}: {got:.4} y no {want:.4}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_surround_file_at_full_scale_does_not_clip() {
+        // todos los canales al tope y a la vez: lo peor que puede llegar
+        let full: Vec<f32> = (0..44_100)
+            .flat_map(|i| {
+                let v = (2.0 * std::f64::consts::PI * 441.0 * f64::from(i) / 44_100.0).sin() as f32;
+                [v; 6]
+            })
+            .collect();
+        let mut part = Part::open(wav(6, 44_100, &full), "wav").expect("wav");
+        let pcm = all(&mut part);
+        let peak = pcm.iter().fold(0f32, |m, v| m.max(v.abs()));
+        assert!(peak <= 1.0, "{peak}");
+        assert!(peak > 0.99, "llega al tope sin pasarse: {peak}");
+    }
+
+    #[test]
+    fn a_surround_flac_comes_down_like_ffmpeg_does_it() {
+        // el mismo 5.1 en FLAC, bajado a estereo aqui y por ffmpeg (`-ac 2`,
+        // que es lo que oye el nucleo al analizar): muestra a muestra igual
+        let dir = scratch("surround");
+        let (src, flac) = (dir.join("six.wav"), dir.join("six.flac"));
+        std::fs::write(&src, &wav(6, 44_100, &surround(0.9))[..]).expect("wav");
+        let args = ["-i", src.to_str().expect("ruta"), "-c:a", "flac"];
+        if !ffmpeg(&[&args[..], &[flac.to_str().expect("ruta")]].concat()) {
+            let _ = std::fs::remove_dir_all(&dir);
+            return without_ffmpeg("un FLAC 5.1 bajado a estereo");
+        }
+        let mut part = Part::open_file(&flac, 44_100, u64::MAX).expect("flac");
+        let ours = all(&mut part);
+        let theirs = ffmpeg_pcm(&flac).expect("ffmpeg lo decodifica");
+        assert_eq!(ours.len(), theirs.len());
+        let worst = ours
+            .iter()
+            .zip(&theirs)
+            .map(|(a, b)| (a - b).abs())
+            .fold(0f32, f32::max);
+        assert!(worst < 1e-3, "difieren en {worst}");
+        // y el central esta: medido, 0,2636 por cada lado
+        assert!(tone_in(&ours, 0, 500.0) > 0.25);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
