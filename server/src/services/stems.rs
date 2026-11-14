@@ -1417,6 +1417,8 @@ fn drain_queue(app: &App, progress: &Progress) -> Result<Value> {
             Ok(r) => {
                 done.push(Value::Object(r));
                 event(app, &it, true, "");
+                // la batería separada puede mejorar el clic (en segundo plano)
+                crate::services::beats::after_separation(app, cid);
             }
             Err(StemsError::Expected(e)) => {
                 if cancel.load(Ordering::SeqCst) {

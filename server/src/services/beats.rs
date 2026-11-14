@@ -41,7 +41,7 @@ pub const TIMEOUT: Duration = Duration::from_secs(600);
 /// no), y lo que hace falta ya entra siempre.
 pub const MAX_QUEUE: usize = 512;
 /// Las opciones de «Re-analizar el clic».
-pub const REANALYZE_MODES: [&str; 5] = ["repair", "steady", "fill", "drums", "follow"];
+pub const REANALYZE_MODES: [&str; 6] = ["repair", "steady", "fill", "drums", "follow", "mix"];
 
 /// Por qué no hay rejilla.
 #[derive(Debug, Clone, PartialEq)]
@@ -287,6 +287,77 @@ fn merge(
     Ok(Value::Object(out))
 }
 
+/// El re-análisis de dentro (no sale en el menú ni lo acepta la API): rellenar
+/// con lo que dijo la red sobre la batería separada los huecos con música de
+/// la rejilla (`analysis::beatgrid::fill_with_drums`), y nada más. Es lo que
+/// guarda `improve` cuando la batería mejora el clic sola.
+const FILL_DRUMS: &str = "fill-drums";
+
+/// El re-análisis `edit` se hizo con la batería separada (y al volver a
+/// aplicarlo, hay que usarla otra vez): lo pidió así, o lo marcó al hacerse.
+fn edit_uses_drums(edit: &Value) -> bool {
+    matches!(
+        edit.get("mode").and_then(Value::as_str),
+        Some("drums" | FILL_DRUMS)
+    ) || edit.get("drums") == Some(&Value::Bool(true))
+}
+
+/// Si la rejilla guardada salió con la batería separada, por lo que se hizo.
+fn uses_drums(edits: &[Value]) -> bool {
+    edits.iter().any(edit_uses_drums)
+}
+
+/// Rellena los huecos con música de `base` con lo que dijo la red sobre la
+/// batería (`extra`). Si no mejora, `BeatsError::Value` con el porqué.
+fn fill_with_drums(base: &Value, raw: &Raw, extra: Option<&Raw>) -> Result<Value, BeatsError> {
+    let Some(drums) = extra else {
+        return Err(beats_err("la red aún no oyó la batería"));
+    };
+    let beats = floats(base.get("beats"))?;
+    let meter = base.get("meter").and_then(Value::as_i64).unwrap_or(4);
+    let bars: Vec<i64> = base
+        .get("bars")
+        .and_then(Value::as_array)
+        .map(|b| b.iter().filter_map(Value::as_i64).collect())
+        .unwrap_or_default();
+    let with = whole(raw, "auto", false, None, Some(drums))?.end.beats;
+    let seconds = raw.seconds;
+    let drums_logits = f64s(&drums.beat);
+    let fill = ab::fill_with_drums(&beats, &with, &drums_logits, seconds);
+    let end = grid::finish(&fill.beats, &f64s(&raw.down), Some(meter)).map_err(grid_error)?;
+    let verdict = ab::drums_verdict(
+        ab::Shape {
+            beats: &beats,
+            bars: &bars,
+            meter,
+        },
+        ab::Shape {
+            beats: &end.beats,
+            bars: &end.bars,
+            meter: end.meter,
+        },
+        &drums_logits,
+        seconds,
+    );
+    if !verdict.better {
+        return Err(BeatsError::Value(format!(
+            "la batería no mejora el clic: {}",
+            verdict.why
+        )));
+    }
+    let mut out = final_json(&end);
+    out.insert(
+        "report".into(),
+        json!({
+            "drums": "fill",
+            "filled": fill.regions.iter().map(|(a, b)| json!([a, b])).collect::<Vec<_>>(),
+            "bare_before": library::num::round_to(verdict.bare_before, 1),
+            "bare_after": library::num::round_to(verdict.bare_after, 1),
+        }),
+    );
+    Ok(Value::Object(out))
+}
+
 /// Un número que no es cero (lo que no está, o es cero, nada).
 fn nonzero(v: Option<&Value>) -> Option<f64> {
     v.and_then(Value::as_f64).filter(|x| *x != 0.0)
@@ -304,6 +375,9 @@ fn apply(
     extra: Option<&Raw>,
 ) -> Result<Value, BeatsError> {
     let mode_name = edit.get("mode").and_then(Value::as_str).unwrap_or("repair");
+    if mode_name == FILL_DRUMS {
+        return fill_with_drums(base, raw, extra);
+    }
     let mut drums_raw = None;
     if mode_name == "drums" {
         let Some(drums) = drums_of(app, path) else {
@@ -364,25 +438,78 @@ pub fn grid_of(app: &App, path: &Path) -> Result<Value, BeatsError> {
         Some(r) => r,
         None => network(app, path)?,
     };
-    // con la batería separada, la red también sobre ella (si ya se pasó)
-    let extra = drums_of(app, path).and_then(|d| raw_of(app, &d));
-    let mut grid = grid_json(&whole(&raw, "auto", false, None, extra.as_ref())?);
-    // lo que se re-analizó a mano (de una versión anterior), otra vez encima
-    let edits = saved
+    // la de la canción sola: la batería separada solo entra por lo que se
+    // hizo con ella (abajo), no porque la red ya la oyera
+    let mut grid = grid_json(&whole(&raw, "auto", false, None, None)?);
+    let drums = drums_of(app, path).and_then(|d| raw_of(app, &d));
+    // lo que se re-analizó (de una versión anterior), otra vez encima
+    let mut edits = saved
         .as_ref()
         .and_then(|s| s.get("edits"))
         .filter(|e| e.is_array())
         .cloned()
         .unwrap_or_else(|| json!([]));
     for e in edits.as_array().into_iter().flatten() {
-        match apply(app, path, &grid, &raw, e, extra.as_ref()) {
+        let extra = edit_uses_drums(e).then_some(drums.as_ref()).flatten();
+        match apply(app, path, &grid, &raw, e, extra) {
             Ok(g) => grid = g,
             Err(BeatsError::Beats(_) | BeatsError::Value(_)) => {}
             Err(other) => return Err(other),
         }
     }
+    // la batería ya oída y nada tocado a mano: si cubre lo que el clic deja
+    // sin sonar, se usa (`improve`)
+    if edits.as_array().is_some_and(Vec::is_empty)
+        && drums.is_some()
+        && auto_drums_enabled(app)
+        && !fixed_by_hand(app, path, saved.as_ref())
+        && let Ok(better) = apply(app, path, &grid, &raw, &fill_edit(), drums.as_ref())
+    {
+        grid = better;
+        edits = json!([fill_edit()]);
+    }
     save(app, path, &grid, edits)?;
     Ok(grid)
+}
+
+/// El re-análisis que guarda la batería cuando mejora el clic sola.
+fn fill_edit() -> Value {
+    json!({"mode": FILL_DRUMS, "auto": true})
+}
+
+/// Si la batería separada mejora el clic sola (la prueba está en
+/// `analysis::beatgrid::drums_verdict`). Es lo que hace el programa tras
+/// separar una canción; `DANPLAY_CLICK_DRUMS=off` (en el archivo de ajustes o
+/// en el entorno) lo quita.
+fn auto_drums_enabled(app: &App) -> bool {
+    !matches!(
+        app.config().env("DANPLAY_CLICK_DRUMS", "on").as_str(),
+        "off" | "0" | "false" | "no"
+    )
+}
+
+/// Si el clic de esta canción es de quien toca y no se le cambia solo: un
+/// tempo fijo exacto (el de un proyecto), su clic propio, o ajustes que
+/// eligió sobre la rejilla (tempo, compás, doble o mitad, el «1» corrido).
+fn fixed_by_hand(app: &App, path: &Path, saved: Option<&Map<String, Value>>) -> bool {
+    if saved.is_some_and(|s| s.get("exact").is_some_and(library::value::truthy)) {
+        return true;
+    }
+    let p = path.to_string_lossy().into_owned();
+    let study = app
+        .db(|c| library::index::search::by_path(c, &p))
+        .ok()
+        .flatten()
+        .and_then(|brief| brief.get("id").and_then(Value::as_i64))
+        .and_then(|id| songs::by_id(app, id).ok().flatten())
+        .map(|song| songs::text(&song, "study"))
+        .and_then(|text| serde_json::from_str::<Value>(&text).ok());
+    let Some(metronome) = study.as_ref().and_then(|s| s.get("metronome")) else {
+        return false;
+    };
+    ["own", "bpm", "meter", "mult", "shift"]
+        .iter()
+        .any(|k| metronome.get(*k).is_some_and(library::value::truthy))
 }
 
 /// La rejilla otra vez, de otra manera, de toda la canción o de un tramo;
@@ -407,6 +534,13 @@ pub fn reanalyze(
         None => network(app, path)?,
     };
     let current = grid_of(app, path)?;
+    let before: Vec<Value> = saved(app, path)
+        .and_then(|mut s| s.remove("edits"))
+        .and_then(|e| match e {
+            Value::Array(v) => Some(v),
+            _ => None,
+        })
+        .unwrap_or_default();
     let mut edit = Map::new();
     edit.insert("mode".into(), Value::from(mode));
     if let (Some(s), Some(e)) = (start, end)
@@ -419,8 +553,16 @@ pub fn reanalyze(
         edit.insert("bpm".into(), Value::from(b));
     }
     let ranged = edit.contains_key("start");
+    // arreglar, tempo fijo y rellenar usan la batería si el clic que hay ya
+    // salió con ella; «solo la canción» y «como antes» nunca
+    let with_drums = matches!(mode, "repair" | "steady" | "fill") && uses_drums(&before);
+    if with_drums {
+        edit.insert("drums".into(), Value::Bool(true));
+    }
     let edit = Value::Object(edit);
-    let extra = drums_of(app, path).and_then(|d| raw_of(app, &d));
+    let extra = with_drums
+        .then(|| drums_of(app, path).and_then(|d| raw_of(app, &d)))
+        .flatten();
     let mut grid = apply(app, path, &current, &raw, &edit, extra.as_ref())?;
     let fixed = ab::changes(
         &floats(current.get("beats"))?,
@@ -435,9 +577,7 @@ pub fn reanalyze(
         report["fixed"] = Value::from(fixed);
     }
     let mut edits = Vec::new();
-    if ranged
-        && let Some(Value::Array(before)) = saved(app, path).and_then(|mut s| s.remove("edits"))
-    {
+    if ranged {
         edits = before;
     }
     edits.push(edit);
@@ -715,13 +855,16 @@ struct Waiting {
 }
 
 /// Lo que se le pide a la cola con un archivo.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 enum Task {
     /// su rejilla (`grid_of`)
     Grid,
     /// solo que la red lo oiga (la batería separada de una canción): queda
     /// lo que dijo, y la rejilla la saca quien lo pidió
     Hear,
+    /// que la red oiga la batería separada y, con lo que oyó, ver si mejora
+    /// el clic de esa canción (`improve`)
+    Improve(PathBuf),
 }
 
 /// Un fallo del detector con un archivo: por qué, cuándo y cuántas veces.
@@ -946,8 +1089,87 @@ fn perform(app: &App, path: &Path, task: Task) -> Result<(), BeatsError> {
     match task {
         Task::Grid => grid_of(app, path).map(|_| ()),
         // ya oída (se pidió dos veces): nada que hacer
-        Task::Hear if raw_file(app, path).is_ok_and(|f| f.is_file()) => Ok(()),
+        Task::Hear | Task::Improve(_) if raw_file(app, path).is_ok_and(|f| f.is_file()) => {
+            match task {
+                Task::Improve(song) => improve(app, &song).map(|_| ()),
+                _ => Ok(()),
+            }
+        }
         Task::Hear => network(app, path).map(|_| ()),
+        Task::Improve(song) => {
+            network(app, path)?;
+            improve(app, &song).map(|_| ())
+        }
+    }
+}
+
+/// Una separación acabó: si la canción tiene su batería, que la red la oiga
+/// en segundo plano (detrás de todo lo demás) y, con lo que oyó, se mira si
+/// mejora el clic de la canción (`improve`).
+pub fn after_separation(app: &App, cid: i64) {
+    // en las pruebas, apagado salvo que una lo pida: la cola del clic es de
+    // todo el proceso y una separación de otra prueba la ensuciaría
+    #[cfg(test)]
+    if !tests::hook_enabled() {
+        return;
+    }
+    if !auto_drums_enabled(app) {
+        return;
+    }
+    let Ok(Some(song)) = songs::by_id(app, cid) else {
+        return;
+    };
+    let path = PathBuf::from(songs::text(&song, "path"));
+    if !path.is_file() || !available(app).is_empty() {
+        return;
+    }
+    let Some(drums) = drums_of(app, &path) else {
+        return;
+    };
+    let mut q = QUEUE.lock().unwrap_or_else(PoisonError::into_inner);
+    if remembered(&q, &failure_key(&drums)).is_some() {
+        return;
+    }
+    let key = drums.to_string_lossy().into_owned();
+    enqueue(&mut q, app, key, Task::Improve(path), false);
+}
+
+/// Con la batería ya oída, ¿mejora el clic guardado de la canción? Se queda
+/// con la rejilla nueva SOLO si la prueba de `analysis::beatgrid` lo dice
+/// (rellenar con la batería los huecos con música, sin mover nada de lo que
+/// ya sonaba) y nadie tocó el clic: ni re-analizado a mano ni sus ajustes
+/// (`fixed_by_hand`). Se deshace con «Re-analizar» › «Solo la canción». Da si
+/// se cambió.
+fn improve(app: &App, song: &Path) -> Result<bool, BeatsError> {
+    // sin rejilla guardada aún, la sacará `grid_of` al abrir la canción, y
+    // ahí mismo mira esto
+    if !auto_drums_enabled(app) || !cached(app, song) {
+        return Ok(false);
+    }
+    let Some(entry) = saved(app, song) else {
+        return Ok(false);
+    };
+    let untouched = entry
+        .get("edits")
+        .and_then(Value::as_array)
+        .is_none_or(Vec::is_empty);
+    if !untouched || fixed_by_hand(app, song, Some(&entry)) {
+        return Ok(false);
+    }
+    let (Some(base), Some(raw), Some(drums)) = (
+        entry.get("grid").filter(|g| library::value::truthy(g)),
+        raw_of(app, song),
+        drums_of(app, song).and_then(|d| raw_of(app, &d)),
+    ) else {
+        return Ok(false);
+    };
+    match apply(app, song, base, &raw, &fill_edit(), Some(&drums)) {
+        Ok(better) => {
+            save(app, song, &better, json!([fill_edit()]))?;
+            Ok(true)
+        }
+        Err(BeatsError::Beats(_) | BeatsError::Value(_)) => Ok(false),
+        Err(other) => Err(other),
     }
 }
 

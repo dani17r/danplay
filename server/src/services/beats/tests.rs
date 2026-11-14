@@ -28,9 +28,18 @@ pub(crate) fn set_graph(path: &Path) {
     *GRAPH.lock().unwrap_or_else(PoisonError::into_inner) = Some(path.to_path_buf());
 }
 
+/// Si la prueba que corre quiere que acabar de separar una canción deje la
+/// batería oyéndose (`after_separation`).
+static HOOK: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub(super) fn hook_enabled() -> bool {
+    HOOK.load(std::sync::atomic::Ordering::SeqCst)
+}
+
 /// La cola vacía, sin fallos apuntados, sin detector ni grafo de prueba y
 /// con el hilo andando.
 fn reset() {
+    HOOK.store(false, std::sync::atomic::Ordering::SeqCst);
     {
         let mut q = QUEUE.lock().unwrap_or_else(PoisonError::into_inner);
         q.waiting.clear();
@@ -108,6 +117,15 @@ fn heard(path: &Path, late: f64) {
     analysis::pulse::raw::save(path, &beat, &down, &low, 100.0, seconds).expect("crudo");
 }
 
+/// Lo que oiría la red sobre una batería que no toca: ni un pulso.
+fn mute(path: &Path) {
+    let (fps, seconds) = (50.0, 30.0);
+    let frames = (seconds * fps) as usize;
+    let quiet = vec![-6.0f64; frames];
+    let low = vec![0.0; (seconds * 100.0) as usize];
+    analysis::pulse::raw::save(path, &quiet, &quiet, &low, 100.0, seconds).expect("crudo");
+}
+
 /// El detector de mentira: apunta cada canción con que se le llama, dice su
 /// avance antes de la respuesta, falla con las «sin-pulso.mp3» y, con las
 /// demás, deja lo que oiría la red (en la batería, 4 ms después). Con su
@@ -125,8 +143,10 @@ impl Detector {
         app.tool("ffmpeg")?;
         let dir = crate::tests::scratch("detector");
         let (steady, late) = (dir.join("oido.npz"), dir.join("oido-tarde.npz"));
+        let silent = dir.join("oido-mudo.npz");
         heard(&steady, 0.0);
         heard(&late, 0.004);
+        mute(&silent);
         let calls = dir.join("llamadas.txt");
         let script = dir.join("detector.sh");
         let q = |p: &Path| format!("'{}'", p.display());
@@ -138,12 +158,14 @@ impl Detector {
                  echo '{{\"progress\": 0.5}}'\n\
                  case \"$path\" in\n\
                  *sin-pulso.mp3) echo '{{\"error\": \"la cancion no tiene pulso claro\"}}'; exit 1 ;;\n\
+                 *muda*) cp {silent} \"$4\" ;;\n\
                  *bateria*) cp {late} \"$4\" ;;\n\
                  *) cp {steady} \"$4\" ;;\n\
                  esac\n\
                  echo '{{\"ok\": true}}'\n",
                 calls = q(&calls),
                 late = q(&late),
+                silent = q(&silent),
                 steady = q(&steady),
             ),
         )
@@ -818,6 +840,192 @@ fn the_separated_drums_are_heard_through_the_queue_with_progress() {
         "{v}"
     );
     assert_eq!(d.calls().last(), Some(&text_of(&bad)));
+}
+
+// ---------------------------------------------------------------- la batería, sola
+
+/// El clic guardado de la canción con un hueco sin clic entre `from` y `to`
+/// segundos (los «1» donde caían). Los pulsos que había, antes.
+fn leave_hole(app: &App, song: &Path, from: f64, to: f64) -> Vec<f64> {
+    let good = beats_of(&api(&grid_of(app, song).expect("rejilla")));
+    let (c, mut saved) = read_cache(app, song);
+    let downs: Vec<f64> = saved["grid"]["bars"]
+        .as_array()
+        .expect("compases")
+        .iter()
+        .map(|i| good[i.as_u64().expect("índice") as usize])
+        .collect();
+    let holed: Vec<f64> = good
+        .iter()
+        .copied()
+        .filter(|b| !(from < *b && *b < to))
+        .collect();
+    let bars: Vec<usize> = (0..holed.len())
+        .filter(|i| downs.iter().any(|d| (d - holed[*i]).abs() < 1e-9))
+        .collect();
+    saved["grid"]["beats"] = json!(holed);
+    saved["grid"]["bars"] = json!(bars);
+    std::fs::write(&c, saved.to_string()).expect("guardar");
+    good
+}
+
+/// Lo guardado de la canción: sus pulsos y lo que se le hizo.
+fn kept(app: &App, song: &Path) -> (Vec<f64>, Value) {
+    let (_, v) = read_cache(app, song);
+    (beats_of(&v["grid"]), v["edits"].clone())
+}
+
+/// Como si una separación acabara de terminar y se esperara a la cola.
+fn separated(app: &App, id: i64) {
+    HOOK.store(true, std::sync::atomic::Ordering::SeqCst);
+    after_separation(app, id);
+    assert!(idle(Duration::from_secs(30)));
+}
+
+fn fill_mark() -> Value {
+    json!([{"mode": "fill-drums", "auto": true}])
+}
+
+#[test]
+fn when_a_separation_ends_the_drums_fill_what_the_click_left_without_sound() {
+    // Con la batería ya separada, la red la oye en segundo plano y, si el
+    // clic tiene 16 s sin sonar con la batería tocando (y los dos lados
+    // casan), se rellenan. Lo que ya sonaba, igual.
+    let Some(app) = api_library() else {
+        return;
+    };
+    let Some(d) = Detector::start(&app) else {
+        return;
+    };
+    let id = first_ids(&app, 1)[0];
+    let (song, drums) = with_drums(&app, id, "bateria.flac");
+    let good = leave_hole(&app, &song, 8.0, 24.0);
+    let holed = kept(&app, &song).0;
+    assert!(holed.len() < good.len() - 20);
+    separated(&app, id);
+    assert_eq!(d.calls(), [text_of(&song), text_of(&drums)]);
+    let (beats, edits) = kept(&app, &song);
+    // la batería de las pruebas oye 4 ms tarde: lo añadido, a eso de lo que
+    // sonaba; lo de antes, exacto
+    assert!(
+        close(&beats, &good, 0.01),
+        "{} de {}",
+        beats.len(),
+        good.len()
+    );
+    assert!(
+        holed.iter().all(|b| beats.contains(b)),
+        "lo que ya sonaba, tal cual"
+    );
+    assert_eq!(edits, fill_mark());
+    // y lo dice la rejilla que sale
+    let grid = api(&grid_of(&app, &song).expect("rejilla"));
+    assert_eq!(grid["report"]["drums"], "fill", "{grid}");
+    assert!(
+        grid["report"]["bare_before"]
+            .as_f64()
+            .is_some_and(|b| b >= 15.0)
+    );
+    // se deshace con «Re-analizar»: solo la canción, y no vuelve sola
+    let g = api(&reanalyze(&app, &song, "mix", None, None, None).expect("sin batería"));
+    assert!(g["report"].get("drums").is_none(), "{g}");
+    assert_eq!(kept(&app, &song).1, json!([{"mode": "mix"}]));
+    assert!(
+        !improve(&app, &song).expect("mirar"),
+        "rehecha a mano: no se toca"
+    );
+    // ni al cambiar la forma de sacarla
+    let (c, mut saved) = read_cache(&app, &song);
+    saved["version"] = json!(VERSION - 1);
+    std::fs::write(&c, saved.to_string()).expect("guardar");
+    grid_of(&app, &song).expect("rejilla");
+    assert_eq!(kept(&app, &song).1, json!([{"mode": "mix"}]));
+    assert_eq!(d.calls().len(), 2, "sin pasar la red otra vez");
+}
+
+#[test]
+fn the_drums_do_not_change_the_click_when_they_do_not_improve_it() {
+    let Some(app) = api_library() else {
+        return;
+    };
+    let Some(d) = Detector::start(&app) else {
+        return;
+    };
+    let ids = first_ids(&app, 2);
+    // 1. la batería no toca en el hueco: es un corte, no un clic que falta
+    let (muted, _) = with_drums(&app, ids[0], "bateria-muda.flac");
+    leave_hole(&app, &muted, 8.0, 24.0);
+    let before = kept(&app, &muted);
+    separated(&app, ids[0]);
+    assert!(d.calls().iter().any(|c| c.ends_with("bateria-muda.flac")));
+    assert_eq!(kept(&app, &muted), before, "no se toca");
+    assert_eq!(before.1, json!([]));
+    // 2. nada que cubrir: el clic ya sonaba entero
+    let (whole, _) = with_drums(&app, ids[1], "bateria.flac");
+    grid_of(&app, &whole).expect("rejilla");
+    let before = kept(&app, &whole);
+    separated(&app, ids[1]);
+    assert_eq!(kept(&app, &whole), before);
+    // lo oído queda guardado: la próxima vez no se vuelve a pasar la red
+    assert!(
+        raw_file(&app, &drums_of(&app, &whole).expect("batería"))
+            .expect("clave")
+            .is_file()
+    );
+}
+
+#[test]
+fn a_click_fixed_by_hand_is_never_changed_by_the_drums() {
+    let Some(app) = api_library() else {
+        return;
+    };
+    let Some(d) = Detector::start(&app) else {
+        return;
+    };
+    let ids = first_ids(&app, 3);
+    let study = |id: i64, metronome: Value| {
+        let text = json!({"metronome": metronome}).to_string();
+        crate::services::songs::update_one(&app, id, "study", Value::from(text)).expect("estudio");
+    };
+    // sus ajustes sobre la rejilla (el «1» corrido), o su clic propio
+    let (shifted, _) = with_drums(&app, ids[0], "bateria.flac");
+    leave_hole(&app, &shifted, 8.0, 24.0);
+    study(ids[0], json!({"shift": 1}));
+    let (own, _) = with_drums(&app, ids[1], "bateria.flac");
+    leave_hole(&app, &own, 8.0, 24.0);
+    study(
+        ids[1],
+        json!({"own": {"beats": [1.0, 2.0], "bars": [0], "meter": 4}}),
+    );
+    // un re-análisis que pidió (aunque sea de otro tramo), o un tempo exacto
+    let (asked, _) = with_drums(&app, ids[2], "bateria.flac");
+    leave_hole(&app, &asked, 8.0, 24.0);
+    let (c, mut saved) = read_cache(&app, &asked);
+    saved["edits"] = json!([{"mode": "repair", "start": 26.0, "end": 28.0}]);
+    std::fs::write(&c, saved.to_string()).expect("guardar");
+    let before: Vec<_> = [&shifted, &own, &asked]
+        .iter()
+        .map(|p| kept(&app, p))
+        .collect();
+    for id in ids {
+        separated(&app, id);
+    }
+    assert_eq!(d.calls().len(), 3 + 3, "la red oyó las tres baterías");
+    let after: Vec<_> = [&shifted, &own, &asked]
+        .iter()
+        .map(|p| kept(&app, p))
+        .collect();
+    assert_eq!(after, before);
+    // un tempo exacto (el de un proyecto)
+    let grid = api(&grid_of(&app, &asked).expect("rejilla"));
+    save_exact(&app, &asked, &grid).expect("exacta");
+    leave_hole(&app, &asked, 8.0, 24.0);
+    let (c, mut saved) = read_cache(&app, &asked);
+    saved["edits"] = json!([]);
+    std::fs::write(&c, saved.to_string()).expect("guardar");
+    let before = kept(&app, &asked);
+    assert!(!improve(&app, &asked).expect("mirar"));
+    assert_eq!(kept(&app, &asked), before);
 }
 
 #[test]

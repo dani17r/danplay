@@ -1087,6 +1087,15 @@ async function reanalyze(ev) {
       action: () => run('drums', null)
     },
     {
+      label: 'Solo con la canción',
+      icon: 'note',
+      // al separar, DanPlay rellena solo los huecos sin clic con la batería
+      // (si no cambia nada de lo que ya sonaba): esto lo deshace
+      note: 'sin la batería separada',
+      hint: 'Deshace lo que la batería separada añadió al clic, también lo que DanPlay añadió solo al separar',
+      action: () => run('mix', null)
+    },
+    {
       label: 'Rellenar silencios',
       icon: 'plus',
       note: 'que no se calle en las partes suaves',

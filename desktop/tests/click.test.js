@@ -386,6 +386,16 @@ describe('re-analysing the click', () => {
     expect(useClick().loading.value).toBe(false)
   })
 
+  it('«Solo con la canción» undoes what the separated drums added', async () => {
+    // al separar, DanPlay rellena solo los huecos sin clic con la batería: el
+    // menú tiene con qué quitarlo (modo «mix», sin esperar a la red)
+    held.api.reanalyzeBeats = vi.fn(async () => ({ ...FIXED, grid: FIXED, report: { fixed: 6 } }))
+    const w = await mountView()
+    await reanalyze(w, 'Solo con la canción')
+    expect(held.api.reanalyzeBeats).toHaveBeenCalledWith(7, { mode: 'mix' })
+    expect(lastGrid().bpm).toBe(120)
+  })
+
   it('without the grid in the answer, it is asked for again', async () => {
     held.api.reanalyzeBeats = vi.fn(async () => {
       held.state.beatGrid = { ...FIXED }
