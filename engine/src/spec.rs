@@ -4,6 +4,8 @@
 use crate::decode::Part;
 use crate::engine::RATE;
 use crate::render::{Cue, CuePlan, Routing, Target};
+
+pub use crate::render::CueProblem;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
@@ -77,12 +79,19 @@ pub struct Clips(HashMap<String, Arc<[f32]>>);
 impl Clips {
     /// Una guia, leida entera a la tasa del motor (como mucho cinco minutos,
     /// lo mas largo que el nucleo deja importar: una guia, no una cancion).
-    /// None si no se puede leer.
+    /// None si no se puede leer (`read` dice por que).
     pub fn get(&mut self, path: &str) -> Option<Arc<[f32]>> {
+        self.read(path).ok()
+    }
+
+    /// Lo mismo, diciendo por que no se pudo leer: el archivo no esta o no
+    /// se puede abrir, no es un audio, o no tiene nada que oir. Una guia
+    /// que se corta a medias (un archivo dañado) si suena, hasta donde llega.
+    pub fn read(&mut self, path: &str) -> Result<Arc<[f32]>, String> {
         if let Some(c) = self.0.get(path) {
-            return Some(Arc::clone(c));
+            return Ok(Arc::clone(c));
         }
-        let mut part = Part::open_file(Path::new(path), RATE, 64 * 1024 * 1024).ok()?;
+        let mut part = Part::open_file(Path::new(path), RATE, 64 * 1024 * 1024)?;
         let mut all = Vec::new();
         let mut buf = vec![0f32; 8_192];
         while all.len() < 5 * 60 * RATE as usize * 2 {
@@ -92,21 +101,34 @@ impl Clips {
                 break;
             }
         }
+        if all.is_empty() {
+            return Err("no tiene nada que oír".into());
+        }
         let clip: Arc<[f32]> = Arc::from(all);
         if self.0.len() > 64 {
             self.0.clear();
         }
         self.0.insert(path.to_string(), Arc::clone(&clip));
-        Some(clip)
+        Ok(clip)
     }
 
     /// El plan de las guias para el render: las que se pueden leer, en
-    /// orden, con su volumen y el de todas.
+    /// orden, con su volumen y el de todas. Las que no, van en
+    /// `problems` con lo que les pasa: antes se saltaban sin decir nada.
     pub fn plan(&mut self, cues: &[CueSpec], volume: f32) -> CuePlan {
         let mut out = Vec::with_capacity(cues.len());
+        let mut problems = Vec::new();
         for c in cues {
-            let Some(clip) = self.get(&c.path) else {
-                continue;
+            let clip = match self.read(&c.path) {
+                Ok(clip) => clip,
+                Err(reason) => {
+                    problems.push(CueProblem {
+                        at: c.at.max(0.0),
+                        path: c.path.clone(),
+                        reason,
+                    });
+                    continue;
+                }
             };
             out.push(Cue {
                 at: c.at.max(0.0),
@@ -128,6 +150,7 @@ impl Clips {
                 1.0
             },
             cues: out,
+            problems,
         }
     }
 }
@@ -171,5 +194,47 @@ mod tests {
             1.0,
         );
         assert!(!plan.on && plan.cues.is_empty());
+    }
+
+    #[test]
+    fn the_cues_that_cannot_be_read_are_reported_with_the_reason() {
+        // antes se saltaban sin decir nada: la guia no sonaba y no se sabia
+        // por que. Una que no esta, una que no es audio, una vacia y una
+        // buena
+        let dir = crate::testing::scratch("guias");
+        let good = dir.join("coro.wav");
+        std::fs::write(&good, &crate::testing::wav(2, 44_100, &[0.1; 8_820])[..]).expect("wav");
+        let text = dir.join("notas.txt");
+        std::fs::write(&text, "esto no es un audio").expect("texto");
+        let empty = dir.join("vacia.wav");
+        std::fs::write(&empty, &crate::testing::wav(2, 44_100, &[])[..]).expect("wav");
+        let spec = |at: f64, path: &std::path::Path| CueSpec {
+            at,
+            path: path.to_string_lossy().into_owned(),
+            gain: 1.0,
+            bus: None,
+        };
+        let mut clips = Clips::default();
+        let plan = clips.plan(
+            &[
+                spec(1.0, &dir.join("no-esta.wav")),
+                spec(2.0, &good),
+                spec(3.0, &text),
+                spec(4.0, &empty),
+            ],
+            1.0,
+        );
+        // la buena suena, y las otras tres se dicen, cada una con su sitio
+        assert_eq!(plan.cues.len(), 1);
+        assert!((plan.cues[0].at - 2.0).abs() < 1e-9);
+        let at: Vec<f64> = plan.problems.iter().map(|p| p.at).collect();
+        assert_eq!(at, [1.0, 3.0, 4.0]);
+        assert!(plan.problems[0].path.ends_with("no-esta.wav"));
+        assert!(plan.problems.iter().all(|p| !p.reason.is_empty()));
+        assert!(plan.problems[2].reason.contains("nada que oír"));
+        // y con todas bien no hay nada que decir
+        let plan = clips.plan(&[spec(2.0, &good)], 1.0);
+        assert!(plan.problems.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -181,6 +181,21 @@ pub struct CuePlan {
     pub on: bool,
     pub volume: f32,
     pub cues: Vec<Cue>,
+    /// Las guias que se dejaron fuera porque su archivo no se pudo leer
+    /// (`spec::Clips::plan`). Antes se saltaban sin decir nada y la guia
+    /// simplemente no sonaba. Vacio, si estan todas.
+    pub problems: Vec<CueProblem>,
+}
+
+/// Una voz guia que no suena porque su archivo no se pudo leer del todo.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct CueProblem {
+    /// En que segundo de la cancion iba.
+    pub at: f64,
+    /// Su archivo.
+    pub path: String,
+    /// Que le pasa, para decirselo a quien la puso.
+    pub reason: String,
 }
 
 /// A donde va un bus: dos canales de la salida (izquierdo y derecho), o uno

@@ -582,6 +582,7 @@ fn a_cue_speaks_at_its_time_and_is_not_stretched() {
         });
         // la voz empieza donde la musica da su segundo golpe
         b.render.set_cues(Arc::new(CuePlan {
+            problems: Vec::new(),
             on: true,
             volume: 1.0,
             cues: vec![Cue {
@@ -628,6 +629,7 @@ fn each_lane_of_cues_goes_out_its_own_way() {
         cues: 1,
     });
     b.render.set_cues(Arc::new(CuePlan {
+        problems: Vec::new(),
         on: true,
         volume: 1.0,
         cues: vec![

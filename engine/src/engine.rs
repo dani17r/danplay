@@ -24,7 +24,8 @@ use crate::feeder::{self, Block, Feeder, Order, POOL};
 use crate::output::{self, DeviceInfo, Output, OutputConfig, OutputStatus};
 use crate::queue::LoopEnd;
 use crate::render::{
-    ClickPlan, Controls, CuePlan, Gains, Handoff, MAX_PARTS, Mailbox, Msg, Render, Ring, Routing,
+    ClickPlan, Controls, CuePlan, CueProblem, Gains, Handoff, MAX_PARTS, Mailbox, Msg, Render,
+    Ring, Routing,
 };
 use crate::stretch::Stretch;
 use serde::Serialize;
@@ -68,6 +69,13 @@ pub struct State {
     pub failed: bool,
     /// Se esta fundiendo con la anterior.
     pub fading: bool,
+    /// Veces que, con esta cancion, el audio no llego a tiempo (el que
+    /// decodifica no tenia listo lo que tocaba sonar) y se oyo un corte.
+    /// Cuenta desde que se cargo.
+    pub underruns: u64,
+    /// Las voces guia que no suenan porque su archivo no se pudo leer, con
+    /// lo que les pasa (de la ultima vez que se mandaron con `set_cues`).
+    pub cue_problems: Vec<CueProblem>,
 }
 
 /// Lo que se sabe de la pista al cargarla.
@@ -164,6 +172,8 @@ struct Session {
     config: OutputConfig,
     /// Los tramos, para darselos a las partes que relevan.
     segments: (Vec<(u64, u64)>, LoopEnd),
+    /// Las guias de la cancion que no se pudieron leer.
+    cue_problems: Vec<CueProblem>,
 }
 
 pub struct Engine {
@@ -199,6 +209,7 @@ impl Engine {
                 routing: Arc::new(Routing::default()),
                 config: OutputConfig::default(),
                 segments: (Vec::new(), LoopEnd::Repeat),
+                cue_problems: Vec::new(),
             }),
             offline: false,
         }
@@ -347,6 +358,8 @@ impl Engine {
         c.playing.store(false, Ordering::Release);
         c.ended.store(false, Ordering::Release);
         c.audible.store(0, Ordering::Release);
+        c.underruns.store(0, Ordering::Relaxed);
+        lock(&self.session).cue_problems.clear();
         c.fade_frames.store(0, Ordering::Release);
         c.fade.store(fade.to_bits(), Ordering::Release);
         c.handed_over.store(false, Ordering::Release);
@@ -641,6 +654,7 @@ impl Engine {
 
     /// Las voces guia de la cancion que suena.
     pub fn set_cues(&self, plan: CuePlan) {
+        lock(&self.session).cue_problems.clone_from(&plan.problems);
         self.send(self.deck(), Msg::Cues(Arc::new(plan)));
     }
 
@@ -718,6 +732,8 @@ impl Engine {
             error,
             failed: shared.failed.load(Ordering::Acquire),
             fading,
+            underruns: c.underruns.load(Ordering::Relaxed),
+            cue_problems: lock(&self.session).cue_problems.clone(),
         }
     }
 }
@@ -1024,6 +1040,44 @@ mod tests {
         let s = wait_for(&e, |s| s.ended);
         assert!(s.ended && s.segments_done && !s.playing, "{s:?}");
         assert!((s.position - 0.9).abs() < 0.05, "{s:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_state_counts_the_times_the_audio_did_not_arrive() {
+        let dir = folder("cortes");
+        let e = Engine::offline(44_100);
+        e.load(&dir).expect("carga");
+        assert_eq!(e.state().underruns, 0);
+        // el render las cuenta (`render::Controls::underruns`) y el estado
+        // las enseña, para la cancion que suena
+        e.deck().controls.underruns.store(3, Ordering::Relaxed);
+        assert_eq!(e.state().underruns, 3);
+        // otra cancion, otra cuenta
+        e.load(&dir).expect("carga");
+        assert_eq!(e.state().underruns, 0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_state_says_which_cues_could_not_be_read() {
+        let dir = folder("guias-rotas");
+        let e = Engine::offline(44_100);
+        e.load(&dir).expect("carga");
+        let mut clips = crate::spec::Clips::default();
+        let spec = crate::spec::CueSpec {
+            at: 1.5,
+            path: dir.join("no-esta.wav").to_string_lossy().into_owned(),
+            gain: 1.0,
+            bus: None,
+        };
+        e.set_cues(clips.plan(&[spec], 1.0));
+        let problems = e.state().cue_problems;
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!((problems[0].at - 1.5).abs() < 1e-9);
+        // y al cargar otra cancion, ya no hay de que avisar
+        e.load(&dir).expect("carga");
+        assert!(e.state().cue_problems.is_empty());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
