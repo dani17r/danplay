@@ -26,7 +26,7 @@ rayon = "1.12.0"
 regex = "1.13.1"
 # El índice (SQLite, con FTS5): la copia de SQLite va dentro, la misma en
 # todos los sistemas.
-rusqlite = { version = "0.40.2", features = ["bundled", "collation"] }
+rusqlite = { version = "0.42.0", features = ["bundled", "collation"] }
 serde = { version = "1.0.229", features = ["derive"] }
 # Las filas y los diccionarios que van y vienen (en el orden de sus columnas,
 # y con los decimales exactos: una fecha que vuelve de un JSON tiene que ser

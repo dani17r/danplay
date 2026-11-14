@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 fn snapshot(app: &crate::App) -> Vec<(String, String)> {
     app.db(|c| {
         let mut st = c.prepare("SELECT * FROM songs ORDER BY path")?;
-        let names: Vec<String> = st.column_names().iter().map(|s| (*s).to_owned()).collect();
+        let names: Vec<String> = st.column_names().map(str::to_owned).collect();
         let rows = st.query_map([], |r| {
             let mut row = Vec::new();
             for (i, n) in names.iter().enumerate() {

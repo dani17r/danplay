@@ -101,7 +101,7 @@ pub fn fetch_all(
     params: impl Params,
 ) -> rusqlite::Result<Vec<Dict>> {
     let mut stmt = conn.prepare_cached(query)?;
-    let names: Vec<String> = stmt.column_names().into_iter().map(str::to_owned).collect();
+    let names: Vec<String> = stmt.column_names().map(str::to_owned).collect();
     let mut rows = stmt.query(params)?;
     let mut out = Vec::new();
     while let Some(row) = rows.next()? {
