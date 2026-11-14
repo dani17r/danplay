@@ -1512,7 +1512,7 @@ fn an_old_hand_made_click_gets_its_touched_stretches_from_what_differs_from_the_
         kept[0][1].as_f64().expect("hasta"),
     );
     assert!(from <= 10.0 && from > 8.5, "desde {from}");
-    assert!(to >= 14.1 && to < 15.7, "hasta {to}");
+    assert!((14.1..15.7).contains(&to), "hasta {to}");
     assert_eq!(v["own"]["report"]["kept"], v["own"]["touched"]);
     // dentro, lo suyo; fuera, lo nuevo
     let own = beats_of(&v["own"]);
