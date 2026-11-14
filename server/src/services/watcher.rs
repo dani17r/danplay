@@ -166,6 +166,7 @@ pub struct Watcher {
     folders: RwLock<Folders>,
     observer: Mutex<Option<Observer>>,
     wake: Signal,
+    scans: std::sync::atomic::AtomicU64,
     stop: AtomicBool,
     /// mirar las carpetas ya, sin esperar
     recheck: AtomicBool,
@@ -194,6 +195,7 @@ impl Watcher {
             folders: RwLock::new(Folders::default()),
             observer: Mutex::new(None),
             wake: Signal::default(),
+            scans: std::sync::atomic::AtomicU64::new(0),
             stop: AtomicBool::new(false),
             recheck: AtomicBool::new(false),
             started: AtomicBool::new(false),
@@ -261,8 +263,14 @@ impl Watcher {
 
     // ------------------------------------------------------------ escanear
 
+    /// Cuántos escaneos ha lanzado (para medir y para las pruebas).
+    pub fn scans(&self) -> u64 {
+        self.scans.load(Ordering::SeqCst)
+    }
+
     /// Un escaneo incremental; sus cifras, o `None` si falló.
     pub fn scan(&self, app: &App, why: &str) -> Option<Value> {
+        self.scans.fetch_add(1, Ordering::SeqCst);
         let started = monotonic();
         let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             lib::scan(app, &mut |_, _| {})
@@ -375,6 +383,12 @@ impl Watcher {
     /// Un cambio en esa ruta. Solo cuenta si es audio (o una carpeta) de una
     /// carpeta gestionada y no está excluido.
     pub fn notify(&self, path: &str, is_dir: bool) {
+        // lo que la propia app acaba de escribir en un archivo (una
+        // estrella, el estudio) no es un cambio de fuera: el índice ya lo
+        // sabe, y escanear la biblioteca por ello era trabajo en balde
+        if !is_dir && crate::services::tags::own_write(path) {
+            return;
+        }
         let counts = {
             let roots = self.folders.read().unwrap_or_else(PoisonError::into_inner);
             match root_of(&roots.roots, path) {
@@ -592,6 +606,14 @@ pub fn prepare(app: &App, timeout: Duration) {
 pub fn folders_changed(app: &App) {
     if let Some(w) = lock(&app.watcher.0).as_ref() {
         w.folders_changed();
+    }
+}
+
+/// La propia app cambió algo en el disco que el índice aún no sabe: que el
+/// vigilante (si está en marcha) lo escanee cuando haya calma.
+pub fn changed_on_disk(app: &App) {
+    if let Some(w) = lock(&app.watcher.0).as_ref() {
+        w.mark();
     }
 }
 

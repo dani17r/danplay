@@ -272,14 +272,22 @@ fn a_scan_that_finds_nothing_new_does_not_refresh_the_app() {
     // se enseña cambió, la interfaz no tiene que recargar. (La revisión es
     // de todo el proceso y otras pruebas la mueven a la vez: si el escaneo
     // la moviera, no quedaría quieta en ningún intento.)
-    let Some((app, _)) = scanned_library() else {
+    let Some((app, files)) = scanned_library() else {
         return;
     };
     let gozo = ids_by_file(&app)["Barak - Mi Gozo.mp3"];
+    assert!(songs::rate(&app, gozo, 4).expect("estrellas"));
     let mut still = false;
-    for attempt in 0..20 {
-        // escribe en el archivo
-        assert!(songs::rate(&app, gozo, 4 - attempt % 2).expect("estrellas"));
+    for attempt in 0..200 {
+        // otro programa toca el archivo sin cambiar nada de lo que se enseña
+        // (lo que escribe la propia app ya no hace falta releerlo)
+        let when =
+            std::time::SystemTime::now() - std::time::Duration::from_secs(3600 + attempt as u64);
+        std::fs::File::options()
+            .write(true)
+            .open(&files["gozo"])
+            .and_then(|f| f.set_modified(when))
+            .expect("fecha");
         let before = library::index::revision();
         let r = scan(&app);
         assert!(r["updated"].as_i64().is_some_and(|n| n >= 1), "{r}");

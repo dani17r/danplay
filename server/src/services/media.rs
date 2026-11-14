@@ -111,17 +111,15 @@ pub fn forget_cover(path: &Path) {
 
 /// Pone la carátula (quita las que hubiera). `false` si no se pudo.
 pub fn write_cover(app: &App, path: &Path, data: &[u8], mime: &str) -> bool {
-    let before = crate::services::tags::stamp(path);
-    let result = std::panic::catch_unwind(|| library::tags::write_cover(path, data, mime))
-        .unwrap_or_else(|_| Err("el lector de etiquetas fallo".into()));
+    // como cosa de la app (`as_own_write`): lo calculado del sonido pasa a
+    // la fecha nueva, y ni se escanea la biblioteca por ello
+    let result = crate::services::tags::as_own_write(app, path, || {
+        std::panic::catch_unwind(|| library::tags::write_cover(path, data, mime))
+            .unwrap_or_else(|_| Err("el lector de etiquetas fallo".into()))
+    });
     if let Err(why) = result {
         log::info!("no se pudo poner la portada de {}: {why}", path.display());
         return false;
-    }
-    if let (Some(before), Some(after)) = (before, crate::services::tags::stamp(path))
-        && before != after
-    {
-        crate::services::tags::carry(app, path, path, before, after);
     }
     // aquí, que es el único sitio donde cambia una carátula: la fecha del
     // archivo puede no cambiar (dos escrituras en el mismo tic del reloj)

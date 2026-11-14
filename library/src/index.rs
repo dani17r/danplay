@@ -27,7 +27,7 @@ use rusqlite::{Connection, OpenFlags, Params};
 use serde_json::{Map, Number, Value};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Condvar, Mutex, PoisonError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 /// Las sentencias preparadas que se guardan por conexión: las de cada
@@ -273,15 +273,89 @@ pub fn to_missing(conn: &Connection, paths: &[String]) -> rusqlite::Result<usize
 /// y, si se ha movido, avisa a las ventanas para que se refresquen. Es lo que
 /// hace que un cambio hecho «por detrás» —una descarga que termina, el
 /// asistente, la línea de órdenes— se vea sin tener que salir y volver a entrar.
+/// Lo que la interfaz cambia y ya tiene delante no la mueve (ver `quietly`).
 static REVISION: AtomicU64 = AtomicU64::new(0);
 
 pub fn revision() -> u64 {
     REVISION.load(Ordering::SeqCst)
 }
 
+/// Todo lo que se ha escrito, también lo que `revision` calla (ver
+/// `quietly`). Lo mira quien tiene que enterarse de cada cambio aunque la
+/// interfaz ya lo sepa: el diario.
+static WRITES: AtomicU64 = AtomicU64::new(0);
+
+pub fn writes() -> u64 {
+    WRITES.load(Ordering::SeqCst)
+}
+
+thread_local! {
+    /// Cuántos `Quiet` tiene vivos este hilo.
+    static QUIET: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
+/// Mientras viva, lo que escriba este hilo no mueve `revision` (sí `writes`).
+#[derive(Debug)]
+pub struct Quiet(());
+
+/// Para lo que la interfaz cambia y ya tiene delante: la respuesta le trae la
+/// canción como quedó, y no hace falta decirle además «algo cambió, recarga
+/// todo». Poner una estrella o guardar el estudio (que se guarda solo, cada
+/// 0,6 s de cambios) recargaba la lista entera, los repertorios y la ficha
+/// dos segundos después. Lo que cambia por detrás (el asistente, una
+/// descarga, el escaneo) sigue avisando como siempre.
+pub fn quietly() -> Quiet {
+    QUIET.with(|q| q.set(q.get() + 1));
+    Quiet(())
+}
+
+impl Drop for Quiet {
+    fn drop(&mut self) {
+        QUIET.with(|q| q.set(q.get().saturating_sub(1)));
+    }
+}
+
+/// Con qué se despierta a quien espera un cambio (`wait_for_write`).
+static WAITERS: (Mutex<()>, Condvar) = (Mutex::new(()), Condvar::new());
+static WAKES: AtomicU64 = AtomicU64::new(0);
+
+fn notify_waiters() {
+    // con el cerrojo cogido un momento: quien acaba de mirar el contador y
+    // va a dormirse no se pierde el aviso
+    drop(WAITERS.0.lock().unwrap_or_else(PoisonError::into_inner));
+    WAITERS.1.notify_all();
+}
+
 /// Algo cambió en el índice: la próxima `stats` vuelve a contar.
 pub fn touch() {
-    REVISION.fetch_add(1, Ordering::SeqCst);
+    WRITES.fetch_add(1, Ordering::SeqCst);
+    if QUIET.with(std::cell::Cell::get) == 0 {
+        REVISION.fetch_add(1, Ordering::SeqCst);
+    }
+    notify_waiters();
+}
+
+/// Duerme hasta que se escriba algo (`writes()` deje de valer `seen`), hasta
+/// que alguien llame a `wake_waiters` o hasta `timeout`. Devuelve `writes()`.
+/// Es para los hilos de fondo: esperar así no gasta nada con la app en
+/// reposo, y se enteran al momento.
+pub fn wait_for_write(seen: u64, timeout: Duration) -> u64 {
+    let wakes = WAKES.load(Ordering::SeqCst);
+    let guard = WAITERS.0.lock().unwrap_or_else(PoisonError::into_inner);
+    let _ = WAITERS
+        .1
+        .wait_timeout_while(guard, timeout, |()| {
+            writes() == seen && WAKES.load(Ordering::SeqCst) == wakes
+        })
+        .unwrap_or_else(PoisonError::into_inner);
+    writes()
+}
+
+/// Despierta a los que esperan en `wait_for_write` sin que haya cambiado
+/// nada (al apagar: que miren si tienen que irse).
+pub fn wake_waiters() {
+    WAKES.fetch_add(1, Ordering::SeqCst);
+    notify_waiters();
 }
 
 /// `/api/status` pide las cifras continuamente y calcularlas es un agregado

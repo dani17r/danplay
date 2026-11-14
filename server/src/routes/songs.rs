@@ -323,6 +323,9 @@ fn stars(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     if songs::by_id(ctx.app, cid)?.is_none() {
         return Err(ApiError::not_found("no esta en la biblioteca"));
     }
+    // la respuesta ya lleva la canción como quedó: no hace falta, además,
+    // decirle a la interfaz que recargue todo (`index::quietly`)
+    let _quiet = library::index::quietly();
     let written = songs::rate(ctx.app, cid, stars)?;
     Ok(card(
         songs::by_id(ctx.app, cid)?.map(|c| songs::with_tags_outcome(ctx.app, c, written, false)),
@@ -533,6 +536,9 @@ fn song_study(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let mut b = ctx.body()?;
     let study = study_in(&mut b);
     ctx.done(b)?;
+    // se guarda solo, cada 0,6 s de cambios, y quien lo guarda es quien lo
+    // tiene delante: sin avisar a la interfaz (`index::quietly`)
+    let _quiet = library::index::quietly();
     let c =
         songs::set_study(ctx.app, cid, &study)?.ok_or_else(|| ApiError::not_found("no existe"))?;
     Ok(Value::Object(c).into())

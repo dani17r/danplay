@@ -5,7 +5,7 @@
 use crate::app::{App, VERSION};
 use crate::error::ApiError;
 use crate::services::{folders, playlists};
-use library::index::{Dict, revision, touch};
+use library::index::{Dict, touch, writes};
 use library::journal;
 use serde_json::{Value, json};
 use std::path::PathBuf;
@@ -215,7 +215,9 @@ pub fn start(app: &App) {
                 if !app.journal.with(|s| s.restored) {
                     continue;
                 }
-                let rev = revision();
+                // todo lo escrito, también lo que no avisa a la interfaz
+                // (una estrella puesta desde ella)
+                let rev = writes();
                 if app.journal.with(|s| s.revision == Some(rev)) {
                     continue;
                 }

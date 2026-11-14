@@ -884,6 +884,30 @@ pub fn restore_playlists_from_tags(
     Ok(added)
 }
 
+/// Relee UN archivo que ya está en el índice y deja su fila como la dejaría
+/// un escaneo. Es para cuando DanPlay acaba de escribirle una etiqueta: su
+/// fecha cambió, y sin esto hacía falta escanear la biblioteca entera para
+/// que el índice lo supiera. `None` si esa ruta no está en el índice (o el
+/// archivo ya no está); si no, si cambió algo de lo que se enseña. No hace
+/// commit.
+pub fn reread(conn: &Connection, path: &str, artists_dir: &Path) -> rusqlite::Result<Option<bool>> {
+    let Some(known) = fetch_one(conn, "SELECT id, root FROM songs WHERE path=?", [path])? else {
+        return Ok(None);
+    };
+    let (tag, _) = read_tags(path);
+    // los artistas conocidos solo hacen falta si el archivo no dice el suyo
+    let vocab = if tag.artist.is_empty() {
+        names::vocabulary(artists_dir)
+    } else {
+        Vec::new()
+    };
+    let Some(row) = row(path, get_str(&known, "root"), &vocab, &tag) else {
+        return Ok(None);
+    };
+    let id = known.get("id").and_then(Value::as_i64).unwrap_or(0);
+    refresh_row(conn, id, path, &row).map(Some)
+}
+
 /// Lo que deja `index_file`: la fila, y si entró nueva o gemela (para lo de
 /// después: aprovechar lo hecho, volver a las listas).
 pub struct Indexed {
