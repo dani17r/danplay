@@ -1,3 +1,15 @@
+<script>
+// Las canciones de las que ya se sabe que no tienen carátula, y cuándo se
+// supo. Una canción sin ella se pedía dos veces (la URL y su otra forma) cada
+// vez que entraba en pantalla, y el núcleo tenía que volver a mirar. Vive
+// fuera del componente: cada fila que entra y sale de la lista es uno nuevo.
+// Dura poco por si la carátula llega después (se busca, se elige una).
+const MISSING_FOR = 60_000
+const MISSING_MAX = 5000
+/** @type {Map<string, {at: number, version: number}>} */
+const missing = new Map()
+</script>
+
 <script setup>
 /**
  * Carátula con hueco de reserva.
@@ -40,8 +52,21 @@ const thumb = computed(() =>
 const withVersion = (url) =>
   props.version ? url + (url.includes('?') ? '&' : '?') + `v=${props.version}` : url
 
+/** Se sabe, de hace poco, que esta canción no tiene carátula. */
+const knownMissing = () => {
+  const seen = missing.get(String(props.id))
+  if (!seen) return false
+  if (seen.version !== props.version || Date.now() - seen.at > MISSING_FOR) {
+    missing.delete(String(props.id))
+    return false
+  }
+  return true
+}
+
 const src = computed(() =>
-  props.id == null || props.id === '' ? '' : withVersion(api.coverUrl(props.id, thumb.value))
+  props.id == null || props.id === '' || knownMissing()
+    ? ''
+    : withVersion(api.coverUrl(props.id, thumb.value))
 )
 
 watch(
@@ -62,6 +87,12 @@ function onError(e) {
     return
   }
   failed.value = true
+  if (missing.size >= MISSING_MAX) missing.clear()
+  missing.set(String(props.id), { at: Date.now(), version: props.version })
+}
+/** Se ve: tiene carátula, aunque se creyera que no. */
+function onLoad() {
+  missing.delete(String(props.id))
 }
 </script>
 
@@ -75,6 +106,7 @@ function onError(e) {
     loading="lazy"
     decoding="async"
     @error="onError"
+    @load="onLoad"
   />
   <span v-else class="cover-art no-art" aria-hidden="true">
     <Icon n="music" :t="iconSize" />

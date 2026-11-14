@@ -275,6 +275,50 @@ describe('dragging a song', () => {
   })
 })
 
+describe('covers that do not exist', () => {
+  // Una canción sin carátula se pedía dos veces (la dirección y su otra
+  // forma) cada vez que entraba en pantalla, y el núcleo volvía a mirar.
+  it('a song without a cover is asked for once, not every time it enters the screen', async () => {
+    vi.useFakeTimers()
+    try {
+      const w = mount(CoverArt, { props: { id: 4242, size: 96 } })
+      expect(w.find('img').exists()).toBe(true)
+      // la dirección falla (en la app se prueba además su otra forma); si
+      // nada vale, se rinde
+      for (let i = 0; i < 3 && w.find('img').exists(); i++) await w.find('img').trigger('error')
+      expect(w.find('img').exists(), 'sin carátula se ve el hueco').toBe(false)
+      expect(w.find('.no-art').exists()).toBe(true)
+      w.unmount()
+      // la misma canción entra otra vez (se bajó y se volvió a subir la lista):
+      // ni se pide
+      const again = mount(CoverArt, { props: { id: 4242, size: 96 } })
+      expect(again.find('img').exists(), 'volvió a pedir una carátula que no existe').toBe(false)
+      expect(again.find('.no-art').exists()).toBe(true)
+      again.unmount()
+      // otra canción sí se pide
+      const other = mount(CoverArt, { props: { id: 4243, size: 96 } })
+      expect(other.find('img').exists()).toBe(true)
+      other.unmount()
+      // si el archivo cambia (se le pone una carátula: otra versión), se vuelve a pedir
+      const fresh = mount(CoverArt, { props: { id: 4242, size: 96, version: 1 } })
+      expect(fresh.find('img').exists()).toBe(true)
+      fresh.unmount()
+      // y pasado un rato, también (puede haber llegado por otro camino)
+      vi.advanceTimersByTime(61_000)
+      const later = mount(CoverArt, { props: { id: 4242, size: 96 } })
+      expect(later.find('img').exists()).toBe(true)
+      // y si por fin se ve, deja de contar como sin carátula
+      await later.find('img').trigger('load')
+      later.unmount()
+      const loaded = mount(CoverArt, { props: { id: 4242, size: 96 } })
+      expect(loaded.find('img').exists()).toBe(true)
+      loaded.unmount()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
 describe('blurred covers', () => {
   it('the cover renders blurred when the song is flagged, and says so', () => {
     expect(
