@@ -22,6 +22,8 @@
 //!   funden y el trabajo entero con ffmpeg;
 //! - `onnx`: las redes, en ONNX Runtime (`ort`, cargando la biblioteca);
 //! - `voices`: las voces de las guías (Supertonic y Piper, en ONNX Runtime);
+//! - `arrangement`: los avisos de arreglo («entra batería», «bajar», «solo
+//!   voz») por lo fuerte que suena cada pista en cada compás;
 //! - `align`: cuánto está corrido un archivo respecto a otro de la misma
 //!   canción (para aprovechar lo hecho con el de antes).
 //!
@@ -32,6 +34,7 @@
 #![allow(clippy::float_cmp)]
 
 pub mod align;
+pub mod arrangement;
 pub mod beatgrid;
 pub mod click;
 pub mod cues;
