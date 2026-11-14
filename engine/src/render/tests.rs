@@ -480,6 +480,81 @@ fn the_formants_option_reaches_the_stretcher_and_changes_nothing_without_a_pitch
     assert!(moved > 20.0 * worst(&off, &again).max(1e-5));
 }
 
+fn free(on: bool, bpm: f32, meter: u8) -> Msg {
+    Msg::FreeClick(Arc::new(FreeClick {
+        on,
+        bpm,
+        meter,
+        volume: 1.0,
+        sound: Sound::Stick,
+    }))
+}
+
+/// El pico de cada trozo de `len` muestras.
+fn peaks(x: &[f32], len: usize) -> Vec<f32> {
+    x.chunks(len).map(peak).collect()
+}
+
+#[test]
+fn a_free_metronome_clicks_at_its_tempo_with_no_song() {
+    let mut r = Render::new(44_100, 44_100, Arc::new(Controls::default()));
+    r.apply(free(true, 120.0, 4));
+    let mut out = vec![0f32; 2 * 44_100 * 5];
+    for chunk in out.chunks_mut(1_024) {
+        r.render(chunk);
+    }
+    let m = click(&out);
+    // 120 pulsos por minuto: uno cada 22050 muestras, desde ya
+    let at = onsets(&m, 0.02, 2_000);
+    assert_eq!(at.len(), 10, "{at:?}");
+    for (k, a) in at.iter().enumerate() {
+        assert!(a.abs_diff(k * 22_050) <= 40, "pulso {k} en {a}");
+    }
+    // el primero de cada compas de cuatro, acentuado
+    let loud = peaks(&m, 22_050);
+    assert!(
+        loud[0] > 1.1 * loud[1] && loud[4] > 1.1 * loud[5],
+        "{loud:?}"
+    );
+    assert!((loud[1] - loud[2]).abs() < 0.01, "{loud:?}");
+    // sin compas, todos iguales; y apagado, ni un golpe
+    let mut r = Render::new(44_100, 44_100, Arc::new(Controls::default()));
+    r.apply(free(true, 90.0, 0));
+    let mut out = vec![0f32; 2 * 44_100 * 3];
+    for chunk in out.chunks_mut(1_024) {
+        r.render(chunk);
+    }
+    let loud = peaks(&click(&out), 29_400);
+    assert!(loud.iter().all(|p| (p - loud[0]).abs() < 0.01), "{loud:?}");
+    r.apply(free(false, 90.0, 0));
+    let mut quiet = vec![0f32; 2 * 44_100];
+    for chunk in quiet.chunks_mut(1_024) {
+        r.render(chunk);
+    }
+    assert!(peak(&quiet[2_000..]) < 1e-6);
+}
+
+#[test]
+fn a_free_metronome_gives_way_to_the_song_and_comes_back_when_it_pauses() {
+    let mut b = Bench::new(1, 44_100);
+    b.render.apply(free(true, 120.0, 4));
+    // con la cancion cargada y en pausa, suena el metronomo
+    let paused = click(&b.run(44_100));
+    assert_eq!(onsets(&paused, 0.02, 2_000).len(), 2);
+    assert_eq!(music_hits(&b.run(2_048)).len(), 0);
+    // la cancion echa a andar: su musica, sin el metronomo (el clic de la
+    // cancion esta apagado)
+    b.play();
+    let playing = b.run(44_100 * 2);
+    assert!(peak(&click(&playing[2_000..])) < 0.01, "el metronomo sigue");
+    assert!(!music_hits(&playing).is_empty());
+    // en pausa otra vez, vuelve
+    b.controls.playing.store(false, Ordering::Release);
+    b.run(2_048);
+    let again = click(&b.run(44_100));
+    assert!(onsets(&again, 0.02, 2_000).len() >= 2);
+}
+
 #[test]
 fn at_the_end_it_stops_by_itself() {
     let mut b = Bench::new(1, 44_100);

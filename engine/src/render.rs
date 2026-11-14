@@ -168,6 +168,34 @@ pub struct ClickPlan {
     pub sound: Sound,
 }
 
+/// Un metronomo suelto: sin cancion ni rejilla, al tempo que se le diga. Suena
+/// solo cuando la cancion no suena (no hay ninguna cargada, o esta en pausa),
+/// por el bus del clic, y se calla en cuanto la cancion echa a andar (entonces
+/// manda su clic, el de la rejilla).
+#[derive(Clone, Debug, PartialEq)]
+pub struct FreeClick {
+    pub on: bool,
+    /// Pulsos por minuto (de `metro::MIN_BPM` a `metro::MAX_BPM`).
+    pub bpm: f32,
+    /// Pulsos por compas, para acentuar el primero (0: ninguno acentuado).
+    pub meter: u8,
+    /// 0..3, como el del clic de una cancion.
+    pub volume: f32,
+    pub sound: Sound,
+}
+
+impl Default for FreeClick {
+    fn default() -> Self {
+        FreeClick {
+            on: false,
+            bpm: crate::metro::DEFAULT_BPM,
+            meter: 4,
+            volume: 1.0,
+            sound: Sound::default(),
+        }
+    }
+}
+
 /// Una voz guia: lo que se dice (en estereo, a la tasa del motor) y en que
 /// segundo de la cancion empieza.
 #[derive(Clone, Debug)]
@@ -346,6 +374,8 @@ pub enum Msg {
     Handoff(Box<Handoff>),
     Click(Arc<ClickPlan>),
     Cues(Arc<CuePlan>),
+    /// El metronomo suelto: encenderlo, apagarlo o cambiarlo.
+    FreeClick(Arc<FreeClick>),
     /// Otro enrutado, con un estirador por bus ya hecho (hacerlo pide memoria).
     Routing(Arc<Routing>, Vec<Stretch>),
 }
@@ -357,6 +387,7 @@ pub enum Trash {
     Routing1(Arc<Routing>),
     Click(Arc<ClickPlan>),
     Cues(Arc<CuePlan>),
+    FreeClick(Arc<FreeClick>),
     Routing(Arc<Routing>, Vec<Stretch>),
 }
 
@@ -501,6 +532,13 @@ pub struct Render {
     /// Hasta donde (en `fed`) ya se miro si habia golpes.
     click_cursor: f64,
     plan: Arc<ClickPlan>,
+    /// El metronomo suelto, y por donde va: muestras que faltan para el
+    /// siguiente pulso (desde el principio del trozo), el pulso que toca (para
+    /// acentuar el primero de cada compas) y si ya sonaba en el trozo anterior.
+    free: Arc<FreeClick>,
+    free_next: f64,
+    free_beat: u32,
+    free_was: bool,
     voices: [Voice; VOICES],
     cues: Arc<CuePlan>,
     cue_voices: [CueVoice; CUE_VOICES],
@@ -559,6 +597,10 @@ impl Render {
             runs: VecDeque::with_capacity(256),
             click_cursor: 0.0,
             plan: Arc::new(ClickPlan::default()),
+            free: Arc::new(FreeClick::default()),
+            free_next: 0.0,
+            free_beat: 0,
+            free_was: false,
             voices: [Voice::default(); VOICES],
             cues: Arc::new(CuePlan::default()),
             cue_voices: [CueVoice::default(); CUE_VOICES],
@@ -645,6 +687,11 @@ impl Render {
         std::mem::replace(&mut self.plan, plan)
     }
 
+    /// El metronomo suelto nuevo. Devuelve el de antes, para soltarlo fuera.
+    pub fn set_free_click(&mut self, free: Arc<FreeClick>) -> Arc<FreeClick> {
+        std::mem::replace(&mut self.free, free)
+    }
+
     /// Las voces guia nuevas. Devuelve las de antes, para soltarlas fuera.
     pub fn set_cues(&mut self, plan: Arc<CuePlan>) -> Arc<CuePlan> {
         // las que sonaban eran de las otras: se callan
@@ -723,6 +770,7 @@ impl Render {
             Msg::Handoff(h) => self.start_handoff(h),
             Msg::Click(plan) => Some(Trash::Click(self.set_click(plan))),
             Msg::Cues(plan) => Some(Trash::Cues(self.set_cues(plan))),
+            Msg::FreeClick(free) => Some(Trash::FreeClick(self.set_free_click(free))),
             Msg::Routing(routing, stretches) => self
                 .set_routing(routing, stretches)
                 .map(|(r, s)| Trash::Routing(r, s)),
@@ -827,10 +875,14 @@ impl Render {
     fn stage_chunk(&mut self, n: usize) {
         let buses = self.routing.bus_count();
         self.bus_out[..buses * CHUNK * 2].fill(0.0);
+        let wanted = self.controls.playing.load(Ordering::Acquire);
+        // el metronomo suelto suena cuando la cancion no (sin cancion, o en
+        // pausa): en cuanto echa a andar, manda el clic de su rejilla
+        let song_runs = self.ring.is_some() && (self.running || wanted);
+        self.free_click(n, !song_runs);
         if self.ring.is_none() {
             return;
         }
-        let wanted = self.controls.playing.load(Ordering::Acquire);
         if !self.running && !wanted {
             return;
         }
@@ -1580,8 +1632,47 @@ impl Render {
             .map(|r| r.song + (fed as u64 - r.fed))
     }
 
+    /// Como suena el clic ahora y lo fuerte que va: el del metronomo suelto si
+    /// es el que suena, y si no, el de la cancion.
+    fn click_voice(&self) -> (Sound, f32) {
+        if self.free_was {
+            (self.free.sound, self.free.volume)
+        } else {
+            (self.plan.sound, self.plan.volume)
+        }
+    }
+
+    /// El metronomo suelto en este trozo: los pulsos al tempo que se le dijo,
+    /// el primero de cada compas acentuado. `idle`: la cancion no suena. Al
+    /// empezar (o volver a empezar), el primer pulso es ya.
+    fn free_click(&mut self, n: usize, idle: bool) {
+        if !(idle && self.free.on) {
+            self.free_was = false;
+            return;
+        }
+        if !self.free_was {
+            self.free_was = true;
+            self.free_next = 0.0;
+            self.free_beat = 0;
+        }
+        let bpm = f64::from(self.free.bpm).clamp(
+            f64::from(crate::metro::MIN_BPM),
+            f64::from(crate::metro::MAX_BPM),
+        );
+        let period = 60.0 * f64::from(self.rate) / bpm;
+        let per_bar = u32::from(self.free.meter);
+        while self.free_next < n as f64 {
+            let accent = per_bar > 0 && self.free_beat.is_multiple_of(per_bar);
+            self.voices_start(self.free_next as usize, accent);
+            self.free_beat = self.free_beat.wrapping_add(1);
+            self.free_next += period;
+        }
+        self.free_next -= n as f64;
+        self.mix_voices(n);
+    }
+
     fn voices_start(&mut self, wait: usize, accent: bool) {
-        let sound = self.plan.sound;
+        let (sound, _) = self.click_voice();
         let len = click_len(accent, self.rate, sound);
         // la que lleve mas sonando, si no hay libre
         let slot = self
@@ -1617,8 +1708,8 @@ impl Render {
     }
 
     fn mix_voices(&mut self, n: usize) {
-        let (sound, rate) = (self.plan.sound, self.rate);
-        let volume = self.plan.volume.clamp(0.0, crate::metro::MAX_VOLUME);
+        let ((sound, volume), rate) = (self.click_voice(), self.rate);
+        let volume = volume.clamp(0.0, crate::metro::MAX_VOLUME);
         let b = self.routing.click_bus();
         let buf = &mut self.bus_out[b * CHUNK * 2..][..n * 2];
         for v in &mut self.voices {

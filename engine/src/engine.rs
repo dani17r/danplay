@@ -24,8 +24,8 @@ use crate::feeder::{self, Block, Feeder, Order, POOL};
 use crate::output::{self, DeviceInfo, Output, OutputConfig, OutputStatus};
 use crate::queue::LoopEnd;
 use crate::render::{
-    ClickPlan, Controls, CuePlan, CueProblem, Gains, Handoff, MAX_PARTS, Mailbox, Msg, Render,
-    Ring, Routing,
+    ClickPlan, Controls, CuePlan, CueProblem, FreeClick, Gains, Handoff, MAX_PARTS, Mailbox, Msg,
+    Render, Ring, Routing,
 };
 use crate::stretch::Stretch;
 use serde::Serialize;
@@ -76,6 +76,9 @@ pub struct State {
     /// Las voces guia que no suenan porque su archivo no se pudo leer, con
     /// lo que les pasa (de la ultima vez que se mandaron con `set_cues`).
     pub cue_problems: Vec<CueProblem>,
+    /// El metronomo suelto esta encendido (suene ahora o no: solo suena
+    /// con la cancion parada).
+    pub free_click: bool,
 }
 
 /// Lo que se sabe de la pista al cargarla.
@@ -175,6 +178,8 @@ struct Session {
     segments: (Vec<(u64, u64)>, LoopEnd),
     /// Las guias de la cancion que no se pudieron leer.
     cue_problems: Vec<CueProblem>,
+    /// El metronomo suelto.
+    free_click: FreeClick,
 }
 
 pub struct Engine {
@@ -212,6 +217,7 @@ impl Engine {
                 config: OutputConfig::default(),
                 segments: (Vec::new(), LoopEnd::Repeat),
                 cue_problems: Vec::new(),
+                free_click: FreeClick::default(),
             }),
             offline: false,
         }
@@ -338,6 +344,8 @@ impl Engine {
             (self.active.load(Ordering::Acquire) + 1) & 1,
             Ordering::Release,
         );
+        // el metronomo suelto es del plato que manda
+        self.send_free_click();
         if !self.offline {
             self.ensure_output();
         }
@@ -528,8 +536,16 @@ impl Engine {
 
     /// Suelta la salida de audio (tras un rato en pausa: que el sistema
     /// pueda dormir y otras aplicaciones usar la tarjeta). Se vuelve a abrir
-    /// sola al sonar.
+    /// sola al sonar. Con el metronomo suelto encendido no se suelta: esta
+    /// sonando.
     pub fn release_output(&self) {
+        if lock(&self.session).free_click.on {
+            return;
+        }
+        self.close_output();
+    }
+
+    fn close_output(&self) {
         if let Some(out) = lock(&self.output).take() {
             out.stop();
         }
@@ -549,7 +565,7 @@ impl Engine {
             changed
         };
         if changed && lock(&self.output).is_some() {
-            self.release_output();
+            self.close_output();
             self.ensure_output();
         }
     }
@@ -674,6 +690,29 @@ impl Engine {
         self.send(self.deck(), Msg::Click(Arc::new(plan)));
     }
 
+    /// El metronomo suelto: un clic al tempo que se diga, sin cancion ni
+    /// rejilla (para tocar a tempo sin musica). Suena cuando la cancion no
+    /// suena (no hay ninguna cargada, o esta en pausa) y se calla en cuanto
+    /// echa a andar; por el bus del clic del enrutado, con su sonido y su
+    /// volumen. Encenderlo abre la salida de audio si no lo estaba, y mientras
+    /// siga encendido `release_output` no la suelta. Aparte de la cancion:
+    /// cargar otra, pausar o sonar no lo apaga ni lo enciende.
+    pub fn set_free_click(&self, free: FreeClick) {
+        let on = free.on;
+        lock(&self.session).free_click = free;
+        self.send_free_click();
+        if on && !self.offline {
+            self.ensure_output();
+        }
+    }
+
+    /// Le dice al plato que manda el metronomo suelto, y al otro que no suene.
+    fn send_free_click(&self) {
+        let free = lock(&self.session).free_click.clone();
+        self.send(self.other(), Msg::FreeClick(Arc::new(FreeClick::default())));
+        self.send(self.deck(), Msg::FreeClick(Arc::new(free)));
+    }
+
     /// Las voces guia de la cancion que suena.
     pub fn set_cues(&self, plan: CuePlan) {
         lock(&self.session).cue_problems.clone_from(&plan.problems);
@@ -692,7 +731,7 @@ impl Engine {
         };
         self.send_routing(self.deck(), routing);
         if reopen && lock(&self.output).is_some() {
-            self.release_output();
+            self.close_output();
             self.ensure_output();
         }
     }
@@ -721,9 +760,11 @@ impl Engine {
         let fading = lock(&self.other().song).is_some();
         let song = lock(&deck.song);
         let error = lock(&self.output).as_ref().and_then(Output::error);
+        let free_click = lock(&self.session).free_click.on;
         let Some(song) = song.as_ref() else {
             return State {
                 error,
+                free_click,
                 ..State::default()
             };
         };
@@ -756,6 +797,7 @@ impl Engine {
             fading,
             underruns: c.underruns.load(Ordering::Relaxed),
             cue_problems: lock(&self.session).cue_problems.clone(),
+            free_click,
         }
     }
 }
@@ -1062,6 +1104,66 @@ mod tests {
         let s = wait_for(&e, |s| s.ended);
         assert!(s.ended && s.segments_done && !s.playing, "{s:?}");
         assert!((s.position - 0.9).abs() < 0.05, "{s:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_free_metronome_clicks_with_no_song_and_stays_out_of_the_way() {
+        let e = Engine::offline(44_100);
+        assert!(!e.state().free_click);
+        e.set_free_click(FreeClick {
+            on: true,
+            bpm: 120.0,
+            ..FreeClick::default()
+        });
+        assert!(e.state().free_click);
+        // donde empieza cada clic de lo que suena, sumando los canales (la
+        // musica de prueba se anula; queda el clic)
+        let clicks = |out: &[f32]| -> Vec<usize> {
+            let m: Vec<f32> = out
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|f| f32::midpoint(f[0], f[1]))
+                .collect();
+            // lo que empieza el trozo ya sonando (la cola de un clic) no cuenta
+            let mut found = Vec::new();
+            let mut quiet = 0;
+            for (i, v) in m.iter().enumerate() {
+                if v.abs() > 0.02 {
+                    if quiet >= 2_000 {
+                        found.push(i);
+                    }
+                    quiet = 0;
+                } else {
+                    quiet += 1;
+                }
+            }
+            found
+        };
+        // a 120 por minuto, uno cada 22050 muestras, sin cancion cargada
+        let evenly = |found: &[usize]| {
+            assert!(found.len() >= 3, "{found:?}");
+            for w in found.windows(2) {
+                assert!((w[1] - w[0]).abs_diff(22_050) <= 4, "{found:?}");
+            }
+        };
+        evenly(&clicks(&pull_for(&e, 44_100 * 2)));
+        // la cancion se carga y esta en pausa: sigue
+        let dir = folder("metronomo");
+        e.load(&dir).expect("carga");
+        settle_on(&e);
+        evenly(&clicks(&pull_for(&e, 44_100 * 2)));
+        // suena: queda la musica, y de clic, nada
+        e.play();
+        pull_steady(&e, 4_410);
+        assert_eq!(clicks(&pull_steady(&e, 44_100)), Vec::<usize>::new());
+        // apagarlo lo calla, y la salida se puede soltar
+        e.pause();
+        pull_for(&e, 4_410);
+        e.set_free_click(FreeClick::default());
+        assert!(!e.state().free_click);
+        assert_eq!(clicks(&pull_for(&e, 44_100)), Vec::<usize>::new());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
