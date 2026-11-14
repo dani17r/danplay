@@ -160,6 +160,51 @@ pub(crate) fn save(app: &App, path: &Path, grid: &Value, edits: Value) -> Result
     Ok(())
 }
 
+/// Lo que se espera para borrar el pulso de un archivo que no se ve: lo mismo
+/// que se guarda una canción que falta (`services::library::MISSING_DAYS`).
+/// Un disco sin enchufar un rato no cuesta los 15-20 s de cada canción.
+pub const ORPHAN_DAYS: u64 = 30;
+
+/// Quita de DATA_DIR/beats lo de archivos que ya no están: la rejilla y lo
+/// que oyó la red (`.json` y `.npz`) de lo borrado, movido por fuera o
+/// cambiado por fuera (otra fecha o tamaño: otra clave), y las baterías de
+/// pistas que se quitaron. `known` son todos los archivos que hay (canciones
+/// y pistas separadas). Lo que lleva menos de `ORPHAN_DAYS` sin tocarse se
+/// queda, y sin ningún archivo conocido no se borra nada. Devuelve cuántos
+/// archivos se fueron.
+pub fn prune(app: &App, known: &[String]) -> usize {
+    let alive: std::collections::HashSet<String> = known
+        .iter()
+        .filter_map(|p| key_of(Path::new(p)).ok())
+        .collect();
+    if alive.is_empty() {
+        return 0;
+    }
+    let Ok(entries) = std::fs::read_dir(folder(app)) else {
+        return 0;
+    };
+    let grace = Duration::from_secs(ORPHAN_DAYS * 86_400);
+    let mut removed = 0;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let ours = path.extension().is_some_and(|e| e == "json" || e == "npz");
+        let orphan = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .is_some_and(|key| !alive.contains(key));
+        let stale = entry
+            .metadata()
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|at| at.elapsed().ok())
+            .is_some_and(|age| age >= grace);
+        if ours && orphan && stale && std::fs::remove_file(&path).is_ok() {
+            removed += 1;
+        }
+    }
+    removed
+}
+
 /// Una rejilla que no se adivina (la del tempo de un proyecto): vale aunque
 /// cambie la forma de sacar las demás.
 pub fn save_exact(app: &App, path: &Path, grid: &Value) -> Result<(), BeatsError> {

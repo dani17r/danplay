@@ -671,6 +671,111 @@ fn asking_how_the_grid_goes_looks_once_for_the_detector_and_once_at_the_file() {
     assert_eq!(used, (0, 1));
 }
 
+/// Un archivo en la carpeta del pulso con esa clave (`.json` o `.npz`), de
+/// hace `days` días.
+fn old_entry(app: &App, name: &str, days: u64) -> PathBuf {
+    let dir = app.config().data_dir.join("beats");
+    std::fs::create_dir_all(&dir).expect("carpeta");
+    let file = dir.join(name);
+    std::fs::write(&file, b"x").expect("archivo");
+    let at = std::time::SystemTime::now() - Duration::from_secs(days * 86_400);
+    std::fs::File::options()
+        .write(true)
+        .open(&file)
+        .and_then(|f| f.set_times(std::fs::FileTimes::new().set_modified(at)))
+        .expect("fecha");
+    file
+}
+
+#[test]
+fn what_was_heard_of_files_that_are_gone_is_cleaned_up_after_a_while() {
+    // la carpeta del pulso no se limpiaba nunca: análisis de baterías sin su
+    // rejilla, de canciones que ya no existen o cambiadas por fuera
+    let app = crate::tests::app();
+    let Some(d) = Detector::start(&app) else {
+        return;
+    };
+    let song = d.file("viva.mp3", b"viva");
+    let drums = d.file("bateria.flac", b"bateria");
+    let (song_key, drums_key) = (
+        key_of(&song).expect("clave"),
+        key_of(&drums).expect("clave"),
+    );
+    let known = [text_of(&song), text_of(&drums)];
+    // lo que está vivo, aunque tenga años (una batería solo tiene su .npz)
+    let alive: Vec<PathBuf> = [
+        format!("{song_key}.json"),
+        format!("{song_key}.npz"),
+        format!("{drums_key}.npz"),
+    ]
+    .iter()
+    .map(|n| old_entry(&app, n, 400))
+    .collect();
+    // lo de una canción que ya no está: se va, con su rejilla y lo que oyó la red
+    let gone: Vec<PathBuf> = ["a".repeat(40) + ".json", "a".repeat(40) + ".npz"]
+        .iter()
+        .map(|n| old_entry(&app, n, 45))
+        .collect();
+    // una que no se ve desde hace poco (el disco sin enchufar): se espera
+    let recent = old_entry(&app, &("b".repeat(40) + ".npz"), 3);
+    // lo que no es de aquí no se toca
+    let other = old_entry(&app, "LEEME.txt", 400);
+    assert_eq!(prune(&app, &known), 2);
+    assert!(alive.iter().all(|f| f.is_file()), "lo vivo se queda");
+    assert!(
+        gone.iter().all(|f| !f.exists()),
+        "lo de lo que ya no está, fuera"
+    );
+    assert!(recent.is_file(), "lo reciente espera");
+    assert!(other.is_file(), "lo que no es del pulso, tal cual");
+    // sin saber qué archivos hay (una biblioteca sin montar), nada se borra
+    let lost = old_entry(&app, &("c".repeat(40) + ".json"), 400);
+    assert_eq!(prune(&app, &[]), 0);
+    assert_eq!(prune(&app, &["/no/esta.mp3".to_owned()]), 0);
+    assert!(lost.is_file());
+    // y un archivo que cambió por fuera (otra fecha o tamaño) deja huérfana
+    // la clave de antes
+    std::fs::write(&song, b"cambiada por fuera").expect("cambiar");
+    let (c, _) = read_cache_or_new(&app, &song_key);
+    assert_eq!(
+        prune(&app, &known),
+        3,
+        "la vieja de la canción cambiada y la perdida"
+    );
+    assert!(!c.exists());
+}
+
+/// Lo guardado con esa clave (la ruta, y si hay algo dentro).
+fn read_cache_or_new(app: &App, key: &str) -> (PathBuf, bool) {
+    let c = app
+        .config()
+        .data_dir
+        .join("beats")
+        .join(format!("{key}.json"));
+    (c.clone(), c.is_file())
+}
+
+#[test]
+fn a_scan_cleans_the_pulse_folder_too() {
+    let Some(app) = api_library() else {
+        return;
+    };
+    let Some(d) = Detector::start(&app) else {
+        return;
+    };
+    let id = first_ids(&app, 1)[0];
+    let row = crate::services::songs::by_id(&app, id)
+        .expect("base")
+        .expect("canción");
+    let song = PathBuf::from(crate::services::songs::text(&row, "path"));
+    grid_of(&app, &song).expect("rejilla");
+    let orphan = old_entry(&app, &("d".repeat(40) + ".npz"), 60);
+    crate::services::library::scan(&app, &mut |_, _| {}).expect("escaneo");
+    assert!(!orphan.exists(), "el escaneo limpia lo huérfano");
+    assert!(cached(&app, &song), "y deja lo que sirve");
+    assert_eq!(d.calls().len(), 1);
+}
+
 #[test]
 fn the_graph_travels_with_the_app() {
     let _serial = serial();

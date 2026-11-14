@@ -175,6 +175,7 @@ pub fn scan(app: &App, progress: &mut dyn FnMut(usize, usize)) -> Result<Value, 
     library::waveform::forget(&wf, &gone_os, &mut warnings);
     let known_os: Vec<std::ffi::OsString> = known.iter().map(std::ffi::OsString::from).collect();
     library::waveform::prune(&wf, &known_os);
+    crate::services::beats::prune(app, &known);
     let cv = covers(app);
     let gone_pb: Vec<PathBuf> = r.gone.iter().map(PathBuf::from).collect();
     library::thumbnails::forget(&cv, &gone_pb, &mut warnings);
