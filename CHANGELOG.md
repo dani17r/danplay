@@ -168,6 +168,22 @@ después.
 - **Las tarjetas del tono y del clic caben enteras en ventanas de 768 px de
   alto** (aprieta espacios, no texto; a 1536×864 y más, igual que antes).
 
+### Lo que dejó rojo la CI al subirlo
+
+Nada de esto salió en el equipo de desarrollo; lo encontró la CI al subir la
+rama a `main`.
+
+- **SQLite con un aviso de seguridad (RUSTSEC-2026-0459)**: el SQLite que
+  lleva dentro `rusqlite` 0.40 tenía una vulnerabilidad publicada días
+  después de la última subida. `rusqlite` pasa a la 0.42, con el parche.
+- **Un bucle de la detección de acordes** que el clippy más nuevo (Rust
+  1.100) no admitía; ahora recorre las tramas con un iterador, sin índices.
+- **Las búsquedas por lotes de YouTube podían seguir preguntando un poco
+  tras un bloqueo (429, «no eres un robot»)**: la ranura se soltaba antes de
+  levantar la señal de corte, y un hilo que esperaba podía colarse justo
+  entre las dos cosas. En un equipo cargado la ventana se alarga (falló una
+  vez en macOS). Ahora la señal va antes.
+
 ### De la 1.41.0 (sin publicar)
 
 - **El clic sigue a las canciones que cambian de tempo**: un final en vivo
