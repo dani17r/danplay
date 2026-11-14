@@ -49,7 +49,6 @@ const base = {
   has_output: true,
   loop_a: 0,
   loop_b: 0,
-  pitch_preserved: true,
   speed: 1,
   pitch: 0,
   path: '/musica/mi-gozo.mp3',

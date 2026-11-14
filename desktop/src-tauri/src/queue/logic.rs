@@ -51,7 +51,6 @@ pub(super) fn compose(inner: &Inner, audio: &player::State) -> PlaybackState {
         error: audio.error.clone(),
         has_output: audio.has_output,
         origin: inner.origin.clone(),
-        pitch_preserved: audio.pitch_preserved,
         loop_a: audio.loop_a,
         loop_b: audio.loop_b,
         loops: audio.loops.clone(),

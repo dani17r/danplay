@@ -47,7 +47,6 @@ const base = {
   has_output: true,
   loop_a: 0,
   loop_b: 0,
-  pitch_preserved: true,
   speed: 1,
   pitch: 0,
   path: '/musica/mi-gozo.mp3',
@@ -484,17 +483,12 @@ describe('the study bar', () => {
     w.unmount()
   })
 
-  it('speed is applied and saved, and the pitch stays (even for a Rust that still sends pitch_preserved)', async () => {
+  it('speed is applied and saved, and the pitch stays', async () => {
     vi.useFakeTimers()
     const w = await mountView()
     await button(w, '0.7×').trigger('click')
     await flushPromises()
     expect(held.playback.bridge.setSpeed).toHaveBeenCalledWith(0.7)
-    expect(w.text()).toContain('mismo tono')
-    // el campo que Rust aún manda, siempre verdadero, ya no se lee: ni uno
-    // falso (de un Rust viejo) cambia lo que dice la interfaz
-    held.playback.emit({ pitch_preserved: false })
-    await flushPromises()
     expect(w.text()).toContain('mismo tono')
     expect(w.text()).not.toContain('cambia el tono')
     expect(w.text()).not.toContain('no se puede aquí')

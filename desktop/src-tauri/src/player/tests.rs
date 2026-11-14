@@ -335,7 +335,6 @@ fn slow_tempo_keeps_song_time_and_the_ab_loop_wraps() {
     assert!(until(&m, |s| s.playing).playing, "no llego a sonar");
     m.send(Command::Seek(10.0)).unwrap();
     let start = until(&m, |s| (9.9..10.6).contains(&s.position));
-    assert!(start.pitch_preserved, "la velocidad conserva el tono");
     wait_ms(1500);
     let advanced = m.state().position - start.position;
     assert!(

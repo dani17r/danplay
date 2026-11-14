@@ -36,10 +36,6 @@ pub struct State {
     pub speed: f32,
     pub error: String,
     pub has_output: bool,
-    /// La velocidad conserva el tono. Siempre: lo estira el motor
-    /// (Signalsmith Stretch). Queda por el contrato con la interfaz, que lo
-    /// lee; ya no hay un camino en que sea falso.
-    pub pitch_preserved: bool,
     /// Bucle A-B para estudiar un trozo, en segundos; 0,0 = sin bucle. Con
     /// varios tramos, del principio del primero al final del ultimo.
     pub loop_a: f64,

@@ -1128,7 +1128,6 @@ impl Engine<'_> {
             };
             e.volume = self.carry.volume;
             e.speed = self.carry.speed;
-            e.pitch_preserved = true;
             let loops = &self.carry.loops;
             e.loop_a = loops.first().map_or(0.0, |s| s.0);
             e.loop_b = loops.last().map_or(0.0, |s| s.1);

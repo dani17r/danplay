@@ -112,7 +112,6 @@ impl Player {
             volume: 1.0,
             speed: 1.0,
             has_output: true,
-            pitch_preserved: true,
             ..PlaybackState::default()
         }));
         let listing = Arc::new(Mutex::new((Vec::new(), None)));
@@ -572,7 +571,6 @@ impl Worker {
             },
             has_output: engine_state.error.is_none(),
             origin: self.origin.clone(),
-            pitch_preserved: true,
             loop_a,
             loop_b,
             loops: self.loops.iter().map(|&(a, b)| [a, b]).collect(),

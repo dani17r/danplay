@@ -61,8 +61,7 @@ const EMPTY = {
   origin: null,
   // modo estudio: el bucle A-B (0,0 = sin bucle); con varios tramos, `loops`
   // los lleva todos y `loop_end` dice qué pasa al acabar el último: repetir,
-  // parar o seguir. (La velocidad siempre conserva el tono: Rust aún manda
-  // `pitch_preserved`, siempre verdadero, y aquí ya no se lee.)
+  // parar o seguir. (La velocidad siempre conserva el tono.)
   loop_a: 0,
   loop_b: 0,
   loops: [],
