@@ -39,6 +39,34 @@ const KEEP_IF_EMPTY: [&str; 6] = ["stars", "favorite", "blur", "key", "bpm", "ly
 /// del archivo, de su carpeta) no lo pisa.
 const KEEP_IF_UNTAGGABLE: [&str; 6] = ["artist", "title", "album", "year", "genre", "feat"];
 
+/// Dónde se apunta (en `meta`) con qué artistas conocidos se hizo el último
+/// escaneo completo (ver `vocabulary_signature`).
+const ARTISTS_KEY: &str = "scan_artists";
+
+/// Una firma de los artistas conocidos (las carpetas de Artistas/). Para una
+/// canción sin etiqueta de artista, el artista sale del nombre del archivo y
+/// de los artistas que ya se conocen: mientras ni el archivo ni esos artistas
+/// cambien, releerla da lo mismo que ya está en el índice.
+fn vocabulary_signature(vocab: &[(String, String)]) -> String {
+    use sha1::{Digest, Sha1};
+    use std::fmt::Write as _;
+    let mut names: Vec<&str> = vocab.iter().map(|(_, real)| real.as_str()).collect();
+    names.sort_unstable();
+    let digest = Sha1::digest(names.join("\n").as_bytes());
+    digest.iter().fold(String::new(), |mut out, b| {
+        let _ = write!(out, "{b:02x}");
+        out
+    })
+}
+
+/// Con qué artistas se hizo el último escaneo completo, si se apuntó.
+fn stored_artists(conn: &Connection) -> rusqlite::Result<Option<String>> {
+    Ok(
+        fetch_one(conn, "SELECT value FROM meta WHERE key=?", [ARTISTS_KEY])?
+            .and_then(|r| r.get("value").and_then(Value::as_str).map(str::to_owned)),
+    )
+}
+
 /// Cuántas canciones se leen de una vez (en paralelo): bastantes para
 /// aprovechar todos los núcleos y pocas para no tener en memoria las
 /// etiquetas de toda la biblioteca a la vez.
@@ -672,8 +700,14 @@ pub fn scan(
         .collect();
     out.removed = to_missing(conn, &out.gone)?;
 
+    // Las canciones sin artista se releen aunque su archivo no haya cambiado
+    // solo si hay artistas conocidos nuevos (una carpeta en Artistas/): pueden
+    // resolverse ahora. Si no, releerlas daba lo mismo, en cada escaneo (cada
+    // diez minutos y en cada arranque).
+    let artists_now = vocabulary_signature(&vocab);
+    let artists_same = stored_artists(conn)?.as_deref() == Some(artists_now.as_str());
     let needs_reading = |path: &str, v: Option<&Dict>| -> bool {
-        let Some(v) = v.filter(|v| !get_str(v, "artist").is_empty()) else {
+        let Some(v) = v.filter(|v| artists_same || !get_str(v, "artist").is_empty()) else {
             return true;
         };
         let Ok(st) = std::fs::metadata(path) else {
@@ -699,9 +733,9 @@ pub fn scan(
         // vez de volver a abrirlo y parsearlo. Es lo que hace que un
         // reescaneo sea casi instantáneo. Escribir etiquetas (estrellas,
         // favorito, un título corregido) cambia la fecha del archivo, así
-        // que eso siempre se relee. Los que no tienen artista también:
-        // pueden resolverse ahora que hay más carpetas de artista.
-        if v.is_none_or(|v| !get_str(v, "artist").is_empty()) {
+        // que eso siempre se relee. Los que no tienen artista también, si
+        // hay carpetas de artista nuevas: pueden resolverse ahora.
+        if v.is_none_or(|v| artists_same || !get_str(v, "artist").is_empty()) {
             let Ok(st) = std::fs::metadata(path) else {
                 continue;
             }; // se fue mientras tanto
@@ -801,6 +835,13 @@ pub fn scan(
         if n.is_multiple_of(50) {
             progress(n, total);
         }
+    }
+    if !artists_same {
+        begin(conn)?;
+        conn.execute(
+            "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+            [ARTISTS_KEY, artists_now.as_str()],
+        )?;
     }
     commit(conn)?;
     progress(n, total);
@@ -1096,6 +1137,39 @@ mod tests {
         assert_ne!(after["mtime"], before["mtime"]);
         let again = rescan(&conn, &root);
         assert_eq!((again.updated, again.reused), (0, 1));
+    }
+
+    /// Una canción sin artista (ni etiqueta, ni carpeta, ni nombre que lo
+    /// diga) se releía entera en cada escaneo, aunque su archivo no hubiera
+    /// cambiado. Ahora solo si hay un artista conocido nuevo que pueda
+    /// resolverla.
+    #[test]
+    fn a_song_without_artist_is_read_again_only_when_there_is_a_new_artist() {
+        let dir = Scratch::new("sin-artista");
+        let (conn, root) = library(&dir);
+        let file = root.join("Entrada").join("Barak Gozo.wma");
+        std::fs::create_dir_all(file.parent().expect("carpeta")).expect("carpeta");
+        std::fs::write(&file, b"sin etiquetas ni artista").expect("escribir");
+        let first = rescan(&conn, &root);
+        assert_eq!(first.added_count, 1);
+        assert_eq!(get_str(&song(&conn, "Barak Gozo.wma"), "artist"), "");
+        // sin nada nuevo: no se relee (antes, cada vez)
+        for _ in 0..3 {
+            let again = rescan(&conn, &root);
+            assert_eq!(
+                (again.updated, again.reused),
+                (0, 1),
+                "se releyó sin motivo"
+            );
+        }
+        // una carpeta de artista nueva: ahora puede resolverse, y se resuelve
+        std::fs::create_dir_all(root.join("Artistas").join("Barak")).expect("artista");
+        let found = rescan(&conn, &root);
+        assert_eq!(found.updated, 1);
+        assert_eq!(get_str(&song(&conn, "Barak Gozo.wma"), "artist"), "Barak");
+        // y vuelve a quedar quieta
+        let quiet = rescan(&conn, &root);
+        assert_eq!((quiet.updated, quiet.reused), (0, 1));
     }
 
     /// En un archivo que sí admite etiquetas, lo que el archivo dice manda;
