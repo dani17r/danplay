@@ -1650,9 +1650,13 @@ async function autoGuide() {
           ...(bars.length >= 8 ? { bars } : {}),
           ...(beat ? { beat } : {})
         }),
-      JOBS.autoGuide,
-      { busy: 'aún se está haciendo la guía de otra canción: espera a que termine' }
+      // un trabajo por canción: el de otra ni se espera ni se confunde
+      `${JOBS.autoGuide}-${id}`
     )
+    // lo que llega dice de qué canción es: las partes de otra no se colocan
+    if (r?.song != null && r.song !== id) {
+      throw new Error('llegó la guía de otra canción: pídela otra vez')
+    }
     if (loadedFor.value === id) placeAutoGuide(r, voice)
   } catch (e) {
     notify('No se pudo hacer la guía automática: ' + errorMessage(e))

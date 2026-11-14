@@ -212,7 +212,7 @@ fn auto(app: &App, cid: i64, body: Value) -> Value {
     run_job(
         app,
         &format!("/api/song/{cid}/cues/auto"),
-        "auto-cue",
+        &format!("auto-cue-{cid}"),
         Some(body),
     )
 }
@@ -415,13 +415,63 @@ fn a_song_too_short_has_no_parts() {
         Some(json!({"voice": "st-F1"})),
     );
     assert_eq!(st, 202);
-    let job = wait_job(&app, "auto-cue");
+    let job = wait_job(&app, &format!("auto-cue-{short}"));
     assert!(
         job["error"]
             .as_str()
             .is_some_and(|e| e.contains("demasiado corta")),
         "{job}"
     );
+}
+
+#[test]
+fn each_song_has_its_own_guide_and_the_result_says_whose_it_is() {
+    // El trabajo se llamaba igual para todas («auto-cue»): pedir la guía de
+    // una canción mientras se hacía la de otra devolvía «ya está en marcha»
+    // con el trabajo de la otra, y sus partes llegaban como si fueran de
+    // esta.
+    let Some((app, cid, _)) = song() else {
+        return;
+    };
+    let short = rows(&app)
+        .into_iter()
+        .find(|s| s["file"] == "Barak - Mi Gozo.mp3")
+        .and_then(|s| s["id"].as_i64())
+        .expect("Mi Gozo");
+    let (st, long) = call(
+        &app,
+        "POST",
+        &format!("/api/song/{cid}/cues/auto"),
+        Some(json!({"voice": "st-F1", "bars": every_bar(), "beat": 0.5})),
+    );
+    assert_eq!(st, 202, "{long}");
+    // la de otra canción, pedida mientras: la suya, no «la que ya está»
+    let (st, other) = call(
+        &app,
+        "POST",
+        &format!("/api/song/{short}/cues/auto"),
+        Some(json!({"voice": "st-F1"})),
+    );
+    assert_eq!(st, 202, "{other}");
+    assert!(other.get("already_running").is_none(), "{other}");
+    assert_eq!(long["job"]["name"], format!("auto-cue-{cid}"));
+    assert_eq!(other["job"]["name"], format!("auto-cue-{short}"));
+    let job = wait_job(&app, &format!("auto-cue-{short}"));
+    assert!(
+        job["error"]
+            .as_str()
+            .is_some_and(|e| e.contains("demasiado corta")),
+        "{job}"
+    );
+    let job = wait_job(&app, &format!("auto-cue-{cid}"));
+    assert_eq!(job["error"], "", "{job}");
+    assert_eq!(job["result"]["song"], cid);
+    assert_eq!(labels(&job["result"]["sections"]), NAMES);
+    // y quien aún pregunte por «auto-cue» a secas: la última pedida, que
+    // dice de cuál es
+    let (st, last) = call(&app, "GET", "/api/jobs/auto-cue", None);
+    assert_eq!(st, 200);
+    assert_eq!(last["name"], format!("auto-cue-{short}"));
 }
 
 /// La letra con tiempos de la canción de prueba: cada parte que se canta,

@@ -88,7 +88,8 @@ fn cue_make(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
         .map_err(|e| with_status(e, 422))
 }
 
-/// La guía automática (trabajo «auto-cue»).
+/// La guía automática: un trabajo por canción (`auto-cue-<id>`), y su
+/// resultado dice de cuál es (`song`).
 fn cue_auto(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let cid = ctx.path().int("cid").required();
     let mut b = ctx.body()?;
@@ -122,16 +123,20 @@ fn cue_auto(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
         sections,
     };
     let me = ctx.app.clone();
-    let (snap, already) = ctx.app.jobs.start(
+    let (snap, already) = ctx.app.jobs.start_keyed(
         structure::AUTO_JOB,
+        cid,
         "no se pudo hacer la guía automática",
         move |p| {
-            let r = structure::auto_guide(&me, &song, &req, p)?;
+            let mut r = structure::auto_guide(&me, &song, &req, p)?;
             let n = r["sections"].as_array().map_or(0, Vec::len);
             p.message(&format!(
                 "Guía lista: {n} parte{}",
                 if n == 1 { "" } else { "s" }
             ));
+            // de qué canción es: quien lo recoge no tiene que fiarse de por
+            // cuál preguntó
+            r["song"] = cid.into();
             Ok(r)
         },
     );

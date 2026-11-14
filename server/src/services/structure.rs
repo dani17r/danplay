@@ -12,6 +12,8 @@ use std::ffi::OsString;
 use library::value;
 use std::time::Duration;
 
+/// La familia de los trabajos de la guía automática: uno por canción
+/// (`auto-cue-<id>`, `Jobs::start_keyed`).
 pub const AUTO_JOB: &str = "auto-cue";
 
 fn expected(t: impl Into<String>) -> JobError {

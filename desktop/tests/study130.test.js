@@ -384,6 +384,32 @@ describe('the automatic cue', () => {
     expect(body.cueLanes[0]).toMatchObject({ name: 'Partes', auto: true })
   })
 
+  it('asks for the job of this song, and a result of another song is not placed', async () => {
+    // el trabajo se llamaba igual para todas: las partes de otra canción
+    // podían llegar como si fueran de esta
+    const { useNotices } = await import('../src/composables/useNotices.js')
+    prepare()
+    localStorage.setItem('danplay.cues.voice', JSON.stringify('st-F1'))
+    held.api.runJob.mockImplementation(async (start) => {
+      await start()
+      return { ...result, song: 99 }
+    })
+    const w = await mountView()
+    await w.find('.study-auto-guide').trigger('click')
+    await flushPromises()
+    expect(held.api.runJob.mock.calls.at(-1)[1]).toBe('auto-cue-7')
+    expect(w.findAll('.tl-guide-clip')).toHaveLength(0)
+    expect(useNotices().notices.value.at(-1).message).toContain('la guía de otra canción')
+    // la suya sí
+    held.api.runJob.mockImplementation(async (start) => {
+      await start()
+      return { ...result, song: 7 }
+    })
+    await w.find('.study-auto-guide').trigger('click')
+    await flushPromises()
+    expect(w.findAll('.tl-guide-clip')).toHaveLength(2)
+  })
+
   it('the bars come from the core, not from how the click is accented', async () => {
     // con «sin acento» no se ve ningún «1»: se mandaba uno de cada cuatro
     // pulsos, empezara donde empezara, y las partes caían fuera de su sitio
