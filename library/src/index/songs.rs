@@ -136,6 +136,8 @@ fn float_or(v: Option<&Value>, default: f64) -> Option<f64> {
 /// (del 51 en adelante desaparecían al recargar), y con unas notas de más de
 /// 4.000 letras no se guardaba nada del estudio.
 pub const MAX_MARKERS: usize = 200;
+/// Hasta cuántas zonas movidas a mano guarda un clic propio.
+pub const MAX_TOUCHED: usize = 400;
 pub const MAX_NOTES: usize = 4000;
 
 fn text_of(v: Option<&Value>, n: usize) -> String {
@@ -248,7 +250,8 @@ pub fn mixer(raw: Option<&Value>) -> Dict {
 }
 
 /// El clic propio (los pulsos ajustados a mano): crecientes, al
-/// milisegundo, y los «1» que caigan en ellos. Menos de dos, nada.
+/// milisegundo, los «1» que caigan en ellos y las zonas que movió él
+/// (`touched`). Menos de dos pulsos, nada.
 pub fn own_click(own: Option<&Value>) -> Option<Dict> {
     let Some(Value::Object(own)) = own else {
         return None;
@@ -301,6 +304,15 @@ pub fn own_click(own: Option<&Value>) -> Option<Dict> {
     );
     if let Some(meter) = own.get("meter").and_then(|m| value::number_in(m, &METERS)) {
         out.insert("meter".into(), Value::from(meter));
+    }
+    // las zonas que movió él: al re-analizar se respetan y lo demás se rehace.
+    // Vacías también se guardan (no movió nada); sin el campo, es un clic de
+    // antes de que se guardaran
+    if own.get("touched").is_some_and(Value::is_array) {
+        out.insert(
+            "touched".into(),
+            segments_value(&segments(own.get("touched"), MAX_TOUCHED)),
+        );
     }
     Some(out)
 }

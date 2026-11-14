@@ -764,6 +764,15 @@ fn own_click(f: &mut Fields) -> Value {
         )
         .or(Vec::new());
     let meter = f.int("meter").opt();
+    let touched = f
+        .field(
+            "touched",
+            Capped {
+                item: Floats,
+                max: 400,
+            },
+        )
+        .opt();
     let mut out = Map::new();
     out.insert("beats".into(), floats_value(beats));
     out.insert(
@@ -772,6 +781,9 @@ fn own_click(f: &mut Fields) -> Value {
     );
     if let Some(m) = meter {
         out.insert("meter".into(), m.into());
+    }
+    if let Some(t) = touched {
+        out.insert("touched".into(), segments_value(t));
     }
     Value::Object(out)
 }

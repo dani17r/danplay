@@ -277,6 +277,10 @@ pub fn shift_study(study: &Dict, lag: f64) -> Dict {
             Value::Array(keep.iter().map(|&i| Value::from(beats[i])).collect()),
         );
         new_own.insert("bars".into(), Value::Array(bars));
+        // las zonas que movió él van con la canción: son tiempos
+        if let Some(touched) = own.get("touched").filter(|v| v.is_array()) {
+            new_own.insert("touched".into(), segments(touched));
+        }
         let mut new_metro = metro.cloned().unwrap_or_default();
         new_metro.insert("own".into(), Value::Object(new_own));
         out.insert("metronome".into(), Value::Object(new_metro));
@@ -298,7 +302,7 @@ mod tests {
             "loop": [5, 8],
             "markers": [{"t": 0.1, "label": "fuera"}, {"t": 10, "end": 20, "label": "coro"}],
             "cues": [{"t": 9.5, "file": "/x.wav"}],
-            "metronome": {"bpm": 120, "own": {"beats": [0.2, 0.7, 1.2], "bars": [0, 2], "meter": 4}},
+            "metronome": {"bpm": 120, "own": {"beats": [0.2, 0.7, 1.2], "bars": [0, 2], "meter": 4, "touched": [[0.1, 0.9], [3.0, 4.0]]}},
             "speed": 0.9,
         });
         let study = study.as_object().expect("un diccionario");
@@ -312,7 +316,8 @@ mod tests {
         assert_eq!(out["speed"], 0.9);
         assert_eq!(
             out["metronome"]["own"],
-            json!({"beats": [0.2, 0.7], "bars": [1], "meter": 4})
+            json!({"beats": [0.2, 0.7], "bars": [1], "meter": 4, "touched": [[0.0, 0.4], [2.5, 3.5]]}),
+            "las zonas que movió él se corren con la canción, como los pulsos"
         );
         assert_eq!(out["metronome"]["bpm"], 120);
         assert_eq!(

@@ -398,7 +398,8 @@ fn the_api_for_guides() {
             {"t": 3, "file": "/etc/passwd"},
             {"t": 5, "file": guide, "gain": 1.5},
         ],
-        "metronome": {"own": {"beats": [1.0, 1.5, 1.5, 2.0, -1], "bars": [0, 2, 9], "meter": 3}},
+        "metronome": {"own": {"beats": [1.0, 1.5, 1.5, 2.0, -1], "bars": [0, 2, 9], "meter": 3,
+            "touched": [[1.5, 2.0], [0.9994, 1.2], [3.0, 1.0], [1.1, 1.6]]}},
     }));
     assert_eq!(
         s["cues"],
@@ -409,8 +410,15 @@ fn the_api_for_guides() {
     );
     assert_eq!(
         s["metronome"]["own"],
-        json!({"beats": [1.0, 1.5, 2.0], "bars": [0, 2], "meter": 3})
+        json!({"beats": [1.0, 1.5, 2.0], "bars": [0, 2], "meter": 3,
+            "touched": [[0.999, 2.0]]}),
+        "las zonas movidas a mano se guardan limpias: válidas, en orden y las que se tocan, juntas"
     );
+    // vacías también (no movió nada), y sin el campo es un clic de antes
+    let s = study(json!({"metronome": {"own": {"beats": [1.0, 1.5], "bars": [0], "touched": []}}}));
+    assert_eq!(s["metronome"]["own"]["touched"], json!([]));
+    let s = study(json!({"metronome": {"own": {"beats": [1.0, 1.5], "bars": [0]}}}));
+    assert!(s["metronome"]["own"].get("touched").is_none());
     // los carriles de las guías (hasta 6), y cada guía en el suyo
     let s = study(json!({
         "cues": [
