@@ -56,6 +56,12 @@ import {
   multFactor,
   clickTimes,
   gridToOwn,
+  cleanOwn,
+  ownTouched,
+  touchedByEdit,
+  touchedOrAll,
+  beatChanges,
+  windowsText,
   nearestBeat,
   METERS
 } from '../utils/beats.js'
@@ -764,28 +770,48 @@ async function setPitch(n) {
 // ---- metronomo
 // El pulso y el compas los da `useClick`: con el automático, los de cada
 // cancion (Beat This! en el nucleo, o el analisis de Rust si aqui no se
-// puede); con el propio, el ajustado a mano y guardado con ella; a mano, un
-// tempo para todas. Lo que uno ajuste a una cancion (tempo, compas, «1»,
-// doble/mitad, sus pulsos) se guarda con ella en `study.metronome`; lo de a
-// mano, en el navegador (es de quien toca).
+// puede); con el manual, los que movio él sobre la onda, guardados con ella;
+// con el tempo fijo, uno para todas. Lo que uno ajuste a una cancion (tempo,
+// compas, «1», doble/mitad, sus pulsos) se guarda con ella en
+// `study.metronome`; lo del tempo fijo, en el navegador (es de quien toca).
+// Lo guardado conserva los nombres de antes ('auto', 'own', 'manual'): solo
+// cambian las palabras. «A mano» a secas se entendía como «lo que moví yo» y
+// era un tempo para todas.
 const CLICK_MODES = [
   {
     v: 'auto',
     n: 'Automático',
-    title: 'Cada canción con su clic, detectado solo (el pulso y el «1»)'
+    title:
+      'Lo que analizó DanPlay: cada canción con su clic, detectado solo (el pulso y el «1»). Si re-analizas, aquí se ve lo nuevo'
   },
   {
     v: 'own',
-    n: 'Propio',
+    n: 'Manual',
     title:
-      'El clic de cada canción ajustado por ti: mueve los pulsos sobre la onda y se guarda con ella'
+      'Lo que mueves tú en la onda, pulso a pulso: se guarda con cada canción y vuelve cuando eliges Manual'
   },
   {
     v: 'manual',
-    n: 'A mano',
-    title: 'Un tempo que pones tú, el mismo en todas las canciones'
+    n: 'Tempo fijo',
+    title: 'Un solo tempo que pones tú, el mismo en todas las canciones'
   }
 ]
+/** El título de un modo: el de Manual dice si esta canción ya tiene lo suyo. */
+function modeTitle(m) {
+  if (m.v !== 'own') return m.title
+  return (
+    m.title +
+    (hasOwn.value ? ' · esta canción ya tiene el suyo' : ' · esta canción aún no tiene el suyo')
+  )
+}
+/**
+ * Cambiar de modo. Antes se guarda lo que esté pendiente: Manual se lee de lo
+ * guardado, y un ajuste de hace medio segundo aún no lo estaría.
+ */
+async function chooseMode(v) {
+  await flushSave()
+  await click.setMode(v)
+}
 /**
  * La rejilla tal como suena, para la onda: con el doble o la mitad, el
  * compas y el «1» corrido.
@@ -847,12 +873,32 @@ const bpmDraft = ref(null)
 const clickPercent = computed(() => Math.round(click.progress.value * 100))
 /** Cargando el clic de esta canción (en automático): no se puede poner aún. */
 const clickLoading = computed(() => click.auto.value && click.loading.value)
-/** Esta canción tiene su clic propio guardado. */
+/** Esta canción tiene su clic manual guardado. */
 const hasOwn = computed(() => !!study.value.metronome?.own?.beats?.length)
+/**
+ * Dónde el clic es una suposición, para la onda: lo que dijo el último
+ * análisis de esta canción (nada si no lo dijo, o si el clic no sigue a la
+ * canción).
+ */
+const weakRegions = computed(() =>
+  clickAuto.value && click.weak.value.id === (track.value?.id ?? null)
+    ? click.weak.value.regions
+    : []
+)
+/**
+ * Cómo encajaba el clic con los golpes antes y después del último
+ * re-análisis de esta canción, si se midió (en el aviso de debajo del clic).
+ */
+const fitTitle = computed(() => {
+  const f = click.fit.value
+  if (f.id !== (track.value?.id ?? null) || !f.before || !f.after) return ''
+  const ms = (v) => `${Math.round(v)} ms`
+  return `Último re-análisis · cómo encaja el clic con los golpes de la música (antes → ahora): desfase mediano ${ms(f.before.median)} → ${ms(f.after.median)}, dispersión ${ms(f.before.spread)} → ${ms(f.after.spread)}`
+})
 const metroStatus = computed(() => {
   const m = metronome.value
   if (player.state.counting_in) return 'contando…'
-  if (!click.auto.value) return 'a mano: el mismo tempo en todas las canciones'
+  if (!click.auto.value) return 'tempo fijo: el mismo en todas las canciones'
   if (clickLoading.value) return `cargando el clic de esta canción… ${clickPercent.value} %`
   if (click.reanalyzing.value != null) {
     return `oyendo la batería separada… ${Math.round(click.reanalyzing.value * 100)} %`
@@ -867,8 +913,8 @@ const metroStatus = computed(() => {
   if (m.free) return 'tempo a mano: entra con el pulso de la canción y va a su aire'
   if (clickMode.value === 'own') {
     return hasOwn.value
-      ? 'tu clic de esta canción: los pulsos que ajustaste'
-      : 'aún sin clic propio: suena el automático; ajusta los pulsos para hacer el tuyo'
+      ? 'manual: los pulsos que moviste tú en esta canción'
+      : 'manual: esta canción aún no tiene el tuyo (suena el automático). Pulsa «Empezar el mío»'
   }
   const sure = m.confidence >= 0.6 ? 'seguro' : m.confidence >= 0.3 ? 'probable' : 'dudoso'
   return `sigue la canción · el «1» ${sure}`
@@ -985,21 +1031,31 @@ function setMetroVolume(v) {
   return player.setMetronome({ volume: v })
 }
 
-// ---- el clic propio: los pulsos ajustados a mano sobre la onda
+// ---- el clic manual: los pulsos ajustados a mano sobre la onda
 /** Editando los pulsos en la onda. */
 const editingBeats = ref(false)
 watch(clickMode, (m) => {
   if (m !== 'own') editingBeats.value = false
 })
 /**
- * Los pulsos que se ajustaron en la onda: pasan a ser el clic propio de la
- * canción (se guarda con ella) y suenan ya.
+ * Los pulsos que se ajustaron en la onda: pasan a ser el clic manual de la
+ * canción (se guarda con ella) y suenan ya. Con ellos se guardan las zonas
+ * que tocó: lo que cambió respecto a lo que se veía (sus pulsos de antes o,
+ * la primera vez, el automático), para que un re-análisis las respete y
+ * rehaga el resto.
  * @param {import('../api.js').BeatGrid} edited
  */
 async function onOwnGrid(edited) {
   const id = loadedFor.value
   if (!id) return
-  const own = gridToOwn(edited)
+  const before = soundingGrid.value
+  const prev = study.value.metronome?.own
+  const touched = before
+    ? touchedByEdit(before, edited, prev?.beats?.length ? touchedOrAll(prev, duration.value) : [])
+    : prev?.beats?.length
+      ? touchedOrAll(prev, duration.value)
+      : []
+  const own = gridToOwn(edited, touched)
   study.value.metronome = { ...(study.value.metronome || {}), own, shift: 0, mult: 0 }
   delete study.value.metronome.shift
   delete study.value.metronome.mult
@@ -1011,15 +1067,16 @@ async function onOwnGrid(edited) {
   await player.setMetronome({ mult: 0, shift: 0 })
   await click.applyOwn(id, own)
 }
-/** Empezar el propio desde el automático, o quitarlo (vuelve el automático). */
+/** Borrar el clic manual de esta canción (queda el automático). */
 async function resetOwn() {
   const id = loadedFor.value
   if (!id || !hasOwn.value) return
   const ok = await ask({
     kind: 'confirm',
-    title: 'Quitar tu clic de esta canción',
-    message: 'Se olvidan los pulsos que ajustaste a mano y vuelve el automático.',
-    okLabel: 'Quitarlo',
+    title: 'Borrar tu clic manual de esta canción',
+    message:
+      'Se olvidan los pulsos que moviste a mano en esta canción y queda solo el automático. No se puede deshacer.',
+    okLabel: 'Borrarlo',
     danger: true
   })
   if (!ok) return
@@ -1036,7 +1093,7 @@ async function startEditing() {
   if (editingBeats.value) {
     timeline.value?.zoomToBeats?.()
     notify(
-      'Acerca la onda con la rueda del ratón: arrastra un pulso para moverlo, doble clic para añadir uno, clic derecho para quitarlo o hacerlo el «1»',
+      'Acerca la onda con la rueda del ratón: arrastra un pulso para moverlo, doble clic para añadir uno, clic derecho para quitarlo o hacerlo el «1». Lo que muevas queda en Manual',
       'info',
       8
     )
@@ -1098,6 +1155,85 @@ watch(clickMore, (v) => savePref(CLICK_MORE_KEY, v))
 const setSongVolume = (v) => player.setVolume(v)
 const pctText = (v) => Math.round((Number(v) || 0) * 100) + ' %'
 
+/**
+ * Deja `own` como el clic manual de la canción `id`. Si sigue abierta, por el
+ * camino de siempre (el estudio de aquí); si ya se pasó a otra (la batería
+ * tarda), se lee lo guardado de aquella y se le escribe solo esto.
+ */
+async function saveOwnOf(id, own) {
+  if (studyFor.value === id) {
+    study.value.metronome = { ...(study.value.metronome || {}), own }
+    scheduleSave()
+    await flushSave()
+    return
+  }
+  const stored = parse((await api.song(id))?.study)
+  stored.metronome = { ...(stored.metronome || {}), own }
+  warnIfOnlyHere(id, await api.setStudy(id, stored))
+}
+
+/** «3 pulsos» / «1 pulso» */
+const beatsWord = (n) => `${n} ${n === 1 ? 'pulso' : 'pulsos'}`
+
+/**
+ * Lo que se cuenta al acabar un re-análisis. Siempre dice algo: qué cambió, o
+ * por qué no cambió nada, y dónde está lo que no se ve en este modo.
+ * @param {{fixed: number, weak: Array<[number, number]>, hadOwn: boolean, manual: boolean,
+ *   answered: boolean, legacy: boolean, changed: number, windows: number}} r
+ */
+function reanalysisNote(r) {
+  const weak = r.weak.length
+    ? `. Poco claro (aquí el clic es una suposición): ${windowsText(r.weak)}`
+    : ''
+  const auto = r.fixed
+    ? `${beatsWord(r.fixed)} ${r.fixed === 1 ? 'cambió' : 'cambiaron'} de sitio`
+    : 'ya estaba así, no cambió ningún pulso'
+  if (!r.manual) {
+    // el automático: lo nuevo se ve y suena ya; lo manual, si lo hay, sigue ahí
+    const kept = r.hadOwn
+      ? '. Tu clic manual de esta canción sigue como lo dejaste: pulsa «Manual» para volver a él'
+      : ''
+    return {
+      text: `Automático analizado otra vez: ${auto}${kept}${weak}`,
+      kind: r.fixed ? 'ok' : 'info',
+      secs: r.hadOwn || weak ? 9 : 5
+    }
+  }
+  const now = r.fixed
+    ? `En «Automático» ${beatsWord(r.fixed)} ${r.fixed === 1 ? 'cambió' : 'cambiaron'}`
+    : ''
+  if (!r.answered) {
+    return {
+      text: `Tu clic manual se queda como estaba: este núcleo no lo re-analiza. ${now ? now + '. ' : ''}Lo nuevo está en «Automático»${weak}`,
+      kind: 'info',
+      secs: 9
+    }
+  }
+  if (r.legacy) {
+    return {
+      text: `Tu clic manual de esta canción es de antes de que DanPlay marcara lo que mueves: se queda entero. ${now ? now + '. ' : ''}Lo nuevo está en «Automático»${weak}`,
+      kind: 'info',
+      secs: 10
+    }
+  }
+  const mine = `${r.windows} ${r.windows === 1 ? 'zona tuya' : 'zonas tuyas'}`
+  if (r.changed) {
+    const respected = r.windows === 1 ? `se respetó ${mine}` : `se respetaron ${mine}`
+    return {
+      text: `Clic manual re-analizado: ${beatsWord(r.changed)} ${r.changed === 1 ? 'cambió' : 'cambiaron'} fuera de lo que moviste tú; ${respected}${weak}`,
+      kind: 'ok',
+      secs: 8
+    }
+  }
+  return {
+    text: r.windows
+      ? `Tu clic manual se queda igual: fuera de lo que moviste tú (${mine}) el nuevo análisis no cambió ningún pulso${now ? '. ' + now : ''}${weak}`
+      : `Tu clic manual se queda igual: el nuevo análisis no cambió ningún pulso${now ? '. ' + now : ''}${weak}`,
+    kind: 'info',
+    secs: 8
+  }
+}
+
 /** Volver a analizar el clic: de toda la canción o del tramo elegido. */
 async function reanalyze(ev) {
   const id = loadedFor.value
@@ -1106,25 +1242,56 @@ async function reanalyze(ev) {
     ? [study.value.loops[0][0], study.value.loops.at(-1)[1]]
     : null
   const run = async (mode, range) => {
+    // En Manual, con su clic hecho, se re-analiza lo que NO movió él: el
+    // núcleo recibe sus pulsos con las zonas que tocó y devuelve el clic
+    // mezclado (lo suyo, y lo demás con el análisis nuevo).
+    const own = study.value.metronome?.own
+    const manual = clickMode.value === 'own' && !!own?.beats?.length
+    const sent = manual
+      ? {
+          beats: [...own.beats],
+          bars: [...(own.bars || [])],
+          meter: own.meter ?? 4,
+          touched: touchedOrAll(own, duration.value)
+        }
+      : null
     notify('Analizando el clic otra vez…', 'info', 4)
     try {
       const r = await click.reanalyze(id, {
         mode,
-        ...(range ? { start: range[0], end: range[1] } : {})
+        ...(range ? { start: range[0], end: range[1] } : {}),
+        ...(sent ? { own: sent } : {})
       })
-      // la rejilla nueva, al motor y a la onda (si sigue sonando esa canción)
-      const heard = loadedFor.value === id && (await click.reload(r?.grid || null))
-      const fixed = r?.report?.fixed || 0
-      const what = fixed
-        ? `Clic analizado otra vez: ${fixed} ${fixed === 1 ? 'pulso cambió' : 'pulsos cambiaron'} de sitio`
-        : 'Clic analizado otra vez: ya estaba así, no cambió ningún pulso'
-      notify(
-        heard || loadedFor.value !== id
-          ? what
-          : what + '. Suena tu clic ajustado a mano: con «quitar el mío» vuelve el automático',
-        fixed ? 'ok' : 'info',
-        heard ? 5 : 8
-      )
+      const weak = Array.isArray(r?.report?.weak) ? r.report.weak : []
+      click.setWeak(id, weak)
+      click.setFit(id, r?.report?.fit)
+      // el clic manual mezclado se guarda (el núcleo no escribe el estudio) y suena ya
+      const merged = sent && r?.own ? cleanOwn(r.own, sent.touched) : null
+      let changed = 0
+      if (merged) {
+        changed = beatChanges(sent.beats, merged.beats).changed
+        // (los «1» de lo guardado, como se guardarían: de cada compás)
+        const mine = cleanOwn(own)
+        const same =
+          changed === 0 && merged.bars.join() === mine?.bars.join() && merged.meter === mine?.meter
+        if (!same) {
+          await saveOwnOf(id, merged)
+          if (loadedFor.value === id) await click.applyOwn(id, merged)
+        }
+      }
+      // el automático nuevo, al motor y a la onda (si es el que suena)
+      if (loadedFor.value === id) await click.reload(r?.grid || null)
+      const note = reanalysisNote({
+        fixed: r?.report?.fixed || 0,
+        weak: loadedFor.value === id ? click.weak.value.regions : weak,
+        hadOwn: !!own?.beats?.length,
+        manual,
+        answered: !!merged,
+        legacy: manual && ownTouched(own) === null,
+        changed,
+        windows: merged?.touched?.length ?? 0
+      })
+      notify(note.text, note.kind, note.secs)
     } catch (e) {
       notify('No se pudo analizar: ' + errorMessage(e))
     }
@@ -1137,7 +1304,8 @@ async function reanalyze(ev) {
       action: () => run('repair', null)
     },
     {
-      label: 'Tempo fijo',
+      // (no es el modo «Tempo fijo» del clic, que es uno para todas las canciones)
+      label: 'Tempo constante',
       icon: 'note',
       note: 'para las grabadas a clic',
       action: () => run('steady', null)
@@ -1174,13 +1342,22 @@ async function reanalyze(ev) {
       action: () => run('repair', seg)
     })
     items.push({
-      label: 'El tramo, a tempo fijo',
+      label: 'El tramo, a tempo constante',
       icon: 'note',
       note: `${formatTime(seg[0])} – ${formatTime(seg[1])}`,
       action: () => run('steady', seg)
     })
   }
-  openMenu(ev, items, 'Volver a analizar el clic')
+  const manual = clickMode.value === 'own' && hasOwn.value
+  openMenu(
+    ev,
+    items,
+    manual
+      ? 'Re-analizar tu clic manual (se respeta lo que moviste tú)'
+      : hasOwn.value
+        ? 'Re-analizar el clic automático (tu clic manual no se toca)'
+        : 'Volver a analizar el clic'
+  )
 }
 
 // ---- marcadores: tramos con nombre y notas (uno, o varios seguidos), o un
@@ -2973,6 +3150,7 @@ defineExpose({ close: hide, hide, exit })
       :cues="study.cues"
       :selected="selected"
       :grid="soundingGrid"
+      :weak="weakRegions"
       :edit-beats="editingBeats"
       :show-mix="showMix"
       :show-routes="showRoutes"
@@ -3231,7 +3409,9 @@ defineExpose({ close: hide, hide, exit })
               </button>
             </span>
           </div>
-          <p class="study-metro-status" aria-live="polite">{{ metroStatus }}</p>
+          <p class="study-metro-status" aria-live="polite" :title="fitTitle || null">
+            {{ metroStatus }}
+          </p>
           <div
             class="study-metro-row study-modes"
             role="radiogroup"
@@ -3243,10 +3423,10 @@ defineExpose({ close: hide, hide, exit })
               type="button"
               role="radio"
               class="btn mini study-mode"
-              :class="{ on: clickMode === m.v }"
+              :class="{ on: clickMode === m.v, has: m.v === 'own' && hasOwn }"
               :aria-checked="clickMode === m.v"
-              :title="m.title"
-              @click="click.setMode(m.v)"
+              :title="modeTitle(m)"
+              @click="chooseMode(m.v)"
             >
               {{ m.n }}
             </button>
@@ -3300,16 +3480,33 @@ defineExpose({ close: hide, hide, exit })
               :class="{ on: editingBeats }"
               :aria-pressed="editingBeats"
               :disabled="!track || !grid"
-              title="Ajustar los pulsos a mano sobre la onda: el clic propio de esta canción"
+              :title="
+                hasOwn
+                  ? 'Mover los pulsos de esta canción sobre la onda (Manual): lo que muevas se guarda con ella'
+                  : 'Mover los pulsos sobre la onda para hacer tu clic manual de esta canción: pasa a Manual y parte del automático'
+              "
               @click="startEditing"
             >
-              <Icon n="pencil" :t="11" /> {{ editingBeats ? 'Listo' : 'Ajustar pulsos' }}
+              <Icon n="pencil" :t="11" />
+              {{
+                editingBeats
+                  ? 'Listo'
+                  : clickMode === 'own' && !hasOwn
+                    ? 'Empezar el mío'
+                    : 'Ajustar pulsos'
+              }}
             </button>
             <button
               class="btn mini"
               type="button"
               :disabled="!track"
-              title="Volver a analizar el clic: arreglar huecos y saltos, tempo fijo, con la batería separada, solo el tramo…"
+              :title="
+                clickMode === 'own' && hasOwn
+                  ? 'Volver a analizar el clic respetando lo que moviste tú: lo demás se rehace con el análisis nuevo'
+                  : hasOwn
+                    ? 'Volver a analizar el clic automático (tu clic manual no se toca)'
+                    : 'Volver a analizar el clic: arreglar huecos y saltos, tempo fijo, con la batería separada, solo el tramo…'
+              "
               @click="reanalyze"
             >
               <Icon n="sparkles" :t="11" /> Re-analizar…
@@ -3318,10 +3515,10 @@ defineExpose({ close: hide, hide, exit })
               v-if="hasOwn"
               class="btn mini"
               type="button"
-              title="Olvidar los pulsos ajustados a mano (vuelve el automático)"
+              title="Borrar los pulsos que moviste a mano en esta canción: queda el automático"
               @click="resetOwn"
             >
-              <Icon n="close" :t="11" /> quitar el mío
+              <Icon n="close" :t="11" /> Borrar el manual
             </button>
           </div>
           <div class="study-metro-row study-metro-vol">

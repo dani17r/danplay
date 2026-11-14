@@ -3,7 +3,7 @@ import { mount, flushPromises } from '@vue/test-utils'
 
 // El clic: con «Clic automático», cada canción con el suyo, sin sonar
 // mientras carga (con una barra en la onda) y con las siguientes de la cola
-// preparadas; a mano, un tempo que sigue igual al pasar de canción. Y todo
+// preparadas; con tempo fijo, uno que sigue igual al pasar de canción. Y todo
 // con el panel de estudio abierto o cerrado.
 const held = vi.hoisted(() => ({ playback: null, api: null, state: null }))
 
@@ -32,6 +32,11 @@ import {
 import { ApiError } from '../src/api.js'
 import { song } from './support/backend.js'
 import { useContextMenu } from '../src/composables/useContextMenu.js'
+import { useNotices } from '../src/composables/useNotices.js'
+
+// lo que contesta el doble del núcleo al re-análisis: las pruebas de antes lo
+// cambian a su gusto y no lo devuelven
+const answerReanalysis = held.api.reanalyzeBeats
 
 const GRID = {
   bpm: 96,
@@ -297,7 +302,7 @@ describe('automatic click', () => {
   })
 })
 
-/** El botón de un modo del clic (Automático, Propio, A mano). */
+/** El botón de un modo del clic (Automático, Manual, Tempo fijo). */
 const mode = (w, name) => w.findAll('.study-mode').find((b) => b.text() === name)
 
 describe('manual click', () => {
@@ -305,12 +310,12 @@ describe('manual click', () => {
     const w = await mountView()
     await w.find('.study-metro-toggle').trigger('click')
     await settle()
-    await mode(w, 'A mano').trigger('click')
+    await mode(w, 'Tempo fijo').trigger('click')
     await settle()
-    expect(mode(w, 'A mano').attributes('aria-checked')).toBe('true')
+    expect(mode(w, 'Tempo fijo').attributes('aria-checked')).toBe('true')
     expect(mode(w, 'Automático').attributes('aria-checked')).toBe('false')
-    expect(w.text()).toContain('a mano: el mismo tempo en todas las canciones')
-    // al pasar a mano se queda el que se oía: el clic no cambia de golpe
+    expect(w.text()).toContain('tempo fijo: el mismo en todas las canciones')
+    // al pasar a tempo fijo se queda el que se oía: el clic no cambia de golpe
     expect(bridge().setMetronome).toHaveBeenLastCalledWith(
       expect.objectContaining({ bpm: 96, on: true })
     )
@@ -344,7 +349,7 @@ describe('manual click', () => {
       song(7, { title: 'Mi Gozo', study: JSON.stringify({ metronome: { shift: 2 } }) })
     ]
     const w = await mountView()
-    await mode(w, 'A mano').trigger('click')
+    await mode(w, 'Tempo fijo').trigger('click')
     await settle()
     expect(bridge().setMetronome).toHaveBeenLastCalledWith(expect.objectContaining({ shift: 0 }))
     vi.clearAllMocks()
@@ -353,7 +358,7 @@ describe('manual click', () => {
     expect(bridge().setMetronome).toHaveBeenCalledWith(
       expect.objectContaining({ bpm: null, shift: 2 })
     )
-    expect(w.text()).not.toContain('a mano')
+    expect(w.text()).not.toContain('tempo fijo')
   })
 })
 
@@ -402,7 +407,7 @@ describe('re-analysing the click', () => {
     })
     const w = await mountView()
     held.api.beatGridNow.mockClear()
-    await reanalyze(w, 'Tempo fijo')
+    await reanalyze(w, 'Tempo constante')
     expect(held.api.beatGridNow).toHaveBeenCalledWith(7)
     expect(lastGrid().bpm).toBe(120)
   })
@@ -645,5 +650,489 @@ describe('adjusting beats with ×2 on', () => {
       // y los pulsos ajustados no viajan con los ajustes: van por su rejilla
       expect(sent.own).toBeUndefined()
     }
+  })
+})
+
+// Los tres modos del clic, con lo que cada uno enseña. «A mano» era un tempo
+// para todas las canciones y quien lo pulsaba esperaba lo que había movido él
+// en la onda: ahora se llaman por lo que son, y cambiar de uno a otro no
+// pierde ni mezcla nada.
+describe('the three click modes', () => {
+  /** Su clic manual de la canción 7: el automático con un pulso movido (el 40) y su zona. */
+  const HIS = {
+    beats: GRID.beats.slice(0, 120).map((t, i) => (i === 40 ? t + 0.08 : t)),
+    bars: [0],
+    meter: 4,
+    touched: [[GRID.beats[39], GRID.beats[41]]]
+  }
+  const withOwn = (own = HIS) => {
+    held.state.songs = [
+      song(7, { title: 'Mi Gozo', study: JSON.stringify({ metronome: { own } }) }),
+      song(8, { title: 'Otra' })
+    ]
+  }
+  const startIn = (m) => {
+    localStorage.setItem('danplay.click.mode', JSON.stringify(m))
+    resetClick()
+  }
+  const lastGrid = () => bridge().setBeatGrid.mock.calls.at(-1)?.[1]
+  const study7 = () => held.state.songs.find((s) => s.id === 7).study
+
+  it('are named for what each one holds, and what is saved keeps its old names', async () => {
+    const w = await mountView()
+    expect(w.findAll('.study-mode').map((b) => b.text())).toEqual([
+      'Automático',
+      'Manual',
+      'Tempo fijo'
+    ])
+    const titles = w.findAll('.study-mode').map((b) => b.attributes('title'))
+    expect(titles[0]).toContain('Lo que analizó DanPlay')
+    expect(titles[1]).toContain('Lo que mueves tú en la onda')
+    expect(titles[2]).toContain('el mismo en todas las canciones')
+    await mode(w, 'Manual').trigger('click')
+    await settle()
+    expect(JSON.parse(localStorage.getItem('danplay.click.mode'))).toBe('own')
+    await mode(w, 'Tempo fijo').trigger('click')
+    await settle()
+    expect(JSON.parse(localStorage.getItem('danplay.click.mode'))).toBe('manual')
+    await mode(w, 'Automático').trigger('click')
+    await settle()
+    expect(JSON.parse(localStorage.getItem('danplay.click.mode'))).toBe('auto')
+  })
+
+  it('going back and forth, each one brings back its own and nothing saved changes', async () => {
+    withOwn()
+    const saved = study7()
+    const w = await mountView()
+    const auto = lastGrid()
+    expect(auto.beats[0]).toBe(0.5)
+    expect(auto.beats.length).toBe(300)
+    for (let round = 0; round < 3; round++) {
+      await mode(w, 'Manual').trigger('click')
+      await settle()
+      expect(useClick().source.value).toBe('own')
+      expect(lastGrid().beats.length, 'los pulsos de él').toBe(120)
+      expect(lastGrid().beats[40]).toBeCloseTo(GRID.beats[40] + 0.08, 6)
+      await mode(w, 'Automático').trigger('click')
+      await settle()
+      expect(useClick().source.value).toBe('beat-this')
+      expect(lastGrid().beats.length, 'lo que analizó DanPlay').toBe(300)
+    }
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(held.api.setStudy, 'cambiar de modo no escribe nada').not.toHaveBeenCalled()
+    expect(study7()).toBe(saved)
+  })
+
+  it('Manual on a song without its own says so, and offers to start one', async () => {
+    startIn('own')
+    const w = await mountView()
+    expect(useClick().source.value, 'mientras, suena el automático').toBe('beat-this')
+    expect(w.text()).toContain('esta canción aún no tiene el tuyo')
+    expect(w.find('.study-edit-beats').text()).toContain('Empezar el mío')
+    expect(mode(w, 'Manual').classes()).not.toContain('has')
+    expect(mode(w, 'Manual').attributes('title')).toContain('aún no tiene el suyo')
+    // y con el suyo hecho, lo dice y lo marca
+    withOwn()
+    held.playback.emit({ ...other, path: '/musica/otra.mp3' })
+    held.playback.emit({
+      track: { id: 7, title: 'Mi Gozo', artist: 'Barak', duration: 200 },
+      path: '/musica/mi-gozo.mp3'
+    })
+    await settle()
+    const w2 = await mountView()
+    expect(w2.text()).toContain('los pulsos que moviste tú en esta canción')
+    expect(w2.find('.study-edit-beats').text()).toContain('Ajustar pulsos')
+    expect(mode(w2, 'Manual').classes()).toContain('has')
+  })
+
+  it('a slow automatic grid does not land on top of Manual, which was chosen meanwhile', async () => {
+    // la automática tardaba; entre tanto se pasaba a Manual, y al llegar se
+    // ponía encima y ahí se quedaba, con «Manual» marcado
+    withOwn()
+    const usual = held.api.beatGridNow.getMockImplementation()
+    let arrive = () => {}
+    held.api.beatGridNow.mockImplementation(
+      () => new Promise((resolve) => (arrive = () => resolve({ ...GRID })))
+    )
+    try {
+      const w = await mountView()
+      await mode(w, 'Manual').trigger('click')
+      await settle()
+      expect(useClick().source.value).toBe('own')
+      bridge().setBeatGrid.mockClear()
+      arrive()
+      await settle()
+      expect(useClick().source.value).toBe('own')
+      expect(bridge().setBeatGrid, 'la tardía se descarta').not.toHaveBeenCalled()
+      expect(useClick().grid.value.beats.length).toBe(120)
+    } finally {
+      held.api.beatGridNow.mockImplementation(usual)
+    }
+  })
+})
+
+// «Re-analizar» sobre un clic que movió él: el núcleo recibe sus pulsos con
+// las zonas que tocó, devuelve el clic mezclado (lo suyo, y lo demás con el
+// análisis nuevo) y esto lo guarda y lo aplica. Antes no sabía de él: con su
+// clic puesto, el resultado quedaba debajo y no se veía.
+describe('re-analysing with a hand-made click', () => {
+  const HIS = {
+    beats: GRID.beats.slice(0, 120).map((t, i) => (i === 40 ? t + 0.08 : t)),
+    bars: [0],
+    meter: 4,
+    touched: [[GRID.beats[39], GRID.beats[41]]]
+  }
+  const NEW = { ...GRID, bpm: 120, beats: Array.from({ length: 300 }, (_, i) => 0.4 + i * 0.5) }
+  const lastGrid = () => bridge().setBeatGrid.mock.calls.at(-1)?.[1]
+  const stored = () => JSON.parse(held.state.songs.find((s) => s.id === 7).study || '{}')
+  const last = () => useNotices().notices.value.at(-1)?.message ?? ''
+  const { menu } = useContextMenu()
+  const withOwn = (own = HIS) => {
+    held.state.songs = [
+      song(7, { title: 'Mi Gozo', study: JSON.stringify({ metronome: { own } }) }),
+      song(8, { title: 'Otra' })
+    ]
+  }
+  const startIn = (m) => {
+    localStorage.setItem('danplay.click.mode', JSON.stringify(m))
+    resetClick()
+  }
+  async function reanalyze(w, label = 'Arreglar huecos y saltos') {
+    const button = w.findAll('button').find((b) => b.text().includes('Re-analizar'))
+    await button.trigger('click')
+    await menu.value.items.find((i) => i.label === label).action()
+    await settle()
+  }
+  const modeBtn = (w, name) => w.findAll('.study-mode').find((b) => b.text() === name)
+  beforeEach(() => {
+    useNotices().clearNotices()
+    held.state.reanalysis = { grid: NEW }
+    held.api.reanalyzeBeats = vi.fn(answerReanalysis)
+  })
+
+  it('in Manual it sends his beats with his windows, and keeps his while the rest follows the new analysis', async () => {
+    withOwn()
+    startIn('own')
+    const w = await mountView()
+    expect(useClick().source.value).toBe('own')
+    await reanalyze(w)
+    expect(held.api.reanalyzeBeats).toHaveBeenCalledWith(7, {
+      mode: 'repair',
+      own: { beats: HIS.beats, bars: HIS.bars, meter: 4, touched: HIS.touched }
+    })
+    // se guarda con su canción: su zona tal cual, lo demás del análisis nuevo
+    const own = stored().metronome.own
+    expect(own.touched).toEqual(HIS.touched)
+    expect(own.beats).toContain(GRID.beats[40] + 0.08)
+    expect(own.beats, 'fuera de su zona, el análisis nuevo').toContain(NEW.beats[0])
+    expect(own.beats, 'y no lo de antes').not.toContain(GRID.beats[10])
+    // y suena y se ve ya
+    expect(useClick().source.value).toBe('own')
+    expect(lastGrid().beats).toEqual(own.beats)
+    expect(last()).toMatch(
+      /pulsos cambiaron fuera de lo que moviste tú; se respetó 1 zona tuya|se respetaron 1 zona tuya/
+    )
+  })
+
+  it('Automático then shows the new analysis as it came, and Manual brings back what was saved', async () => {
+    withOwn()
+    startIn('own')
+    const w = await mountView()
+    await reanalyze(w)
+    const merged = stored().metronome.own
+    await modeBtn(w, 'Automático').trigger('click')
+    await settle()
+    expect(useClick().source.value).toBe('beat-this')
+    expect(lastGrid().beats, 'el análisis nuevo, sin mezclar').toEqual(NEW.beats)
+    await modeBtn(w, 'Manual').trigger('click')
+    await settle()
+    expect(useClick().source.value).toBe('own')
+    expect(lastGrid().beats, 'lo suyo, como se guardó').toEqual(merged.beats)
+    expect(stored().metronome.own).toEqual(merged)
+    // una y otra vez, sin cambiar nada
+    for (let i = 0; i < 2; i++) {
+      await modeBtn(w, 'Automático').trigger('click')
+      await settle()
+      expect(lastGrid().beats).toEqual(NEW.beats)
+      await modeBtn(w, 'Manual').trigger('click')
+      await settle()
+      expect(lastGrid().beats).toEqual(merged.beats)
+    }
+    expect(stored().metronome.own).toEqual(merged)
+  })
+
+  it('in Automático only the automatic one changes: his stays exactly as it was, and it says where it is', async () => {
+    withOwn()
+    const before = held.state.songs[0].study
+    const w = await mountView()
+    expect(useClick().source.value).toBe('beat-this')
+    await reanalyze(w)
+    expect(held.api.reanalyzeBeats).toHaveBeenCalledWith(7, { mode: 'repair' })
+    expect(lastGrid().beats).toEqual(NEW.beats)
+    expect(held.state.songs[0].study, 'lo suyo, intacto').toBe(before)
+    expect(last()).toContain('Tu clic manual de esta canción sigue como lo dejaste')
+    expect(last()).toContain('«Manual»')
+    await modeBtn(w, 'Manual').trigger('click')
+    await settle()
+    expect(lastGrid().beats).toEqual(HIS.beats)
+  })
+
+  it('he gets told why nothing changed: his windows are respected and the rest was already so', async () => {
+    // su clic es el automático con un pulso movido, y el análisis nuevo da lo
+    // mismo que había fuera de esa zona
+    withOwn({ ...HIS, beats: GRID.beats.map((t, i) => (i === 40 ? t + 0.08 : t)) })
+    startIn('own')
+    held.state.reanalysis = { grid: GRID, fixed: 0 }
+    const w = await mountView()
+    const before = held.state.songs[0].study
+    await reanalyze(w)
+    expect(last()).toContain('Tu clic manual se queda igual')
+    expect(last()).toContain('1 zona tuya')
+    expect(held.state.songs[0].study, 'no se reescribe sin motivo').toBe(before)
+  })
+
+  it('an own click from before the windows existed is all his: it is kept whole and says so', async () => {
+    const old = { beats: HIS.beats, bars: HIS.bars, meter: 4 }
+    withOwn(old)
+    startIn('own')
+    const w = await mountView()
+    const before = held.state.songs[0].study
+    await reanalyze(w)
+    // «todo suyo» es toda la canción: ni lo que hay antes ni después se rehace
+    expect(held.api.reanalyzeBeats.mock.calls.at(-1)[1].own.touched).toEqual([[0, 200]])
+    expect(held.state.songs[0].study).toBe(before)
+    expect(last()).toContain('es de antes de que DanPlay marcara lo que mueves: se queda entero')
+    expect(last()).toContain('«Automático»')
+  })
+
+  it('a core that does not return his click leaves it as it was, and says so', async () => {
+    withOwn()
+    startIn('own')
+    held.api.reanalyzeBeats.mockImplementationOnce(async () => ({
+      ...NEW,
+      grid: NEW,
+      report: { fixed: 7 }
+    }))
+    const w = await mountView()
+    const before = held.state.songs[0].study
+    await reanalyze(w)
+    expect(held.state.songs[0].study).toBe(before)
+    expect(last()).toContain('Tu clic manual se queda como estaba')
+    expect(last()).toContain('«Automático»')
+  })
+
+  it('if he moved on to another song meanwhile, his click is saved in the one it belongs to', async () => {
+    withOwn()
+    startIn('own')
+    const w = await mountView()
+    let answer = () => {}
+    held.api.reanalyzeBeats.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          answer = () =>
+            resolve({
+              ...NEW,
+              grid: NEW,
+              report: { fixed: 3 },
+              own: { beats: [1, 1.5, 2, 2.5], bars: [0], meter: 4, touched: HIS.touched }
+            })
+        })
+    )
+    const button = w.findAll('button').find((b) => b.text().includes('Re-analizar'))
+    await button.trigger('click')
+    const done = menu.value.items.find((i) => i.label === 'Arreglar huecos y saltos').action()
+    await settle()
+    held.playback.emit({ ...other, path: '/musica/otra.mp3', position: 0 })
+    await settle()
+    answer()
+    await done
+    await settle()
+    expect(stored().metronome.own.beats).toEqual([1, 1.5, 2, 2.5])
+    expect(held.state.songs.find((s) => s.id === 8).study ?? '').not.toContain('own')
+  })
+})
+
+// Las zonas que movió él se guardan con su clic: lo que cambió al soltar el
+// pulso respecto a lo que se veía.
+describe('the windows he moves are saved with his click', () => {
+  const saved = () => held.api.setStudy.mock.calls.at(-1)[1].metronome.own
+  /** Lo que se ve ahora en la onda, con `f` aplicado a sus pulsos (como lo manda la línea de tiempo). */
+  const edited = (f) => {
+    const g = useClick().grid.value
+    const beats = [...g.beats]
+    f(beats)
+    return { ...g, beats, bars: [...g.bars] }
+  }
+  async function drop(w, grid) {
+    w.findComponent(StudyTimeline).vm.$emit('update:grid', grid)
+    await settle()
+    await vi.advanceTimersByTimeAsync(800)
+    await settle()
+  }
+  const startIn = (m) => {
+    localStorage.setItem('danplay.click.mode', JSON.stringify(m))
+    resetClick()
+  }
+
+  it('moving a beat stores its window next to the beats', async () => {
+    startIn('own')
+    const w = await mountView()
+    await drop(
+      w,
+      edited((b) => (b[40] += 0.08))
+    )
+    expect(saved().beats.length).toBe(300)
+    expect(saved().touched).toEqual([[GRID.beats[39], GRID.beats[41]]])
+    expect(useClick().source.value, 'y suena ya').toBe('own')
+  })
+
+  it('he keeps editing: the windows add up, and beats added before them do not move them', async () => {
+    startIn('own')
+    const w = await mountView()
+    await drop(
+      w,
+      edited((b) => (b[40] += 0.08))
+    )
+    await drop(
+      w,
+      edited((b) => (b[200] += 0.05))
+    )
+    expect(saved().touched).toEqual([
+      [GRID.beats[39], GRID.beats[41]],
+      [GRID.beats[199], GRID.beats[201]]
+    ])
+    // un pulso nuevo mucho antes (como lo añade la línea de tiempo, con los
+    // «1» de detrás corridos un lugar): todos los índices de detrás cambian y
+    // sus zonas, no
+    const g = useClick().grid.value
+    const at = g.beats.findIndex((t) => t > 2.2)
+    await drop(w, {
+      ...g,
+      beats: [...g.beats.slice(0, at), 2.2, ...g.beats.slice(at)],
+      bars: g.bars.map((b) => (b >= at ? b + 1 : b))
+    })
+    const windows = saved().touched
+    expect(windows).toContainEqual([GRID.beats[39], GRID.beats[41]])
+    expect(windows).toContainEqual([GRID.beats[199], GRID.beats[201]])
+    const first = windows[0]
+    expect(first[0]).toBeLessThanOrEqual(2.2)
+    expect(first[1]).toBeGreaterThanOrEqual(2.2)
+    expect(first[1], 'la zona nueva es solo la de ahí').toBeLessThan(5)
+    expect(windows.length).toBe(3)
+  })
+
+  it('editing a click from before the windows keeps all of it as his', async () => {
+    const old = { beats: GRID.beats.slice(0, 120), bars: [0], meter: 4 }
+    held.state.songs = [
+      song(7, { title: 'Mi Gozo', study: JSON.stringify({ metronome: { own: old } }) }),
+      song(8, { title: 'Otra' })
+    ]
+    startIn('own')
+    const w = await mountView()
+    await drop(
+      w,
+      edited((b) => (b[40] += 0.08))
+    )
+    expect(saved().touched).toEqual([[0, 200]])
+  })
+})
+
+// Dónde el clic es una suposición: el análisis dice qué zonas no tienen
+// pulso con apoyo en la música (`report.weak`), y se ven en la onda y en el
+// aviso de después de re-analizar. Sin el dato, nada.
+describe('where the click is a guess', () => {
+  const NEW = { ...GRID, bpm: 120, beats: Array.from({ length: 300 }, (_, i) => 0.4 + i * 0.5) }
+  const WEAK = [
+    [10, 20],
+    [60, 75],
+    [120, 140],
+    [150, 160]
+  ]
+  const last = () => useNotices().notices.value.at(-1)?.message ?? ''
+  const { menu } = useContextMenu()
+  const bands = (w) => w.findAll('.tl-weak')
+  async function reanalyze(w) {
+    const button = w.findAll('button').find((b) => b.text().includes('Re-analizar'))
+    await button.trigger('click')
+    await menu.value.items.find((i) => i.label === 'Arreglar huecos y saltos').action()
+    await settle()
+  }
+  beforeEach(() => {
+    useNotices().clearNotices()
+    held.api.reanalyzeBeats = vi.fn(answerReanalysis)
+  })
+
+  it('after re-analysing they are drawn on the waveform, with what they mean', async () => {
+    held.state.reanalysis = { grid: NEW, weak: WEAK }
+    const w = await mountView()
+    expect(bands(w), 'antes de saberlo, nada').toHaveLength(0)
+    await reanalyze(w)
+    expect(bands(w)).toHaveLength(4)
+    expect(bands(w)[0].attributes('title')).toContain('Poco claro: aquí el clic es una suposición')
+    expect(bands(w)[0].attributes('title')).toContain('0:10 – 0:20')
+    // sobre la onda de 200 s: de 10 a 20 es del 5 % al 10 %
+    expect(bands(w)[0].attributes('style')).toMatch(/left: 5%;.*width: 5%/)
+    // y el aviso las cuenta (hasta tres)
+    expect(last()).toContain(
+      'Poco claro (aquí el clic es una suposición): 0:10–0:20, 1:00–1:15, 2:00–2:20 y 1 más'
+    )
+  })
+
+  it('without the data there is nothing to draw, and the notice does not mention them', async () => {
+    held.state.reanalysis = { grid: NEW }
+    const w = await mountView()
+    await reanalyze(w)
+    expect(bands(w)).toHaveLength(0)
+    expect(last()).not.toContain('Poco claro')
+  })
+
+  it('a new analysis without them takes away the ones from before', async () => {
+    held.state.reanalysis = { grid: NEW, weak: WEAK }
+    const w = await mountView()
+    await reanalyze(w)
+    expect(bands(w)).toHaveLength(4)
+    held.state.reanalysis = { grid: NEW }
+    await reanalyze(w)
+    expect(bands(w)).toHaveLength(0)
+  })
+
+  it('the ones the saved grid brings are drawn from the start', async () => {
+    held.state.beatGrid = { ...GRID, report: { weak: [[30, 45]] } }
+    const w = await mountView()
+    expect(bands(w)).toHaveLength(1)
+    expect(bands(w)[0].attributes('title')).toContain('0:30 – 0:45')
+  })
+
+  it('how well the click fits the hits, before and after, is in a tooltip if the core measured it', async () => {
+    const fit = {
+      before: { median_ms: -14.2, spread_ms: 48, supported: 100 },
+      after: { median_ms: -3.4, spread_ms: 12, supported: 120 }
+    }
+    held.state.reanalysis = { grid: NEW, fit }
+    const w = await mountView()
+    const status = () => w.find('.study-metro-status')
+    expect(status().attributes('title')).toBeUndefined()
+    await reanalyze(w)
+    expect(status().attributes('title')).toContain('desfase mediano -14 ms → -3 ms')
+    expect(status().attributes('title')).toContain('dispersión 48 ms → 12 ms')
+    held.state.reanalysis = { grid: NEW }
+    await reanalyze(w)
+    expect(status().attributes('title'), 'sin el dato, nada').toBeUndefined()
+  })
+
+  it('they belong to their song, and with a fixed tempo the click does not follow it', async () => {
+    held.state.reanalysis = { grid: NEW, weak: WEAK }
+    const w = await mountView()
+    await reanalyze(w)
+    expect(bands(w)).toHaveLength(4)
+    await mode(w, 'Tempo fijo').trigger('click')
+    await settle()
+    expect(bands(w)).toHaveLength(0)
+    await mode(w, 'Automático').trigger('click')
+    await settle()
+    expect(bands(w)).toHaveLength(4)
+    held.playback.emit({ ...other, path: '/musica/otra.mp3', position: 0 })
+    await settle()
+    expect(bands(w)).toHaveLength(0)
   })
 })

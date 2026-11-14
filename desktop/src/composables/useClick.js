@@ -1,9 +1,11 @@
 /**
  * El clic del metrónomo, con el panel de estudio abierto o cerrado.
  *
- * Tres modos:
+ * Tres modos (en la interfaz se llaman «Automático», «Manual» y «Tempo
+ * fijo»; lo guardado sigue siendo `'auto'`, `'own'` y `'manual'`):
  *
- * - **Automático** (lo normal): cada canción con su clic. La rejilla la da
+ * - **Automático** (`'auto'`, lo normal): lo que analizó DanPlay, cada
+ *   canción con su clic. La rejilla la da
  *   Beat This! en el núcleo; la primera vez de cada canción tarda 15-20 s, y
  *   mientras tanto el clic NO suena (ni el de la canción anterior, que iría
  *   a otro tempo): se calla, el botón no deja ponerlo y la onda enseña una
@@ -11,13 +13,15 @@
  *   Con sus ajustes guardados (compás, «el 1», doble/mitad). Con el clic
  *   puesto, las siguientes de la cola se dejan preparadas: al pasar a ellas
  *   ya está. Si aquí no hay Beat This! (o no le sacó pulso), la de Rust, al
- *   momento.
- * - **Propio**: el de la canción ajustado a mano, pulso a pulso, sobre la
- *   onda, y guardado con ella (`metronome.own` de su estudio). Si una canción
- *   aún no tiene el suyo, la automática (y al tocar un pulso pasa a ser suyo).
- * - **A mano**: un tempo para todas, el que se ponga. Al pasar de canción
- *   sigue sonando igual: ni se espera ni se cambia nada aunque llegue la
- *   rejilla de la otra.
+ *   momento. Siempre es la última que dio el núcleo, también tras un
+ *   re-análisis hecho desde Manual.
+ * - **Manual** (`'own'`): lo que mueve él en la onda, pulso a pulso, guardado
+ *   con la canción (`metronome.own` de su estudio). Si una canción aún no lo
+ *   tiene, suena la automática hasta que haga el suyo (y el panel lo dice).
+ *   Pasar de un modo a otro, las veces que sea, no cambia nada de lo guardado.
+ * - **Tempo fijo** (`'manual'`): un tempo para todas, el que se ponga. Al
+ *   pasar de canción sigue sonando igual: ni se espera ni se cambia nada
+ *   aunque llegue la rejilla de la otra.
  *
  * Antes la rejilla la pedía el panel de estudio y solo mientras estaba
  * abierto: con él cerrado, al pasar de canción el clic seguía suelto a 100
@@ -26,7 +30,7 @@
 import { effectScope, ref, shallowRef, watch } from 'vue'
 import { api, ApiError } from '../api.js'
 import { usePlayback } from './usePlayback.js'
-import { ownToGrid } from '../utils/beats.js'
+import { mergeWindows, ownToGrid } from '../utils/beats.js'
 
 const AUTO_KEY = 'danplay.click.auto'
 const MODE_KEY = 'danplay.click.mode'
@@ -110,8 +114,44 @@ const manual = ref(cleanManual(readPref(MANUAL_KEY, {})))
 const wanted = ref(false)
 /** La rejilla de la canción que suena, ya en Rust (para pintarla). */
 const grid = shallowRef(/** @type {import('../api.js').BeatGrid|null} */ (null))
-/** De dónde salió: 'beat-this', 'rust', 'own' (el propio) o ''. */
+/** De dónde salió: 'beat-this', 'rust', 'own' (el manual) o ''. */
 const source = ref('')
+/**
+ * Dónde el clic de una canción es una suposición (el análisis no encontró
+ * pulso con apoyo en la música): `[[desde, hasta], …]` en segundos. Lo trae
+ * el re-análisis (`report.weak`) y, si el núcleo la guarda con la rejilla,
+ * esta misma. Sin ello, no hay nada que enseñar.
+ */
+const weak = shallowRef(
+  /** @type {{id: number|null, regions: Array<[number, number]>}} */ ({ id: null, regions: [] })
+)
+/** Las zonas dudosas de la canción `id` (lo que no valga se descarta). @param {number|null} id @param {any} list */
+function setWeak(id, list) {
+  weak.value = { id, regions: mergeWindows(list) }
+}
+/**
+ * Cómo encajaba el clic con los golpes antes y después del último
+ * re-análisis (`report.fit`: desfase mediano y dispersión, en ms), si el
+ * núcleo lo midió.
+ */
+const fit = shallowRef(
+  /** @type {{id: number|null, before: {median: number, spread: number}|null, after: {median: number, spread: number}|null}} */ ({
+    id: null,
+    before: null,
+    after: null
+  })
+)
+/** @param {any} f */
+const fitSide = (f) =>
+  Number.isFinite(f?.median_ms) && Number.isFinite(f?.spread_ms)
+    ? { median: Number(f.median_ms), spread: Number(f.spread_ms) }
+    : null
+/** @param {number|null} id @param {any} f  `{before, after}` o nada */
+function setFit(id, f) {
+  const before = fitSide(f?.before)
+  const after = fitSide(f?.after)
+  fit.value = before && after ? { id, before, after } : { id, before: null, after: null }
+}
 /** La rejilla de la que suena, en camino (en automático). */
 const loading = ref(false)
 /** Lo que lleva (0..1) mientras carga. */
@@ -131,6 +171,14 @@ const fallbackWhy = ref('')
 const reanalyzing = ref(/** @type {number|null} */ (null))
 /** Cuándo se empezó a pedir la rejilla de la que suena. */
 let askedAt = 0
+/**
+ * Cuál es la última rejilla que se pidió: cada vez que se pide otra (cambiar
+ * de modo, de canción, re-analizar) pasa a ser la siguiente, y lo que
+ * llegue de una anterior se descarta. Sin esto, la rejilla automática que
+ * tardaba en llegar se ponía encima del clic manual al que se había pasado
+ * mientras tanto.
+ */
+let epoch = 0
 
 /** De qué canción es lo de arriba. */
 let forSong = { id: /** @type {number|null} */ (null), path: '' }
@@ -222,31 +270,32 @@ async function settle(g, from) {
 }
 
 /** La de Rust (medio segundo): cuando aquí no hay Beat This!. */
-async function fromRust(id, path) {
+async function fromRust(id, path, my = epoch) {
   let g = null
   try {
     g = await player().analyzeBeats(player().track.value?.bpm || null, path)
   } catch (e) {
-    if (sameSong(id, path)) error.value = e instanceof Error ? e.message : String(e)
+    if (my === epoch && sameSong(id, path)) error.value = e instanceof Error ? e.message : String(e)
   }
-  if (sameSong(id, path)) await settle(g, 'rust')
+  if (my === epoch && sameSong(id, path)) await settle(g, 'rust')
 }
 
-/** La de Beat This! (o la propia), a Rust; si no vale, la de Rust. @param {any} found */
-async function adopt(id, path, found, from = 'beat-this') {
+/** La de Beat This! (o la manual), a Rust; si no vale, la de Rust. @param {any} found */
+async function adopt(id, path, found, from = 'beat-this', my = epoch) {
   let g = null
   try {
     g = await player().setBeatGrid(found, path)
   } catch {
     /* no pasó la revisión de Rust: la suya */
   }
-  if (!sameSong(id, path)) return
+  if (my !== epoch || !sameSong(id, path)) return
+  if (from === 'beat-this' && Array.isArray(found?.report?.weak)) setWeak(id, found.report.weak)
   if (g) await settle(g, from)
-  else await fromRust(id, path)
+  else await fromRust(id, path, my)
 }
 
 /** Pregunta al núcleo: la rejilla, o por dónde va. */
-async function ask(id, path) {
+async function ask(id, path, my = epoch) {
   pollTimer = null
   /** @type {any} sin Beat This! aquí, o la canción no le dio pulso: null */
   let r = null
@@ -257,19 +306,19 @@ async function ask(id, path) {
     // 422: el detector no pudo con esta canción (503: aquí no lo hay)
     if (e instanceof ApiError && e.status === 422) why = e.message
   }
-  if (!sameSong(id, path) || !auto.value) return
+  if (my !== epoch || !sameSong(id, path) || !auto.value) return
   if (r === LATE || r?.pending) {
     if (Date.now() - askedAt < LOAD_LIMIT_MS) {
       if (r !== LATE) progress.value = Math.max(progress.value, Number(r.progress) || 0)
-      pollTimer = setTimeout(() => ask(id, path), POLL_MS)
+      pollTimer = setTimeout(() => ask(id, path, my), POLL_MS)
       return
     }
     why = 'tarda demasiado'
     r = null
   }
   fallbackWhy.value = why
-  if (r) await adopt(id, path, r)
-  else await fromRust(id, path)
+  if (r) await adopt(id, path, r, 'beat-this', my)
+  else await fromRust(id, path, my)
 }
 
 /**
@@ -283,6 +332,7 @@ async function load() {
   if (!auto.value || id == null || !path) return
   if (sameSong(id, path) && (grid.value || loading.value)) return
   stopPolling()
+  const my = ++epoch
   forSong = { id, path }
   grid.value = null
   source.value = ''
@@ -291,21 +341,22 @@ async function load() {
   progress.value = 0
   loading.value = true
   askedAt = Date.now()
+  if (weak.value.id !== id) setWeak(id, [])
   // el de la anterior no puede seguir sonando sobre esta: iría a su tempo
   if (p.metronomeSent().on) await p.setMetronome({ on: false })
   await applySongSettings(id)
-  if (!sameSong(id, path)) return
-  // el propio, si la canción lo tiene
+  if (my !== epoch || !sameSong(id, path)) return
+  // el manual, si la canción lo tiene
   if (mode.value === 'own') {
     const own = ownToGrid((await songStudy(id))?.metronome?.own)
-    if (!sameSong(id, path)) return
+    if (my !== epoch || !sameSong(id, path)) return
     if (own) {
-      await adopt(id, path, own, 'own')
+      await adopt(id, path, own, 'own', my)
       if (wanted.value) prepareAhead()
       return
     }
   }
-  await ask(id, path)
+  await ask(id, path, my)
   if (wanted.value) prepareAhead()
 }
 
@@ -314,7 +365,8 @@ async function load() {
  * re-analizó). `load()` no vale para esto: con la misma canción y su rejilla
  * ya puesta no hace nada, que es justo como está al re-analizar. Con `fresh`
  * (la que devolvió el núcleo) no se vuelve a preguntar. Devuelve si la que
- * suena cambió: con el clic propio manda él, y la re-analizada queda debajo.
+ * suena cambió: en Manual (con su clic hecho) manda el suyo, y la
+ * re-analizada queda debajo, en Automático, que es donde se ve.
  * @param {import('../api.js').BeatGrid|null} [fresh]
  */
 async function reload(fresh = null) {
@@ -328,19 +380,20 @@ async function reload(fresh = null) {
     if (own) return false
   }
   stopPolling()
+  const my = ++epoch
   forSong = { id, path }
   error.value = ''
   fallbackWhy.value = ''
   askedAt = Date.now()
   if (fresh?.beats?.length) {
-    await adopt(id, path, fresh)
+    await adopt(id, path, fresh, 'beat-this', my)
     return true
   }
   grid.value = null
   source.value = ''
   progress.value = 0
   loading.value = true
-  await ask(id, path)
+  await ask(id, path, my)
   return true
 }
 
@@ -481,7 +534,9 @@ function setManual(patch) {
 }
 
 /**
- * Automático, propio o a mano.
+ * Automático, Manual o Tempo fijo. Cambiar de uno a otro no toca nada de lo
+ * guardado: lo manual de cada canción y lo analizado siguen donde estaban, y
+ * cada modo enseña lo suyo (el manual se vuelve a leer, por si cambió).
  * @param {'auto'|'own'|'manual'} m
  */
 async function setMode(m) {
@@ -489,18 +544,19 @@ async function setMode(m) {
   const was = mode.value
   mode.value = m
   savePref(MODE_KEY, m)
+  if (forSong.id != null) studies.delete(forSong.id)
   if (m === 'manual') return setAuto(false)
   if (was === 'manual') return setAuto(true)
-  // de automático a propio (o al revés): otra rejilla para la misma canción
+  // de automático a manual (o al revés): otra rejilla para la misma canción
   forSong = { id: null, path: '' }
   grid.value = null
   await load()
 }
 
 /**
- * El clic propio de la canción que suena, recién ajustado (o null: se
- * quitó, y vuelve el automático). Lo guarda quien lo edita, con la canción.
- * @param {number} id @param {any} own  `{beats, bars, meter}` o null
+ * El clic manual de la canción que suena, recién ajustado (o null: se
+ * borró, y vuelve el automático). Lo guarda quien lo edita, con la canción.
+ * @param {number} id @param {any} own  `{beats, bars, meter, touched}` o null
  */
 async function applyOwn(id, own) {
   const p = player()
@@ -508,12 +564,13 @@ async function applyOwn(id, own) {
   if (mode.value !== 'own' || (p.track.value?.id ?? null) !== id) return
   const g = ownToGrid(own)
   const path = p.state.path
+  const my = ++epoch
   forSong = { id, path }
-  if (g) await adopt(id, path, g, 'own')
+  if (g) await adopt(id, path, g, 'own', my)
   else {
     grid.value = null
     loading.value = true
-    await ask(id, path)
+    await ask(id, path, my)
   }
 }
 
@@ -571,6 +628,10 @@ export function useClick() {
     setManual,
     watchGrid,
     songSettings,
+    weak,
+    setWeak,
+    fit,
+    setFit,
     /** la rejilla de la que suena, otra vez: se re-analizó y cambió */
     reload,
     reanalyze,
@@ -593,7 +654,10 @@ export function resetClick() {
   error.value = ''
   fallbackWhy.value = ''
   reanalyzing.value = null
+  weak.value = { id: null, regions: [] }
+  fit.value = { id: null, before: null, after: null }
   askedAt = 0
+  epoch++
   forSong = { id: null, path: '' }
   settingsFor = null
   viewers = 0

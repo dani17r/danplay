@@ -357,6 +357,14 @@ export function createState() {
     /** lo que va diciendo mientras se calcula (0..1, uno por pregunta), o vacío: ya está */
     /** @type {number[]} */
     beatGridPending: [],
+    /**
+     * lo que sale de «Re-analizar»: la rejilla automática nueva (`grid`; sin
+     * ella, la de ahora), cuántos pulsos dice haber arreglado (`fixed`; sin
+     * él, los que cambiaron) y, si se ponen, las zonas dudosas (`weak`) y el
+     * ajuste (`fit`)
+     */
+    /** @type {null | {grid?: any, fixed?: number, weak?: number[][], fit?: any}} */
+    reanalysis: null,
     /** las propuestas de «Transformar» */
     /** @type {any[]} */
     tidy: [],
@@ -395,6 +403,34 @@ export function createState() {
 }
 
 const copy = (v) => JSON.parse(JSON.stringify(v))
+
+/**
+ * El clic manual mezclado, como lo devuelve el núcleo: los pulsos de las
+ * zonas que tocó él (`touched`) y fuera de ellas los de la rejilla nueva.
+ * Sin `touched`, nada es suyo.
+ */
+function mergeOwn(own, grid) {
+  const windows = Array.isArray(own.touched) ? own.touched : []
+  const inside = (t) => windows.some(([a, b]) => t >= a && t <= b)
+  const bar = (g) => new Set((g.bars || []).map((i) => g.beats[i]))
+  const hisBars = bar(own)
+  const newBars = bar(grid)
+  const beats = [...own.beats.filter(inside), ...(grid.beats || []).filter((t) => !inside(t))].sort(
+    (x, y) => x - y
+  )
+  const kept = []
+  for (const t of beats) if (!kept.length || t > kept.at(-1) + 0.01) kept.push(t)
+  const bars = []
+  kept.forEach((t, i) => {
+    if (inside(t) ? hisBars.has(t) : newBars.has(t)) bars.push(i)
+  })
+  return {
+    beats: kept.map((t) => Math.round(t * 1000) / 1000),
+    bars,
+    meter: own.meter ?? grid.meter ?? 4,
+    touched: windows.map((w) => [...w])
+  }
+}
 
 /**
  * Las respuestas por defecto de cada método del `api`.
@@ -784,6 +820,28 @@ function answers(state) {
       return copy(state.beatGrid)
     }),
     beatGridPrepare: vi.fn(async () => ({ queued: !!state.beatGrid })),
+    // «Re-analizar»: como el núcleo, guarda la rejilla automática nueva
+    // (`state.beatGrid`) y la devuelve en `grid`; si le llega el clic manual
+    // (`own`, con sus zonas tocadas) devuelve también el mezclado, y NO
+    // escribe el estudio: eso lo hace quien pregunta
+    reanalyzeBeats: vi.fn(async (id, body = {}) => {
+      const plan = state.reanalysis || {}
+      const old = state.beatGrid
+      const next = copy(plan.grid || old || {})
+      if (!next.beats) throw new Error('falta el detector de pulso en esta instalación')
+      state.beatGrid = copy(next)
+      const key = (t) => Math.round(t * 1000)
+      const was = new Set((old?.beats || []).map(key))
+      const moved = next.beats.filter((t) => !was.has(key(t))).length
+      const report = {
+        fixed: plan.fixed ?? moved,
+        ...(plan.weak ? { weak: copy(plan.weak) } : {}),
+        ...(plan.fit ? { fit: copy(plan.fit) } : {})
+      }
+      const out = { ...copy(next), grid: copy(next), report }
+      if (body.own) out.own = mergeOwn(body.own, next)
+      return out
+    }),
     // «Transformar»: las propuestas de `state.tidy`; aplicar una la quita y
     // devuelve la ficha con su ruta nueva (o el error de `state.tidyError`)
     tidyList: vi.fn(async () => ({ items: copy(state.tidy), looked: 9, total: 9 })),

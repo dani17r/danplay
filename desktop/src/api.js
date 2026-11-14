@@ -1237,9 +1237,16 @@ export const api = {
    * que tarda (que la red oiga la batería) va por la cola del núcleo y
    * mientras contesta `{pending, progress}`: se pide otra vez hasta que sale
    * (lo hace `useClick().reanalyze`).
+   *
+   * Con `own` (el clic manual de la canción: `{beats, bars, meter, touched}`,
+   * y `touched`, las zonas que movió él) devuelve además `own` mezclado: sus
+   * zonas intactas y lo demás del análisis nuevo. El núcleo no escribe el
+   * estudio: lo guarda quien pregunta. `report.weak` son las zonas sin apoyo
+   * rítmico (el clic es ahí una suposición) y `report.fit`, cómo encajaba el
+   * clic con los golpes antes y después.
    * @param {number} id
-   * @param {{mode: 'repair'|'steady'|'drums'|'mix'|'fill', start?: number, end?: number, wait?: boolean}} opts
-   * @returns {Promise<{grid: BeatGrid, report: {fixed: number, bpm: number, notes: string[]}}>}
+   * @param {{mode: 'repair'|'steady'|'drums'|'mix'|'fill', start?: number, end?: number, wait?: boolean, own?: {beats: number[], bars: number[], meter: number, touched?: Array<[number, number]>}}} opts
+   * @returns {Promise<{grid: BeatGrid, own?: {beats: number[], bars: number[], meter: number, touched: Array<[number, number]>}, report: {fixed: number, bpm: number, notes: string[], weak?: Array<[number, number]>, fit?: {before: {median_ms: number, spread_ms: number, supported: number}, after: {median_ms: number, spread_ms: number, supported: number}}}}>}
    */
   reanalyzeBeats: (id, opts) => POST(`/song/${id}/beats/reanalyze`, opts),
   // ---- las guías habladas
