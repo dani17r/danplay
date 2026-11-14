@@ -891,6 +891,24 @@ contratiempo y el mapa de tempo por tramos). Una biblioteca entera son unos
 segundos, así que cada cambio en la rejilla se compara con el anterior
 canción a canción. No sustituye a oír: dice dónde mirar.
 
+**El compás: 2, 3, 4 o 6 tiempos.** Solo había 3 o 4, y un 6/8, que la red
+oye a corcheas (seis pulsos por compás), salía como compases de tres; al
+elegirlo a mano, además, el «1» caía en la mitad equivocada de cada dos
+compases, porque solo se guardaba dónde cae en 3 y en 4 (`phase3`,
+`phase4`). `pulse::grid::finish` prueba también el 2 y el 6 (`METERS`) y se
+queda con el 4 salvo que otro cuadre claramente mejor (el margen de siempre,
+un 5 % de los pulsos) y que sus «1» **destaquen** (`MIN_CONTRAST`): la media
+de la probabilidad de «1» de la red donde los pone, menos la de los demás
+pulsos, al menos 0,3 y al menos lo que destacan los del 4 (`meter_fits`
+da ese contraste y el ajuste de cada compás, y `gridlab` los imprime en
+`fits`). Sin esa guarda, una red que marca «1» en todos los pulsos, o uno
+fuerte cada cuatro y uno flojo en el tercero (un 4/4 lento), hacía ganar al
+compás más corto por acumulación. `Final` lleva ahora `phase2` y `phase6`.
+Medido en las mismas 326 canciones: los totales de la rejilla, idénticos, y
+ninguna cambia de pulsos, huecos ni mapa de tempo; las 21 que salían en 3
+(todas a 134-172 pulsos por minuto, con la confianza de los «1» entre 0,4 y
+0,7) pasan a 6 con 0,75-0,99, y 6 de las de 4 también; ninguna sale en 2.
+
 El detector también es menos frágil: un fallo se vuelve a intentar a los
 dos minutos, hasta tres veces (antes se recordaba hasta cerrar la app, y
 la canción se quedaba con la rejilla de reserva); lo que oyó la red se
@@ -1834,6 +1852,54 @@ letra y, si no hay nada de eso, el sonido; el resultado dice de dónde salió
 (`source`) y la interfaz lo enseña. Se ajustó contra letras de verdad de
 LRCLIB (cinco canciones de la biblioteca), no contra ejemplos inventados.
 
+**Con el cifrado, los nombres de verdad** (`analysis::sheet`). El «coro» de la
+letra sola es lo que vuelve en más sitios, y el del sonido lo que más suena;
+en alabanza el puente puede ser las dos cosas. El cifrado ya dice cómo se
+llama cada parte y en qué orden: `sheet::align` casa sus partes (nombre y
+versos, sin las líneas de acordes) con los versos de la letra con tiempos.
+Cada verso cantado se pone en un verso del cifrado por programación dinámica
+(lo normal es el siguiente de la misma parte; repetirlo, saltarse uno,
+volver o entrar por la mitad cuesta, y un verso que no está se queda sin
+parte); los versos se comparan por palabras en orden, sin tildes, signos ni
+apartes, y medio verso dentro de otro vale, porque una LRC parte los versos
+de otra manera que el cifrado. Salen las partes con el nombre del cifrado
+dicho como en la app («Verse 2» es «Estrofa 2»; lo que no es de la casa, un
+«Tag», se queda con el suyo) y una **confianza**: qué parte de lo cantado
+está en el cifrado y qué parte del cifrado se canta. Con el cifrado de otra
+versión, o uno sin los nombres de sus partes, sale baja (`reliable()`), y
+quien llama se queda con lo de la letra sola o con el sonido. Va probado con
+letras y cifrados sintéticos; en este equipo no había ninguna canción con
+partes anotadas, cifrado y letra con tiempos a la vez, así que **no se ha
+medido con material de verdad** y las heurísticas de nombres del sonido y de
+la letra sola se dejaron como estaban.
+
+**A tempo.** La voz de la guía entraba por segundos (lo que dura la frase y
+un pulso antes) y caía entre dos pulsos. `structure::plan_cues_in_time`
+la pone como las guías de una secuencia: en el «1» del compás de antes si la
+frase cabe en él, o en el último pulso en que todavía cabe, siguiendo el
+tempo de su tramo; donde la rejilla no llega (un hueco sin clic) o pisaría a
+la anterior, por segundos como antes.
+
+**Avisos de arreglo** (`analysis::arrangement`, solo candidatos). Lo que este
+músico escribe a mano en su guía se ve en lo fuerte que suena cada pista en
+cada compás: «Entra batería» (o bajo, guitarra…: tras 4 compases callada la
+batería y el bajo, 8 las demás; si entran tres a la vez, «Entra la banda»),
+«Sin batería», «Bajar» y «Subir» (7 dB o más, sostenidos) y «Solo voz». Cada
+uno lleva su compás, su texto y una confianza, y solo salen los de 0,5 o más:
+pocos y claros. No hay «entra bombo»: la pista de batería no separa el
+bombo.
+
+**El banco** (`analysis/examples/guidelab.rs`) mide la guía como `gridlab`
+mide el clic: pasa la guía por canciones con sus partes anotadas (una
+secuencia tal como se descarga, con su proyecto de Ableton; una abierta en
+DanPlay; o anotada a mano en un `guidelab.json`, con su cifrado y su letra si
+los tiene) y da las fronteras acertadas a un compás (lo que recuerda, lo que
+acierta y F) y los nombres (por parte y por segundos), solo con el sonido y
+con las pistas. Sin títulos: cada canción con una clave corta. En este
+equipo solo hay una secuencia con sus partes (sin la voz principal): fronteras
+F 0,32 con el sonido y 0,46 con las pistas, nombres 4 de 10. Una sola
+canción no decide nada; el banco queda para cuando haya 15-20.
+
 ## La app del celular
 
 Pedido el 14 de octubre: el reproductor en el teléfono, **sin** convertir,
@@ -2250,5 +2316,24 @@ estudio: con Beat This! en el núcleo y, donde no lo hay, con la rejilla de
 reserva del motor (`engine/src/beats.rs`): por bloques, sin cargar la
 canción entera en memoria (unos 9 MB por hora de audio; antes 320).
 
-Si alguien sabe de detección de tonalidad, sigue siendo probablemente el sitio
-donde más se agradecería ayuda.
+**Con un cifrado, el tono por señal sí se puede decidir** (`analysis::key`, aún
+sin usar por el núcleo). Lo descartado era adivinar el tono de la mezcla
+entera; con un cifrado los acordes ya valen hasta una transposición, y solo
+hay que elegir entre **las doce rotaciones**: para cada una se compara lo que
+suena en cada verso (el croma del audio, de picos del espectro afinados
+entre bins y con la afinación de la grabación corregida) con los acordes que
+el cifrado escribe en ese verso movidos esa rotación (`key::fit`; los versos
+en el tiempo salen de `sheet::align` y `sheet::chord_spans`). Da cuántos
+semitonos va la grabación por encima del cifrado, con su confianza, y por
+tanto detecta también que la grabación va en otro tono que el cifrado. Con
+las pistas sin batería saldrá mejor que con la mezcla. Validado solo con
+audio sintético (acordes como senos con armónicos, cinco canciones en las
+doce tonalidades): 60 de 60 limpias, 20 de 20 con batería colada y hasta 40
+cents de desafinación, 60 de 60 con una melodía más fuerte que el acorde y
+la letra 0,7 s tarde; con ruido o con los acordes de otra progresión la
+confianza baja. **No hay una grabación real con cifrado en la biblioteca
+donde medirlo**: hasta que la haya, ofrecerlo como sugerencia y no como
+dato.
+
+Para lo que no tiene cifrado, sigue siendo probablemente el sitio donde más
+se agradecería ayuda a quien sepa de detección de tonalidad.
