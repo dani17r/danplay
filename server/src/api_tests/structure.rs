@@ -252,8 +252,8 @@ fn the_automatic_guide_finds_the_parts_and_says_them() {
     let end = sections[5]["end"].as_f64().expect("final");
     assert!((end - 80.0).abs() <= 0.1, "{end}");
     assert_eq!(labels(sections), NAMES);
-    // una guía por parte (la intro no hace falta), medio segundo de voz y un
-    // pulso antes de que empiece la parte
+    // una guía por parte (la intro no hace falta), medio segundo de voz que
+    // entra en el «1» del compás anterior (y no entre dos pulsos)
     let said = r["cues"].as_array().expect("guías");
     let texts: Vec<&str> = said.iter().filter_map(|c| c["text"].as_str()).collect();
     assert_eq!(texts, NAMES[1..]);
@@ -265,7 +265,7 @@ fn the_automatic_guide_finds_the_parts_and_says_them() {
                 .is_some_and(|f| Path::new(f).extension().is_some_and(|e| e == "wav"))
         );
         let at = c["t"].as_f64().expect("cuándo");
-        assert!((at - (start - 1.0)).abs() <= 0.01, "{c}");
+        assert!((at - (start - BAR)).abs() <= 0.01, "{c}");
     }
     // sin compases (trozos de 2 s), las mismas partes
     let r = auto(&app, cid, json!({"voice": "st-F1"}));
@@ -550,6 +550,97 @@ fn each_song_has_its_own_guide_and_the_result_says_whose_it_is() {
     let (st, last) = call(&app, "GET", "/api/jobs/auto-cue", None);
     assert_eq!(st, 200);
     assert_eq!(last["name"], format!("auto-cue-{short}"));
+}
+
+/// Un cifrado guardado con sus partes por nombre, sobre la letra de
+/// `its_lyrics`: lo que se repite (el «coro» por la letra) es aquí el puente.
+fn its_sheet() -> String {
+    let part = |name: &str, lines: [&str; 4]| {
+        let mut out = Vec::new();
+        for (i, l) in lines.iter().enumerate() {
+            out.push(json!({"t": if i % 2 == 0 { "G   D/F#  Em7" } else { "C   D" }, "c": true}));
+            out.push(json!({"t": l, "c": false}));
+        }
+        json!({"name": name, "chords": ["G", "D/F#", "Em7", "C", "D"], "lines": out})
+    };
+    let chorus = [
+        "Mi gozo eres tú, Señor",
+        "Mi fuerza y mi canción",
+        "Mi gozo eres tú, mi Dios",
+        "Te doy mi adoración",
+    ];
+    json!({"sheet": {"key": "G", "sections": [
+        part("Verse 1", [
+            "En la mañana te buscaré",
+            "Con todo mi corazón",
+            "Tu misericordia veré",
+            "Y cantaré tu canción",
+        ]),
+        part("Bridge", chorus),
+        part("Verse 2", [
+            "Aunque la noche llegue",
+            "No temeré ningún mal",
+            "Tu mano me sostendrá",
+            "Y me harás descansar",
+        ]),
+        part("Bridge", chorus),
+    ]}})
+    .to_string()
+}
+
+#[test]
+fn with_a_chord_sheet_the_parts_carry_the_names_it_gives_them() {
+    // Lo que más se repite no tiene por qué ser el coro (en alabanza suele
+    // ser el puente): con el cifrado de la canción, que trae sus partes con
+    // nombre y en orden, casado con la letra con tiempos, cada parte se
+    // llama como en el cifrado. Sin cifrado (o con uno que no casa), como
+    // siempre.
+    let Some((app, cid, _)) = song() else {
+        return;
+    };
+    let _serial = serial();
+    let file = songs::by_id(&app, cid).expect("índice").expect("canción")["path"]
+        .as_str()
+        .expect("ruta")
+        .to_owned();
+    crate::services::enrich::fake_lrclib::put(&file, &its_lyrics());
+    songs::update_one(&app, cid, "chords", Value::from(its_sheet())).expect("cifrado");
+    let r = auto(
+        &app,
+        cid,
+        json!({"voice": "st-F1", "bars": every_bar(), "beat": 0.5}),
+    );
+    assert_eq!(r["source"], "sheet", "{r}");
+    assert_eq!(
+        labels(&r["sections"]),
+        [
+            "Intro",
+            "Estrofa 1",
+            "Puente",
+            "Estrofa 2",
+            "Puente",
+            "Final"
+        ],
+        "{}",
+        r["sections"]
+    );
+    assert_eq!(starts(&r["sections"]), TRUTH, "{}", r["sections"]);
+    // un cifrado de otra canción no casa con la letra: lo de siempre
+    let other = json!({"sheet": {"key": "D", "sections": [{"name": "Chorus", "chords": ["D"], "lines": [
+        {"t": "D  A", "c": true}, {"t": "Amazing grace how sweet the sound", "c": false},
+        {"t": "G  D", "c": true}, {"t": "That saved a wretch like me", "c": false},
+    ]}]}});
+    songs::update_one(&app, cid, "chords", Value::from(other.to_string())).expect("cifrado");
+    let r = auto(
+        &app,
+        cid,
+        json!({"voice": "st-F1", "bars": every_bar(), "beat": 0.5}),
+    );
+    assert_eq!(r["source"], "lyrics", "{r}");
+    songs::update_one(&app, cid, "chords", Value::from("")).expect("cifrado");
+    songs::update_one(&app, cid, "lyrics_synced", Value::from("")).expect("letra");
+    songs::update_one(&app, cid, "lyrics", Value::from("")).expect("letra");
+    crate::services::enrich::fake_lrclib::put(&file, "");
 }
 
 /// La letra con tiempos de la canción de prueba: cada parte que se canta,

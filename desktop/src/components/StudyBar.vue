@@ -1786,6 +1786,7 @@ function placeAutoGuide(r, voice) {
   // de dónde salieron las partes: de lo más fiable a lo menos
   const from =
     {
+      sheet: 'con los nombres del cifrado, casado con la letra',
       lyrics: 'por la letra',
       sequence: 'las de la secuencia',
       sound: 'por cómo suena (sin letra con tiempos de esta grabación: es aproximada)'

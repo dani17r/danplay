@@ -4,6 +4,7 @@
 use crate::app::App;
 use crate::jobs::{JobError, Progress};
 use crate::services::{cues, stems};
+use analysis::sheet;
 use analysis::structure::{self as st, Chunk, Matrix};
 use library::index::Dict;
 use serde_json::{Map, Value, json};
@@ -287,12 +288,15 @@ pub const CLICK_WAIT: Duration = Duration::from_secs(180);
 /// Si aún no está, se espera a la cola del clic (`beats::wait_for`, como
 /// mucho `wait`) diciendo por dónde va. Sin compases la canción se parte en
 /// trozos de 2 s y las partes salen distintas, y peor.
-fn grid_bars(
-    app: &App,
-    song: &Dict,
-    wait: Duration,
-    p: &Progress,
-) -> Result<(Vec<f64>, f64), String> {
+/// Lo que la guía toma de la rejilla del clic: los «1» de los compases, todos
+/// los pulsos (para poner la voz en un pulso) y lo que dura uno.
+struct Grid {
+    bars: Vec<f64>,
+    beats: Vec<f64>,
+    beat: f64,
+}
+
+fn grid_bars(app: &App, song: &Dict, wait: Duration, p: &Progress) -> Result<Grid, String> {
     let path = song.get("path").map(value::str_of).unwrap_or_default();
     let path = std::path::Path::new(&path);
     if cfg!(test) && !crate::services::beats::safe_in_tests(app, path) {
@@ -324,7 +328,7 @@ fn grid_bars(
         .collect();
     let beat = median(beats.windows(2).map(|w| w[1] - w[0]).collect());
     if bars.len() >= 8 && beat.is_finite() && beat > 0.0 {
-        Ok((bars, beat))
+        Ok(Grid { bars, beats, beat })
     } else {
         Err(few())
     }
@@ -355,10 +359,55 @@ fn sequence_parts(app: &App, song: &Dict) -> Option<Vec<(f64, String)>> {
     (parts.len() >= 2).then_some(parts)
 }
 
+/// El cifrado guardado de la canción, partido en las partes que casa con la
+/// letra (`analysis::sheet`): sus versos, sin las líneas de acordes, y los
+/// acordes que van encima de cada uno. Vacío si no hay cifrado.
+fn sheet_parts(song: &Dict) -> Vec<sheet::SheetPart> {
+    let Some(stored) = library::enrich::stored_sheet(song) else {
+        return Vec::new();
+    };
+    let sections = stored.get("sections").and_then(Value::as_array);
+    sections
+        .into_iter()
+        .flatten()
+        .map(|sec| {
+            let mut part = sheet::SheetPart {
+                name: value::str_of(sec.get("name").unwrap_or(&Value::Null))
+                    .trim()
+                    .to_owned(),
+                ..sheet::SheetPart::default()
+            };
+            let mut above: Vec<String> = Vec::new();
+            for line in sec
+                .get("lines")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+            {
+                let text = line.get("t").and_then(Value::as_str).unwrap_or_default();
+                if line.get("c").and_then(Value::as_bool) == Some(true) {
+                    above = analysis::key::chords_in(text);
+                } else if !text.trim().is_empty() {
+                    part.lines.push(text.to_owned());
+                    part.chords.push(std::mem::take(&mut above));
+                }
+            }
+            part
+        })
+        .collect()
+}
+
 /// Las partes por la letra con tiempos (`library::parts`): la guardada o la
-/// de LRCLIB que dure lo mismo que el archivo. `None` si no hay letra así, o
-/// si no da para sacar partes.
-fn lyric_parts(app: &App, song: &Dict, bars: &[f64], duration: f64) -> Option<Vec<(f64, String)>> {
+/// de LRCLIB que dure lo mismo que el archivo. Si la canción tiene cifrado y
+/// este casa con la letra, las partes salen con los nombres del cifrado
+/// (`sheet`): dice «Puente» donde el cifrado dice «Puente», y no donde algo
+/// se repite mucho. `None` si no hay letra así, o si no da para sacar partes.
+fn lyric_parts(
+    app: &App,
+    song: &Dict,
+    bars: &[f64],
+    duration: f64,
+) -> Option<(Vec<(f64, String)>, &'static str)> {
     let synced = crate::services::enrich::synced_lyrics(app, song)?;
     let lines = library::parts::lines(&synced);
     // una letra que acaba después que la canción, o que no llega a su
@@ -367,8 +416,16 @@ fn lyric_parts(app: &App, song: &Dict, bars: &[f64], duration: f64) -> Option<Ve
     if duration > 0.0 && (last > duration + 2.0 || last < 0.4 * duration) {
         return None;
     }
+    let written = sheet_parts(song);
+    if !written.is_empty() {
+        let sung: Vec<(f64, String)> = lines.iter().map(|l| (l.at, l.text.clone())).collect();
+        let aligned = sheet::align(&written, &sung, duration, bars);
+        if aligned.reliable() && aligned.parts.len() >= 3 {
+            return Some((aligned.parts, "sheet"));
+        }
+    }
     let parts = library::parts::from_lyrics(&lines, duration, bars);
-    (parts.len() >= 3).then_some(parts)
+    (parts.len() >= 3).then_some((parts, "lyrics"))
 }
 
 /// Lo que se pide a la guía automática.
@@ -404,6 +461,10 @@ pub fn auto_guide(
         .and_then(value::float_of)
         .unwrap_or(0.0);
     let mut beat = req.beat;
+    // los pulsos del clic, para que la voz entre en uno (sin ellos, por segundos)
+    let mut beats: Vec<f64> = Vec::new();
+    // los «1» del clic con los que se ajustaron las partes
+    let mut click_bars: Option<Vec<f64>> = None;
     // si las partes se ajustaron a los compases del clic (y si no, por qué)
     let mut click: Option<(bool, String)> = None;
     let (found, source) = if let Some(sections) = req.sections.as_ref().filter(|s| !s.is_empty()) {
@@ -430,17 +491,19 @@ pub fn auto_guide(
                 .click_wait
                 .map_or(CLICK_WAIT, |s| Duration::from_secs_f64(s.max(0.0)));
             match grid_bars(app, song, wait, p) {
-                Ok((own, pulse)) => {
-                    bars = Some(own);
-                    beat = beat.or(Some(pulse));
+                Ok(grid) => {
+                    bars = Some(grid.bars);
+                    beats = grid.beats;
+                    beat = beat.or(Some(grid.beat));
                 }
                 Err(e) => why = e,
             }
         }
         click = Some((bars.is_some(), why));
+        click_bars.clone_from(&bars);
         p.message("Buscando la letra…");
         match lyric_parts(app, song, bars.as_deref().unwrap_or(&[]), duration) {
-            Some(parts) => (st::given(&parts, duration), "lyrics"),
+            Some((parts, from)) => (st::given(&parts, duration), from),
             None => (analyse(app, song, bars.as_deref(), beat, p)?, "sound"),
         }
     };
@@ -473,7 +536,10 @@ pub fn auto_guide(
         .map(|(k, v)| (k.clone(), v["seconds"].as_f64().unwrap_or(0.0)))
         .collect();
     let starts: Vec<(f64, String)> = found.iter().map(|s| (s.start, s.label.clone())).collect();
-    let plan = st::plan_cues(&starts, &clips, beat);
+    // con los compases del clic, la voz entra en un pulso del compás anterior;
+    // sin ellos (partes dadas o de una secuencia), por segundos
+    let bar_starts = click_bars.as_deref().unwrap_or(&[]);
+    let plan = st::plan_cues_in_time(&starts, &clips, &beats, bar_starts, beat);
     let cues: Vec<Value> = plan
         .iter()
         .map(|(t, text)| {

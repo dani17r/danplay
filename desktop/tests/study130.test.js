@@ -492,6 +492,22 @@ describe('the automatic cue', () => {
     expect(useNotices().notices.value.at(-1).message).toContain('Guía lista, por la letra: ')
   })
 
+  it('says when the parts carry the names of the chord sheet', async () => {
+    const { useNotices } = await import('../src/composables/useNotices.js')
+    prepare()
+    localStorage.setItem('danplay.cues.voice', JSON.stringify('st-F1'))
+    held.api.runJob.mockImplementation(async (start) => {
+      await start()
+      return { ...result, source: 'sheet' }
+    })
+    const w = await mountView()
+    await w.find('.study-auto-guide').trigger('click')
+    await flushPromises()
+    expect(useNotices().notices.value.at(-1).message).toContain(
+      'Guía lista, con los nombres del cifrado, casado con la letra: '
+    )
+  })
+
   it('with no voice chosen, it asks which one (and remembers it)', async () => {
     prepare()
     const w = await mountView()
