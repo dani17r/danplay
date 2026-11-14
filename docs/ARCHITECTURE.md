@@ -189,11 +189,13 @@ sin pasar por el JS. En el modo navegador, el `<audio>` lee
 
 ## Los formatos que el decodificador no conoce
 
-El motor lee con symphonia MP3, Vorbis, FLAC, WAV y AIFF, y todos empiezan en
-la muestra exacta: es lo que hace falta para que el clic caiga donde lo
-calculó el núcleo. Opus, WMA y compañía no los lee. Esos se pasan a FLAC con
-**ffmpeg** una vez, a la caché (`player/formats.rs`, con tope de 3 GB), y
-suena el FLAC: la primera vez tarda un par de segundos; las demás, nada.
+El motor lee con symphonia MP3, Vorbis, FLAC, WAV, AIFF y, desde la 1.42, el
+AAC y el ALAC de un MP4 (M4A, y los `.mp3` que en realidad son MP4), y todos
+empiezan en la muestra exacta: es lo que hace falta para que el clic caiga
+donde lo calculó el núcleo. Opus, WMA, Matroska y compañía no los lee. Esos se
+pasan a FLAC con **ffmpeg** una vez, a la caché (`player/formats.rs`, con
+tope de 3 GB), y suena el FLAC: la primera vez tarda un par de segundos; las
+demás, nada.
 
 **M4A, AAC y ALAC.** El AAC de un MP4 sale de symphonia con el retraso del
 codificador por delante (1024 muestras en ffmpeg, 2112 en iTunes: 23 ms, el
@@ -207,6 +209,26 @@ ediciones no se salta nada, como hace ffmpeg. Se decide por el contenido: un
 «.mp3» que es un MP4 suena igual. Lo que symphonia **no** decodifica
 (HE-AAC con SBR, AAC de más de dos canales, Opus) falla al abrir
 (`Part::open_file` devuelve error): quien llame lo pasa por ffmpeg como siempre.
+
+**La PC ya no convierte los MP4** que el motor abre. `formats::is_native`
+mira los primeros bytes y, si son de un MP4, **lo abre** (`Part::open_file`,
+del disco por trozos) y recuerda el resultado mientras tamaño y fecha no
+cambien (se pregunta en cada vuelta del reproductor por la canción que
+viene). Si abre, suena tal cual: sin la espera de la primera vez, sin FLAC en
+la caché. Si no (HE-AAC, un AAC de 5.1, ALAC raro), se convierte como antes.
+Se comprobó con los **18 MP4 de la biblioteca de Daniel**, que son audio de
+YouTube en fragmentos DASH (`ftyp dash`, `moof`/`mdat`, sin lista de
+ediciones) llamado `.mp3`: `engine/src/real_files.rs` (un banco, `--ignored`,
+`DANPLAY_REAL_FILES=lista.txt`) los decodifica con el motor y con ffmpeg y
+compara. Los 18: la misma longitud, el mismo encaje (la muestra 0) y entre 46
+y 87 dB de relación señal/error (el pico solo llega a 0,4 en un golpe: son dos
+decodificadores de AAC distintos). De ahí salió un fallo real, que ninguna
+prueba con M4A generados veía: tras llegar al **final**, un MP4 en fragmentos
+contestaba al salto con un «bien» y no entregaba nada más, y la canción se
+quedaba muda al volver a empezar o al repetir un tramo del final.
+`Decoded::seek` vuelve a abrir el lector si la parte ya había llegado al
+final. Con eso, 5 saltos de 5 en los 18 (en 2 casos un salto difiere un
+0,8 % en amplitud, el calentamiento del AAC, en la misma muestra).
 
 El FLAC se llama como el **audio** del original (`<huella>.flac`, el MD5 de
 sus paquetes: `ffmpeg -c copy -f md5`, 150 ms para un M4A de cinco minutos), y
@@ -225,6 +247,17 @@ MP4 aunque se llame `.mp3` (en la biblioteca de Daniel, 18 de 319), y un Opus
 dentro de un `.ogg` también; un FLAC con nombre de M4A, en cambio, suena tal
 cual. Lo que el principio no dice (un MP3 empieza con su etiqueta ID3 o con
 una trama, igual que un AAC suelto) lo decide la extensión como siempre.
+
+**Conservar el timbre de la voz** (Ajustes › Reproducción, apagado de
+fábrica). El estirador ya sabe mantener los formantes en su sitio al cambiar
+el tono; `Command::Formants(bool)` lo manda al motor (`Engine::set_formants`,
+que vale para lo que suena y para lo que se cargue después), se guarda en el
+navegador (`danplay.pitch.formants`) y la interfaz lo manda al arrancar. No
+se ha podido oír: lo respalda una medida con una voz sintética (resonancias a
+571, 1.464 y 2.638 Hz; con +4 semitonos sin conservar se van a ×1,25 y
+conservando quedan a un 0-10 %), y cuesta un 10-15 % más del estirador, que ya
+era un 1,5 % de un núcleo. Con armónicos exactos y estacionarios (un peine
+sin vibrato ni soplo) el estirador se pierde: por eso no es de fábrica.
 
 ## Lo descargado se llama como en YouTube
 
