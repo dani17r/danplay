@@ -445,6 +445,13 @@ async function transpose() {
       </div>
     </div>
 
+    <!-- Un archivo que no admite etiquetas (un .mp3 que por dentro es otro
+         formato, un wma): estrellas, listas y estudio se guardan solo en la
+         base de DanPlay, y se dice aquí, no a cada cambio. -->
+    <div v-if="song.tags_supported === false" class="hint no-tags">
+      Este archivo no admite etiquetas: lo que cambies se guarda solo en DanPlay.
+    </div>
+
     <dl v-if="!editing" class="facts">
       <dt>Álbum</dt>
       <dd>{{ song.album || '—' }}</dd>

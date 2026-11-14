@@ -84,6 +84,45 @@ fn field_or(fields: &Dict, song: &Dict, key: &str) -> Option<String> {
 
 const METADATA_FIELDS: [&str; 5] = ["artist", "title", "album", "year", "genre"];
 
+/// Si al archivo de esta canción se le pueden escribir etiquetas (por lo
+/// que es por dentro, no por su nombre). Con `false`, lo que se cambie de
+/// ella se guarda solo en DanPlay.
+pub fn tags_supported(song: &Dict) -> bool {
+    library::tags::writable(Path::new(&text(song, "path")))
+}
+
+/// La ficha con lo que pasó con la etiqueta del archivo al guardar:
+/// `tags_written` y, si no se escribió, por qué en `tags_skipped`: «off»
+/// (las etiquetas están desactivadas en Ajustes; solo si lo guardado las
+/// mira, `honours_setting`), «missing» (el archivo no está), «unsupported»
+/// (el archivo no admite etiquetas) o «failed» (no se pudo: solo lectura,
+/// el disco...). Así la interfaz puede decir cuándo algo quedó solo en la
+/// base. Y `tags_supported`, cuando se sabe, para que la ficha de la
+/// interfaz no lo pierda al ponerse al día con esta respuesta.
+pub fn with_tags_outcome(app: &App, mut card: Dict, written: bool, honours_setting: bool) -> Dict {
+    card.insert("tags_written".into(), Value::Bool(written));
+    if written {
+        card.insert("tags_supported".into(), Value::Bool(true));
+        return card;
+    }
+    let why = if honours_setting && !app.config().write_tags {
+        "off"
+    } else if !exists(&card) {
+        "missing"
+    } else if !tags_supported(&card) {
+        "unsupported"
+    } else {
+        "failed"
+    };
+    match why {
+        "unsupported" => card.insert("tags_supported".into(), Value::Bool(false)),
+        "failed" => card.insert("tags_supported".into(), Value::Bool(true)),
+        _ => None,
+    };
+    card.insert("tags_skipped".into(), why.into());
+    card
+}
+
 /// Cambia esos campos en el índice y en las etiquetas. La ficha lleva
 /// `tags_written` (si el archivo se actualizó de verdad).
 pub fn edit(app: &App, cid: i64, fields: &Dict) -> Result<Option<Dict>, ApiError> {
@@ -129,11 +168,7 @@ pub fn edit(app: &App, cid: i64, fields: &Dict) -> Result<Option<Dict>, ApiError
             written = write_lyrics(app, &path, &text) && written;
         }
     }
-    let out = by_id(app, cid)?.map(|mut out| {
-        out.insert("tags_written".into(), Value::Bool(written));
-        out
-    });
-    Ok(out)
+    Ok(by_id(app, cid)?.map(|out| with_tags_outcome(app, out, written, true)))
 }
 
 /// El tono y el bpm en las etiquetas, lo que tenga valor; sin nada, `true`
@@ -177,10 +212,7 @@ pub fn set_blur(app: &App, cid: i64, value: bool) -> Result<Option<Dict>, ApiErr
         written = tags::write_fields(app, Path::new(&text(&c, "path")), &changes);
     }
     update_one(app, cid, "blur", Value::from(i64::from(value)))?;
-    Ok(by_id(app, cid)?.map(|mut out| {
-        out.insert("tags_written".into(), Value::Bool(written));
-        out
-    }))
+    Ok(by_id(app, cid)?.map(|out| with_tags_outcome(app, out, written, true)))
 }
 
 /// DATA_DIR/cues, de donde valen las guías habladas.
@@ -189,7 +221,9 @@ pub fn cues_folder(app: &App) -> PathBuf {
 }
 
 /// El estudio, limpio (`songs::clean_study`), en el índice y en la etiqueta
-/// del archivo.
+/// del archivo. La ficha dice si la etiqueta se escribió (`tags_written`;
+/// ver `with_tags_outcome`): antes no se sabía cuándo el estudio quedaba
+/// solo en la base.
 pub fn set_study(app: &App, cid: i64, study: &Value) -> Result<Option<Dict>, ApiError> {
     let Some(c) = by_id(app, cid)? else {
         return Ok(None);
@@ -201,14 +235,15 @@ pub fn set_study(app: &App, cid: i64, study: &Value) -> Result<Option<Dict>, Api
     };
     let raw = songs::clean_study(&study, &cues_folder(app).to_string_lossy());
     update_one(app, cid, "study", Value::from(raw.clone()))?;
+    let mut written = false;
     if app.config().write_tags && exists(&c) {
         let changes = Changes {
             study: Some(raw),
             ..Changes::default()
         };
-        tags::write_fields(app, Path::new(&text(&c, "path")), &changes);
+        written = tags::write_fields(app, Path::new(&text(&c, "path")), &changes);
     }
-    by_id(app, cid)
+    Ok(by_id(app, cid)?.map(|out| with_tags_outcome(app, out, written, true)))
 }
 
 // ---------------------------------------------------------------- estrellas

@@ -355,6 +355,20 @@ describe('editing the song details', () => {
     return w
   }
 
+  it('says on the card when the file cannot hold tags, and only then', async () => {
+    // un .mp3 que por dentro es otro formato, un wma: lo que se cambie de
+    // la canción vive solo en la base, y la ficha lo dice
+    const note = 'Este archivo no admite etiquetas: lo que cambies se guarda solo en DanPlay.'
+    const noteIn = (extra) =>
+      mount(DetailsPanel, { props: { song: { ...song, ...extra }, aiReady: true } })
+        .findAll('.no-tags')
+        .map((n) => n.text())
+    expect(noteIn({ tags_supported: false })).toEqual([note])
+    expect(noteIn({ tags_supported: true })).toEqual([])
+    // sin el dato (una canción de fuera, una respuesta que no lo trae): nada
+    expect(noteIn({})).toEqual([])
+  })
+
   it('the pencil opens the form', async () => {
     const w = mountView()
     expect(w.find('.edit-form').exists()).toBe(false)

@@ -84,6 +84,13 @@ fn song(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     c.insert("playlists".into(), Value::Array(lists));
     let exists = songs::exists(&c);
     c.insert("existe".into(), Value::Bool(exists));
+    // si el archivo no admite etiquetas, lo que se cambie de la canción se
+    // guarda solo en DanPlay: la ficha lo dice (solo las de la biblioteca,
+    // que a las de fuera no se les escribe nada)
+    if exists && cid > 0 {
+        let supported = songs::tags_supported(&c);
+        c.insert("tags_supported".into(), Value::Bool(supported));
+    }
     Ok(Value::Object(c).into())
 }
 
@@ -316,8 +323,11 @@ fn stars(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     if songs::by_id(ctx.app, cid)?.is_none() {
         return Err(ApiError::not_found("no esta en la biblioteca"));
     }
-    songs::rate(ctx.app, cid, stars)?;
-    Ok(by_id(ctx.app, cid)?.into())
+    let written = songs::rate(ctx.app, cid, stars)?;
+    Ok(card(
+        songs::by_id(ctx.app, cid)?.map(|c| songs::with_tags_outcome(ctx.app, c, written, false)),
+    )
+    .into())
 }
 
 fn favorite(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
@@ -328,8 +338,11 @@ fn favorite(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     if songs::by_id(ctx.app, cid)?.is_none() {
         return Err(ApiError::not_found("no esta en la biblioteca"));
     }
-    songs::favorite(ctx.app, cid, value)?;
-    Ok(by_id(ctx.app, cid)?.into())
+    let written = songs::favorite(ctx.app, cid, value)?;
+    Ok(card(
+        songs::by_id(ctx.app, cid)?.map(|c| songs::with_tags_outcome(ctx.app, c, written, false)),
+    )
+    .into())
 }
 
 // ---------------------------------------------------------------- «Transformar»

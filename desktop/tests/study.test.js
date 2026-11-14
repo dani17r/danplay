@@ -918,6 +918,58 @@ describe('what is saved goes to its song', () => {
     vi.useRealTimers()
   })
 
+  it('says once per song when the study stayed only in DanPlay, not in the file', async () => {
+    // el núcleo contesta con `tags_written`: un archivo que no admite
+    // etiquetas (o de solo lectura) deja el estudio solo en la base, y no
+    // se sabía. El estudio se guarda solo a cada cambio: se avisa una vez.
+    vi.useFakeTimers()
+    const { useNotices } = await import('../src/composables/useNotices.js')
+    const { notices, clearNotices } = useNotices()
+    clearNotices()
+    const only = (n) => n.message.includes('se guarda solo en DanPlay')
+    const w = await mountView()
+    held.api.setStudy.mockResolvedValue({
+      id: 7,
+      tags_written: false,
+      tags_skipped: 'unsupported'
+    })
+    await w.find('textarea').setValue('uno')
+    await vi.advanceTimersByTimeAsync(700)
+    expect(notices.value.filter(only).map((n) => n.message)).toEqual([
+      'Este archivo no admite etiquetas: el estudio de esta canción se guarda solo en DanPlay'
+    ])
+    await w.find('textarea').setValue('dos')
+    await vi.advanceTimersByTimeAsync(700)
+    expect(held.api.setStudy).toHaveBeenCalledTimes(2)
+    expect(notices.value.filter(only), 'no en cada guardado').toHaveLength(1)
+    // otro motivo en otra canción: se avisa de esa
+    clearNotices()
+    held.api.setStudy.mockResolvedValue({ id: 8, tags_written: false, tags_skipped: 'failed' })
+    held.state.songs = [...held.state.songs, song(8, { title: 'Otra', study: '' })]
+    held.playback.emit({
+      track: { id: 8, title: 'Otra', artist: 'Barak', duration: 100 },
+      path: '/musica/otra.mp3',
+      position: 0
+    })
+    await flushPromises()
+    await flushPromises()
+    await w.find('textarea').setValue('tres')
+    await vi.advanceTimersByTimeAsync(700)
+    expect(notices.value.filter(only)).toHaveLength(1)
+    expect(notices.value.filter(only)[0].message).toContain('solo lectura')
+    // lo que el usuario pidió (etiquetas desactivadas) o un archivo que ya
+    // no está no son un fallo que contar
+    clearNotices()
+    for (const why of ['off', 'missing']) {
+      held.api.setStudy.mockResolvedValue({ id: 9, tags_written: false, tags_skipped: why })
+      await w.find('textarea').setValue('cuatro ' + why)
+      await vi.advanceTimersByTimeAsync(700)
+    }
+    expect(notices.value.filter(only)).toEqual([])
+    vi.useRealTimers()
+    w.unmount()
+  })
+
   it('hiding it saves pending changes without waiting', async () => {
     vi.useFakeTimers()
     const w = await mountView()
