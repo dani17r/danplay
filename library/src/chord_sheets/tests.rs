@@ -394,6 +394,51 @@ fn without_a_key_in_the_data_the_text_key_counts() {
     assert_eq!((s.key.as_str(), s.key_from), ("G", "texto"));
 }
 
+/// Sin tono en el cifrado (ni en los datos ni en el texto), se deduce de los
+/// acordes y se dice aparte: `key` sigue vacío (no es un dato), y la
+/// deducción nunca va donde el cifrado sí dice el suyo.
+#[test]
+fn without_a_key_anywhere_the_chords_give_a_deduced_one() {
+    let sheet_of = |tonality: &str, content: &str| {
+        let tab = serde_json::json!({"tab": {"tonality_name": tonality}, "tab_view": {"meta": [], "wiki_tab": {"content": content}}});
+        let pages = [
+            (
+                UG_SEARCH.to_owned(),
+                ug_page(
+                    &serde_json::json!({"results": [result("Barak", "La Tierra Canta", 0, tonality, 1)]}),
+                ),
+            ),
+            ("https://tabs.example/1".to_owned(), ug_page(&tab)),
+        ];
+        let asked = std::cell::RefCell::new(Vec::new());
+        ultimate_guitar("Barak", "La Tierra Canta", &fake_get(&pages, &asked))
+            .expect("sin fallos")
+            .expect("encontrado")
+    };
+    let s = sheet_of("", UG_TAB);
+    assert_eq!((s.key.as_str(), s.key_from), ("", ""));
+    assert_eq!(s.key_deduced, "Bm");
+    // con la cejilla, el tono que suena es el de las formas más la cejilla
+    let capo = sheet_of("", &format!("Capo 2\n{UG_TAB}"));
+    assert_eq!((capo.capo, capo.key_deduced.as_str()), (2, "C#m"));
+    // lo que el cifrado dice, manda: no se deduce nada
+    let stated = sheet_of("Dm", UG_TAB);
+    assert_eq!(
+        (stated.key.as_str(), stated.key_deduced.as_str()),
+        ("Dm", "")
+    );
+    let in_text = sheet_of("", &format!("TONO: G\n{UG_TAB}"));
+    assert_eq!(
+        (in_text.key.as_str(), in_text.key_deduced.as_str()),
+        ("G", "")
+    );
+    // y con muy pocos acordes, nada
+    assert_eq!(
+        sheet_of("", "[Coro]\n[ch]C[/ch] [ch]G[/ch]").key_deduced,
+        ""
+    );
+}
+
 #[test]
 fn nothing_if_ultimate_guitar_does_not_have_it() {
     let pages = [(
@@ -430,6 +475,7 @@ fn lacuerda_through_the_artist_page() {
     );
     assert_eq!(s.title, serde_json::json!("La tierra canta"));
     assert_eq!(s.key, "");
+    assert_eq!(s.key_deduced, "", "con un solo acorde no se deduce nada");
     assert_eq!(s.sections[0].chords, ["Bm"]);
     assert!(matches!(lacuerda("Barak", "Otra Cancion", &get), Ok(None)));
 }

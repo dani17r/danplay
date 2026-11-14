@@ -717,7 +717,10 @@ fn run(
         .arg(ffmpeg)
         .arg(path)
         .arg(raw)
-        .stdin(std::process::Stdio::null())
+        // un tubo que no se escribe: si la app muere, el detector lo nota y
+        // se va (`parent`)
+        .stdin(std::process::Stdio::piped())
+        .env(crate::parent::PIPE_VAR, "1")
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
     #[cfg(windows)]

@@ -761,8 +761,7 @@ struct WriteOps<'a> {
 }
 
 fn modify(path: &Path, how: &WriteOps<'_>) -> Result<(), String> {
-    let kind = file_type(path).ok_or_else(|| "formato sin etiquetas editables".to_string())?;
-    let ext = extension(path);
+    let kind = file_type(path).ok_or_else(|| UNTAGGABLE.to_string())?;
     match kind {
         FileType::Mpeg => with_id3::<MpegFile>(
             path,
@@ -822,7 +821,11 @@ fn modify(path: &Path, how: &WriteOps<'_>) -> Result<(), String> {
         }
         FileType::Opus => with_vorbis::<OpusFile>(path, |f| f.vorbis_comments_mut(), how.vorbis),
         FileType::Speex => with_vorbis::<SpeexFile>(path, |f| f.vorbis_comments_mut(), how.vorbis),
-        FileType::Mp4 if matches!(ext.as_str(), "m4a" | "mp4" | "m4b") || ext.is_empty() => {
+        // por lo que ES, no por cómo se llama: un «.mp3» que por dentro es un
+        // MP4 (un audio de YouTube guardado tal cual) lleva sus etiquetas
+        // como cualquier m4a
+        FileType::Mp4 => {
+            mp4_rewritable(path)?;
             let mut file = read_as::<Mp4File>(path, for_writing())?;
             if file.ilst().is_none() {
                 let _ = file.set_ilst(Ilst::new());
@@ -833,7 +836,121 @@ fn modify(path: &Path, how: &WriteOps<'_>) -> Result<(), String> {
             file.save_to_path(path, write_options(false))
                 .map_err(|e| e.to_string())
         }
-        _ => Err("formato sin etiquetas editables".to_string()),
+        _ => Err(UNTAGGABLE.to_string()),
+    }
+}
+
+/// Lo que se contesta al escribir en un archivo que no admite etiquetas.
+const UNTAGGABLE: &str = "formato sin etiquetas editables";
+
+/// La cabecera de una caja de un MP4 en `at`: (tipo, lo que ocupa la
+/// cabecera, lo que ocupa la caja entera). `None` si ahí no hay una caja.
+fn mp4_box(file: &mut File, at: u64, end: u64) -> Option<([u8; 4], u64, u64)> {
+    use std::io::{Read, Seek, SeekFrom};
+    if at + 8 > end {
+        return None;
+    }
+    let mut head = [0u8; 16];
+    file.seek(SeekFrom::Start(at)).ok()?;
+    file.read_exact(&mut head[..8]).ok()?;
+    let kind = [head[4], head[5], head[6], head[7]];
+    let short = u64::from(u32::from_be_bytes([head[0], head[1], head[2], head[3]]));
+    let (header, size) = match short {
+        // hasta el final del archivo
+        0 => (8, end - at),
+        // el tamaño de verdad va detrás, en 64 bits
+        1 => {
+            file.read_exact(&mut head[8..]).ok()?;
+            let mut wide = [0u8; 8];
+            wide.copy_from_slice(&head[8..]);
+            (16, u64::from_be_bytes(wide))
+        }
+        n => (8, n),
+    };
+    (size >= header && at + size <= end).then_some((kind, header, size))
+}
+
+/// Si a este MP4 se le pueden escribir las etiquetas sin estropear el sonido.
+///
+/// Las etiquetas van dentro de `moov`, y al crecer empujan todo lo que viene
+/// detrás. En un MP4 de una pieza eso lo arregla lofty (corrige las
+/// posiciones de `stco`/`co64`). En uno en fragmentos (`moof`: lo que da
+/// YouTube, DASH) solo es seguro si cada fragmento dice dónde está su sonido
+/// contando desde sí mismo, que es lo normal; con posiciones contadas desde
+/// el principio del archivo (`tfhd` con «base-data-offset»), con un índice
+/// de fragmentos al final (`mfra`) o con el índice `sidx` por delante de
+/// `moov`, lo de detrás quedaría apuntando a donde ya no está. Ahí no se
+/// escribe: se dice que el archivo no admite etiquetas.
+fn mp4_rewritable(path: &Path) -> Result<(), String> {
+    const FIXED: &str = "formato sin etiquetas editables (mp4 en fragmentos con posiciones fijas)";
+    let mut file = File::open(path).map_err(|e| e.to_string())?;
+    let end = file.metadata().map_err(|e| e.to_string())?.len();
+    let (mut at, mut moov_seen, mut sidx_first, mut fragments) = (0u64, false, false, false);
+    while let Some((kind, _, size)) = mp4_box(&mut file, at, end) {
+        match &kind {
+            b"moov" => moov_seen = true,
+            b"sidx" if !moov_seen => sidx_first = true,
+            b"mfra" => return Err(FIXED.to_string()),
+            b"moof" => {
+                fragments = true;
+                if moof_has_fixed_offsets(&mut file, at, at + size) {
+                    return Err(FIXED.to_string());
+                }
+            }
+            _ => {}
+        }
+        at += size;
+    }
+    if fragments && sidx_first {
+        return Err(FIXED.to_string());
+    }
+    Ok(())
+}
+
+/// Si algún `traf` de este `moof` da la posición de su sonido contada desde
+/// el principio del archivo (`tfhd` con «base-data-offset-present»).
+fn moof_has_fixed_offsets(file: &mut File, start: u64, end: u64) -> bool {
+    use std::io::Read;
+    let Some((_, header, _)) = mp4_box(file, start, end) else {
+        return false;
+    };
+    let mut at = start + header;
+    while let Some((kind, header, size)) = mp4_box(file, at, end) {
+        if &kind == b"traf" {
+            let traf_end = at + size;
+            let mut inner = at + header;
+            while let Some((kind, _, size)) = mp4_box(file, inner, traf_end) {
+                // tras la cabecera: la versión (1 byte) y las marcas (3); la
+                // que importa es el bit más bajo
+                let mut flags = [0u8; 4];
+                if &kind == b"tfhd" && file.read_exact(&mut flags).is_ok() && flags[3] & 1 != 0 {
+                    return true;
+                }
+                inner += size;
+            }
+        }
+        at += size;
+    }
+    false
+}
+
+/// Si a este archivo se le pueden escribir etiquetas, por lo que es por
+/// dentro y no por su nombre. Con `false`, lo que se cambie de la canción
+/// (estrellas, listas, estudio) vive solo en la base.
+pub fn writable(path: &Path) -> bool {
+    match file_type(path) {
+        Some(
+            FileType::Mpeg
+            | FileType::Aac
+            | FileType::Wav
+            | FileType::Aiff
+            | FileType::Flac
+            | FileType::Vorbis
+            | FileType::Opus
+            | FileType::Speex,
+        ) => true,
+        Some(FileType::Mp4) => mp4_rewritable(path).is_ok(),
+        _ => false,
     }
 }
 

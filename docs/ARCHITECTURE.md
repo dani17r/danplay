@@ -278,6 +278,21 @@ estándar:
 | BPM | `TBPM` |
 | Portada difuminada | `TXXX:PORTADA_BORROSA` |
 
+**Los archivos que no admiten etiquetas** (un `.wma`; un MP4 en fragmentos
+cuyas posiciones cuentan desde el principio del archivo, que al crecer sus
+etiquetas dejarían de apuntar al sonido) son la excepción: lo que se cambia de
+ellos (estrellas, listas, estudio) vive solo en la base, y no se pierde al
+reescanear aunque la fecha del archivo cambie por fuera
+(`index::scan::refresh_row`). Qué admite etiquetas se decide por lo que el
+archivo ES por dentro, no por su nombre (`tags::writable`): un `.mp3` que es un
+MP4 (el audio de YouTube guardado tal cual: `ftyp dash`, `moov`, `sidx`,
+`moof`+`mdat`) lleva sus etiquetas como un m4a, sin renombrarlo ni
+reescribirlo, y el sonido decodificado sale idéntico antes y después. La
+ficha dice `tags_supported`, y la interfaz avisa («Este archivo no admite
+etiquetas: lo que cambies se guarda solo en DanPlay»); cada guardado dice si la
+etiqueta se escribió (`tags_written`) y, si no, por qué (`tags_skipped`:
+`off`, `missing`, `unsupported` o `failed`).
+
 La base SQLite es solo un índice para buscar rápido. Si la borras, un escaneo
 la reconstruye entera. Y otros reproductores leen esas etiquetas igual que
 DanPlay. Lo que no cabe en las etiquetas (el orden de las listas, sus notas y
@@ -297,9 +312,20 @@ trigger de `UPDATE` solo salta si cambia una columna indexada: poner una
 estrella no toca el índice de búsqueda.
 
 El escaneo reaprovecha los archivos cuyo `mtime` y tamaño no han cambiado
-desde la última vez. Escribir etiquetas cambia la fecha, así que eso siempre se
-relee; y los archivos sin artista también, porque pueden resolverse ahora que
-hay más carpetas de artista que antes.
+desde la última vez. Escribir etiquetas desde fuera cambia la fecha, así que
+eso se relee; las que escribe la propia app no hace falta (ver abajo). Los
+archivos sin artista solo se releen si cambió la lista de artistas conocidos
+(las carpetas de `Artistas/`, que se apunta en `meta`): pueden resolverse ahora
+que hay más; antes se releían todos en cada escaneo, aunque nada hubiera
+cambiado. Un escaneo que no encuentra nada tampoco poda las cachés de ondas y
+miniaturas (con 20.000 canciones, más de un segundo): solo si algo cambió o
+hace seis horas.
+
+El orden de los textos de la lista es el castellano, sin mirar mayúsculas ni
+tildes y con la ñ tras la n (`index::collate`, registrada en cada conexión
+como `SPANISH`): el mismo de la lista agrupada de la interfaz. Los vacíos
+siguen al final. Con 20.000 canciones, la primera página de 400 pasa de 4,8 a
+7,4 ms.
 
 Los ids de las canciones **no se reutilizan nunca**. Sin `AUTOINCREMENT`,
 SQLite da a una fila nueva el id más alto que haya *ahora* más uno: si la
@@ -336,9 +362,25 @@ un hilo del núcleo:
   desbordamiento de inotify). `DANPLAY_RESCAN_MINUTES` lo cambia (0 = nunca) y
   `DANPLAY_WATCH=0` apaga la vigilancia entera.
 
-El escaneo solo sube `revision` si algo de lo que se enseña cambió: la
-mayoría de los avisos (una estrella que la propia app escribió en el archivo)
-no cambian nada, y la interfaz no tiene por qué recargar.
+El escaneo solo sube `revision` si algo de lo que se enseña cambió.
+
+**Lo que escribe la propia app no vuelve a ella**. Una estrella, o el
+estudio (que se guarda solo, cada 0,6 s de cambios), reescribe el archivo: su
+fecha cambia, y el vigilante lo tomaba por un cambio de fuera. A los dos
+segundos escaneaba la biblioteca entera y la interfaz recargaba todo; medido con
+una estrella, 2 recargas y 1 escaneo. Ahora el núcleo apunta los archivos que
+escribe (`services::tags::as_own_write`): el vigilante no cuenta sus avisos
+mientras los escribe ni mientras sigan como los dejó, y la fila del índice se
+pone al día en el momento releyendo solo ese archivo (`scan::reread`). Si otro
+programa lo toca después, se ve como siempre. Y las estrellas y el estudio
+(`index::quietly`) no mueven `revision`: la respuesta ya lleva la canción
+como quedó. El diario mira `index::writes`, que sí cuenta todo.
+
+**En reposo no gasta**: el vigilante duerme hasta lo próximo que le toca
+(las carpetas cada 5 s, el repaso, o escanear lo apuntado en cuanto haya
+calma) en vez de despertar cada segundo, y el diario duerme hasta que se
+escribe algo en el índice (`index::wait_for_write`) en vez de cada 100 ms: 32
+despertares del sistema en 5 s antes, 0 ahora.
 
 **Lo que se va no se borra: se aparta.** Una canción cuyo archivo desaparece
 sale de `songs` —de toda la app— y espera en `songs_missing` con su id y la
@@ -1113,7 +1155,12 @@ la red tendrá vivo en algún momento), el pico baja de casi 5 GB a menos de 3.
 `--separate`, o `danplay-server --separate`). La red usa todos los núcleos
 durante un par de minutos: así la música y la interfaz no lo notan, la
 memoria se devuelve al acabar, y parar es matar el proceso. Si el núcleo se
-muere, el proceso se da cuenta (cambia de padre) y se va. Cuenta cómo va
+muere, el proceso se da cuenta y se va: tanto él como el detector de pulso se
+lanzan con la entrada estándar como un tubo que nadie escribe
+(`DANPLAY_PARENT_PIPE=1`, `server/src/parent.rs`), y al desaparecer el padre
+el sistema lo cierra y el hijo lee fin de archivo; sin `unsafe` y igual en
+Linux, Mac y Windows (el separador, además, mira su padre en Linux y Mac).
+Salir de la app (`startup::stop`) para el separador que esté trabajando. Cuenta cómo va
 por la salida estándar, una línea JSON por aviso, y escribe cada pista en
 FLAC según sale (seis pistas de cinco minutos en memoria serían 640 MB),
 con su forma de onda: todas a la misma escala, para que en el mezclador se
@@ -1688,6 +1735,20 @@ lectura, un segundo entre una y otra):
 | Con tono de la fuente | 28 de 80 (35 %) |
 | De dónde | 50 de Ultimate Guitar, 8 de LaCuerda |
 | Tiempo | mediana 5,3 s, peor 9,3 s |
+
+**El tono, cuando el cifrado no lo dice** (`library/src/theory/guess.rs`).
+Solo 1 de las 324 canciones de la biblioteca de prueba tenía tono. Si el
+cifrado no lo dice, se deduce de sus acordes: se prueban los 24 tonos, cada
+acorde suma o resta según el papel que tendría (los de la escala suman, los que
+no, restan, con los prestados más comunes a medias) y pesan más el primer
+acorde, el último y el más repetido; con cejilla, se suma a las formas. Medido
+con una tabla de 54 canciones conocidas (31 mayores y 23 menores, con
+cejilla y casos difíciles a propósito): 52 aciertos, 96,3 %. Falla donde cabe
+esperarlo: Sweet Home Alabama (D C G, mixolidio, sale G) y All of Me (empieza
+por el relativo menor). Es una **deducción**: va aparte, en `key_deduced` del
+cifrado y de la ficha, nunca en `key`; la interfaz la enseña como «Am
+(deducido)», «Rellenar información» no la escribe (solo da el motivo) y no
+pisa ni se enseña donde el cifrado, la ficha o el archivo ya tienen su tono.
 
 **Se guarda** en la columna `chords`, junto a la ficha de la IA y sin pisarla
 (`sheet`, `sheet_checked`, `sheet_tried`). Que no esté también se guarda (no

@@ -84,6 +84,19 @@ fn song(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     c.insert("playlists".into(), Value::Array(lists));
     let exists = songs::exists(&c);
     c.insert("existe".into(), Value::Bool(exists));
+    // sin tono en la ficha, el que se deduce de los acordes de su cifrado
+    // (aparte: no es el tono de la canción, y la interfaz lo dice «deducido»)
+    let deduced = library::enrich::song_deduced_key(&c);
+    if !deduced.is_empty() {
+        c.insert("key_deduced".into(), Value::String(deduced));
+    }
+    // si el archivo no admite etiquetas, lo que se cambie de la canción se
+    // guarda solo en DanPlay: la ficha lo dice (solo las de la biblioteca,
+    // que a las de fuera no se les escribe nada)
+    if exists && cid > 0 {
+        let supported = songs::tags_supported(&c);
+        c.insert("tags_supported".into(), Value::Bool(supported));
+    }
     Ok(Value::Object(c).into())
 }
 
@@ -352,8 +365,14 @@ fn stars(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     if songs::by_id(ctx.app, cid)?.is_none() {
         return Err(ApiError::not_found("no esta en la biblioteca"));
     }
-    songs::rate(ctx.app, cid, stars)?;
-    Ok(by_id(ctx.app, cid)?.into())
+    // la respuesta ya lleva la canción como quedó: no hace falta, además,
+    // decirle a la interfaz que recargue todo (`index::quietly`)
+    let _quiet = library::index::quietly();
+    let written = songs::rate(ctx.app, cid, stars)?;
+    Ok(card(
+        songs::by_id(ctx.app, cid)?.map(|c| songs::with_tags_outcome(ctx.app, c, written, false)),
+    )
+    .into())
 }
 
 fn favorite(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
@@ -364,8 +383,11 @@ fn favorite(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     if songs::by_id(ctx.app, cid)?.is_none() {
         return Err(ApiError::not_found("no esta en la biblioteca"));
     }
-    songs::favorite(ctx.app, cid, value)?;
-    Ok(by_id(ctx.app, cid)?.into())
+    let written = songs::favorite(ctx.app, cid, value)?;
+    Ok(card(
+        songs::by_id(ctx.app, cid)?.map(|c| songs::with_tags_outcome(ctx.app, c, written, false)),
+    )
+    .into())
 }
 
 // ---------------------------------------------------------------- «Transformar»
@@ -556,6 +578,9 @@ fn song_study(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let mut b = ctx.body()?;
     let study = study_in(&mut b);
     ctx.done(b)?;
+    // se guarda solo, cada 0,6 s de cambios, y quien lo guarda es quien lo
+    // tiene delante: sin avisar a la interfaz (`index::quietly`)
+    let _quiet = library::index::quietly();
     let c =
         songs::set_study(ctx.app, cid, &study)?.ok_or_else(|| ApiError::not_found("no existe"))?;
     Ok(Value::Object(c).into())

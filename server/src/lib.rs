@@ -84,6 +84,7 @@ pub mod error;
 pub mod guard;
 pub mod http;
 pub mod jobs;
+pub mod parent;
 pub mod router;
 pub mod routes;
 pub mod serve;
@@ -143,6 +144,10 @@ pub fn handle(app: &App, req: &Request) -> Response {
 pub fn child_process() -> Option<i32> {
     let args: Vec<std::ffi::OsString> = std::env::args_os().collect();
     let flag = args.get(1)?.to_str()?;
+    // si la app que lo lanzó desaparece, se va (ver `parent`)
+    if flag == "--pulse" || flag == services::separation::FLAG {
+        parent::exit_with_parent();
+    }
     if flag == "--pulse" {
         return Some(services::beats::child_main(&args[2..]));
     }

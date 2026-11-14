@@ -688,7 +688,10 @@ fn run_child(app: &App, job: &Value, report: &Report<'_>) -> Result<Dict> {
         if let Some(lib) = onnx::library(app) {
             c.env("DANPLAY_ONNXRUNTIME", lib);
         }
-        c.stdin(Stdio::null())
+        // la entrada, un tubo que no se escribe: si la app muere, el
+        // separador lo nota y se va (`parent`), también en Windows
+        c.stdin(Stdio::piped())
+            .env(crate::parent::PIPE_VAR, "1")
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         let mut child = library::processes::spawn(&mut c)?;

@@ -360,6 +360,25 @@ function scheduleSave() {
   clearTimeout(saveTimer)
   saveTimer = setTimeout(flushSave, 600)
 }
+/** Las canciones de las que ya se avisó de que su estudio vive solo en DanPlay. */
+const warnedOnlyHere = new Set()
+/**
+ * El núcleo dice si la etiqueta del archivo se escribió. Si no se pudo (el
+ * archivo no admite etiquetas, o no se le puede escribir), el estudio queda
+ * solo en la base de DanPlay: se avisa una vez por canción, no en cada
+ * guardado (que se hace solo, a cada cambio).
+ */
+function warnIfOnlyHere(id, saved) {
+  if (!saved || saved.tags_written !== false || warnedOnlyHere.has(id)) return
+  if (saved.tags_skipped === 'unsupported') {
+    notify('Este archivo no admite etiquetas: el estudio de esta canción se guarda solo en DanPlay')
+  } else if (saved.tags_skipped === 'failed') {
+    notify(
+      'No se pudo escribir en el archivo (¿es de solo lectura?): el estudio de esta canción se guarda solo en DanPlay'
+    )
+  } else return
+  warnedOnlyHere.add(id)
+}
 /** Guarda ya lo pendiente, si hay algo. */
 async function flushSave() {
   clearTimeout(saveTimer)
@@ -369,7 +388,7 @@ async function flushSave() {
   if (!job) return
   saving.value = true
   try {
-    await api.setStudy(job.id, job.study)
+    warnIfOnlyHere(job.id, await api.setStudy(job.id, job.study))
   } catch (e) {
     notify('No se pudo guardar el estudio: ' + errorMessage(e))
   } finally {

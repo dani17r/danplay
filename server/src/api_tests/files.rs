@@ -154,6 +154,75 @@ fn the_cover_cache_notices_changes_and_keeps_its_budget() {
     assert!(bytes <= max, "se pasó del tope: {bytes} > {max}");
 }
 
+/// Una miniatura que ya está hecha se sirve sin abrir el archivo de audio, y
+/// una canción sin carátula se recuerda como tal (hasta que el archivo
+/// cambie) aunque pasen por la caché más canciones de las que caben: antes
+/// cada petición abría el mp3 para sacar la carátula original.
+#[test]
+fn a_thumbnail_and_a_missing_cover_do_not_reopen_the_audio() {
+    use crate::services::media;
+    let Some(app) = api_library() else { return };
+    let original = PathBuf::from(
+        get(&app, "/api/search?limit=1")["songs"][0]["path"]
+            .as_str()
+            .expect("ruta"),
+    );
+    // con carátula, y su miniatura ya hecha (a mano: sin depender de ffmpeg)
+    let with = original.with_file_name("con miniatura.mp3");
+    std::fs::copy(&original, &with).expect("copiar");
+    let image = [b"\xff\xd8\xff\xe0".as_slice(), &[b'1'; 400]].concat();
+    library::tags::write_cover(&with, &image, "image/jpeg").expect("portada");
+    let folder = media::thumbnails_folder(&app);
+    let meta = std::fs::metadata(&with).expect("meta");
+    let stored = folder.join(format!(
+        "{}_96_{}.jpg",
+        library::thumbnails::key(&with),
+        library::thumbnails::version(&meta)
+    ));
+    std::fs::write(&stored, b"miniatura").expect("miniatura");
+    media::forget_cover(&with);
+    let reads = media::cover_reads();
+    let (data, mime) = media::thumbnail(&app, &with, 96).expect("la miniatura");
+    assert_eq!(
+        (data.as_slice(), mime.as_str()),
+        (&b"miniatura"[..], "image/jpeg")
+    );
+    assert_eq!(media::cover_reads(), reads, "abrió el archivo de audio");
+    // otro tamaño: no está hecha, hay que sacar la original (y se hace, una vez)
+    assert!(media::thumbnail(&app, &with, 192).is_some());
+    assert_eq!(media::cover_reads(), reads + 1);
+
+    // sin carátula: se mira una vez
+    let without = original.with_file_name("sin caratula.mp3");
+    std::fs::copy(&original, &without).expect("copiar");
+    media::forget_cover(&without);
+    let reads = media::cover_reads();
+    assert!(media::thumbnail(&app, &without, 96).is_none());
+    assert_eq!(media::cover_reads(), reads + 1);
+    // pasan por la caché más canciones de las que caben (512)...
+    for i in 0..600 {
+        let other = original.with_file_name(format!("otra {i}.txt"));
+        std::fs::write(&other, b"x").expect("escribir");
+        let _ = media::cached_cover(&other);
+    }
+    let reads = media::cover_reads();
+    // ...y la que no tiene carátula sigue sin tenerla sin abrirla otra vez
+    for size in [96, 192, 320] {
+        assert!(media::thumbnail(&app, &without, size).is_none());
+    }
+    assert!(media::cached_cover(&without).is_none());
+    assert_eq!(
+        media::cover_reads(),
+        reads,
+        "reabrió una canción sin carátula"
+    );
+    // si el archivo cambia (ahora sí la tiene), deja de valer
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    library::tags::write_cover(&without, &image, "image/jpeg").expect("portada");
+    assert!(media::cached_cover(&without).is_some());
+    assert_eq!(media::cover_reads(), reads + 1);
+}
+
 /// Difuminar es solo cómo se pinta: la imagen del archivo no cambia.
 #[test]
 fn blurring_a_cover_does_not_touch_the_image() {

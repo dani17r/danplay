@@ -355,6 +355,20 @@ describe('editing the song details', () => {
     return w
   }
 
+  it('says on the card when the file cannot hold tags, and only then', async () => {
+    // un .mp3 que por dentro es otro formato, un wma: lo que se cambie de
+    // la canción vive solo en la base, y la ficha lo dice
+    const note = 'Este archivo no admite etiquetas: lo que cambies se guarda solo en DanPlay.'
+    const noteIn = (extra) =>
+      mount(DetailsPanel, { props: { song: { ...song, ...extra }, aiReady: true } })
+        .findAll('.no-tags')
+        .map((n) => n.text())
+    expect(noteIn({ tags_supported: false })).toEqual([note])
+    expect(noteIn({ tags_supported: true })).toEqual([])
+    // sin el dato (una canción de fuera, una respuesta que no lo trae): nada
+    expect(noteIn({})).toEqual([])
+  })
+
   it('the pencil opens the form', async () => {
     const w = mountView()
     expect(w.find('.edit-form').exists()).toBe(false)
@@ -518,6 +532,37 @@ describe('the details panel and late responses', () => {
     await flushPromises()
     expect(api.chordsTransposed).toHaveBeenCalledWith(7, { semitones: 2 })
     expect(w.find('.chords').text()).toBe('D   A')
+  })
+
+  it('a key deduced from the chords is shown as deduced, never as the key of the song', async () => {
+    // sin tono en el cifrado ni en la ficha: lo que sale de los acordes se
+    // enseña aparte y dicho
+    const chords = JSON.stringify({
+      sheet: { ...chordChart('', ['Am', 'F', 'C', 'G']), key_deduced: 'Am' }
+    })
+    const w = mount(DetailsPanel, {
+      props: { song: { ...song, key: '', key_deduced: 'Am', chords }, aiReady: true }
+    })
+    expect(w.text()).toContain('El cifrado no dice el tono')
+    const facts = w.find('.facts').text()
+    expect(facts).toContain('Am (deducido)')
+    expect(w.find('.sheet-facts').text()).toContain('por sus acordes, Am (deducido)')
+    // con el tono de la ficha, o dicho por el cifrado, no se enseña ninguno deducido
+    const own = mount(DetailsPanel, {
+      props: { song: { ...song, key: 'Gm', key_deduced: 'Am', chords }, aiReady: true }
+    })
+    expect(own.find('.facts').text()).not.toContain('deducido')
+    const stated = mount(DetailsPanel, {
+      props: {
+        song: {
+          ...song,
+          key: '',
+          chords: JSON.stringify({ sheet: { ...chordChart('G', ['G', 'C']), key_deduced: 'Em' } })
+        },
+        aiReady: true
+      }
+    })
+    expect(stated.find('.sheet-facts').text()).not.toContain('deducido')
   })
 
   it('the keys are offered by their usual names, in the mode of the chart', async () => {
