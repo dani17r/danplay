@@ -376,12 +376,16 @@ pub fn start(app: &App) {
 }
 
 /// Lo que se hace al apagar: los hilos de fondo paran (la descarga que
-/// hubiera, el vigilante) y el diario escribe lo último.
+/// hubiera, el vigilante), el separador que esté trabajando se para y el
+/// diario escribe lo último. El detector de pulso, que no se puede parar
+/// desde aquí (lo lanza el clic, en su propio hilo), se va solo al acabar el
+/// proceso: su entrada se cierra con él (`parent`).
 pub fn stop(app: &App) {
     app.stopping.store(true, Ordering::SeqCst);
     // los hilos que esperan un cambio (el diario) miran si tienen que irse
     library::index::wake_waiters();
     crate::services::youtube::cancel(app);
+    crate::services::stems::cancel(app);
     watcher::stop(app);
     journal::stop(app);
 }

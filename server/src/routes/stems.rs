@@ -589,6 +589,40 @@ echo '{"ok":true,"seconds":2.0,"took":0.1,"tracks":{"drums":"Bateria.flac","voca
         assert_eq!(stages, ["separate", "refine"]);
     }
 
+    /// Salir de la app (`startup::stop`) para el separador que esté
+    /// trabajando: el comentario decía que lo hacía y no lo hacía, y el
+    /// proceso se quedaba hasta que lo notaba huérfano.
+    #[cfg(unix)]
+    #[test]
+    fn quitting_stops_the_separator_that_is_working() {
+        let (app, id, _) = with_song();
+        let dir = crate::tests::scratch("lento-al-salir");
+        let engine = dir.join("lento.sh");
+        std::fs::write(&engine, "echo '{\"step\":\"decode\"}'\nexec sleep 60\n").expect("motor");
+        app.separator
+            .set_fake(vec!["sh".into(), engine.into_os_string()]);
+        let (st, _) = call(&app, "POST", &format!("/api/song/{id}/separate"), None);
+        assert_eq!(st, 202);
+        let limit = std::time::Instant::now() + Duration::from_secs(10);
+        while call(&app, "GET", "/api/separate", None).1["current"]["step"] != "decode" {
+            assert!(std::time::Instant::now() < limit, "no dijo nada");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let started = std::time::Instant::now();
+        crate::startup::stop(&app);
+        let job = app
+            .jobs
+            .wait("separation", Duration::from_secs(20))
+            .expect("trabajo");
+        assert!(
+            started.elapsed() < Duration::from_secs(10),
+            "el separador siguió tras salir ({:?})",
+            started.elapsed()
+        );
+        assert_eq!(job["active"], false);
+        assert_eq!(job["error"], "cancelado");
+    }
+
     #[cfg(unix)]
     #[test]
     fn cancelling_stops_the_separator_and_empties_the_queue() {
