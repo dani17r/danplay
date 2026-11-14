@@ -10,14 +10,20 @@ use std::time::{SystemTime, UNIX_EPOCH};
 #[derive(Default)]
 pub struct Recording(Mutex<Option<Recorder>>);
 
-#[tauri::command]
+/// Empezar a grabar espera al microfono hasta cinco segundos (`Recorder::start`
+/// no vuelve hasta que lo tiene abierto), y un comando sin `async` corre en el
+/// hilo principal: la ventana entera se quedaba congelada ese rato. Con
+/// `async` corre aparte, y el cerrojo no se tiene mientras se espera para que
+/// `record_level`, que si corre en el principal, no se quede esperandolo.
+#[tauri::command(async)]
 pub fn record_start(recording: tauri::State<'_, Recording>) -> Result<(), String> {
-    let mut slot = recording.0.lock().unwrap_or_else(PoisonError::into_inner);
     // una que se quedara abierta (la ventana se recargo): fuera
-    if let Some(old) = slot.take() {
+    let old = recording.0.lock().unwrap_or_else(PoisonError::into_inner).take();
+    if let Some(old) = old {
         let _ = old.stop();
     }
-    *slot = Some(Recorder::start()?);
+    let started = Recorder::start()?;
+    *recording.0.lock().unwrap_or_else(PoisonError::into_inner) = Some(started);
     Ok(())
 }
 
@@ -71,4 +77,26 @@ pub async fn record_stop(recording: tauri::State<'_, Recording>) -> Result<Strin
     })
     .await
     .map_err(|e| format!("la grabación se cayó: {e}"))?
+}
+
+#[cfg(test)]
+mod tests {
+    /// Lo que bloquea (esperar al microfono, hasta 5 s) no puede correr en el
+    /// hilo principal, que es donde Tauri corre los comandos sin `async`.
+    /// Sin una ventana de verdad no hay forma de ver en que hilo corre, asi
+    /// que se mira que el comando lo pida: es lo unico que lo decide.
+    #[test]
+    fn the_command_that_waits_for_the_microphone_does_not_run_on_the_main_thread() {
+        let source = include_str!("record.rs");
+        let at = source.find("pub fn record_start(").expect("record_start ya no existe");
+        let attribute = source[..at]
+            .lines()
+            .rev()
+            .find(|l| l.trim_start().starts_with("#[tauri::command"));
+        assert_eq!(
+            attribute.map(str::trim),
+            Some("#[tauri::command(async)]"),
+            "record_start corre en el hilo principal y congela la ventana mientras espera"
+        );
+    }
 }
