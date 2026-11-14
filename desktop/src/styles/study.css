@@ -254,10 +254,6 @@
 .study-clear {
   color: var(--muted);
 }
-.study .model-warn {
-  font-style: normal;
-  font-size: 10px;
-}
 
 /* el metronomo */
 .study-metro.on {
@@ -752,6 +748,61 @@
     var(--muted2) calc(50% - 1px) calc(50% + 1px),
     var(--border2) calc(50% + 1px)
   );
+}
+
+/* En el escritorio, con sitio: el cuerpo (las cuatro columnas) se queda
+   siempre con un alto que se pueda usar, y la línea de tiempo con lo demás.
+   Los carriles se reparten ese alto (StudyBar `fitTimeline`); si aun en lo
+   mínimo no caben (una secuencia de veintitantas pistas en una pantalla
+   baja), la línea de tiempo se desplaza por dentro. Antes la onda se comía
+   el panel y de las columnas solo quedaba el título. */
+@media (min-width: 701px) {
+  /* lo de siempre, o 588 px si aun así quedan 100 de lista por encima: es lo
+     que piden las tarjetas del tono y del clic para verse enteras (a 1536x864,
+     un portátil al 125 %, quedaban cortadas con cuatro filas de lista
+     encima). El reparto de dentro lo hace `studyFit`. */
+  .study.desk {
+    height: max(
+      min(max(52vh, 520px), calc(100vh - var(--player-h) - 56px)),
+      min(588px, calc(100vh - var(--player-h) - 156px))
+    );
+  }
+  .study.desk.with-lanes {
+    height: min(max(74vh, 560px), calc(100vh - var(--player-h) - 48px));
+  }
+  /* «Grande», o una secuencia con muchas pistas: todo el alto */
+  .study.desk.big,
+  .study.desk.many-lanes {
+    height: calc(100vh - var(--player-h));
+  }
+  .study.desk > .tl {
+    flex: 0 1 auto;
+    min-height: 0;
+    overflow: hidden auto;
+    scrollbar-width: thin;
+  }
+  /* la regla de los minutos (y la tira de la vista, acercada) no se van con
+     los carriles: se quedan abajo, a la vista */
+  .study.desk > .tl .tl-ruler,
+  .study.desk > .tl .tl-ruler-gap {
+    position: sticky;
+    bottom: 0;
+    z-index: 3;
+    background: var(--panel);
+  }
+  .study.desk > .tl.tl-zoomed .tl-ruler,
+  .study.desk > .tl.tl-zoomed .tl-ruler-gap {
+    bottom: 11px;
+  }
+  .study.desk > .tl .tl-overview {
+    position: sticky;
+    bottom: 0;
+    z-index: 3;
+  }
+  .study.desk > .study-body {
+    flex: 1 0 200px;
+    min-height: 200px;
+  }
 }
 
 /* menos ancho: dos columnas; estrecho: una, y el panel crece con scroll */
@@ -1769,6 +1820,30 @@
 }
 .study .btn.mini.icon-btn.on {
   color: var(--accent);
+}
+/* «Salidas» cuando a la salida le faltan canales y suena todo junto: se ve
+   sin abrir el cajón (el borde y el fondo los pone `.btn.warn`) */
+.study .btn.mini.icon-btn.warn {
+  color: var(--amber);
+}
+/* En una ventana baja (menos de 800 px: `TIGHT_BELOW`, en studyFit.js) los
+   espacios van más apretados, y solo ellos: ni una letra más pequeña. A
+   1366×768 el panel mide 536 px y las tarjetas del tono y del clic piden 266
+   con el cuerpo a 238; aquí se les devuelven 17 px al panel (relleno y
+   separaciones) y 28 a la columna del clic (sus siete separaciones de fila, el
+   relleno de la tarjeta y el hueco bajo el título), y la onda no baja de 80. */
+@media (min-width: 701px) {
+  .study.desk.tight {
+    padding: 6px 18px 8px;
+    gap: 5px;
+  }
+  .study.tight .study-col {
+    gap: 5px;
+  }
+  .study.tight .study-block {
+    gap: 3px;
+    padding: 5px 9px;
+  }
 }
 .study-head .btn.mini,
 .study-bar .btn.mini,

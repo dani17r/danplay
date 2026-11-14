@@ -9,8 +9,12 @@ import { nextTick } from 'vue'
 const held = vi.hoisted(() => {
   // lo marca mobile.html; platform.js lo lee al cargarse
   document.documentElement.dataset.app = 'mobile'
-  return { playback: null, api: null, state: null }
+  return { playback: null, api: null, state: null, invoke: null, open: null }
 })
+
+// lo que importa una pista: el comando de Rust y el selector de archivos
+vi.mock('@tauri-apps/api/core', () => ({ invoke: (...args) => held.invoke(...args) }))
+vi.mock('@tauri-apps/plugin-dialog', () => ({ open: (...args) => held.open(...args) }))
 
 vi.mock('../src/api.js', async (importOriginal) => {
   const actual = await importOriginal()
@@ -25,14 +29,16 @@ vi.mock('../src/api.js', async (importOriginal) => {
 import MobileApp from '../src/mobile/MobileApp.vue'
 import MobileSongs from '../src/mobile/MobileSongs.vue'
 import MobilePlayer from '../src/mobile/MobilePlayer.vue'
+import MobileSettings from '../src/mobile/MobileSettings.vue'
 import StudyBar from '../src/components/StudyBar.vue'
 import StudyTimeline from '../src/components/StudyTimeline.vue'
 import DetailsPanel from '../src/components/DetailsPanel.vue'
 import { isMobileApp } from '../src/platform.js'
-import { resetPlayback } from '../src/composables/usePlayback.js'
+import { resetPlayback, SPEEDS } from '../src/composables/usePlayback.js'
 import { resetClick } from '../src/composables/useClick.js'
 import { useContextMenu, closeMenu } from '../src/composables/useContextMenu.js'
 import { useDialog, dialogOk } from '../src/composables/useDialog.js'
+import { clearNotices } from '../src/composables/useNotices.js'
 import { tapPlays } from '../src/mobile/prefs.js'
 import { song, stemsOf } from './support/backend.js'
 
@@ -200,7 +206,89 @@ describe('the phone app', () => {
     const w = mount(MobileApp, { attachTo: document.body })
     await flushPromises()
     expect(w.text()).toContain('Todavía no hay pistas en el celular')
-    expect(w.text()).toContain('Convertir a DanPista')
+    // por donde se hace hoy en la PC: «Exportar…» del estudio
+    expect(w.text()).toContain('«Exportar…» › «Para el celular»')
+    w.unmount()
+  })
+})
+
+describe('importing tracks', () => {
+  const imported = (title) => ({
+    id: title,
+    title,
+    artist: 'Barak',
+    parts: ['a', 'b'],
+    click: true
+  })
+  /** Un `import_bundle` que no acaba hasta que la prueba lo diga. */
+  function slowImports() {
+    const calls = []
+    held.invoke = vi.fn(
+      (command, args) =>
+        new Promise((resolve, reject) => calls.push({ command, uri: args.uri, resolve, reject }))
+    )
+    return calls
+  }
+  const button = (w) => w.find('[aria-label^="Importar pistas"]')
+  const toasts = (w) => w.find('.toasts').text()
+
+  // Android manda cada archivo que se abre con DanPlay sin esperar al
+  // anterior, y cada importación son unos segundos sin nada en pantalla: iban
+  // dos a la vez sobre la misma copia, y salía «no es un ZIP».
+  it('files opened one after another are imported one at a time, saying so meanwhile', async () => {
+    clearNotices()
+    const calls = slowImports()
+    const w = mount(MobileApp, { attachTo: document.body })
+    await flushPromises()
+    expect(button(w).attributes('disabled')).toBeUndefined()
+    const first = window.__danplayOpen('content://uno.danpista')
+    const second = window.__danplayOpen('content://dos.danpista')
+    await flushPromises()
+    expect(calls.map((c) => [c.command, c.uri])).toEqual([
+      ['import_bundle', 'content://uno.danpista']
+    ])
+    expect(toasts(w)).toContain('Importando…')
+    expect(button(w).attributes('disabled')).toBeDefined()
+    // la primera acaba: se dice, se ve en la lista y empieza la segunda
+    held.state.songs.push(song(3, { title: 'Uno', has_stems: true }))
+    calls[0].resolve(imported('Uno'))
+    await flushPromises()
+    expect(calls.map((c) => c.uri)).toEqual(['content://uno.danpista', 'content://dos.danpista'])
+    expect(toasts(w)).toContain('Lista: «Uno» · Barak (2 partes, con clic)')
+    expect(toasts(w)).toContain('Importando…')
+    expect(button(w).attributes('disabled')).toBeDefined()
+    // una que falla no deja la cola parada ni el aviso puesto
+    calls[1].reject(new Error('pista.json está roto'))
+    await Promise.all([first, second])
+    await flushPromises()
+    expect(toasts(w)).toContain('No se pudo importar: pista.json está roto')
+    expect(toasts(w)).not.toContain('Importando')
+    expect(button(w).attributes('disabled')).toBeUndefined()
+    expect(rowOf(w, 'Uno')).toBeTruthy()
+    w.unmount()
+  })
+
+  it('several picked at once say which one is going, and the button waits', async () => {
+    clearNotices()
+    const calls = slowImports()
+    held.open = vi.fn(async () => ['content://a', 'content://b'])
+    const w = mount(MobileApp, { attachTo: document.body })
+    await flushPromises()
+    await button(w).trigger('click')
+    await flushPromises()
+    expect(toasts(w)).toContain('Importando 1 de 2…')
+    // otro toque mientras tanto no abre otra vez el selector
+    await button(w).trigger('click')
+    await flushPromises()
+    expect(held.open).toHaveBeenCalledTimes(1)
+    calls[0].resolve(imported('A'))
+    await flushPromises()
+    expect(toasts(w)).toContain('Importando 2 de 2…')
+    expect(toasts(w)).not.toContain('Importando 1 de 2…')
+    calls[1].resolve(imported('B'))
+    await flushPromises()
+    expect(toasts(w)).not.toContain('Importando')
+    expect(calls).toHaveLength(2)
     w.unmount()
   })
 })
@@ -303,6 +391,30 @@ describe('the phone music', () => {
     expect(held.api.phoneMedia.mock.invocationCallOrder[0]).toBeLessThan(
       held.api.phoneScan.mock.invocationCallOrder.at(-1)
     )
+    w.unmount()
+  })
+
+  // «Carpetas» no estaba entre lo que cierra «atrás»: se salía de la música
+  // del teléfono por debajo y el panel se quedaba abierto encima.
+  it('Android back closes the «Carpetas» panel, and only then leaves the phone music', async () => {
+    const w = mount(MobileApp, { attachTo: document.body })
+    await flushPromises()
+    await openPhone(w)
+    await w
+      .findAll('button')
+      .find((b) => b.text().includes('Carpetas'))
+      .trigger('click')
+    await flushPromises()
+    expect(document.querySelector('.m-folders')).not.toBeNull()
+    expect(window.__danplayBack()).toBe(true)
+    await flushPromises()
+    expect(document.querySelector('.m-folders')).toBeNull()
+    expect(w.find('.m-top').text()).toContain('Música del teléfono')
+    // el siguiente «atrás», ya sí: de vuelta a las pistas
+    expect(window.__danplayBack()).toBe(true)
+    await flushPromises()
+    expect(w.find('.m-top').text()).toContain('Mis pistas')
+    expect(window.__danplayBack()).toBe(false)
     w.unmount()
   })
 
@@ -432,6 +544,28 @@ describe('the side menu and the playlists', () => {
   })
 })
 
+describe('the phone settings', () => {
+  // «Fundido entre canciones» se podía elegir (de 0 a 8 s) y no hacía nada:
+  // en el celular no se funden canciones.
+  it('offer only what the phone does: no crossfade between songs', async () => {
+    const w = mount(MobileSettings, { props: { total: 2 }, attachTo: document.body })
+    await flushPromises()
+    expect(w.text()).not.toContain('Fundido')
+    expect(w.find('[aria-label="Fundido entre canciones"]').exists()).toBe(false)
+    expect(held.playback.bridge.setCrossfade).not.toHaveBeenCalled()
+    // lo demás sigue: el tema, el tamaño, la lista y la pantalla encendida
+    expect(w.findAll('h3').map((h) => h.text())).toEqual([
+      'Tamaño de la letra',
+      'Tema',
+      'La lista',
+      'Reproducción',
+      'DanPlay'
+    ])
+    expect(w.text()).toContain('Pantalla encendida mientras suena')
+    w.unmount()
+  })
+})
+
 describe('the phone player', () => {
   const sounding = () =>
     held.playback.emit({
@@ -503,6 +637,24 @@ describe('the phone player', () => {
       .trigger('click')
     expect(w.emitted('toggleStudy')).toHaveLength(1)
     expect(w.emitted('update:full').at(-1)).toEqual([false])
+    w.unmount()
+  })
+
+  // Tenía su propia lista, más corta: con 0,7× puesto en el estudio no
+  // marcaba ninguna, y no dejaba elegir 0,6×, 0,7×, 0,8× ni 2×.
+  it('«Velocidad» offers the same speeds as the desktop app, and marks the one in use', async () => {
+    sounding()
+    held.playback.emit({ speed: 0.7 })
+    const w = mount(MobilePlayer, { props: { full: true }, attachTo: document.body })
+    await flushPromises()
+    await w.find('[aria-label="Más opciones"]').trigger('click')
+    const speeds = menu.value.items.find((i) => i.label === 'Velocidad')
+    expect(speeds.note).toBe('0.7×')
+    expect(speeds.children.map((c) => c.label)).toEqual(SPEEDS.map((s) => s + '×'))
+    expect(speeds.children.filter((c) => c.icon === 'check').map((c) => c.label)).toEqual(['0.7×'])
+    await speeds.children.find((c) => c.label === '2×').action()
+    expect(held.playback.bridge.setSpeed).toHaveBeenLastCalledWith(2)
+    closeMenu()
     w.unmount()
   })
 
@@ -724,6 +876,31 @@ describe('the desktop components, on the phone', () => {
 })
 
 describe('outputs on the phone', () => {
+  // Solo los ponía el modo estudio al abrirse: con una interfaz o un cable
+  // en Y elegidos, cada arranque sonaba todo junto por la salida del sistema.
+  it('the saved output and routing are applied at start, without opening study mode', async () => {
+    const { resetRouting } = await import('../src/composables/useRouting.js')
+    localStorage.setItem(
+      'danplay.outputs',
+      JSON.stringify({ device: 'usb-interfaz', preset: 'click-left' })
+    )
+    resetRouting()
+    const w = mount(MobileApp, { attachTo: document.body })
+    await flushPromises()
+    await vi.waitFor(() => expect(held.playback.bridge.setRouting).toHaveBeenCalled())
+    expect(w.findComponent(StudyBar).exists()).toBe(false)
+    expect(held.playback.bridge.setOutput).toHaveBeenCalledWith({
+      device: 'usb-interfaz',
+      channels: 2
+    })
+    expect(held.playback.bridge.setRouting).toHaveBeenCalledWith(
+      expect.objectContaining({ click: 1, cues: 1, song: 0 })
+    )
+    w.unmount()
+    localStorage.clear()
+    resetRouting()
+  })
+
   it('the study menu offers «Salidas» and sends the routing to the phone engine', async () => {
     const { resetRouting } = await import('../src/composables/useRouting.js')
     resetRouting()
@@ -750,6 +927,62 @@ describe('outputs on the phone', () => {
     expect(held.playback.bridge.setRouting).toHaveBeenLastCalledWith(
       expect.objectContaining({ click: 1, cues: 1, song: 0 })
     )
+    w.unmount()
+  })
+})
+
+describe('covers on the phone', () => {
+  // Se pedían siempre: las canciones del teléfono no tienen carátula nunca,
+  // y cada fila eran dos peticiones para nada.
+  it('the list asks only for the covers that exist', async () => {
+    const songs = [
+      song(1, { title: 'Con portada', cover: 'embedded' }),
+      song(2, { title: 'Sin portada', cover: '' }),
+      song(-3, { title: 'Del teléfono', cover: '', phone: true }),
+      // sin saberlo (una canción que no dice nada de su carátula): se pide
+      song(4, { title: 'No se sabe' })
+    ]
+    const w = mount(MobileSongs, { props: { songs } })
+    await flushPromises()
+    const asked = w.findAll('.m-song').map((r) => r.find('img').exists())
+    expect(asked).toEqual([true, false, false, true])
+    expect(held.api.coverUrl.mock.calls.map((c) => c[0])).toEqual([1, 4])
+    // las que no: el hueco de siempre, del mismo tamaño
+    expect(w.findAll('.m-song')[1].find('.no-art').exists()).toBe(true)
+  })
+
+  it('the player does not ask for the cover of a song that has none', async () => {
+    const playing = (cover) => {
+      const queued = song(1, {
+        title: 'Mi Gozo',
+        duration: 245,
+        ...(cover == null ? {} : { cover })
+      })
+      return mount(MobilePlayer, { props: { full: true, song: queued }, attachTo: document.body })
+    }
+    held.playback.emit({
+      track: { id: 1, title: 'Mi Gozo', artist: 'Barak', duration: 245, path: '/pistas/mi-gozo' },
+      index: 0,
+      length: 1,
+      duration: 245,
+      playing: true,
+      path: '/pistas/mi-gozo'
+    })
+    let w = playing('')
+    await flushPromises()
+    expect(w.find('.m-mini-open img').exists()).toBe(false)
+    expect(w.find('.m-full-art img').exists()).toBe(false)
+    expect(held.api.coverUrl).not.toHaveBeenCalled()
+    w.unmount()
+    w = playing('embedded')
+    await flushPromises()
+    expect(w.find('.m-mini-open img').exists()).toBe(true)
+    expect(w.find('.m-full-art img').exists()).toBe(true)
+    w.unmount()
+    // sin saberlo (la cola la puso Rust): se pide, como siempre
+    w = playing(null)
+    await flushPromises()
+    expect(w.find('.m-full-art img').exists()).toBe(true)
     w.unmount()
   })
 })

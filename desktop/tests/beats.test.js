@@ -43,6 +43,14 @@ describe('the beat grid as it plays, same as in Rust', () => {
     expect(withMeter(grid(), 3)).toMatchObject({ meter: 3, first_downbeat: 2 })
     expect(withMeter(grid(), 2)).toMatchObject({ meter: 2, first_downbeat: 1 })
     expect(withMeter(grid(), 6)).toMatchObject({ meter: 6, first_downbeat: 2 })
+    // con la fase del 2 y del 6 que sacó el análisis, el «1» cae donde la oyó
+    const sure = { ...grid(), phase2: 0, phase6: 5 }
+    expect(withMeter(sure, 6)).toMatchObject({ meter: 6, first_downbeat: 5 })
+    expect(withMeter(sure, 2)).toMatchObject({ meter: 2, first_downbeat: 0 })
+    // doblada o a la mitad, esas fases siguen la cuenta (y sin ellas no salen)
+    expect(doubled(sure)).toMatchObject({ phase2: 0, phase6: 10 })
+    expect(halved(doubled(sure))).toMatchObject({ phase2: 0, phase6: 5 })
+    expect(Object.keys(doubled(grid()))).not.toContain('phase6')
     expect(withMeter(grid(), 1).meter, 'un acento en cada pulso es ninguno').toBe(0)
     expect(normalMeter(40)).toBe(12)
     const none = withMeter(grid(), 0)

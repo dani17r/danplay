@@ -560,6 +560,9 @@ fn the_guides_of_before_1_31_move_to_their_new_folder() {
         )
     })
     .expect("estudio");
+    // (una base de antes de la 1.41 no lleva apuntado que esto ya se hizo)
+    app.db(|c| c.execute("DELETE FROM meta WHERE key='cue_paths_done'", []))
+        .expect("como la de antes");
     let reopened = crate::testkit::guarded(&app, crate::app::Guard::default());
     let saved: String = reopened
         .db(|c| c.query_row("SELECT study FROM songs WHERE id = ?", [cid], |r| r.get(0)))

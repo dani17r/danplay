@@ -1,12 +1,15 @@
 <script setup>
 /**
  * Los ajustes del celular, con botones grandes en vez de desplegables: el
- * tema, el tamaño de la letra, cómo se pone una canción, el fundido entre
- * canciones y la pantalla encendida.
+ * tema, el tamaño de la letra, cómo se pone una canción y la pantalla
+ * encendida.
+ *
+ * Sin «Fundido entre canciones»: estaba aquí, de 0 a 8 segundos, pero en el
+ * celular no se funden canciones (`set_crossfade` no hace nada) y elegir uno
+ * no cambiaba nada.
  */
 import { computed } from 'vue'
 import { usePreferences } from '../composables/usePreferences.js'
-import { usePlayback, CROSSFADES } from '../composables/usePlayback.js'
 import { SIZES, allThemes } from '../themes.js'
 import { tapPlays, compactList, keepAwake } from './prefs.js'
 import ToggleField from '../components/ui/ToggleField.vue'
@@ -15,9 +18,7 @@ import { version } from '../../package.json'
 defineProps({ total: { type: Number, default: 0 } })
 
 const { theme, appSize } = usePreferences()
-const player = usePlayback()
 const themes = computed(() => Object.entries(allThemes()))
-const fades = CROSSFADES.filter((s) => s <= 8)
 </script>
 
 <template>
@@ -74,20 +75,6 @@ const fades = CROSSFADES.filter((s) => s <= 8)
 
     <section>
       <h3>Reproducción</h3>
-      <div class="m-field-label">Fundido entre canciones</div>
-      <div class="m-chips" role="group" aria-label="Fundido entre canciones">
-        <button
-          v-for="s in fades"
-          :key="s"
-          type="button"
-          class="m-chip-btn"
-          :class="{ on: player.crossfade.value === s }"
-          :aria-pressed="player.crossfade.value === s"
-          @click="player.setCrossfade(s)"
-        >
-          {{ s ? s + ' s' : 'Sin fundido' }}
-        </button>
-      </div>
       <ToggleField
         v-model="keepAwake"
         title="Pantalla encendida mientras suena"

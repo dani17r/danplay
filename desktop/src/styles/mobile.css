@@ -1146,10 +1146,6 @@ html[data-app='mobile'] :focus:not(:focus-visible) {
   flex-wrap: wrap;
   gap: 8px;
 }
-.m-field-label {
-  margin: 2px 0 10px;
-  font-size: calc(15px * var(--scale));
-}
 .m-settings .m-chips + * {
   margin-top: 14px;
 }

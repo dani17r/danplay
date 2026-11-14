@@ -44,21 +44,27 @@ use std::sync::mpsc::{Sender, channel};
 use std::sync::{Arc, Mutex};
 
 /// Lo que el hilo de audio cuenta hacia fuera.
-#[expect(
-    clippy::large_enum_variant,
-    reason = "el estado va entero cuatro veces por segundo: meterlo en una caja no ahorra nada"
-)]
 pub enum Event {
     /// Algo cambio (empezo, se pauso, fallo) o toca refrescar la posicion.
     Changed(State),
     /// La pista se acabo sola. Solo una vez por pista: quien decide que suena
     /// despues es la cola, no esto.
     Finished,
+    /// La cancion que se mando poner no se pudo abrir (el archivo esta
+    /// dañado, vacio, o no es audio). El motivo ya va en el estado; la cola
+    /// decide si sigue con la siguiente.
+    Failed,
     /// Hay fundido entre canciones y a esta le queda lo que dura: si la cola
     /// manda ya la siguiente, entra subiendo mientras esta baja. Una vez por
     /// pista; si la cola no manda nada (fin de la lista, «repetir esta»), la
     /// cancion acaba sola y llega `Finished` como siempre.
     Ending,
+    /// La canción de la ruta `from` acabó sola y entró, aquí mismo, la que la
+    /// cola había anunciado con ese número (`Command::Upcoming`): la cola
+    /// solo tiene que apuntárselo. En vez de `Finished`, y con el estado de
+    /// la que entra, para que la cola cuente las dos cosas a la vez. Si no se
+    /// pudo abrir, detrás llega `Failed`, como con cualquier otra.
+    Advanced { ticket: u64, from: String, state: State },
 }
 
 /// A quien se le cuentan los avisos. Devuelve false cuando ya no escucha
@@ -111,6 +117,16 @@ pub fn balance(gain: f32, pan: f32, on: bool) -> [f32; 2] {
 // motor, que es el mismo contrato en la PC y en el celular.
 pub use danplay_engine::spec::{CueSpec, RoutingSpec};
 
+/// La canción que viene detrás de la que suena (ver `Command::Upcoming`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Upcoming {
+    /// El número con que la anuncia la cola: vuelve en `Event::Advanced`, y
+    /// así la cola sabe que lo que entró es lo último que anunció.
+    pub ticket: u64,
+    pub path: String,
+    pub duration: f64,
+}
+
 pub enum Command {
     Play {
         path: String,
@@ -125,6 +141,13 @@ pub enum Command {
         path: String,
         duration: f64,
     },
+    /// La canción que sonará cuando la que suena acabe sola, o ninguna (fin
+    /// de la lista). La cola la anuncia en cuanto lo sabe y cada vez que
+    /// cambia, para que esté lista de antemano: lo que haya que pasar a FLAC
+    /// se pasa mientras suena la de antes, y al acabar esta entra sin ir a
+    /// preguntarle a la cola (`Event::Advanced`): entre una y otra no queda
+    /// más silencio que el que tarda en abrirse.
+    Upcoming(Option<Upcoming>),
     Toggle,
     Pause,
     Resume,
@@ -146,6 +169,10 @@ pub enum Command {
     /// El tono corrido, en semitonos (-12..12, con fracciones: medio
     /// semitono es un cuarto de tono).
     Pitch(f32),
+    /// Conservar el timbre de la voz al cambiar el tono (los formantes en su
+    /// sitio): sin esto, subir 3 semitonos suena a «ardilla» y bajarlos a
+    /// «gigante». Una preferencia general, apagada de fábrica.
+    Formants(bool),
     /// Cuanto se funden dos canciones al pasar de una a otra, en segundos
     /// (0 = sin fundido, hasta 12).
     Crossfade(f32),
@@ -196,6 +223,19 @@ impl Handle {
     /// Si el sistema no deja crear un hilo: sin el no hay reproductor, y es
     /// mejor saberlo al arrancar que quedarse mudo sin motivo.
     pub fn new(notify: impl Fn(Event) -> bool + Send + 'static) -> Self {
+        Self::start(notify, None)
+    }
+
+    /// Para las pruebas: el hilo de audio sobre un motor sin salida, del que
+    /// tira la prueba haciendo de tarjeta de sonido (`Engine::pull`). Así se
+    /// mide lo que sonaría, muestra a muestra, en una máquina sin tarjeta.
+    #[cfg(test)]
+    pub(crate) fn offline(notify: impl Fn(Event) -> bool + Send + 'static) -> (Self, Arc<danplay_engine::Engine>) {
+        let audio = Arc::new(danplay_engine::Engine::offline(danplay_engine::engine::RATE));
+        (Self::start(notify, Some(Arc::clone(&audio))), audio)
+    }
+
+    fn start(notify: impl Fn(Event) -> bool + Send + 'static, offline: Option<Arc<danplay_engine::Engine>>) -> Self {
         let (tx, rx) = channel::<Command>();
         let state = Arc::new(Mutex::new(State {
             volume: 0.9,
@@ -215,7 +255,12 @@ impl Handle {
                 // DanPlay). Se avisa del archivo y se vuelve a empezar.
                 loop {
                     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                        engine::run(&rx, &shared, &notify, &mut carry);
+                        // (tras una caída, un motor nuevo: el de antes se
+                        // soltó al caerse)
+                        let audio = offline
+                            .clone()
+                            .unwrap_or_else(|| Arc::new(danplay_engine::Engine::new()));
+                        engine::run(&rx, &shared, &notify, &mut carry, audio, offline.is_some());
                     }));
                     if outcome.is_ok() {
                         break; // el canal se cerro: fin

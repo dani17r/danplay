@@ -104,19 +104,27 @@ export function useLibrary(context) {
   // uno, y pulsar una fila mientras la lista cargaba la dejaba a medias y el
   // indicador de carga girando para siempre.)
   let loadRequest = 0
+  /**
+   * La consulta de la lista que se ve (lo que se busca y su orden). Volver a
+   * pedir la misma es un refresco, no otra lista: ver `loadSearch`.
+   */
+  let shownQuery = ''
 
   /**
    * `quiet`: sin el indicador de carga. Es para los refrescos de fondo, que
    * pasan cada vez que algo cambia en el núcleo; el indicador es para cuando
    * la persona acaba de pedir algo y espera.
+   * @param {boolean} [quiet]
+   * @param {any} [fresh]  el estado del núcleo, si se acaba de leer
    */
-  async function load(quiet = false) {
+  async function load(quiet = false, fresh = null) {
     const mine = ++loadRequest
     if (!quiet) loading.value = true
     try {
       // el estado se relee siempre: si no, `configured` se quedaba congelado
       // en false y toda la vista central seguía mostrando la bienvenida
-      const e = await api.status()
+      // (salvo que quien llama lo acabe de leer: al arrancar)
+      const e = fresh || (await api.status())
       if (mine !== loadRequest) return
       stats.value = e.stats
       configured.value = e.configured
@@ -150,24 +158,36 @@ export function useLibrary(context) {
    * @param {Song[]} [list]
    */
   function setSongs(list) {
+    shownQuery = ''
     songs.value = list || []
     listCount.value = songs.value.length
     loadingMore.value = false
   }
 
   /**
+   * La primera página enseguida y el resto por detrás. Salvo que sea un
+   * refresco de la lista que ya se ve (algo cambió en el núcleo, y pasa a
+   * menudo): entonces lo que hay se queda puesto hasta que llega todo, y se
+   * cambia de una vez. Antes cada refresco dejaba la lista en sus 400
+   * primeras y la volvía a llenar: con más canciones que esas, el panel
+   * encogía y el desplazamiento saltaba hacia arriba.
    * @param {Record<string, any>} p  la consulta, sin límite ni desplazamiento
    * @param {number} mine            el número de esta carga: si llega otra, se deja
    */
   async function loadSearch(p, mine) {
+    const query = JSON.stringify(p)
     const first = await api.search({ ...p, limit: FIRST_PAGE, from_key: 0 })
     if (mine !== loadRequest) return
     const known = Number.isFinite(first.count)
+    const count = known ? first.count : Infinity
+    const more = known ? first.songs.length < first.count : first.songs.length === FIRST_PAGE
+    const refresh = query === shownQuery && songs.value.length > 0
+    if (refresh && more) return void loadRest(p, mine, count, first.songs, true)
+    shownQuery = query
     songs.value = first.songs
     listCount.value = known ? first.count : first.songs.length
-    const more = known ? first.songs.length < first.count : first.songs.length === FIRST_PAGE
     loadingMore.value = more
-    if (more) loadRest(p, mine, known ? first.count : Infinity)
+    if (more) loadRest(p, mine, count, first.songs, false)
   }
 
   /**
@@ -175,9 +195,11 @@ export function useLibrary(context) {
    * @param {Record<string, any>} p
    * @param {number} mine
    * @param {number} count
+   * @param {Song[]} first   la primera página, ya recibida
+   * @param {boolean} hold   un refresco: no se enseña nada hasta tenerla entera
    */
-  async function loadRest(p, mine, count) {
-    let all = songs.value
+  async function loadRest(p, mine, count, first, hold) {
+    let all = first
     const seen = new Set(all.map((s) => s.id))
     try {
       while (all.length < count) {
@@ -188,28 +210,55 @@ export function useLibrary(context) {
         const fresh = r.songs.filter((s) => !seen.has(s.id))
         for (const s of fresh) seen.add(s.id)
         all = all.concat(fresh)
-        songs.value = all
+        if (!hold) songs.value = all
         if (!fresh.length || r.songs.length < PAGE) break
       }
+      if (hold) songs.value = all
       if (count !== Infinity && all.length < count) {
         console.warn(`[danplay] la lista se quedó en ${all.length} de ${count}`)
       }
-      listCount.value = count === Infinity ? all.length : Math.max(all.length, listCount.value)
+      listCount.value = count === Infinity ? all.length : Math.max(all.length, count)
     } catch (e) {
+      // (en un refresco se queda la lista que había)
       if (mine === loadRequest) notify('No se pudo cargar el resto de la lista: ' + errorMessage(e))
     } finally {
       if (mine === loadRequest) loadingMore.value = false
     }
   }
 
-  /** El estado del núcleo: carpetas, cifras y lo que espera en la Entrada. */
-  async function loadStatus() {
-    const e = await api.status()
+  /** @param {any} e  lo que dice /api/status */
+  function applyStatus(e) {
     status.value = e
     stats.value = e.stats
     configured.value = e.configured
     missingFolders.value = e.missing_folders || []
+  }
+  async function loadInbox() {
     waiting.value = (await api.inbox()).total
+  }
+
+  /**
+   * El estado del núcleo: carpetas, cifras y lo que espera en la Entrada (las
+   * dos preguntas a la vez: ninguna espera a la otra).
+   */
+  async function loadStatus() {
+    await Promise.all([api.status().then(applyStatus), loadInbox()])
+  }
+
+  /**
+   * Lo del arranque. La lista solo espera a lo que necesita: saber si hay
+   * biblioteca (el estado). Antes iban en fila el estado, la Entrada y el
+   * estado otra vez (lo releía `load`): tres idas y vueltas al núcleo antes
+   * de pedir la primera canción. Sin biblioteca no se pide la lista.
+   */
+  async function start() {
+    await Promise.all([
+      loadInbox(),
+      api.status().then((e) => {
+        applyStatus(e)
+        return e.configured ? load(false, e) : undefined
+      })
+    ])
   }
 
   /**
@@ -294,6 +343,7 @@ export function useLibrary(context) {
     sortBy,
     applySort,
     load,
+    start,
     setSongs,
     loadStatus,
     patchSong,

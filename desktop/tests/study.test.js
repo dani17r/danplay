@@ -47,7 +47,6 @@ const base = {
   has_output: true,
   loop_a: 0,
   loop_b: 0,
-  pitch_preserved: true,
   speed: 1,
   pitch: 0,
   path: '/musica/mi-gozo.mp3',
@@ -293,6 +292,58 @@ describe('the study bar', () => {
     w.unmount()
   })
 
+  it('snapped to the beats, the segment reaches Rust and is saved on the beat to the millisecond', async () => {
+    vi.useFakeTimers()
+    // 130 bpm desde 0,137 s: ningún pulso cae en una centésima
+    const beats = Array.from({ length: 430 }, (_, i) => 0.137 + (i * 60) / 130)
+    held.playback.bridge.analyzeBeats.mockImplementationOnce(async (path) => {
+      held.playback.emit({
+        metronome: { ...base.metronome, has_grid: true, bpm: 130, meter: 4, confidence: 0.8 }
+      })
+      return {
+        bpm: 130,
+        meter: 4,
+        beats,
+        first_downbeat: 0,
+        phase3: 0,
+        phase4: 0,
+        confidence: 0.8,
+        path
+      }
+    })
+    held.state.songs = [
+      song(7, { title: 'Mi Gozo', study: JSON.stringify({ loop: [50.1, 99.9] }) })
+    ]
+    held.playback.emit({ playing: false })
+    const w = await mountView()
+    await vi.advanceTimersByTimeAsync(50)
+    const { menu } = useContextMenu()
+    await w.find('.tl-loop-menu').trigger('click')
+    await menu.value.items.find((i) => i.label === 'Ajustar a los pulsos').action()
+    await flushPromises()
+    const offBeat = (t) => Math.min(...beats.map((x) => Math.abs(x - t)))
+    const [a, b] = held.playback.bridge.setLoop.mock.calls.at(-1)
+    // redondeando a la centésima, el principio quedaba a 3,2 ms de su pulso (y el final a 0,7)
+    expect(offBeat(a)).toBeLessThanOrEqual(0.0005 + 1e-9)
+    expect(offBeat(b)).toBeLessThanOrEqual(0.0005 + 1e-9)
+    // lo que se ve no cambia: minutos y segundos (los pulsos, en 49,983 y 99,829)
+    expect(w.text()).toContain('0:49 – 1:39')
+    // y así se manda a guardar
+    await vi.advanceTimersByTimeAsync(700)
+    expect(held.api.setStudy).toHaveBeenLastCalledWith(7, { loop: [a, b] })
+    // mover un borde con el ratón no saca al otro de su pulso
+    withWidth(w)
+    const box = w.find('.tl-box').element
+    await pointer(box, 'pointerdown', (b / 200) * 400 + 1)
+    await pointer(window, 'pointermove', 300)
+    await pointer(window, 'pointerup', 300)
+    const [a2, b2] = held.playback.bridge.setLoop.mock.calls.at(-1)
+    expect(b2).toBe(150)
+    expect(a2).toBe(a)
+    vi.useRealTimers()
+    w.unmount()
+  })
+
   it('one edge cannot cross the other', async () => {
     held.state.songs = [song(7, { title: 'Mi Gozo', study: JSON.stringify({ loop: [50, 100] }) })]
     const w = await mountView()
@@ -381,6 +432,28 @@ describe('the study bar', () => {
     w.unmount()
   })
 
+  it('B without A does not make a segment from 0:00 nor send the song to the start', async () => {
+    const w = await mountView()
+    held.playback.bridge.setLoop.mockClear()
+    held.playback.bridge.seek.mockClear()
+    await press('b')
+    await flushPromises()
+    expect(held.playback.bridge.setLoop).not.toHaveBeenCalled()
+    expect(held.playback.bridge.seek).not.toHaveBeenCalled()
+    const { useNotices } = await import('../src/composables/useNotices.js')
+    expect(useNotices().notices.value.map((n) => n.message)).toContain(
+      'Marca primero dónde empieza el tramo, con A'
+    )
+    w.unmount()
+  })
+
+  it('the notes cannot grow past what is saved', async () => {
+    const w = await mountView()
+    const field = w.find('.study-notes textarea')
+    expect(field.attributes('maxlength')).toBe('4000')
+    w.unmount()
+  })
+
   it('the ruler shows the minutes and the end', async () => {
     const w = await mountView()
     const labels = w.findAll('.tl-tick-label').map((t) => t.text())
@@ -410,16 +483,15 @@ describe('the study bar', () => {
     w.unmount()
   })
 
-  it('speed is applied and saved; without ffmpeg it warns that the pitch changes', async () => {
+  it('speed is applied and saved, and the pitch stays', async () => {
     vi.useFakeTimers()
     const w = await mountView()
     await button(w, '0.7×').trigger('click')
     await flushPromises()
     expect(held.playback.bridge.setSpeed).toHaveBeenCalledWith(0.7)
     expect(w.text()).toContain('mismo tono')
-    held.playback.emit({ pitch_preserved: false })
-    await flushPromises()
-    expect(w.text()).toContain('cambia el tono')
+    expect(w.text()).not.toContain('cambia el tono')
+    expect(w.text()).not.toContain('no se puede aquí')
     await vi.advanceTimersByTimeAsync(700)
     expect(held.api.setStudy).toHaveBeenLastCalledWith(7, { speed: 0.7 })
     vi.useRealTimers()
@@ -896,6 +968,58 @@ describe('what is saved goes to its song', () => {
     vi.useRealTimers()
   })
 
+  it('says once per song when the study stayed only in DanPlay, not in the file', async () => {
+    // el núcleo contesta con `tags_written`: un archivo que no admite
+    // etiquetas (o de solo lectura) deja el estudio solo en la base, y no
+    // se sabía. El estudio se guarda solo a cada cambio: se avisa una vez.
+    vi.useFakeTimers()
+    const { useNotices } = await import('../src/composables/useNotices.js')
+    const { notices, clearNotices } = useNotices()
+    clearNotices()
+    const only = (n) => n.message.includes('se guarda solo en DanPlay')
+    const w = await mountView()
+    held.api.setStudy.mockResolvedValue({
+      id: 7,
+      tags_written: false,
+      tags_skipped: 'unsupported'
+    })
+    await w.find('textarea').setValue('uno')
+    await vi.advanceTimersByTimeAsync(700)
+    expect(notices.value.filter(only).map((n) => n.message)).toEqual([
+      'Este archivo no admite etiquetas: el estudio de esta canción se guarda solo en DanPlay'
+    ])
+    await w.find('textarea').setValue('dos')
+    await vi.advanceTimersByTimeAsync(700)
+    expect(held.api.setStudy).toHaveBeenCalledTimes(2)
+    expect(notices.value.filter(only), 'no en cada guardado').toHaveLength(1)
+    // otro motivo en otra canción: se avisa de esa
+    clearNotices()
+    held.api.setStudy.mockResolvedValue({ id: 8, tags_written: false, tags_skipped: 'failed' })
+    held.state.songs = [...held.state.songs, song(8, { title: 'Otra', study: '' })]
+    held.playback.emit({
+      track: { id: 8, title: 'Otra', artist: 'Barak', duration: 100 },
+      path: '/musica/otra.mp3',
+      position: 0
+    })
+    await flushPromises()
+    await flushPromises()
+    await w.find('textarea').setValue('tres')
+    await vi.advanceTimersByTimeAsync(700)
+    expect(notices.value.filter(only)).toHaveLength(1)
+    expect(notices.value.filter(only)[0].message).toContain('solo lectura')
+    // lo que el usuario pidió (etiquetas desactivadas) o un archivo que ya
+    // no está no son un fallo que contar
+    clearNotices()
+    for (const why of ['off', 'missing']) {
+      held.api.setStudy.mockResolvedValue({ id: 9, tags_written: false, tags_skipped: why })
+      await w.find('textarea').setValue('cuatro ' + why)
+      await vi.advanceTimersByTimeAsync(700)
+    }
+    expect(notices.value.filter(only)).toEqual([])
+    vi.useRealTimers()
+    w.unmount()
+  })
+
   it('hiding it saves pending changes without waiting', async () => {
     vi.useFakeTimers()
     const w = await mountView()
@@ -1201,6 +1325,9 @@ describe('pitch, fine speed and metronome', () => {
     await flushPromises()
     expect(tempo.element.value).toBe('68')
     const wave = () => w.findComponent({ name: 'StudyTimeline' }).props('grid')
+    // la onda dibuja el clic que suena: uno cada 60/68 s (el tempo a mano)
+    const gap = () => wave().beats[1] - wave().beats[0]
+    expect(gap()).toBeCloseTo(60 / 68, 2)
     const previous = wave().beats.length
     await button(w, '×2').trigger('click')
     await flushPromises()
@@ -1209,7 +1336,8 @@ describe('pitch, fine speed and metronome', () => {
     expect(bridge().setMetronome).toHaveBeenLastCalledWith(
       expect.objectContaining({ bpm: 68, mult: 1 })
     )
-    expect(wave().beats.length).toBe(previous * 2)
+    expect(gap()).toBeCloseTo(60 / 136, 2)
+    expect(Math.abs(wave().beats.length - previous * 2)).toBeLessThanOrEqual(1)
     // escribir con el doble puesto guarda el tempo sin el: al quitarlo vuelve
     await tempo.trigger('focus')
     await tempo.setValue('140')
@@ -1626,11 +1754,11 @@ describe('the separated stems in study mode', () => {
     await w.find('.study-stems-more').trigger('click')
     const { menu } = useContextMenu()
     const labels = menu.value.items.filter((i) => !i.separator).map((i) => i.label)
-    // un solo «Exportar…»: las formas de exportar, en su ventana
-    expect(labels).toContain('Exportar…')
+    // exportar no está aquí: hay un solo «Exportar…», el del ⋯ del estudio
+    // (antes había otro en este menú, que abría la misma ventana)
     expect(labels).toContain('Abrir la carpeta')
     expect(labels).toContain('Borrar las pistas…')
-    expect(labels.filter((l) => /export|guardar/i.test(l))).toEqual(['Exportar…'])
+    expect(labels.filter((l) => /export|guardar|danpista/i.test(l))).toEqual([])
     // fuera de la app no hay diálogo de guardar: no se guarda nada
     expect(await pickSavePath()).toBe(null)
   })
@@ -1640,11 +1768,11 @@ describe('the separated stems in study mode', () => {
     const w = await mountView()
     await w.find('.study-metro-toggle').trigger('click')
     await flushPromises()
-    await w.find('.study-stems-more').trigger('click')
+    await w.find('.study-more').trigger('click')
     const { menu } = useContextMenu()
     menu.value.items.find((i) => i.label === 'Exportar…').action()
     await flushPromises()
-    // se abre con la mezcla de las pistas elegida, y el clic entre lo que puede llevar
+    // con las pistas sonando se abre con su mezcla elegida, y el clic entre lo que puede llevar
     const kinds = [...document.querySelectorAll('.exp-kind')]
     expect(kinds.find((k) => k.classList.contains('on')).textContent).toContain('La mezcla')
     const extras = [...document.querySelectorAll('.exp-extra-name')].map((e) => e.textContent)
@@ -1877,7 +2005,10 @@ describe('the outputs', () => {
     })
     expect(held.playback.bridge.setOutput).toHaveBeenLastCalledWith({ device: null, channels: 2 })
     // y se recuerda
-    expect(JSON.parse(localStorage.getItem('danplay.outputs')).preset).toBe('click-left')
+    // (el reparto es de cada salida: este, de la del sistema)
+    expect(JSON.parse(localStorage.getItem('danplay.outputs')).byDevice[''].preset).toBe(
+      'click-left'
+    )
     presets[2].click()
     await flushPromises()
     expect(held.playback.bridge.setOutput).toHaveBeenLastCalledWith({ device: null, channels: 4 })
@@ -1902,7 +2033,7 @@ describe('the outputs', () => {
       { left: 0, right: 1 }
     ])
     expect(songHead.find('.chan-mode').text()).toBe('Mono')
-    expect(JSON.parse(localStorage.getItem('danplay.outputs')).mono.song).toBe(true)
+    expect(JSON.parse(localStorage.getItem('danplay.outputs')).byDevice[''].mono.song).toBe(true)
 
     // la canción solo por la derecha: por un canal va en mono, sin elegir
     await button('Izquierda').trigger('click')
@@ -2327,6 +2458,40 @@ describe('the 1.28.2 study mode', () => {
     expect(sentCues().map((c) => c.at)).toEqual([30.75])
   })
 
+  it('with a hand-set tempo, the waveform and the magnet follow the click that sounds', async () => {
+    // con el tempo puesto a mano el clic deja de seguir los pulsos detectados
+    // (justo los que fallaron): la onda y el imán seguían con ellos
+    held.state.songs = [
+      song(7, { title: 'Mi Gozo', study: JSON.stringify({ cues: [guide(10, '', 'Coro')] }) })
+    ]
+    held.playback.emit({ playing: false })
+    const w = await mountView()
+    await flushPromises()
+    guideWidth(w)
+    const timeline = () => w.findComponent({ name: 'StudyTimeline' })
+    // siguiendo la canción: 120 bpm detectados, un pulso cada medio segundo
+    expect(timeline().props('grid').beats.slice(0, 3)).toEqual([0.25, 0.75, 1.25])
+    await w.find('.study-magnet').trigger('click')
+    // a 60 bpm a mano: uno cada segundo, desde el primer «1» de la canción
+    await held.playback.bridge.setMetronome({ bpm: 60 })
+    await flushPromises()
+    expect(timeline().props('grid').beats.slice(0, 3)).toEqual([0.25, 1.25, 2.25])
+    expect(timeline().props('grid').bpm).toBe(60)
+    // el imán: 50,7 s va al pulso que suena (50,25), no al detectado (50,75)
+    await w.find('.tl-guide-track').trigger('dblclick', { clientX: 101.4 })
+    await flushPromises()
+    expect(w.findComponent({ name: 'StudyCue' }).props('draft').t).toBe(50.25)
+    w.findComponent({ name: 'StudyCue' }).vm.$emit('close')
+    await flushPromises()
+    // y siguiendo la canción otra vez, los detectados
+    await held.playback.bridge.setMetronome({ bpm: null })
+    await flushPromises()
+    expect(timeline().props('grid').beats.slice(0, 3)).toEqual([0.25, 0.75, 1.25])
+    await w.find('.tl-guide-track').trigger('dblclick', { clientX: 101.4 })
+    await flushPromises()
+    expect(w.findComponent({ name: 'StudyCue' }).props('draft').t).toBe(50.75)
+  })
+
   it('lane options: a cue here, import a short audio file, rename…', async () => {
     held.state.songs = [song(7, { title: 'Mi Gozo' })]
     held.playback.emit({ playing: false })
@@ -2545,5 +2710,27 @@ describe('exporting', () => {
     })
     localStorage.removeItem('danplay.outputs')
     resetRouting()
+  })
+
+  it('saving again while the previous one is still being written says so, not «Guardada»', async () => {
+    // el núcleo no arranca otro trabajo con el mismo nombre: devuelve el que
+    // corre. Antes se esperaba a ese y se decía «Guardada» con el nombre del
+    // archivo anterior, sin haber escrito el nuevo.
+    held.state.songs = [song(7, { title: 'Mi Gozo', study: '' })]
+    held.playback.emit({ playing: false })
+    const w = await mountView()
+    held.savePath = '/musica/Otra copia.mp3'
+    held.api.exportMix.mockImplementationOnce(async () => ({
+      job: { name: 'mix', active: true, result: null },
+      already_running: true
+    }))
+    const { useNotices } = await import('../src/composables/useNotices.js')
+    const { notices } = useNotices()
+    const before = notices.value.length
+    await open(w)
+    await save()
+    const said = notices.value.slice(before).map((n) => n.message)
+    expect(said.some((m) => m.includes('aún se está guardando la anterior'))).toBe(true)
+    expect(said.some((m) => m.includes('Guardada'))).toBe(false)
   })
 })

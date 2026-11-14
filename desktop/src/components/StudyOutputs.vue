@@ -93,8 +93,8 @@ const monoFor = (row) => isSingle(destFor(row)) || monoOf(prefs.value, row.kind,
 function choose(row, dest) {
   return r.setRoute(row.kind, row.key, dest)
 }
-const needs = computed(() => PRESETS.find((p) => p.v === prefs.value.preset)?.channels || 2)
-const short = computed(() => channels.value < Math.max(needs.value, r.routing.value.channels))
+/** «2 canales», «1 canal». */
+const channelsText = (n) => `${n} ${n === 1 ? 'canal' : 'canales'}`
 </script>
 
 <template>
@@ -127,7 +127,8 @@ const short = computed(() => channels.value < Math.max(needs.value, r.routing.va
         <p v-if="output" class="outs-now" :class="{ warn: output.fallback || output.error }">
           <template v-if="output.error">La salida falla: {{ output.error }}</template>
           <template v-else-if="output.fallback">
-            La elegida no está o la usa otro programa: suena por {{ output.name }}
+            La elegida no está o la usa otro programa: suena por {{ output.name }}, con el reparto
+            de esa salida
           </template>
           <template v-else>
             Suena por {{ output.name }} · {{ output.channels }}
@@ -159,9 +160,16 @@ const short = computed(() => channels.value < Math.max(needs.value, r.routing.va
             <span class="outs-preset-note">{{ p.note }}</span>
           </button>
         </div>
-        <p v-if="short" class="outs-now warn">
-          Esta salida tiene {{ channels }} canales: lo que vaya por más arriba no se oirá. Elige una
-          interfaz con más salidas o «Clic y guías a la izquierda».
+        <!-- antes la música se quedaba muda; ahora suena todo junto, y el
+             reparto guardado vuelve solo cuando la salida tenga los canales -->
+        <p v-if="r.short.value" class="outs-now warn">
+          Esta salida tiene {{ channelsText(r.available.value) }} y este reparto pide
+          {{ r.needs.value }}: mientras tanto suena todo junto. Elige una interfaz con más salidas o
+          «Clic y guías a la izquierda».
+        </p>
+        <p v-else-if="r.available.value == null && r.needs.value > 2" class="outs-now">
+          Este reparto pide {{ r.needs.value }} canales: si la salida no los tiene, sonará todo
+          junto y se avisará.
         </p>
       </section>
 

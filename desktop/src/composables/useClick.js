@@ -24,7 +24,7 @@
  * bpm (y con los ajustes de la anterior).
  */
 import { effectScope, ref, shallowRef, watch } from 'vue'
-import { api } from '../api.js'
+import { api, ApiError } from '../api.js'
 import { usePlayback } from './usePlayback.js'
 import { ownToGrid } from '../utils/beats.js'
 
@@ -33,8 +33,32 @@ const MODE_KEY = 'danplay.click.mode'
 const MANUAL_KEY = 'danplay.click.manual'
 /** Cada cuánto se pregunta por la rejilla que se está calculando. */
 export const POLL_MS = 700
-/** Cuántas de las siguientes de la cola se dejan preparadas. */
-export const AHEAD = 3
+/**
+ * Lo que se espera como mucho la rejilla de una canción. El núcleo corta al
+ * detector a los diez minutos; si pasado eso sigue sin contestar, es que algo
+ * se colgó, y el botón no se queda en «cargando» para siempre.
+ */
+export const LOAD_LIMIT_MS = 11 * 60 * 1000
+/** Lo que se espera una respuesta del núcleo antes de volver a preguntar. */
+export const ANSWER_MS = 20000
+/** El núcleo no contestó a tiempo (`within`). */
+const LATE = Symbol('tarde')
+
+/** `promise`, o `LATE` si a los `ms` no ha contestado. @param {Promise<any>} promise @param {number} ms */
+function within(promise, ms) {
+  /** @type {any} */
+  let timer = null
+  const late = new Promise((resolve) => {
+    timer = setTimeout(() => resolve(LATE), ms)
+  })
+  return Promise.race([promise, late]).finally(() => clearTimeout(timer))
+}
+/**
+ * Cuántas de las siguientes de la lista se dejan preparadas: un repertorio o
+ * un disco enteros. Eran 3 (y la cola del núcleo, de 6): a la cuarta canción
+ * de un ensayo había que esperar otra vez los 15-20 s.
+ */
+export const AHEAD = 60
 
 function readPref(key, fallback) {
   try {
@@ -94,6 +118,19 @@ const loading = ref(false)
 const progress = ref(0)
 /** Por qué no hay rejilla, si falló todo. */
 const error = ref('')
+/**
+ * Por qué el clic es el aproximado (el de Rust) habiendo detector: falló con
+ * esta canción, o tarda demasiado. Vacío si aquí no hay detector, que eso no
+ * es un fallo. Antes no se decía, y el «1» a contrapié parecía cosa del clic.
+ */
+const fallbackWhy = ref('')
+/**
+ * Re-analizando con la batería separada: lo que lleva la red con ella
+ * (0..1), o null si no se está en eso.
+ */
+const reanalyzing = ref(/** @type {number|null} */ (null))
+/** Cuándo se empezó a pedir la rejilla de la que suena. */
+let askedAt = 0
 
 /** De qué canción es lo de arriba. */
 let forSong = { id: /** @type {number|null} */ (null), path: '' }
@@ -103,6 +140,8 @@ let settingsFor = /** @type {number|null} */ (null)
 let viewers = 0
 /** Tras qué canción se prepararon ya las siguientes (una vez por canción). */
 let aheadOf = /** @type {number|null} */ (null)
+/** Las que ya se dejaron pedidas al núcleo: por ellas no se vuelve a preguntar. */
+const prepared = new Set()
 let pollTimer = /** @type {ReturnType<typeof setTimeout>|null} */ (null)
 let started = false
 
@@ -176,6 +215,8 @@ async function settle(g, from) {
   loading.value = false
   progress.value = g ? 1 : 0
   if (!g && !error.value) error.value = 'no se encontró el pulso'
+  // la de esta ya está: no hay que dejarla preparada desde otra canción
+  if (g && forSong.id != null) prepared.add(forSong.id)
   await player().setMetronome(wanted.value ? { on: true } : {})
   if (wanted.value) prepareAhead()
 }
@@ -209,17 +250,24 @@ async function ask(id, path) {
   pollTimer = null
   /** @type {any} sin Beat This! aquí, o la canción no le dio pulso: null */
   let r = null
+  let why = ''
   try {
-    r = await api.beatGridNow(id)
-  } catch {
-    /* se queda en null: la de Rust */
+    r = await within(api.beatGridNow(id), ANSWER_MS)
+  } catch (e) {
+    // 422: el detector no pudo con esta canción (503: aquí no lo hay)
+    if (e instanceof ApiError && e.status === 422) why = e.message
   }
   if (!sameSong(id, path) || !auto.value) return
-  if (r && r.pending) {
-    progress.value = Math.max(progress.value, Number(r.progress) || 0)
-    pollTimer = setTimeout(() => ask(id, path), POLL_MS)
-    return
+  if (r === LATE || r?.pending) {
+    if (Date.now() - askedAt < LOAD_LIMIT_MS) {
+      if (r !== LATE) progress.value = Math.max(progress.value, Number(r.progress) || 0)
+      pollTimer = setTimeout(() => ask(id, path), POLL_MS)
+      return
+    }
+    why = 'tarda demasiado'
+    r = null
   }
+  fallbackWhy.value = why
   if (r) await adopt(id, path, r)
   else await fromRust(id, path)
 }
@@ -239,8 +287,10 @@ async function load() {
   grid.value = null
   source.value = ''
   error.value = ''
+  fallbackWhy.value = ''
   progress.value = 0
   loading.value = true
+  askedAt = Date.now()
   // el de la anterior no puede seguir sonando sobre esta: iría a su tempo
   if (p.metronomeSent().on) await p.setMetronome({ on: false })
   await applySongSettings(id)
@@ -259,25 +309,102 @@ async function load() {
   if (wanted.value) prepareAhead()
 }
 
-/** Las siguientes de la cola, preparadas (sin aleatorio: ahí no se sabe cuál). */
+/**
+ * La rejilla de la canción que suena, otra vez: la guardada cambió (se
+ * re-analizó). `load()` no vale para esto: con la misma canción y su rejilla
+ * ya puesta no hace nada, que es justo como está al re-analizar. Con `fresh`
+ * (la que devolvió el núcleo) no se vuelve a preguntar. Devuelve si la que
+ * suena cambió: con el clic propio manda él, y la re-analizada queda debajo.
+ * @param {import('../api.js').BeatGrid|null} [fresh]
+ */
+async function reload(fresh = null) {
+  const p = player()
+  const id = p.track.value?.id ?? null
+  const path = p.state.path
+  if (!auto.value || id == null || !path) return false
+  if (mode.value === 'own') {
+    studies.delete(id)
+    const own = ownToGrid((await songStudy(id))?.metronome?.own)
+    if (own) return false
+  }
+  stopPolling()
+  forSong = { id, path }
+  error.value = ''
+  fallbackWhy.value = ''
+  askedAt = Date.now()
+  if (fresh?.beats?.length) {
+    await adopt(id, path, fresh)
+    return true
+  }
+  grid.value = null
+  source.value = ''
+  progress.value = 0
+  loading.value = true
+  await ask(id, path)
+  return true
+}
+
+/**
+ * «Re-analizar el clic» de una canción. Con la batería separada, la red
+ * tiene que oírla antes (15-20 s la primera vez): antes se esperaba dentro
+ * de la petición, sin avance a la vista. Ahora el núcleo la pone en su cola
+ * y contesta por dónde va (`pending`); aquí se pregunta cada poco, se
+ * enseña (`reanalyzing`) y se devuelve la respuesta de verdad cuando llega.
+ * @param {number} id
+ * @param {{mode: string, start?: number, end?: number}} opts
+ */
+async function reanalyze(id, opts) {
+  if (opts.mode !== 'drums') return api.reanalyzeBeats(id, opts)
+  const since = Date.now()
+  try {
+    for (;;) {
+      const r = await api.reanalyzeBeats(id, { ...opts, wait: false })
+      if (!r?.pending) return r
+      // el mismo plazo que la carga del clic: el núcleo corta al detector
+      if (Date.now() - since > LOAD_LIMIT_MS) throw new Error('tarda demasiado')
+      reanalyzing.value = Math.max(reanalyzing.value ?? 0, Number(r.progress) || 0)
+      await new Promise((resolve) => setTimeout(resolve, POLL_MS))
+    }
+  } finally {
+    reanalyzing.value = null
+  }
+}
+
+/**
+ * La lista que suena, preparada: las de detrás de esta primero (son las que
+ * vienen) y después las del principio, hasta `AHEAD`, en una sola petición.
+ * El núcleo las deja en su cola (la que ya está guardada no cuesta nada) y
+ * dice cuáles no pudo (`left`): esas se piden otra vez más adelante.
+ *
+ * En aleatorio no se sabe cuál viene: una lista que cabe entera se prepara
+ * igual (vendrán todas); de una más larga no se prepara nada, que sería
+ * pasar la red por canciones al azar.
+ */
 function prepareAhead() {
   const p = player()
-  if (!auto.value || p.shuffle.value || aheadOf === forSong.id) return
+  if (!auto.value || aheadOf === forSong.id) return
   aheadOf = forSong.id
   const list = p.queue.value
   const at = p.state.index
   if (!Array.isArray(list) || at < 0) return
-  for (let k = 1; k <= AHEAD; k++) {
-    let i = at + k
-    if (i >= list.length) {
-      if (p.repeat.value !== 'list') break
-      i -= list.length
-    }
-    const next = list[i]
-    if (next?.id != null && next.id !== forSong.id) {
-      api.beatGridPrepare(next.id).catch(() => {})
-    }
+  if (p.shuffle.value && list.length > AHEAD + 1) return
+  /** @type {number[]} */
+  const ids = []
+  for (let k = 1; k < list.length && k <= AHEAD; k++) {
+    const id = list[(at + k) % list.length]?.id
+    if (id != null && id !== forSong.id && !prepared.has(id) && !ids.includes(id)) ids.push(id)
   }
+  if (!ids.length) return
+  for (const id of ids) prepared.add(id)
+  api
+    .beatGridPrepare(ids[0], ids.slice(1))
+    .then((r) => {
+      if (r?.queued === false) prepared.delete(ids[0])
+      for (const id of r?.left || []) prepared.delete(id)
+    })
+    .catch(() => {
+      for (const id of ids) prepared.delete(id)
+    })
 }
 
 /** Pedir o quitar el clic. En automático, mientras carga, no hace nada. */
@@ -294,6 +421,16 @@ async function toggle() {
     return
   }
   await load()
+}
+
+/**
+ * Quitar el clic del todo (al salir del modo estudio): lo pedido deja de
+ * estarlo. Callarlo solo en Rust no basta: seguía «pedido», y en automático
+ * volvía él solo en la canción siguiente.
+ */
+function stop() {
+  wanted.value = false
+  return player().setMetronome({ on: false })
 }
 
 /**
@@ -427,13 +564,17 @@ export function useClick() {
     loading,
     progress,
     error,
+    fallbackWhy,
     toggle,
+    stop,
     setAuto,
     setManual,
     watchGrid,
     songSettings,
-    /** vuelve a pedir la rejilla de la que suena (la «x» del tempo a mano, etc.) */
-    reload: load
+    /** la rejilla de la que suena, otra vez: se re-analizó y cambió */
+    reload,
+    reanalyze,
+    reanalyzing
   }
 }
 
@@ -450,8 +591,12 @@ export function resetClick() {
   loading.value = false
   progress.value = 0
   error.value = ''
+  fallbackWhy.value = ''
+  reanalyzing.value = null
+  askedAt = 0
   forSong = { id: null, path: '' }
   settingsFor = null
   viewers = 0
   aheadOf = null
+  prepared.clear()
 }

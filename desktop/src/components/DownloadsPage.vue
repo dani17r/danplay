@@ -298,265 +298,285 @@ onUnmounted(stopFollowing)
       audio, lo pasa a mp3 con su caratula y lo archiva por artista igual que todo lo demas.
     </div>
 
-    <div v-if="status.known && !ready" class="card">
-      <h3>Falta una pieza</h3>
-      <div class="note">{{ status.reason }}</div>
-      <div class="hint">Mientras tanto el resto de DanPlay funciona igual.</div>
-    </div>
+    <!-- En una ventana ancha, lado a lado: lo que se baja, yt-dlp y el
+         historial (dos columnas, y tres en un monitor grande); sin sitio, una
+         debajo de otra en este mismo orden (responsive.css). -->
+    <div class="page-cols">
+      <div class="page-col">
+        <div v-if="status.known && !ready" class="card">
+          <h3>Falta una pieza</h3>
+          <div class="note">{{ status.reason }}</div>
+          <div class="hint">Mientras tanto el resto de DanPlay funciona igual.</div>
+        </div>
 
-    <Card title="Que quieres bajar">
-      <div class="note">
-        Un enlace trae exactamente ese video o esa lista. Si escribes texto suelto, se busca en
-        YouTube.
-      </div>
+        <Card title="Que quieres bajar">
+          <div class="note">
+            Un enlace trae exactamente ese video o esa lista. Si escribes texto suelto, se busca en
+            YouTube.
+          </div>
 
-      <TextField
-        v-model="query"
-        width="100%"
-        icon="search"
-        :disabled="locked"
-        placeholder="https://youtu.be/…  ·  o:  barak sera llena la tierra"
-        @enter="startDownload()"
-      />
+          <TextField
+            v-model="query"
+            width="100%"
+            icon="search"
+            :disabled="locked"
+            placeholder="https://youtu.be/…  ·  o:  barak sera llena la tierra"
+            @enter="startDownload()"
+          />
 
-      <div class="dl-options">
-        <SelectField
-          v-model="quality"
-          label="Calidad"
-          :options="QUALITIES"
-          :disabled="locked"
-          width="220px"
-        />
-        <SelectField
-          v-if="isSearch"
-          v-model="results"
-          label="Cuantos traer"
-          :options="HOW_MANY"
-          :disabled="locked"
-          width="120px"
-        />
-      </div>
+          <div class="dl-options">
+            <SelectField
+              v-model="quality"
+              label="Calidad"
+              :options="QUALITIES"
+              :disabled="locked"
+              width="220px"
+            />
+            <SelectField
+              v-if="isSearch"
+              v-model="results"
+              label="Cuantos traer"
+              :options="HOW_MANY"
+              :disabled="locked"
+              width="120px"
+            />
+          </div>
 
-      <ToggleField
-        v-model="fileIt"
-        :disabled="locked"
-        title="Archivar al terminar"
-        hint="Identifica la canción, limpia el nombre y la deja en Artistas/.
+          <ToggleField
+            v-model="fileIt"
+            :disabled="locked"
+            title="Archivar al terminar"
+            hint="Identifica la canción, limpia el nombre y la deja en Artistas/.
                          Si lo apagas, se queda en Entrada/ para que la revises tu."
-      />
+          />
 
-      <div v-if="folder" class="dl-folder">
-        <Icon n="folder" :t="13" />
-        <span v-if="folder.ready"
-          >Se guarda en <span class="mono">{{ folder.path }}</span></span
-        >
-        <span v-else>La primera vez que descargues te pregunto dónde guardarlo.</span>
-        <button class="btn mini" :disabled="locked" @click="changeFolder">
-          {{ folder.ready ? 'Cambiar' : 'Elegir ahora' }}
-        </button>
-      </div>
-
-      <div class="btn-row" style="margin-top: 12px">
-        <button
-          class="btn primary"
-          :disabled="locked || !query.trim()"
-          style="gap: 7px"
-          @click="startDownload()"
-        >
-          <Icon n="download" :t="15" />
-          {{ running ? 'Bajando…' : 'Descargar' }}
-        </button>
-        <button class="btn" :disabled="locked || !query.trim() || looking" @click="showPreview">
-          {{ looking ? 'Mirando…' : 'Ver que se bajaria' }}
-        </button>
-        <button v-if="running" class="btn" @click="cancelDownload">Cancelar</button>
-      </div>
-
-      <div v-if="running" class="hint">
-        Mientras baja no se puede cambiar el enlace ni las opciones.
-      </div>
-      <div v-if="noJsRuntime" class="hint warn-text">
-        <Icon n="warning" :t="13" /> Sin motor de JavaScript algunas descargas pueden fallar: mira
-        «yt-dlp», abajo.
-      </div>
-      <div v-if="error" class="hint" style="color: var(--red); font-style: normal">{{ error }}</div>
-    </Card>
-
-    <!-- en marcha -->
-    <Card v-if="running">
-      <template #title>
-        <h3>
-          {{ PHASES[status.phase] || 'Trabajando' }}
-          <span v-if="status.total > 1" class="chip" style="margin-left: 8px">
-            {{ status.index }} de {{ status.total }}</span
-          >
-        </h3>
-      </template>
-      <div class="dl-current">{{ status.name || '…' }}</div>
-      <div class="track" style="cursor: default">
-        <div class="track-fill" :style="{ width: (status.percent || 0) + '%' }"></div>
-      </div>
-      <div class="dl-pct">
-        <span class="mono">{{ (status.percent || 0).toFixed(0) }}%</span>
-        <span class="sub">{{ PHASES[status.phase] || '' }}</span>
-      </div>
-    </Card>
-
-    <!-- ya la tienes: preguntar si bajarla igualmente -->
-    <div v-if="askAgain && !running" class="card dl-dup">
-      <h3><Icon n="warning" :t="15" /> Esa ya la tienes</h3>
-      <div v-for="(r, i) in askAgain" :key="i" class="dl-result">
-        <strong>{{ r.title }}</strong>
-        <div v-for="m in r.matches" :key="m.id" class="hint">
-          en tu biblioteca: {{ m.artist ? m.artist + ' — ' : '' }}{{ m.title }}
-        </div>
-        <div class="btn-row" style="margin-top: 9px">
-          <button class="btn" :disabled="locked" @click="startDownload(r.url, true)">
-            Descargar igualmente como repetida
-          </button>
-          <button class="btn mini" @click="askAgain = null">No, dejalo</button>
-        </div>
-      </div>
-      <div class="hint">
-        La copia se guarda con el sufijo « - r» para que puedas compararlas y borrar la que no
-        quieras desde Duplicados.
-      </div>
-    </div>
-
-    <!-- una Drum Cam, un tutorial, una secuencia: ¿a su carpeta? -->
-    <div v-if="suggest && !running" class="card dl-kind">
-      <h3><Icon n="folder" :t="15" /> ¿A su carpeta?</h3>
-      <div v-for="r in suggest" :key="r.id" class="dl-result">
-        <strong>{{ r.artist ? r.artist + ' — ' : '' }}{{ r.song || r.title }}</strong>
-        <div class="hint">Parece {{ r.kind.what }}: ¿moverla a {{ r.kind.folder }}?</div>
-        <div class="btn-row" style="margin-top: 9px">
-          <button class="btn" :disabled="!!moving" @click="moveTo(r)">
-            Mover a {{ r.kind.folder }}
-          </button>
-          <button class="btn mini" :disabled="moving === r.id" @click="dropSuggestion(r)">
-            No, déjala en Artistas
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <!-- lo que se bajaria -->
-    <Card v-if="preview && !running" note="Todavía no se ha bajado nada.">
-      <template #title>
-        <h3>
-          {{ preview.name || 'Resultados' }}
-          <span class="chip" style="margin-left: 8px">{{ preview.items.length }}</span>
-        </h3>
-      </template>
-      <div v-for="t in preview.items" :key="t.id" class="dl-row">
-        <span class="dl-title">{{ t.title }}</span>
-        <span class="sub">{{ t.channel }}</span>
-        <span class="mono sub dl-dur">{{ formatDuration(t.duration) }}</span>
-      </div>
-    </Card>
-
-    <!-- yt-dlp: que version se usa, traer la nueva y el motor de JavaScript -->
-    <Card
-      title="yt-dlp"
-      note="Es lo que baja de YouTube. YouTube cambia a menudo y una versión vieja deja de poder bajar."
-    >
-      <div class="setting-row">
-        <div>
-          <div>
-            Versión en uso: <span class="mono yt-version">{{ status.version || '—' }}</span>
+          <div v-if="folder" class="dl-folder">
+            <Icon n="folder" :t="13" />
+            <span v-if="folder.ready"
+              >Se guarda en <span class="mono">{{ folder.path }}</span></span
+            >
+            <span v-else>La primera vez que descargues te pregunto dónde guardarlo.</span>
+            <button class="btn mini" :disabled="locked" @click="changeFolder">
+              {{ folder.ready ? 'Cambiar' : 'Elegir ahora' }}
+            </button>
           </div>
-          <div
-            v-if="status.bundled_version && status.bundled_version !== status.version"
-            class="hint"
-          >
-            La que trae DanPlay es la <span class="mono">{{ status.bundled_version }}</span
-            >.
+
+          <div class="btn-row" style="margin-top: 12px">
+            <button
+              class="btn primary"
+              :disabled="locked || !query.trim()"
+              style="gap: 7px"
+              @click="startDownload()"
+            >
+              <Icon n="download" :t="15" />
+              {{ running ? 'Bajando…' : 'Descargar' }}
+            </button>
+            <button class="btn" :disabled="locked || !query.trim() || looking" @click="showPreview">
+              {{ looking ? 'Mirando…' : 'Ver que se bajaria' }}
+            </button>
+            <button v-if="running" class="btn" @click="cancelDownload">Cancelar</button>
+          </div>
+
+          <div v-if="running" class="hint">
+            Mientras baja no se puede cambiar el enlace ni las opciones.
+          </div>
+          <div v-if="noJsRuntime" class="hint warn-text">
+            <Icon n="warning" :t="13" /> Sin motor de JavaScript algunas descargas pueden fallar:
+            mira «yt-dlp», abajo.
+          </div>
+          <div v-if="error" class="hint" style="color: var(--red); font-style: normal">
+            {{ error }}
+          </div>
+        </Card>
+
+        <!-- en marcha -->
+        <Card v-if="running">
+          <template #title>
+            <h3>
+              {{ PHASES[status.phase] || 'Trabajando' }}
+              <span v-if="status.total > 1" class="chip" style="margin-left: 8px">
+                {{ status.index }} de {{ status.total }}</span
+              >
+            </h3>
+          </template>
+          <div class="dl-current">{{ status.name || '…' }}</div>
+          <div class="track" style="cursor: default">
+            <div class="track-fill" :style="{ width: (status.percent || 0) + '%' }"></div>
+          </div>
+          <div class="dl-pct">
+            <span class="mono">{{ (status.percent || 0).toFixed(0) }}%</span>
+            <span class="sub">{{ PHASES[status.phase] || '' }}</span>
+          </div>
+        </Card>
+
+        <!-- ya la tienes: preguntar si bajarla igualmente -->
+        <div v-if="askAgain && !running" class="card dl-dup">
+          <h3><Icon n="warning" :t="15" /> Esa ya la tienes</h3>
+          <div v-for="(r, i) in askAgain" :key="i" class="dl-result">
+            <strong>{{ r.title }}</strong>
+            <div v-for="m in r.matches" :key="m.id" class="hint">
+              en tu biblioteca: {{ m.artist ? m.artist + ' — ' : '' }}{{ m.title }}
+            </div>
+            <div class="btn-row" style="margin-top: 9px">
+              <button class="btn" :disabled="locked" @click="startDownload(r.url, true)">
+                Descargar igualmente como repetida
+              </button>
+              <button class="btn mini" @click="askAgain = null">No, dejalo</button>
+            </div>
+          </div>
+          <div class="hint">
+            La copia se guarda con el sufijo « - r» para que puedas compararlas y borrar la que no
+            quieras desde Duplicados.
           </div>
         </div>
-        <button
-          type="button"
-          class="btn"
-          :disabled="updating || running"
-          :title="
-            running ? 'Cuando termine lo que está bajando' : 'Traer la versión más nueva de yt-dlp'
-          "
-          @click="updateYtdlp"
-        >
-          <Icon n="refresh" :t="14" /> {{ updating ? 'Actualizando…' : 'Actualizar yt-dlp' }}
-        </button>
-      </div>
-      <JobProgress v-if="updating" :job="ytJob" label="trayendo el yt-dlp más nuevo…" />
-      <div v-if="noJsRuntime" class="hint warn-text yt-js">
-        <Icon n="warning" :t="13" />
-        {{
-          status.js_runtime_hint ||
-          'Falta un motor de JavaScript (Deno, Node, Bun o QuickJS): YouTube lo exige y sin él algunas descargas fallan.'
-        }}
-      </div>
-      <div v-else-if="status.js_runtime" class="hint">
-        Motor de JavaScript: <span class="mono">{{ status.js_runtime }}</span>
-      </div>
-    </Card>
 
-    <!-- historial: aqui cae todo, del boton y del asistente. Siempre a la
+        <!-- una Drum Cam, un tutorial, una secuencia: ¿a su carpeta? -->
+        <div v-if="suggest && !running" class="card dl-kind">
+          <h3><Icon n="folder" :t="15" /> ¿A su carpeta?</h3>
+          <div v-for="r in suggest" :key="r.id" class="dl-result">
+            <strong>{{ r.artist ? r.artist + ' — ' : '' }}{{ r.song || r.title }}</strong>
+            <div class="hint">Parece {{ r.kind.what }}: ¿moverla a {{ r.kind.folder }}?</div>
+            <div class="btn-row" style="margin-top: 9px">
+              <button class="btn" :disabled="!!moving" @click="moveTo(r)">
+                Mover a {{ r.kind.folder }}
+              </button>
+              <button class="btn mini" :disabled="moving === r.id" @click="dropSuggestion(r)">
+                No, déjala en Artistas
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- lo que se bajaria -->
+        <Card v-if="preview && !running" note="Todavía no se ha bajado nada.">
+          <template #title>
+            <h3>
+              {{ preview.name || 'Resultados' }}
+              <span class="chip" style="margin-left: 8px">{{ preview.items.length }}</span>
+            </h3>
+          </template>
+          <div v-for="t in preview.items" :key="t.id" class="dl-row">
+            <span class="dl-title">{{ t.title }}</span>
+            <span class="sub">{{ t.channel }}</span>
+            <span class="mono sub dl-dur">{{ formatDuration(t.duration) }}</span>
+          </div>
+        </Card>
+      </div>
+
+      <div class="page-col page-col-split">
+        <div class="page-col">
+          <!-- yt-dlp: que version se usa, traer la nueva y el motor de JavaScript -->
+          <Card
+            title="yt-dlp"
+            note="Es lo que baja de YouTube. YouTube cambia a menudo y una versión vieja deja de poder bajar."
+          >
+            <div class="setting-row">
+              <div>
+                <div>
+                  Versión en uso: <span class="mono yt-version">{{ status.version || '—' }}</span>
+                </div>
+                <div
+                  v-if="status.bundled_version && status.bundled_version !== status.version"
+                  class="hint"
+                >
+                  La que trae DanPlay es la <span class="mono">{{ status.bundled_version }}</span
+                  >.
+                </div>
+              </div>
+              <button
+                type="button"
+                class="btn"
+                :disabled="updating || running"
+                :title="
+                  running
+                    ? 'Cuando termine lo que está bajando'
+                    : 'Traer la versión más nueva de yt-dlp'
+                "
+                @click="updateYtdlp"
+              >
+                <Icon n="refresh" :t="14" /> {{ updating ? 'Actualizando…' : 'Actualizar yt-dlp' }}
+              </button>
+            </div>
+            <JobProgress v-if="updating" :job="ytJob" label="trayendo el yt-dlp más nuevo…" />
+            <div v-if="noJsRuntime" class="hint warn-text yt-js">
+              <Icon n="warning" :t="13" />
+              {{
+                status.js_runtime_hint ||
+                'Falta un motor de JavaScript (Deno, Node, Bun o QuickJS): YouTube lo exige y sin él algunas descargas fallan.'
+              }}
+            </div>
+            <div v-else-if="status.js_runtime" class="hint">
+              Motor de JavaScript: <span class="mono">{{ status.js_runtime }}</span>
+            </div>
+          </Card>
+        </div>
+
+        <div class="page-col">
+          <!-- historial: aqui cae todo, del boton y del asistente. Siempre a la
          vista (antes habia una tarjeta de «Resultado» aparte que decia lo
          mismo). Cada fila se puede poner a sonar y parar desde aqui. -->
-    <Card v-if="historyTotal || done.length">
-      <template #title>
-        <h3 style="display: flex; align-items: center; gap: 8px">
-          Historial
-          <span class="chip">{{ historyTotal }}</span>
-          <button
-            class="btn mini"
-            style="margin-left: auto"
-            :disabled="running"
-            :title="
-              running ? 'Cuando termine lo que está bajando' : 'Borrar la lista de lo descargado'
-            "
-            @click="clearHistory"
-          >
-            Vaciar
-          </button>
-        </h3>
-      </template>
-      <div class="note">
-        Queda registrado todo lo que se baja, tanto desde aquí como cuando se lo pides al asistente.
-      </div>
+          <Card v-if="historyTotal || done.length">
+            <template #title>
+              <h3 style="display: flex; align-items: center; gap: 8px">
+                Historial
+                <span class="chip">{{ historyTotal }}</span>
+                <button
+                  class="btn mini"
+                  style="margin-left: auto"
+                  :disabled="running"
+                  :title="
+                    running
+                      ? 'Cuando termine lo que está bajando'
+                      : 'Borrar la lista de lo descargado'
+                  "
+                  @click="clearHistory"
+                >
+                  Vaciar
+                </button>
+              </h3>
+            </template>
+            <div class="note">
+              Queda registrado todo lo que se baja, tanto desde aquí como cuando se lo pides al
+              asistente.
+            </div>
 
-      <div class="hist">
-        <div
-          v-for="h in history"
-          :key="h.id"
-          class="hist-row"
-          :class="{ sounding: playingId === h.song_id }"
-        >
-          <button
-            v-if="h.song_id && h.ok"
-            class="row-go hist-play"
-            :title="historyTitle(h.song_id)"
-            @click="playFromHistory(h.song_id)"
-          >
-            <Icon :n="historyIcon(h.song_id)" :t="12" />
-          </button>
-          <span v-else class="hist-play-gap"></span>
-          <span class="badge" :class="h.ok ? 'ok' : h.already ? '' : 'bad'">
-            {{ h.ok ? 'bajada' : h.already ? 'ya la tenias' : 'fallo' }}</span
-          >
-          <span class="hist-title" :title="h.target || h.reason || h.title">
-            {{ h.artist ? `${h.artist} — ${h.song}` : h.title || h.query }}</span
-          >
-          <span class="hist-src" :title="'Pedida ' + (SOURCE_LABEL[h.source] || h.source)">
-            {{ SOURCE_LABEL[h.source] || h.source }}</span
-          >
-          <span class="mono hist-when">{{ when(h.at) }}</span>
+            <div class="hist">
+              <div
+                v-for="h in history"
+                :key="h.id"
+                class="hist-row"
+                :class="{ sounding: playingId === h.song_id }"
+              >
+                <button
+                  v-if="h.song_id && h.ok"
+                  class="row-go hist-play"
+                  :title="historyTitle(h.song_id)"
+                  @click="playFromHistory(h.song_id)"
+                >
+                  <Icon :n="historyIcon(h.song_id)" :t="12" />
+                </button>
+                <span v-else class="hist-play-gap"></span>
+                <span class="badge" :class="h.ok ? 'ok' : h.already ? '' : 'bad'">
+                  {{ h.ok ? 'bajada' : h.already ? 'ya la tenias' : 'fallo' }}</span
+                >
+                <span class="hist-title" :title="h.target || h.reason || h.title">
+                  {{ h.artist ? `${h.artist} — ${h.song}` : h.title || h.query }}</span
+                >
+                <span class="hist-src" :title="'Pedida ' + (SOURCE_LABEL[h.source] || h.source)">
+                  {{ SOURCE_LABEL[h.source] || h.source }}</span
+                >
+                <span class="mono hist-when">{{ when(h.at) }}</span>
+              </div>
+              <div v-if="!history.length" class="hint">Todavía no se ha bajado nada.</div>
+            </div>
+            <div v-if="history.length < historyTotal" class="btn-row" style="margin-top: 8px">
+              <button class="btn mini" @click="loadHistory(true)">
+                Cargar mas ({{ historyTotal - history.length }} antes)
+              </button>
+            </div>
+          </Card>
         </div>
-        <div v-if="!history.length" class="hint">Todavía no se ha bajado nada.</div>
       </div>
-      <div v-if="history.length < historyTotal" class="btn-row" style="margin-top: 8px">
-        <button class="btn mini" @click="loadHistory(true)">
-          Cargar mas ({{ historyTotal - history.length }} antes)
-        </button>
-      </div>
-    </Card>
+    </div>
   </div>
 </template>

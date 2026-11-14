@@ -24,6 +24,7 @@ pub const ROUTES: &[Route] = &[
     Route::post("/api/bundle", to_phone).status(202),
     Route::get("/api/sequence", sequence_info),
     Route::post("/api/sequence/import", sequence_import).status(202),
+    Route::post("/api/bundle/import", bundle_import).status(202),
 ];
 
 /// Si se puede separar aquí, lo que pesa el separador, la cola y lo último
@@ -191,7 +192,9 @@ fn read_mix(b: &mut Fields) -> Mix {
             .max_items(20000)
             .or(Vec::new());
         let sound = c.literal("sound", SOUNDS).or("clasico");
-        let volume = c.float("volume").ge(0).le(2).or(0.8);
+        // hasta el triple, como el mando del clic en el estudio (con 2 de tope,
+        // exportar con el clic por encima del 200 % daba un 422)
+        let volume = c.float("volume").ge(0).le(3).or(0.8);
         let side = c.literal("side", SIDES).or("both");
         b.absorb(c);
         MixClick {
@@ -304,6 +307,28 @@ fn sequence_import(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
             .start(sequence::JOB, "no se pudo abrir la secuencia", move |p| {
                 sequence::import_sequence(&me, &path, p)
             });
+    Ok(jobs::started(snap, already).into())
+}
+
+/// Abre un `.danpista` en la PC (trabajo «bundle-import»): la canción queda
+/// en la biblioteca con sus pistas, su clic y lo del estudio.
+fn bundle_import(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
+    let mut b = ctx.body()?;
+    let path = b.str("path").min_len(1).max_len(4096).required();
+    ctx.done(b)?;
+    let file = std::path::PathBuf::from(&path);
+    if !file.is_absolute() || !file.is_file() {
+        return Err(ApiError::http(422, "no encuentro ese archivo"));
+    }
+    if !path.to_lowercase().ends_with(library::bundle::EXTENSION) {
+        return Err(ApiError::http(422, "eso no es un .danpista"));
+    }
+    let me = ctx.app.clone();
+    let (snap, already) = ctx.app.jobs.start(
+        bundle::IMPORT_JOB,
+        "no se pudo abrir el .danpista",
+        move |p| bundle::import(&me, &file, p),
+    );
     Ok(jobs::started(snap, already).into())
 }
 
@@ -562,6 +587,40 @@ echo '{"ok":true,"seconds":2.0,"took":0.1,"tracks":{"drums":"Bateria.flac","voca
             .filter_map(|e| e["stage"].as_str())
             .collect();
         assert_eq!(stages, ["separate", "refine"]);
+    }
+
+    /// Salir de la app (`startup::stop`) para el separador que esté
+    /// trabajando: el comentario decía que lo hacía y no lo hacía, y el
+    /// proceso se quedaba hasta que lo notaba huérfano.
+    #[cfg(unix)]
+    #[test]
+    fn quitting_stops_the_separator_that_is_working() {
+        let (app, id, _) = with_song();
+        let dir = crate::tests::scratch("lento-al-salir");
+        let engine = dir.join("lento.sh");
+        std::fs::write(&engine, "echo '{\"step\":\"decode\"}'\nexec sleep 60\n").expect("motor");
+        app.separator
+            .set_fake(vec!["sh".into(), engine.into_os_string()]);
+        let (st, _) = call(&app, "POST", &format!("/api/song/{id}/separate"), None);
+        assert_eq!(st, 202);
+        let limit = std::time::Instant::now() + Duration::from_secs(10);
+        while call(&app, "GET", "/api/separate", None).1["current"]["step"] != "decode" {
+            assert!(std::time::Instant::now() < limit, "no dijo nada");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        let started = std::time::Instant::now();
+        crate::startup::stop(&app);
+        let job = app
+            .jobs
+            .wait("separation", Duration::from_secs(20))
+            .expect("trabajo");
+        assert!(
+            started.elapsed() < Duration::from_secs(10),
+            "el separador siguió tras salir ({:?})",
+            started.elapsed()
+        );
+        assert_eq!(job["active"], false);
+        assert_eq!(job["error"], "cancelado");
     }
 
     #[cfg(unix)]

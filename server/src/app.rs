@@ -57,6 +57,9 @@ pub struct State {
     pub reuse: crate::services::reuse::State,
     /// el vigilante de carpetas
     pub watcher: crate::services::watcher::Slot,
+    /// la última vez que un escaneo podó las cachés (ondas y miniaturas) y con
+    /// cuántas canciones conocidas (ver `services::library::scan`)
+    pub last_prune: Mutex<Option<(Instant, usize)>>,
 }
 
 /// La app: un asa del estado, barata de clonar.
@@ -78,7 +81,7 @@ impl App {
     /// nombres de antes) y el índice (su esquema, sus migraciones y las
     /// guías de antes). No arranca nada de fondo: eso es `start`.
     pub fn new(config: Config, guard: Guard) -> Self {
-        crate::startup::rename_old_data(&config.data_dir);
+        let renamed = crate::startup::rename_old_data(&config.data_dir);
         let app = Self(Arc::new(State {
             config: RwLock::new(Arc::new(config)),
             jobs: Jobs::new(),
@@ -94,8 +97,9 @@ impl App {
             downloads: crate::services::youtube::State::default(),
             reuse: crate::services::reuse::State::default(),
             watcher: crate::services::watcher::Slot::default(),
+            last_prune: Mutex::new(None),
         }));
-        if let Err(e) = crate::startup::prepare_index(&app) {
+        if let Err(e) = crate::startup::prepare_index(&app, renamed) {
             log::warn!("no pude preparar el indice: {e}");
         }
         app
@@ -284,6 +288,60 @@ mod tests {
                 .collect::<library::rusqlite::Result<Vec<_>>>()
         })
         .expect("leer")
+    }
+
+    /// Lo que cuesta abrir una conexión nueva en cada consulta, frente a
+    /// reutilizar una, con una biblioteca grande (con `--ignored --nocapture`).
+    #[test]
+    #[ignore = "mide tiempos: solo, con --ignored --nocapture"]
+    fn a_connection_per_query_costs_little_next_to_the_query() {
+        let rows: usize = std::env::var("DANPLAY_BENCH_SONGS")
+            .ok()
+            .and_then(|n| n.parse().ok())
+            .unwrap_or(20_000);
+        let app = crate::tests::app();
+        app.db(|c| {
+            library::index::begin(c)?;
+            let mut stmt =
+                c.prepare("INSERT INTO songs (path, file, artist, title) VALUES (?, ?, ?, ?)")?;
+            for i in 0..rows {
+                stmt.execute([
+                    format!("/m/{i}.mp3"),
+                    format!("{i}.mp3"),
+                    format!("Artista {}", i % 700),
+                    format!("Tema {}", (i * 7919) % rows),
+                ])?;
+            }
+            Ok::<_, library::rusqlite::Error>(())
+        })
+        .expect("canciones");
+        let search = library::index::search::Search::default();
+        let page = |c: &library::rusqlite::Connection| {
+            library::index::search::search(c, &search, "artist", 400, 0, false, true)
+                .expect("página")
+        };
+        let runs = 200;
+        let start = std::time::Instant::now();
+        for _ in 0..runs {
+            app.db(|c| Ok::<_, library::rusqlite::Error>(page(c).len()))
+                .expect("página");
+        }
+        let per_query = start.elapsed() / runs;
+        let conn = app.connect().expect("conexión");
+        let start = std::time::Instant::now();
+        for _ in 0..runs {
+            page(&conn);
+        }
+        let reused = start.elapsed() / runs;
+        let start = std::time::Instant::now();
+        for _ in 0..runs {
+            app.db(|c| c.query_row("SELECT 1", [], |r| r.get::<_, i64>(0)))
+                .expect("uno");
+        }
+        let trivial = start.elapsed() / runs;
+        println!(
+            "una página de 400 de {rows}: con conexión nueva {per_query:?}, reutilizando {reused:?}; abrir y cerrar una conexión para `SELECT 1`: {trivial:?}"
+        );
     }
 
     /// Un bloque de `db` (o de `db_write`): lo que se escribe dentro se

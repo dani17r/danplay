@@ -134,19 +134,32 @@ fn hit(sound: Sound, accent: bool) -> Hit {
 
 /// La muestra `pos` de un golpe de clic.
 pub fn click_sample(pos: usize, accent: bool, rate: u32, sound: Sound) -> f32 {
-    if pos >= click_len(accent, rate, sound) {
+    let len = click_len(accent, rate, sound);
+    if pos >= len {
         return 0.0;
     }
     let h = hit(sound, accent);
     let t = pos as f64 / f64::from(rate);
     // un ataque de medio milisegundo, para que no chasque
     let attack = (pos as f64 / (0.0005 * f64::from(rate))).min(1.0);
+    // y una salida de cinco: el cencerro, las claves y el charles no habian
+    // acabado de apagarse cuando se les acababa el tiempo (el cencerro, a
+    // 27 dB del pico) y el corte a cero se oia como un chasquido
+    let left = (len - pos) as f64 / (RELEASE * f64::from(rate));
+    let release = if left >= 1.0 {
+        1.0
+    } else {
+        0.5 - 0.5 * (std::f64::consts::PI * left).cos()
+    };
     let mut v = 0.0;
     for &(hz, amp, decay) in h.partials {
         v += amp * (-t / decay).exp() * (2.0 * std::f64::consts::PI * hz * t).sin();
     }
-    (h.gain * attack * v) as f32
+    (h.gain * attack * release * v) as f32
 }
+
+/// Lo que dura la salida de un golpe, en segundos.
+const RELEASE: f64 = 0.005;
 
 /// Cuantas muestras dura un golpe a esa tasa.
 pub fn click_len(accent: bool, rate: u32, sound: Sound) -> usize {
@@ -169,6 +182,41 @@ mod tests {
             let len = click_len(true, 44_100, sound);
             assert!(click_sample(len, true, 44_100, sound).abs() < f32::EPSILON);
         }
+    }
+
+    /// Lo que valen la ultima muestra de un golpe (la que luego se corta a
+    /// cero) y el salto de la penultima a la ultima, respecto del pico.
+    fn ending(sound: Sound, accent: bool, rate: u32) -> (f32, f32) {
+        let len = click_len(accent, rate, sound);
+        let x: Vec<f32> = (0..len)
+            .map(|i| click_sample(i, accent, rate, sound))
+            .collect();
+        let peak = x.iter().fold(0f32, |m, v| m.max(v.abs()));
+        let last = x[len - 1];
+        (last.abs() / peak, (last - x[len - 2]).abs() / peak)
+    }
+
+    #[test]
+    fn no_hit_ends_with_a_step() {
+        // cencerro, claves y charles acababan cortados en seco: su energia
+        // aun no habia caido (el cencerro, a 27 dB del pico) cuando se les
+        // acababa el tiempo, y el corte a cero se oia como un chasquido
+        let mut bad = Vec::new();
+        for rate in [44_100, 48_000] {
+            for sound in SOUNDS {
+                for accent in [true, false] {
+                    let (last, jump) = ending(sound, accent, rate);
+                    println!(
+                        "{sound:?} {accent} {rate}: ultima {last:.5} del pico, salto {jump:.5}"
+                    );
+                    // 60 dB por debajo del pico, y sin salto al acabar
+                    if last >= 1e-3 || jump >= 1e-3 {
+                        bad.push(format!("{sound:?} {accent} {rate}: {last:.4} / {jump:.4}"));
+                    }
+                }
+            }
+        }
+        assert!(bad.is_empty(), "acaban cortados: {bad:#?}");
     }
 
     #[test]

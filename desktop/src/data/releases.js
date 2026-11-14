@@ -16,6 +16,30 @@
 /** @type {Release[]} */
 export const RELEASES = [
   {
+    version: '1.42.0',
+    date: '',
+    summary:
+      'El clic sigue los cambios de tempo, la guía sale de la letra y el cifrado, y suena recién instalada.',
+    items: [
+      'El clic sigue a las canciones que cambian de tempo: un final más lento, un popurrí, una subida.',
+      'Los compases de 6/8 y de 2/4 se detectan, y el «1» cae donde toca al elegirlos a mano.',
+      'La guía automática sale de la letra y del cifrado, con los nombres de las partes, y la voz entra a tempo.',
+      'Un .danpista se abre también en la PC, con doble clic o con «Abrir DanPista».',
+      'Recién instalada en Linux, suena: el paquete trae lo que le hace falta y avisa si falta algo.',
+      'Un M4A, y los .mp3 que son MP4 de YouTube, suenan al momento, sin esperar a ffmpeg.',
+      'Entre canciones ya no hay hueco: la siguiente se prepara mientras suena la anterior.',
+      'Ajustes: conservar el timbre de la voz al cambiar el tono (sin el efecto «ardilla»).',
+      'Cada salida de audio recuerda su reparto, y si faltan canales no se queda muda.',
+      'Poner una estrella o guardar el estudio ya no recarga la lista ni escanea la biblioteca.',
+      '«Re-analizar» el clic ya hace lo que dice, y la batería separada rellena sola los huecos del clic.',
+      'Un FLAC 5.1 suena con su canal central, y un archivo dañado ya no corre la canción.',
+      'Las pistas separadas se pueden guardar en Ogg Vorbis: pequeñas y sin espera.',
+      'La ventana grande se aprovecha, y el modo estudio cabe entero también a 768 px de alto.',
+      'Si un cifrado no dice el tono, se deduce de sus acordes y se enseña como «deducido».',
+      'En el celular, el clic y la guía de una secuencia ya no suenan con la música.'
+    ]
+  },
+  {
     version: '1.40.1',
     date: '2026-10-24',
     summary: 'Por dentro, más ordenada; y unos arreglos que se notan.',

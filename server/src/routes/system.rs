@@ -132,7 +132,7 @@ fn save_settings(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let write_tags = b.bool("write_tags").opt();
     let ai_enabled = b.bool("ai_enabled").opt();
     let quality = b.literal("quality", QUALITIES).opt();
-    let stems_format = b.literal("stems_format", &["flac", "opus"]).opt();
+    let stems_format = b.literal("stems_format", &["flac", "ogg", "opus"]).opt();
     let model = b.str("model").max_len(200).opt();
     let ai_key = b.str("ai_key").max_len(400).opt();
     let fingerprint_key = b.str("fingerprint_key").max_len(400).opt();

@@ -131,6 +131,13 @@ fn float_or(v: Option<&Value>, default: f64) -> Option<f64> {
 
 /// El texto de un valor que puede faltar, sin espacios a los lados y con `n`
 /// caracteres como mucho.
+/// Los marcadores que se guardan de una canción, y lo que caben sus notas.
+/// La ruta admite lo mismo: admitía 200 marcadores y aquí se guardaban 50
+/// (del 51 en adelante desaparecían al recargar), y con unas notas de más de
+/// 4.000 letras no se guardaba nada del estudio.
+pub const MAX_MARKERS: usize = 200;
+pub const MAX_NOTES: usize = 4000;
+
 fn text_of(v: Option<&Value>, n: usize) -> String {
     let raw = match v {
         Some(x) if value::truthy(x) => value::str_of(x),
@@ -151,6 +158,8 @@ fn num(x: f64) -> Value {
 
 /// Tramos [a, b] válidos (0 <= a < b), en orden y juntando los que se
 /// pisan: la forma en que el reproductor los recorre uno detrás de otro.
+/// Se guardan al milisegundo: a la centésima, «Ajustar a los pulsos» dejaba
+/// cada borde hasta 5 ms fuera del pulso al volver a abrir la canción.
 pub fn segments(raw: Option<&Value>, limit: usize) -> Vec<[f64; 2]> {
     let items = raw
         .filter(|v| value::truthy(v))
@@ -165,7 +174,7 @@ pub fn segments(raw: Option<&Value>, limit: usize) -> Vec<[f64; 2]> {
             continue;
         };
         if 0.0 <= a && a < b && b < f64::INFINITY {
-            out.push([num::round_to(a, 2), num::round_to(b, 2)]);
+            out.push([num::round_to(a, 3), num::round_to(b, 3)]);
         }
     }
     out.sort_by(|x, y| by_number(x[0], y[0]).then(by_number(x[1], y[1])));
@@ -481,14 +490,14 @@ fn marker(m: &Dict) -> Option<Dict> {
         return None;
     }
     let mut item = Dict::new();
-    item.insert("t".into(), num(num::round_to(t, 2)));
+    item.insert("t".into(), num(num::round_to(t, 3)));
     item.insert("label".into(), text_of(m.get("label"), 60).into());
     let end = m
         .get("end")
         .filter(|v| !v.is_null())
         .and_then(value::float_of);
     if let Some(end) = end.filter(|&e| e > t) {
-        item.insert("end".into(), num(num::round_to(end, 2)));
+        item.insert("end".into(), num(num::round_to(end, 3)));
     }
     // un marcador de varios tramos: `t` y `end` abarcan todos, para que una
     // versión anterior lo vea como un tramo largo
@@ -573,7 +582,7 @@ pub fn clean_study(study: &Value, cues_dir: &str) -> String {
             .unwrap_or_default();
         let mut markers: Vec<Dict> = raw_markers
             .iter()
-            .take(50)
+            .take(MAX_MARKERS)
             .filter_map(|m| m.as_object().and_then(marker))
             .collect();
         if !markers.is_empty() {
@@ -586,7 +595,7 @@ pub fn clean_study(study: &Value, cues_dir: &str) -> String {
                 Value::Array(markers.into_iter().map(Value::Object).collect()),
             );
         }
-        let notes = text_of(study.get("notes"), 4000);
+        let notes = text_of(study.get("notes"), MAX_NOTES);
         if !notes.is_empty() {
             clean.insert("notes".into(), notes.into());
         }

@@ -28,7 +28,7 @@ const props = defineProps({
   /** DanPlay se actualizó y las novedades aún no se leyeron */
   newsBadge: Boolean
 })
-const emit = defineEmits(['go', 'newPlaylist', 'playlistMenu', 'openSequence'])
+const emit = defineEmits(['go', 'newPlaylist', 'playlistMenu', 'openSequence', 'openBundle'])
 
 // Aqui se sueltan las canciones que se arrastran desde la lista. Cada destino
 // solo tiene que decir quien es con `data-drop`; de lo que pasa al soltar se
@@ -298,6 +298,14 @@ const shown = computed(() => {
         @click="emit('openSequence')"
       >
         <span class="nav-icon"><Icon n="mixer" /></span> Abrir secuencia
+      </button>
+      <button
+        type="button"
+        class="nav-link"
+        title="Abrir un .danpista: una canción con sus pistas separadas, su clic y lo del estudio (el archivo que se manda al celular)"
+        @click="emit('openBundle')"
+      >
+        <span class="nav-icon"><Icon n="send" /></span> Abrir DanPista
       </button>
       <button
         v-preload="pages.settings"

@@ -96,6 +96,14 @@ function context(song, e) {
 }
 onUnmounted(() => clearTimeout(hold))
 
+/**
+ * La canción de la que se pide la carátula: ninguna si ya se sabe que no
+ * tiene (`cover: ''`, como todas las del teléfono y las pistas que vinieron
+ * sin portada). Se pedía siempre, y cada fila eran dos peticiones para nada
+ * (la dirección de siempre y la alternativa).
+ */
+const coverId = (c) => (c.cover === '' ? null : c.id)
+
 function sub(c) {
   return [c.artist || '—', c.key, c.duration ? formatDuration(c.duration) : '']
     .filter(Boolean)
@@ -132,7 +140,7 @@ function sub(c) {
           "
           @click.stop="coverTap(c)"
         >
-          <CoverArt :id="c.id" :size="96" :icon-size="20" :alt="''" />
+          <CoverArt :id="coverId(c)" :size="96" :icon-size="20" :alt="''" />
           <span v-if="!editing" class="m-song-cover-veil" aria-hidden="true">
             <span v-if="playingId === c.id && playing" class="m-eq"><i></i><i></i><i></i></span>
             <Icon v-else :n="playingId === c.id ? 'pause' : 'play'" :t="18" />

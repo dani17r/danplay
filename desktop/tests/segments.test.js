@@ -15,7 +15,8 @@ describe('loop segments', () => {
       [30, 45]
     ])
     expect(cleanSegments(null)).toEqual([])
-    expect(cleanSegments([[1.234, 2.345]])).toEqual([[1.23, 2.35]])
+    // al milisegundo (más no hace falta: son 44 muestras)
+    expect(cleanSegments([[1.2344, 2.3456]])).toEqual([[1.234, 2.346]])
     // los que se tocan tambien se juntan: un tramo detras de otro sin hueco es uno
     expect(
       cleanSegments([
@@ -24,7 +25,7 @@ describe('loop segments', () => {
       ])
     ).toEqual([[0, 8]])
   })
-  it('are compared to the hundredth, which is how they are stored', () => {
+  it('are compared to the hundredth, which is how earlier versions stored them', () => {
     expect(sameSegments([[10, 20]], [[10.004, 19.996]])).toBe(true)
     expect(sameSegments([[10, 20]], [[10, 21]])).toBe(false)
     expect(sameSegments([[10, 20]], [])).toBe(false)
@@ -48,5 +49,24 @@ describe('loop segments', () => {
     // uno que al ajustarse se quedaria en nada crece hasta el siguiente pulso
     expect(snapToBeats([[10.1, 10.3]], beats)).toEqual([[10.25, 10.75]])
     expect(snapToBeats([[3, 4]], [])).toEqual([[3, 4]])
+  })
+  it('snapped to the beats, each edge stays on its beat to the millisecond', () => {
+    // a 130 bpm ningún pulso cae en una centésima: redondeando a ella, cada
+    // borde quedaba hasta 5 ms fuera del pulso
+    const beats = Array.from({ length: 400 }, (_, i) => 0.137 + (i * 60) / 130)
+    const offBeat = (t) => Math.min(...beats.map((b) => Math.abs(b - t)))
+    const loops = [
+      [10.1, 14.9],
+      [31.3, 47.2],
+      [60.02, 75.5],
+      [100.4, 130.7]
+    ]
+    const snapped = snapToBeats(loops, beats)
+    expect(snapped).toHaveLength(4)
+    const worst = Math.max(...snapped.flat().map(offBeat))
+    expect(worst).toBeLessThanOrEqual(0.0005 + 1e-9)
+    // y lo que se queda guardado no lleva más decimales que esos
+    for (const t of snapped.flat())
+      expect(Math.abs(t * 1000 - Math.round(t * 1000))).toBeLessThan(1e-6)
   })
 })

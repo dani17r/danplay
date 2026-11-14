@@ -55,6 +55,8 @@ export function doubled(g) {
     first_downbeat: at(g.first_downbeat),
     phase3: g.phase3 * 2,
     phase4: g.phase4 * 2,
+    ...(g.phase2 != null ? { phase2: g.phase2 * 2 } : {}),
+    ...(g.phase6 != null ? { phase6: g.phase6 * 2 } : {}),
     ...(g.bars?.length ? { bars: g.bars.map(at) } : {})
   }
 }
@@ -88,13 +90,16 @@ export function halved(g) {
     first_downbeat: position(g.first_downbeat),
     phase3: Math.floor(g.phase3 / 2),
     phase4: Math.floor(g.phase4 / 2),
+    ...(g.phase2 != null ? { phase2: Math.floor(g.phase2 / 2) } : {}),
+    ...(g.phase6 != null ? { phase6: Math.floor(g.phase6 / 2) } : {}),
     ...(g.bars?.length ? { bars: g.bars.filter((b) => kept.has(b)).map(position) } : {})
   }
 }
 
 /**
- * Otro compás: el «1» sale de donde caía en 3 o en 4 (el análisis solo sabe
- * esos dos). Un 2/4 es medio 4/4, un 6/8 son dos grupos de tres.
+ * Otro compás: el «1» sale de donde caía en ese compás (el análisis sabe el
+ * de 2, 3, 4 y 6). Sin eso (una rejilla de antes), un 2/4 es medio 4/4 y un
+ * 6/8 son dos grupos de tres.
  * @param {BeatGrid} g
  * @param {number} meter
  * @returns {BeatGrid}
@@ -105,7 +110,15 @@ export function withMeter(g, meter) {
   if (m === g.meter) return g
   const { bars: _bars, ...regular } = g
   if (!m) return { ...regular, meter: 0 }
-  const phase = m % 3 === 0 ? g.phase3 : g.phase4
+  // (como `with_meter` de beats.rs)
+  const phase =
+    m === 2
+      ? (g.phase2 ?? g.phase4)
+      : m === 6
+        ? (g.phase6 ?? g.phase3)
+        : m % 3 === 0
+          ? g.phase3
+          : g.phase4
   return { ...regular, meter: m, first_downbeat: phase % m }
 }
 

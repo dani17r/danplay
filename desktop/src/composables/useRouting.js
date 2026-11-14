@@ -4,14 +4,31 @@
 // (a los cascos del baterista) y la música por otro (a la mesa), o cada cosa
 // por una salida de una interfaz de varios canales.
 //
-// Es de quien toca, no de cada canción: se guarda en el navegador, y por
-// salida de audio (lo de la interfaz de la iglesia no vale para los cascos
-// de casa). El motor recibe los destinos («buses») y a cuál va cada cosa;
-// las pistas llevan el suyo al mandarlas (`busOfStem`).
-import { ref, computed } from 'vue'
+// Es de quien toca, no de cada canción: se guarda en el navegador, un reparto
+// por cada salida de audio. Había uno para todas, y lo de la interfaz de la
+// iglesia se aplicaba a los cascos de casa: con la música por 3-4 en una
+// salida de dos canales, no sonaba, y solo lo decía el cajón de «Salidas».
+//
+// Manda la salida que SUENA. Si la elegida no está y suena por la del
+// sistema, el reparto es el de la del sistema; una salida sin reparto guardado
+// suena «todo junto»; y si a la que suena le faltan canales para el suyo,
+// suena todo junto mientras tanto y se avisa donde esté quien toca. El
+// reparto guardado no se toca: vuelve solo cuando vuelve la interfaz.
+//
+// El motor recibe los destinos («buses») y a cuál va cada cosa; las pistas
+// llevan el suyo al mandarlas (`busOfStem`).
+import { ref, computed, watch, effectScope } from 'vue'
 import { usePlayback } from './usePlayback.js'
+import { notify } from './useNotices.js'
 
 const KEY = 'danplay.outputs'
+/**
+ * Lo que tarda en saberse cómo quedó la salida tras pedir otra (u otros
+ * canales): Rust la vuelve a abrir y lo cuenta en el estado siguiente (hasta
+ * medio segundo después, en pausa). Mientras, el estado que hay es todavía el
+ * de la de antes.
+ */
+const SETTLE_MS = 1500
 
 /**
  * Los destinos, por nombre: 'main' (1-2, estéreo), 'L' y 'R' (un lado, en
@@ -153,18 +170,25 @@ export const PRESETS = [
 ]
 
 /**
- * @typedef {Object} Prefs
- * @property {string|null} device   el id de la salida (null: la del sistema)
+ * @typedef {Object} Route  el reparto de una salida
  * @property {string} preset
  * @property {{song: Dest, click: Dest, cues: Dest, stems: Record<string, Dest>}} custom
  * @property {{song: boolean, click: boolean, cues: boolean, stems: Record<string, boolean>}} mono
  *   lo que va en mono por dos canales (vale con cualquier reparto)
  */
+/**
+ * @typedef {Route & {device: string|null}} Prefs
+ *   la salida elegida (su id; null: la del sistema) y el reparto de la que suena
+ */
+/**
+ * @typedef {Object} Saved  lo guardado
+ * @property {string|null} device  la salida elegida
+ * @property {Record<string, Route>} byDevice  el reparto de cada salida, por su id ('': la del sistema)
+ */
 
-/** @returns {Prefs} */
-function defaults() {
+/** «Todo junto»: lo de una salida que no tiene reparto guardado. @returns {Route} */
+function defaultRoute() {
   return {
-    device: null,
     preset: 'stereo',
     custom: { song: 'main', click: 'main', cues: 'main', stems: {} },
     mono: { song: false, click: false, cues: false, stems: {} }
@@ -172,34 +196,55 @@ function defaults() {
 }
 
 /** @returns {Prefs} */
-function read() {
-  try {
-    const raw = JSON.parse(localStorage.getItem(KEY) || 'null')
-    if (!raw || typeof raw !== 'object') return defaults()
-    const base = defaults()
-    return {
-      device: typeof raw.device === 'string' ? raw.device : null,
-      preset: PRESETS.some((p) => p.v === raw.preset) ? raw.preset : 'stereo',
-      custom: {
-        ...base.custom,
-        ...(raw.custom && typeof raw.custom === 'object' ? raw.custom : {}),
-        stems: { ...(raw.custom?.stems || {}) }
-      },
-      mono: {
-        song: raw.mono?.song === true,
-        click: raw.mono?.click === true,
-        cues: raw.mono?.cues === true,
-        stems: Object.fromEntries(
-          Object.entries(raw.mono?.stems || {}).filter(([, v]) => typeof v === 'boolean')
-        )
-      }
+function defaults() {
+  return { device: null, ...defaultRoute() }
+}
+
+/** Un reparto guardado, con lo que le falte. @param {any} raw @returns {Route} */
+function cleanRoute(raw) {
+  const base = defaultRoute()
+  return {
+    preset: PRESETS.some((p) => p.v === raw?.preset) ? raw.preset : 'stereo',
+    custom: {
+      ...base.custom,
+      ...(raw?.custom && typeof raw.custom === 'object' ? raw.custom : {}),
+      stems: { ...(raw?.custom?.stems || {}) }
+    },
+    mono: {
+      song: raw?.mono?.song === true,
+      click: raw?.mono?.click === true,
+      cues: raw?.mono?.cues === true,
+      stems: Object.fromEntries(
+        Object.entries(raw?.mono?.stems || {}).filter(([, v]) => typeof v === 'boolean')
+      )
     }
-  } catch {
-    return defaults()
   }
 }
 
-const prefs = ref(read())
+/** @returns {Saved} */
+function read() {
+  /** @type {Saved} */
+  const out = { device: null, byDevice: {} }
+  try {
+    const raw = JSON.parse(localStorage.getItem(KEY) || 'null')
+    if (!raw || typeof raw !== 'object') return out
+    out.device = typeof raw.device === 'string' && raw.device ? raw.device : null
+    if (raw.byDevice && typeof raw.byDevice === 'object') {
+      for (const [id, route] of Object.entries(raw.byDevice)) {
+        if (route && typeof route === 'object') out.byDevice[id] = cleanRoute(route)
+      }
+    } else if ('preset' in raw || 'custom' in raw || 'mono' in raw) {
+      // Hasta la 1.41 había un solo reparto, para todas las salidas: se queda
+      // con la que estaba elegida al hacerlo (ninguna: la del sistema).
+      out.byDevice[out.device || ''] = cleanRoute(raw)
+    }
+  } catch {
+    /* algo que no se entiende: como recién instalado */
+  }
+  return out
+}
+
+const saved = ref(read())
 /**
  * Las pistas de la canción que suena y los carriles de guías, con su papel
  * (las pone el estudio). Una sola para todos: el panel de «Salidas» tiene su
@@ -207,16 +252,55 @@ const prefs = ref(read())
  * reparto sin los buses de las pistas.
  */
 const stemList = ref(/** @type {Array<{key: string, role: string}>} */ ([]))
-/** Las salidas del equipo (se piden al abrir el panel). */
+/** Las salidas del equipo (se piden al abrir el estudio o el panel). */
 const devices = ref(/** @type {import('../api.js').AudioDevice[]} */ ([]))
 let started = false
 
+// --- lo que se sabe de la salida que suena
+/**
+ * Recién pedida otra salida ('device') u otros canales ('channels'): hasta
+ * que Rust cuente la nueva, lo que diga el estado es de la de antes.
+ */
+const settling = ref(/** @type {''|'device'|'channels'} */ (''))
+let settleTimer = /** @type {ReturnType<typeof setTimeout>|undefined} */ (undefined)
+/** Los canales que se pidieron la última vez. */
+const asked = ref(0)
+/**
+ * Si la elegida estaba o no la última vez que se abrió. En pausa un rato Rust
+ * suelta la salida y el estado ya no lo dice: sin esto, el reparto iba y
+ * venía con cada pausa larga.
+ */
+const fallbackSeen = ref(/** @type {{device: string, fallback: boolean}|null} */ (null))
+/** Y con cuántos canales se abrió, pidiéndole cuántos. */
+const channelsSeen = ref(
+  /** @type {{device: string|null, fallback: boolean, channels: number, asked: number}|null} */ (
+    null
+  )
+)
+/** Lo último mandado como salida: si cambia, Rust la vuelve a abrir. */
+let sent = /** @type {{device: string|null, channels: number}|null} */ (null)
+/** Lo último mandado, entero (para no repetirlo). */
+let applied = ''
+/** El aviso de «faltan canales» que ya se dio. */
+let said = ''
+/** Lo que vigila la salida: en un ámbito propio, no en el del primer componente que lo use. */
+let scope = /** @type {import('vue').EffectScope|null} */ (null)
+
 function save() {
   try {
-    localStorage.setItem(KEY, JSON.stringify(prefs.value))
+    localStorage.setItem(KEY, JSON.stringify(saved.value))
   } catch {
     /* modo privado */
   }
+}
+
+/** @param {'device'|'channels'} kind */
+function settle(kind) {
+  settling.value = kind === 'device' || settling.value === 'device' ? 'device' : 'channels'
+  clearTimeout(settleTimer)
+  settleTimer = setTimeout(() => {
+    settling.value = ''
+  }, SETTLE_MS)
 }
 
 /**
@@ -307,24 +391,228 @@ export function buildRouting(p, stemList = []) {
   }
 }
 
-export function useRouting() {
+/**
+ * Los canales de una salida del equipo por su id ('': la del sistema), si se
+ * han mirado y está libre.
+ * @param {string} key
+ */
+function listed(key) {
+  const d = devices.value.find((x) => (key ? x.id === key : x.default))
+  return d && !d.busy && d.channels > 0 ? d.channels : null
+}
+
+/** @param {number} n */
+const channelsText = (n) => `${n} ${n === 1 ? 'canal' : 'canales'}`
+
+/**
+ * Lo que se sabe de la salida que suena y lo que sale de ello: qué reparto
+ * le toca, si le faltan canales y lo que se manda al motor. Uno para todos
+ * (el estudio, el cajón de «Salidas» y cada carril miran lo mismo).
+ */
+function createSounding() {
   const player = usePlayback()
-  const routing = computed(() => buildRouting(prefs.value, stemList.value))
+  /** La salida abierta, si dice algo (recién pedida aún no tiene canales). */
+  const status = computed(() => {
+    const o = player.output.value
+    return o && !o.error && o.channels > 0 ? o : null
+  })
+  /** La elegida no está (o la usa otro programa) y suena por la del sistema. */
+  const fellBack = computed(() => {
+    const id = saved.value.device
+    if (!id) return false
+    const o = status.value
+    if (o && settling.value !== 'device') return !!o.fallback
+    const seen = fallbackSeen.value
+    if (seen && seen.device === id) return seen.fallback
+    // sin haberla abierto aún: lo que digan las salidas del equipo, si se han
+    // mirado (una lista vacía no dice nada: puede ser que no se pudo mirar)
+    return devices.value.length > 0 && !devices.value.some((d) => d.id === id && !d.busy)
+  })
+  /** De qué salida es el reparto: de la que suena. */
+  const soundingKey = computed(() => (fellBack.value ? '' : saved.value.device || ''))
+  /** La salida elegida y el reparto de la que suena. */
+  const prefs = computed(
+    /** @returns {Prefs} */ () => ({
+      device: saved.value.device,
+      ...(saved.value.byDevice[soundingKey.value] || defaultRoute())
+    })
+  )
+  /** El reparto guardado, como lo querría el motor. */
+  const wanted = computed(() => buildRouting(prefs.value, stemList.value))
+  /**
+   * Los canales de la salida que suena, o null si no se sabe todavía. Lo dice
+   * la salida abierta; cerrada o reabriéndose, lo que se vio la última vez
+   * (si vale para lo que se pide ahora) o lo que admite según el equipo.
+   */
+  const available = computed(() => {
+    const o = status.value
+    if (o && !settling.value) return o.channels
+    const need = wanted.value.channels
+    const seen = channelsSeen.value
+    if (
+      seen &&
+      seen.device === saved.value.device &&
+      seen.fallback === fellBack.value &&
+      // le sobran para lo de ahora, o se quedó corta: son todos los que tiene
+      (seen.channels >= need || seen.channels < seen.asked)
+    ) {
+      return seen.channels
+    }
+    return listed(soundingKey.value)
+  })
+  /**
+   * A la salida le faltan canales para su reparto. (Una de un solo canal no
+   * cuenta contra «todo junto»: ya no hay nada más junto que eso.)
+   */
+  const short = computed(
+    () => available.value != null && Math.max(2, available.value) < wanted.value.channels
+  )
+  /** Lo que se manda al motor: el reparto guardado o, si faltan canales, todo junto. */
+  const routing = computed(() =>
+    short.value
+      ? buildRouting({ device: prefs.value.device, ...defaultRoute() }, stemList.value)
+      : wanted.value
+  )
+  const sendKey = computed(() =>
+    JSON.stringify([saved.value.device, wanted.value.channels, routing.value.spec])
+  )
 
   /** Manda al motor la salida y el enrutado. */
   async function apply() {
-    const r = routing.value
-    await player.setOutput({ device: prefs.value.device, channels: r.channels })
-    await player.setRouting(r.spec)
+    const device = saved.value.device
+    // otra salida: lo que cuenta el estado (si la elegida está, sus canales)
+    // es todavía de la de antes
+    if (!sent || sent.device !== device) settle('device')
+    const channels = wanted.value.channels
+    if (sent && sent.device === device && sent.channels !== channels) settle('channels')
+    sent = { device, channels }
+    asked.value = channels
+    applied = sendKey.value
+    // Se piden siempre los canales del reparto guardado, aunque suene todo
+    // junto porque faltan: la salida no se reabre al ir y venir, y si resulta
+    // que los tiene, el estado lo dice.
+    await player.setOutput({ device, channels })
+    // (el de ahora, no el de antes de esperar: si cambió mientras tanto, la
+    // última orden lleva lo último)
+    await player.setRouting(routing.value.spec)
   }
+
+  async function loadDevices() {
+    devices.value = await player.outputDevices()
+    // Con la salida cerrada, lo recién mirado vale más que lo que se vio al
+    // abrirla la última vez: si la interfaz se enchufó después, ya está.
+    if (!status.value) fallbackSeen.value = null
+    return devices.value
+  }
+
+  /** Lo que vigila la salida: lo que cambia sin que nadie toque nada. */
+  function watchOutput() {
+    scope = effectScope(true)
+    scope.run(() => {
+      // la salida que suena resultó ser otra, o le faltan (o ya tiene) los
+      // canales: lo que toca ahora, al motor
+      watch(sendKey, (key) => {
+        if (key !== applied) apply()
+      })
+      // lo visto, para cuando Rust suelte la salida (tras un rato en pausa)
+      watch(
+        [
+          () => (status.value ? `${status.value.fallback ? 1 : 0}|${status.value.channels}` : ''),
+          settling,
+          asked,
+          () => saved.value.device
+        ],
+        () => {
+          const o = status.value
+          if (!o || settling.value === 'device') return
+          const device = saved.value.device
+          if (device) fallbackSeen.value = { device, fallback: !!o.fallback }
+          if (settling.value) return
+          channelsSeen.value = {
+            device,
+            fallback: fellBack.value,
+            channels: o.channels,
+            asked: asked.value
+          }
+        },
+        { immediate: true }
+      )
+      // faltan canales: se dice donde esté quien toca, una vez por cada caso
+      watch(
+        () =>
+          short.value
+            ? `${soundingKey.value}|${available.value}|${wanted.value.channels}`
+            : available.value == null
+              ? '?'
+              : '',
+        (key) => {
+          // sin saberlo aún: ni se dice ni se da por arreglado
+          if (key === '?' || key === said) return
+          said = key
+          if (!key) return
+          notify(
+            `La salida tiene ${channelsText(available.value || 0)} y el reparto de «Salidas» pide ` +
+              `${wanted.value.channels}: suena todo junto hasta que enchufes la interfaz o lo cambies ` +
+              'en «Salidas» (en el modo estudio).',
+            'info',
+            10
+          )
+        },
+        { immediate: true }
+      )
+    })
+  }
+
+  return {
+    player,
+    fellBack,
+    soundingKey,
+    prefs,
+    wanted,
+    available,
+    short,
+    routing,
+    apply,
+    loadDevices,
+    watchOutput
+  }
+}
+/** @type {ReturnType<typeof createSounding>|null} */
+let shared = null
+
+export function useRouting() {
+  const sounding = (shared ||= createSounding())
+  const { player, prefs, routing, wanted, available, short, fellBack, soundingKey } = sounding
+  const { apply, loadDevices } = sounding
+
   if (!started) {
     started = true
     apply()
+    sounding.watchOutput()
+    // Con una salida elegida, si está o no se sabe ya, sin esperar a abrirla
+    // con el primer play: el reparto es el de la que va a sonar desde la
+    // primera nota, y la salida no se reabre a mitad de canción.
+    if (saved.value.device) loadDevices().catch(() => {})
   }
 
-  /** @param {Partial<Prefs>} patch */
+  /**
+   * Cambia la salida elegida (`device`) o el reparto de la que suena.
+   * @param {Partial<Prefs>} patch
+   */
   async function update(patch) {
-    prefs.value = { ...prefs.value, ...patch }
+    const { device, ...route } = patch
+    if ('device' in patch && (device || null) !== saved.value.device) {
+      saved.value = { ...saved.value, device: device || null }
+      settle('device')
+    }
+    if (Object.keys(route).length) {
+      const key = soundingKey.value
+      const now = saved.value.byDevice[key] || defaultRoute()
+      saved.value = {
+        ...saved.value,
+        byDevice: { ...saved.value.byDevice, [key]: { ...now, ...route } }
+      }
+    }
     save()
     await apply()
   }
@@ -398,12 +686,8 @@ export function useRouting() {
     ]
     return things.some((t) => t.dest !== 'main' || t.mono)
   })
-  /** Los canales de la salida elegida (2 si no se sabe). */
-  const deviceChannels = computed(() => {
-    const id = prefs.value.device
-    const d = devices.value.find((x) => (id ? x.id === id : x.default))
-    return Math.max(2, Math.min(16, d?.channels || 2))
-  })
+  /** Los canales de la salida que suena (2 si no se sabe). */
+  const deviceChannels = computed(() => Math.max(2, Math.min(16, listed(soundingKey.value) || 2)))
   /**
    * En mono o en estéreo (no cambia el reparto: vale con cualquiera).
    * @param {'song'|'click'|'cues'|'stem'} kind @param {boolean} on @param {string} [key]
@@ -413,10 +697,6 @@ export function useRouting() {
     return update({
       mono: kind === 'stem' ? { ...m, stems: { ...m.stems, [key]: on } } : { ...m, [kind]: on }
     })
-  }
-  async function loadDevices() {
-    devices.value = await player.outputDevices()
-    return devices.value
   }
   /** El bus de una pista (para mandarlo con ella). @param {string} key */
   const busOfStem = (key) => routing.value.stems[key] ?? routing.value.spec.song
@@ -451,6 +731,14 @@ export function useRouting() {
     busOfStem,
     setStems,
     apply,
+    /** a la salida que suena le faltan canales para su reparto: suena todo junto */
+    short,
+    /** los canales de la salida que suena (null: aún no se sabe) */
+    available,
+    /** los canales que pide el reparto guardado */
+    needs: computed(() => wanted.value.channels),
+    /** la elegida no está y suena por la del sistema, con el reparto de esa */
+    fellBack,
     /** la salida abierta (de Rust) */
     output: player.output
   }
@@ -458,7 +746,17 @@ export function useRouting() {
 
 /** Vuelve a lo de fábrica. Solo para pruebas. */
 export function resetRouting() {
-  prefs.value = read()
+  scope?.stop()
+  scope = null
+  clearTimeout(settleTimer)
+  settling.value = ''
+  asked.value = 0
+  fallbackSeen.value = null
+  channelsSeen.value = null
+  sent = null
+  applied = ''
+  said = ''
+  saved.value = read()
   stemList.value = []
   devices.value = []
   started = false

@@ -47,6 +47,8 @@ pub enum Command {
     },
     /// El tono corrido, en semitonos (con fracciones).
     Pitch(f32),
+    /// Conservar el timbre de la voz al cambiar el tono.
+    Formants(bool),
     /// Cuanto se funden dos canciones al pasar de una a otra (0 = nada).
     Crossfade(f32),
     /// Las pistas separadas de la cancion `song` en vez de ella, o nada.
@@ -83,6 +85,30 @@ pub(super) struct Inner {
     /// con la cancion anterior mientras sonaba la nueva. Por el id tampoco:
     /// dos archivos sueltos distintos pueden llevar el mismo.
     pub(super) revision: u64,
+    /// Lo que sonará cuando la actual acabe sola, ya decidido (ver
+    /// `worker::next_up`).
+    pub(super) planned: Option<Planned>,
+    /// Cuántas veces se le ha anunciado la siguiente al reproductor.
+    pub(super) tickets: u64,
+}
+
+/// Cómo sigue la cola cuando la canción actual acabe sola.
+///
+/// Se decide de antemano y no en el momento, porque el reproductor tiene que
+/// saberlo antes: prepara la siguiente mientras suena esta (pasarla a FLAC si
+/// hace falta) y la pone él mismo al acabar, sin silencio de por medio. Con
+/// aleatorio, la que se eligió aquí es la que luego suena.
+pub(super) struct Planned {
+    /// Con qué cola se decidió (lista, posición, repetición, aleatorio): si
+    /// cambia, se decide otra vez.
+    pub(super) shape: (u64, usize, Repeat, bool),
+    /// Cuál va detrás; `None`, ninguna (se para).
+    pub(super) index: Option<usize>,
+    /// Ya se le dijo al reproductor.
+    pub(super) told: bool,
+    /// Con qué número y qué ruta se le anunció, si se sabía dónde está sin
+    /// preguntarle al núcleo.
+    pub(super) announced: Option<(u64, String)>,
 }
 
 impl Inner {
@@ -97,6 +123,8 @@ impl Inner {
             history: Vec::new(),
             current_path: String::new(),
             revision: 0,
+            planned: None,
+            tickets: 0,
         }
     }
 

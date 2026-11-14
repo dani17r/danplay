@@ -320,6 +320,31 @@ fn the_downloaded_one_wins_if_newer_and_answers() {
     assert_eq!(version(&app), "2026.12.01");
 }
 
+/// Preguntarle la versión a yt-dlp (lanzarlo) no deja esperando a quien
+/// solo quiere saber si lo hay: lo mira `/api/status` a cada rato, y con el
+/// cerrojo cogido más de un segundo se quedaba parada la lista.
+#[cfg(unix)]
+#[test]
+fn asking_the_version_does_not_hold_up_the_status() {
+    let (app, tools) = app_with_tools();
+    script(
+        &tools,
+        "yt-dlp",
+        &format!("sleep 1\n{}", fake_version("2026.08.19")),
+    );
+    let asking = {
+        let app = app.clone();
+        std::thread::spawn(move || version(&app))
+    };
+    // ya está lanzado, tardando en contestar
+    std::thread::sleep(Duration::from_millis(200));
+    let before = Instant::now();
+    assert!(installed(&app));
+    let took = before.elapsed();
+    assert!(took < Duration::from_millis(400), "esperó {took:?}");
+    assert_eq!(asking.join().expect("hilo"), "2026.08.19");
+}
+
 /// Un servidor de varias respuestas en el propio equipo (no sale a
 /// internet): `routes(base)` da {camino: (código, cuerpo)} sabiendo ya su
 /// propia dirección.

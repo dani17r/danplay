@@ -130,23 +130,28 @@ fn engine(job: &Value, fail_refine: &AtomicBool) -> Vec<Value> {
     for s in &tracks {
         names.insert(s.clone(), files[s].clone());
     }
-    if job["format"] == "opus" {
+    let compact = match job["format"].as_str() {
+        Some("opus") => Some(("opus", "libopus")),
+        Some("ogg") => Some(("ogg", "libvorbis")),
+        _ => None,
+    };
+    if let Some((ext, codec)) = compact {
         said.push(json!({"step": "encode"}));
         for s in &tracks {
             let flac = file(s);
-            let opus = flac.with_extension("opus");
+            let small = flac.with_extension(ext);
             let ok = std::process::Command::new(&ffmpeg)
                 .args(["-v", "error", "-y", "-i"])
                 .arg(&flac)
-                .args(["-c:a", "libopus"])
-                .arg(&opus)
+                .args(["-c:a", codec])
+                .arg(&small)
                 .status()
                 .is_ok_and(|st| st.success());
-            assert!(ok, "opus");
+            assert!(ok, "{ext}");
             std::fs::remove_file(&flac).expect("flac");
             names.insert(
                 s.clone(),
-                json!(opus.file_name().expect("nombre").to_string_lossy()),
+                json!(small.file_name().expect("nombre").to_string_lossy()),
             );
         }
     }
@@ -496,23 +501,25 @@ fn the_lists_say_which_songs_have_stems_and_whether_they_are_the_best() {
     );
 }
 
-#[test]
-fn the_stems_can_be_kept_in_opus() {
-    let Some((app, _)) = lib() else { return };
+/// Las pistas, en el formato elegido para que ocupen menos (o `None` si este
+/// ffmpeg no sabe hacerlo): las extensiones con que quedan.
+fn kept_in(format: &str) -> Option<HashSet<String>> {
+    let (app, _) = lib()?;
     call(
         &app,
         "POST",
         "/api/settings",
-        Some(json!({"stems_format": "opus"})),
+        Some(json!({"stems_format": format})),
     );
-    if stems::stems_format(&app) != "opus" {
-        return; // este ffmpeg no sabe hacer Opus
+    if stems::stems_format(&app) != format {
+        return None;
     }
+    assert_eq!(stems::status(&app)[format], true);
     let cid = id_of(&app, "Barak - Mi Gozo.mp3");
     assert_eq!(separate(&app, cid)["error"], "");
     let i = info(&app, cid);
     assert!(i["complete"] == true && i["best"] == true);
-    let ext: HashSet<String> = i["tracks"]
+    let ext = i["tracks"]
         .as_array()
         .expect("pistas")
         .iter()
@@ -525,7 +532,23 @@ fn the_stems_can_be_kept_in_opus() {
                 .into_owned()
         })
         .collect();
-    assert_eq!(ext, HashSet::from(["opus".to_owned()]));
+    Some(ext)
+}
+
+#[test]
+fn the_stems_can_be_kept_in_opus() {
+    if let Some(ext) = kept_in("opus") {
+        assert_eq!(ext, HashSet::from(["opus".to_owned()]));
+    }
+}
+
+/// Y en Ogg Vorbis, que el motor lee tal cual: sin esperar a que ffmpeg las
+/// prepare la primera vez, como pasa con Opus.
+#[test]
+fn the_stems_can_be_kept_in_ogg() {
+    if let Some(ext) = kept_in("ogg") {
+        assert_eq!(ext, HashSet::from(["ogg".to_owned()]));
+    }
 }
 
 #[test]
@@ -594,6 +617,55 @@ fn stems_of_before_1_31_are_still_found() {
         cid,
         "y no entran como canciones"
     );
+}
+
+/// Con `stem`, la onda (de cerca) es la de esa pista separada y no la de la
+/// mezcla, y la respuesta lo repite: con las pistas sonando, cada carril del
+/// estudio pide su trozo con detalle.
+#[test]
+fn a_stem_has_its_own_waveform_close_up() {
+    let Some((app, _)) = lib() else { return };
+    let cid = id_of(&app, "Barak - Mi Gozo.mp3");
+    separate(&app, cid);
+    let peaks = |d: &Value| -> Vec<f64> {
+        d["peaks"]
+            .as_array()
+            .expect("picos")
+            .iter()
+            .filter_map(Value::as_f64)
+            .collect()
+    };
+    // la mezcla de la prueba es un segundo de silencio y cada pista, un tono
+    let mix = get(
+        &app,
+        &format!("/api/song/{cid}/waveform?start=0&end=1&buckets=20"),
+    );
+    assert!(
+        mix.get("stem").is_none(),
+        "la mezcla no dice de qué pista es"
+    );
+    assert!(peaks(&mix).iter().all(|p| *p < 0.01), "{mix}");
+    let voice = get(
+        &app,
+        &format!("/api/song/{cid}/waveform?stem=vocals&start=0&end=1&buckets=20"),
+    );
+    assert_eq!(voice["stem"], "vocals", "repite de qué pista es: {voice}");
+    assert!(peaks(&voice).iter().all(|p| *p > 0.05), "{voice}");
+    // la onda entera de la pista, sin trozo, también es la suya
+    let whole = get(
+        &app,
+        &format!("/api/song/{cid}/waveform?stem=vocals&buckets=10"),
+    );
+    assert_eq!(whole["stem"], "vocals");
+    assert!(peaks(&whole).iter().any(|p| *p > 0.05), "{whole}");
+    // una pista que la canción no tiene
+    let (status, _) = call(
+        &app,
+        "GET",
+        &format!("/api/song/{cid}/waveform?stem=nada&start=0&end=1&buckets=20"),
+        None,
+    );
+    assert_eq!(status, 404);
 }
 
 #[test]
@@ -1575,4 +1647,113 @@ fn the_api_separates_lists_and_deletes_stems() {
         404
     );
     assert_eq!(call(&app, "POST", "/api/song/999999/separate", None).0, 404);
+}
+
+/// Un `.danpista` se abre también en la PC: lo que antes solo sabía hacer la
+/// app del celular. De una biblioteca a otra (otro equipo de la banda): la
+/// canción queda como una más, con sus pistas, su estudio, su letra, su
+/// cifrado y su clic. En la misma biblioteca no se trae otra vez.
+#[test]
+fn a_danpista_opens_on_the_pc_too() {
+    let Some((app, _)) = lib() else { return };
+    let cid = id_of(&app, "Barak - Mi Gozo.mp3");
+    separate(&app, cid);
+    with_grid(&app, "Barak - Mi Gozo.mp3");
+    let study = json!({"speed": 0.8, "mixer": {"on": true, "tracks": {"drums": {"mute": true}}}});
+    let sheet = json!({"source": "LaCuerda", "url": "https://x", "key": "G", "sections": []});
+    let mut fields = Dict::new();
+    fields.insert("study".into(), json!(study.to_string()));
+    fields.insert("lyrics".into(), json!("Mi gozo"));
+    fields.insert("lyrics_synced".into(), json!("[00:00.10]Mi gozo"));
+    fields.insert("chords".into(), json!(json!({"sheet": sheet}).to_string()));
+    crate::services::songs::update(&app, cid, &fields).expect("ficha");
+    let made = crate::services::bundle::export(&app, cid, &|_, _| {})
+        .unwrap_or_else(|e| panic!("{}", e.text()));
+    let file = made["path"].as_str().expect("ruta").to_owned();
+    let tracks = made["tracks"].as_u64().expect("pistas");
+
+    // en la misma biblioteca: ya está, no se trae otra
+    let r = crate::testkit::run_job(
+        &app,
+        "/api/bundle/import",
+        "bundle-import",
+        Some(json!({"path": file})),
+    );
+    assert_eq!(
+        (&r["existing"], &r["id"]),
+        (&json!(true), &json!(cid)),
+        "{r}"
+    );
+
+    // en otra: entra entera
+    let Some((other, _)) = lib() else { return };
+    let before = get(&other, "/api/search?limit=100")["songs"]
+        .as_array()
+        .map_or(0, Vec::len);
+    // (esa biblioteca de prueba ya trae la suya: fuera, para que sea nueva)
+    let same = id_of(&other, "Barak - Mi Gozo.mp3");
+    call(
+        &other,
+        "DELETE",
+        &format!("/api/song/{same}?from_lists=true"),
+        None,
+    );
+    let r = crate::testkit::run_job(
+        &other,
+        "/api/bundle/import",
+        "bundle-import",
+        Some(json!({"path": file})),
+    );
+    assert!(r.get("existing").is_none(), "{r}");
+    assert_eq!(
+        (r["title"].as_str(), r["artist"].as_str()),
+        (Some("Mi Gozo"), Some("Barak"))
+    );
+    assert_eq!(r["tracks"].as_u64(), Some(tracks));
+    let id = r["id"].as_i64().expect("id");
+    let song = get(&other, &format!("/api/song/{id}"));
+    assert_eq!(
+        (song["title"].as_str(), song["artist"].as_str()),
+        (Some("Mi Gozo"), Some("Barak"))
+    );
+    assert!(
+        song["path"]
+            .as_str()
+            .is_some_and(|p| p.ends_with("Barak - Mi Gozo.mp3")),
+        "{}",
+        song["path"]
+    );
+    assert_eq!(song["lyrics"].as_str(), Some("Mi gozo"));
+    assert_eq!(song["lyrics_synced"].as_str(), Some("[00:00.10]Mi gozo"));
+    let chords: Value =
+        serde_json::from_str(song["chords"].as_str().expect("cifrado")).expect("json");
+    assert_eq!(chords["sheet"], sheet);
+    let kept: Value = serde_json::from_str(song["study"].as_str().expect("estudio")).expect("json");
+    assert_eq!(kept["speed"], json!(0.8));
+    assert_eq!(kept["mixer"]["tracks"]["drums"]["mute"], json!(true));
+    // sus pistas, completas y en su carpeta
+    let info = get(&other, &format!("/api/song/{id}/stems"));
+    assert_eq!(info["complete"], json!(true), "{info}");
+    assert_eq!(
+        info["tracks"].as_array().map(Vec::len),
+        Some(tracks as usize)
+    );
+    // su clic, el que traía
+    assert!(crate::services::beats::cached(
+        &other,
+        Path::new(song["path"].as_str().expect("ruta"))
+    ));
+    // y sigue habiendo las mismas canciones que antes (una fuera, una dentro)
+    let after = get(&other, "/api/search?limit=100")["songs"]
+        .as_array()
+        .map_or(0, Vec::len);
+    assert_eq!(after, before);
+    // lo que no es un .danpista se dice
+    let (s, v) = call(
+        &other,
+        "POST",
+        "/api/bundle/import",
+        Some(json!({"path": song["path"]})),
+    );
+    assert_eq!(s, 422, "{v}");
 }

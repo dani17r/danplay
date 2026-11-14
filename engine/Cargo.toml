@@ -22,9 +22,10 @@ serde_json = "1"
 rustfft = "6.2"
 # Vorbis (lo que lleva el .danpista) y MP3 empiezan en la muestra exacta;
 # FLAC, WAV y AIFF (las pistas separadas y las secuencias que se descargan)
-# tambien. AAC llega 1024 muestras tarde con symphonia: el clic de una
-# cancion en M4A se calcula con el mismo decodificador, asi que coinciden
-# entre si; la PC, que tiene ffmpeg, la pasa a FLAC antes.
+# tambien. El AAC de un MP4 llega 1024 muestras tarde con symphonia (2112 si
+# lo hizo iTunes): el retraso lo dice la lista de ediciones del archivo, que
+# symphonia no entrega, y `src/mp4.rs` la lee para saltarlo (ALAC ya
+# empezaba bien). Sin lista, como ffmpeg: no se salta nada.
 symphonia = { version = "0.6", optional = true, default-features = false, features = [
     "ogg", "vorbis", "mp3", "flac", "wav", "aiff", "pcm", "isomp4", "aac", "alac", "id3v2" ] }
 cpal = { version = "0.17", optional = true }

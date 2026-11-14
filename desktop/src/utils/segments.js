@@ -7,7 +7,10 @@
 
 /** @typedef {[number, number]} Segment */
 
-const round2 = (v) => Math.round(v * 100) / 100
+// Al milisegundo. Iban a la centésima, y tras «Ajustar a los pulsos» cada
+// borde podía quedar hasta 5 ms fuera de su pulso (unas 220 muestras): el
+// tramo entraba y salía un pelo antes o después del clic.
+const round3 = (v) => Math.round(v * 1000) / 1000
 
 /**
  * En orden, sin los que no valen y juntando los que se pisan.
@@ -21,7 +24,7 @@ export function cleanSegments(list) {
     const a = Number(s[0])
     const b = Number(s[1])
     if (Number.isFinite(a) && Number.isFinite(b) && a >= 0 && b > a)
-      valid.push([round2(a), round2(b)])
+      valid.push([round3(a), round3(b)])
   }
   valid.sort((x, y) => x[0] - y[0])
   /** @type {Segment[]} */
@@ -35,7 +38,9 @@ export function cleanSegments(list) {
 }
 
 /**
- * ¿Son los mismos tramos? A la centésima: lo que se guarda va redondeado.
+ * ¿Son los mismos tramos? A la centésima, aunque ya se lleven al milisegundo:
+ * lo que guardaron las versiones de antes (un marcador con su tramo) va
+ * redondeado a ella, y tiene que seguir siendo «el mismo».
  * @param {ReadonlyArray<ReadonlyArray<number>>} x
  * @param {ReadonlyArray<ReadonlyArray<number>>} y
  */

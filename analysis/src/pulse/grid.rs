@@ -59,6 +59,32 @@ pub const PHASE_JUMP: f64 = 0.25;
 pub const STEADY_R: f64 = 0.9;
 pub const STEADY_DRIFT: f64 = 0.015;
 pub const STEADY_FLIPPED: f64 = 0.15;
+/// Con el tempo clarísimo (R por encima de `STEADY_SURE`), lo que se puede
+/// ir en medio minuto se mide en parte del pulso y no en milisegundos: en
+/// una lenta, a 70, el pulso mide 857 ms y la red, que lo afina a ±10 ms en
+/// una rápida, ahí baila el doble. Los discos de estudio a 65-75 bpm salían
+/// todos «en vivo» por 5 o 10 ms, con sus huecos y sin clic de entrada.
+pub const STEADY_SURE: f64 = 0.97;
+pub const STEADY_DRIFT_SHARE: f64 = 0.033;
+
+/// Un tramo que se quedó sin clic se mira otra vez por su cuenta si la red
+/// oyó en él al menos estos pulsos claros (más del 50 %), y su rejilla propia
+/// vale si junta al menos `RESCUE_BEATS` pulsos con esta probabilidad media.
+pub const RESCUE_STRONG: usize = 6;
+pub const RESCUE_BEATS: usize = 6;
+pub const RESCUE_MEAN: f64 = 0.65;
+/// En la rejilla propia de un tramo, apartarse del tempo de alrededor cuesta
+/// mucho menos que en la cadena de toda la canción (`TEMPO_COST`), y a
+/// cambio esta parte de sus intervalos tiene que ir regular.
+pub const RESCUE_TEMPO_COST: f64 = 20.0;
+pub const RESCUE_REGULAR: f64 = 0.75;
+/// Y tiene que durar al menos estos pulsos de los de alrededor.
+pub const RESCUE_SPAN: f64 = 5.0;
+/// Un pulso «tiene a la red detrás» si hay un candidato suyo a menos de esto.
+pub const SUPPORT: f64 = 0.07;
+/// A tempo fijo, el clic entra antes del primer pulso si son como mucho
+/// estos (dos compases de entrada); más allá, solo mientras la red lo oiga.
+pub const LEAD_IN: usize = 8;
 
 /// Las maneras de sacar la rejilla: 'auto' (reparar los saltos de fase; si
 /// la canción va a clic, tempo fijo), 'repair' (lo mismo, sin pasar a tempo
@@ -238,7 +264,7 @@ impl Local {
 /// tirones de tempo (programación dinámica). Saltarse uno sale gratis (no
 /// suma); uno que falta en medio cuesta `MISSING_COST`; después de un hueco
 /// largo se puede empezar otra cadena por `RESTART_COST`.
-fn chain(times: &[f64], probs: &[f64], local: &Local) -> Vec<usize> {
+fn chain(times: &[f64], probs: &[f64], local: &Local, tempo_cost: f64) -> Vec<usize> {
     let n = times.len();
     let mut score = vec![f64::NEG_INFINITY; n];
     let mut back = vec![-1i64; n];
@@ -264,7 +290,7 @@ fn chain(times: &[f64], probs: &[f64], local: &Local) -> Vec<usize> {
             let d = tj - times[i];
             let k = (d / pl).round_ties_even().max(1.0);
             let dev = (d / (k * pl)).log2();
-            let s = score[i] + probs[j] - TEMPO_COST * dev * dev - MISSING_COST * (k - 1.0);
+            let s = score[i] + probs[j] - tempo_cost * dev * dev - MISSING_COST * (k - 1.0);
             if s > s_j {
                 (s_j, b_j) = (s, i as i64);
             }
@@ -297,7 +323,14 @@ fn chain(times: &[f64], probs: &[f64], local: &Local) -> Vec<usize> {
 /// red (`lg`), un hueco de cuatro pulsos o más se rellena siguiendo sus
 /// máximos (`anchored`), no en línea recta: antes una intro en vivo de un
 /// minuto salía con un clic de metrónomo que no iba con nadie.
-fn fill(beats: &[f64], local: &Local, lg: Option<&[f64]>) -> Vec<f64> {
+///
+/// Con los candidatos de la red (`heard`), un hueco largo (ocho pulsos o más)
+/// en el que la red oyó pulsos claros que NO caen donde irían los del
+/// relleno se deja sin rellenar: ahí la canción va a otro tempo, y se le
+/// busca su propia rejilla (`rescue`). Antes, si en el hueco «cabía» por
+/// casualidad un número entero de pulsos (una de cada dos veces), se
+/// rellenaba con el tempo de alrededor y el clic iba por su lado.
+fn fill(beats: &[f64], local: &Local, lg: Option<&[f64]>, heard: Option<Peaks<'_>>) -> Vec<f64> {
     let mut out = vec![beats[0]];
     for &b in &beats[1..] {
         let last = out[out.len() - 1];
@@ -305,14 +338,350 @@ fn fill(beats: &[f64], local: &Local, lg: Option<&[f64]>) -> Vec<f64> {
         let n = gap / local.en(f64::midpoint(b, last));
         let k = n.round_ties_even();
         if k >= 2.0 && (n - k).abs() <= WHOLE {
-            match lg {
-                Some(lg) if k >= 4.0 => out.extend(anchored(last, b, k as usize, lg, 0.15, 40.0)),
-                _ => out.extend((1..k as usize).map(|i| last + gap * i as f64 / k)),
+            let inside: Vec<f64> = match lg {
+                Some(lg) if k >= 4.0 => anchored(last, b, k as usize, lg, 0.15, 40.0),
+                _ => (1..k as usize).map(|i| last + gap * i as f64 / k).collect(),
+            };
+            let another_tempo = k >= 8.0
+                && heard.is_some_and(|h| {
+                    h.strong_between(last, b) >= RESCUE_STRONG && h.support(&inside) < 0.5
+                });
+            if !another_tempo {
+                out.extend(inside);
             }
         }
         out.push(b);
     }
     out
+}
+
+/// Los candidatos de la red (sus instantes y su probabilidad), para saber
+/// si un pulso tiene a la red detrás.
+#[derive(Clone, Copy, Debug)]
+pub struct Peaks<'a> {
+    pub times: &'a [f64],
+    pub probs: &'a [f64],
+}
+
+impl Peaks<'_> {
+    /// Lo que falta de `t` al candidato más cercano.
+    fn nearest(&self, t: f64) -> f64 {
+        let j = np::searchsorted(self.times, t);
+        let mut best = f64::INFINITY;
+        if j < self.times.len() {
+            best = best.min((self.times[j] - t).abs());
+        }
+        if j > 0 {
+            best = best.min((self.times[j - 1] - t).abs());
+        }
+        best
+    }
+
+    /// Qué parte de esos pulsos tiene un candidato de la red al lado.
+    fn support(&self, beats: &[f64]) -> f64 {
+        if beats.is_empty() {
+            return 0.0;
+        }
+        let backed = beats
+            .iter()
+            .filter(|t| self.nearest(**t) <= SUPPORT)
+            .count();
+        backed as f64 / beats.len() as f64
+    }
+
+    /// Cuántos pulsos claros (más del 50 %) oyó la red entre `a` y `b`.
+    fn strong_between(&self, a: f64, b: f64) -> usize {
+        let (lo, hi) = (
+            np::searchsorted(self.times, a),
+            np::searchsorted(self.times, b),
+        );
+        self.probs[lo..hi.max(lo)]
+            .iter()
+            .filter(|p| **p > 0.5)
+            .count()
+    }
+}
+
+/// La rejilla propia de un tramo que se quedó sin clic (de `a` a `b`): los
+/// candidatos de dentro, con su tempo, como si fuera una canción aparte.
+/// Para lo que la cadena de toda la canción no puede seguir: un final en
+/// vivo más lento, una parte de un popurrí a otro tempo, una subida.
+///
+/// `around` es el periodo de alrededor. Si el del tramo sale al doble o a la
+/// mitad (la red, que ahí oye otro nivel), se lleva al nivel de alrededor: el
+/// clic no cambia de nivel dentro de una canción. Cualquier otro cociente es
+/// otro tempo de verdad, y se deja.
+fn rescue(heard: Peaks<'_>, a: f64, b: f64, lg: &[f64], around: f64) -> Option<Vec<f64>> {
+    // sin pisar los pulsos de los bordes
+    let lo = np::searchsorted(heard.times, a + 0.5 * around);
+    let hi = np::searchsorted(heard.times, b - 0.5 * around);
+    if hi <= lo {
+        return None;
+    }
+    let (t, p) = (&heard.times[lo..hi], &heard.probs[lo..hi]);
+    let strong: Vec<f64> = t
+        .iter()
+        .zip(p)
+        .filter(|(_, q)| **q > 0.5)
+        .map(|(x, _)| *x)
+        .collect();
+    if strong.len() < RESCUE_STRONG {
+        return None;
+    }
+    let period = dominant_period(t, p).ok()?;
+    // Con el tempo más suelto que en la cadena de toda la canción: lo que
+    // queda aquí es justo lo que se mueve (el paso de una canción a otra de
+    // un popurrí, un final que frena), y con `TEMPO_COST` un 10 % de vaivén
+    // de pulso a pulso ya rompía la cadena. A cambio se le pide más abajo
+    // que la red esté segura y que los pulsos vayan regulares.
+    let local = Local::new(&strong, period, 7);
+    let first: Vec<f64> = chain(t, p, &local, RESCUE_TEMPO_COST)
+        .into_iter()
+        .map(|i| t[i])
+        .collect();
+    if first.len() < 4 {
+        return None;
+    }
+    let local = Local::new(&first, period, 4);
+    let picked = chain(t, p, &local, RESCUE_TEMPO_COST);
+    if picked.len() < RESCUE_BEATS {
+        return None;
+    }
+    let mean = np::media(&picked.iter().map(|&i| p[i]).collect::<Vec<_>>());
+    let chained: Vec<f64> = picked.iter().map(|&i| t[i]).collect();
+    if mean < RESCUE_MEAN || regular_share(&chained) < RESCUE_REGULAR {
+        return None;
+    }
+    let mut out = smooth(&fill(&chained, &local, Some(lg), None));
+    let own = np::median(&np::diff(&out));
+    let ratio = own / around;
+    if (ratio - 2.0).abs() < 0.16 {
+        // la red oyó la mitad: los de en medio
+        out = with_midpoints(&out, own);
+    } else if (ratio - 0.5).abs() < 0.04 {
+        // la red oyó el doble: uno sí y uno no
+        out = every_other(&out, heard, own);
+    }
+    // y que dure: seis máximos seguidos de un redoble no son otro tempo
+    let long_enough = out.len() >= RESCUE_BEATS
+        && out
+            .last()
+            .zip(out.first())
+            .is_some_and(|(z, a)| z - a >= RESCUE_SPAN * around);
+    long_enough.then_some(out)
+}
+
+/// Qué parte de los intervalos se parece (±18 %) a la mediana de los de
+/// alrededor (tres a cada lado): en una parte libre los máximos de la red
+/// caen cada cual a su aire; con pulso, aunque acelere o frene, van seguidos.
+fn regular_share(beats: &[f64]) -> f64 {
+    let ibi = np::diff(beats);
+    if ibi.is_empty() {
+        return 0.0;
+    }
+    let alike = (0..ibi.len())
+        .filter(|&i| {
+            let around = np::median(&ibi[i.saturating_sub(3)..(i + 4).min(ibi.len())]);
+            let ratio = ibi[i] / around;
+            // un hueco de un número entero de pulsos (uno que falta) también vale
+            let whole = (ratio.round_ties_even()).max(1.0);
+            (ratio / whole).log2().abs() < 0.24
+        })
+        .count();
+    alike as f64 / ibi.len() as f64
+}
+
+/// Los pulsos y, entre cada dos seguidos (a un periodo), el de en medio.
+fn with_midpoints(beats: &[f64], period: f64) -> Vec<f64> {
+    let mut out = Vec::with_capacity(beats.len() * 2);
+    for w in beats.windows(2) {
+        out.push(w[0]);
+        if w[1] - w[0] < 1.5 * period {
+            out.push(f64::midpoint(w[0], w[1]));
+        }
+    }
+    out.extend(beats.last());
+    out
+}
+
+/// Uno de cada dos pulsos: los pares o los impares, los que la red oye con
+/// más seguridad. Un hueco (más de periodo y medio) vuelve a empezar la
+/// cuenta, para no cambiar de mitad dentro del tramo.
+fn every_other(beats: &[f64], heard: Peaks<'_>, period: f64) -> Vec<f64> {
+    let prob = |t: f64| {
+        let j = np::searchsorted(heard.times, t).min(heard.times.len().saturating_sub(1));
+        let k = if j > 0 && (heard.times[j - 1] - t).abs() < (heard.times[j] - t).abs() {
+            j - 1
+        } else {
+            j
+        };
+        if (heard.times[k] - t).abs() <= SUPPORT {
+            heard.probs[k]
+        } else {
+            0.0
+        }
+    };
+    // la paridad de cada pulso: salta con cada hueco de un número impar de pulsos
+    let mut parity = vec![0usize; beats.len()];
+    for i in 1..beats.len() {
+        let steps = ((beats[i] - beats[i - 1]) / period)
+            .round_ties_even()
+            .max(1.0) as usize;
+        parity[i] = (parity[i - 1] + steps) % 2;
+    }
+    let weight = |which: usize| -> f64 {
+        beats
+            .iter()
+            .zip(&parity)
+            .filter(|(_, q)| **q == which)
+            .map(|(t, _)| prob(*t))
+            .sum()
+    };
+    let keep = usize::from(weight(1) > weight(0));
+    beats
+        .iter()
+        .zip(&parity)
+        .filter(|(_, q)| **q == keep)
+        .map(|(t, _)| *t)
+        .collect()
+}
+
+/// Los bordes de cada hueco, hacia dentro siguiendo a la red: desde el pulso
+/// de cada lado, uno más mientras la red oiga uno claro (más del 50 %)
+/// donde tocaría (±18 % del pulso) y no se monte con el otro lado.
+///
+/// La cadena, al cambiar de fase (o de tempo), tiene que volver a empezar, y
+/// solo puede hacerlo dejando cuatro pulsos y medio de hueco: se perdían
+/// cuatro pulsos claros a un lado del cambio, dos segundos sin clic.
+fn grown(beats: &[f64], local: &Local, heard: Peaks<'_>) -> Vec<f64> {
+    let mut extra = Vec::new();
+    let clear = |t: f64, p: f64| -> Option<f64> {
+        let j = np::searchsorted(heard.times, t);
+        let mut best: Option<usize> = None;
+        for k in [j.checked_sub(1), (j < heard.times.len()).then_some(j)]
+            .into_iter()
+            .flatten()
+        {
+            if best.is_none_or(|b| (heard.times[k] - t).abs() < (heard.times[b] - t).abs()) {
+                best = Some(k);
+            }
+        }
+        best.filter(|&k| heard.probs[k] > 0.5 && (heard.times[k] - t).abs() <= 0.18 * p)
+            .map(|k| heard.times[k])
+    };
+    for w in beats.windows(2) {
+        let p = local.en(f64::midpoint(w[0], w[1]));
+        if w[1] - w[0] <= 1.6 * p {
+            continue;
+        }
+        // desde la derecha hacia atrás, y luego desde la izquierda hacia delante
+        let (mut lo, mut hi) = (w[0], w[1]);
+        while let Some(c) = clear(hi - p, p).filter(|c| *c > lo + 0.6 * p) {
+            extra.push(c);
+            hi = c;
+        }
+        while let Some(c) = clear(lo + p, p).filter(|c| *c < hi - 0.6 * p) {
+            extra.push(c);
+            lo = c;
+        }
+    }
+    if extra.is_empty() {
+        return beats.to_vec();
+    }
+    let mut out = beats.to_vec();
+    out.extend(extra);
+    out.sort_by(f64::total_cmp);
+    drop_close(&out)
+}
+
+/// Los tramos sin clic de una rejilla (el principio, cada hueco de más de
+/// pulso y medio y el final), cada uno con el periodo de alrededor.
+fn silent_spans(beats: &[f64], local: &Local, end: f64) -> Vec<(f64, f64, f64)> {
+    let (Some(&first), Some(&last)) = (beats.first(), beats.last()) else {
+        return Vec::new();
+    };
+    let mut out = vec![(0.0, first, local.en(first))];
+    for w in beats.windows(2) {
+        let p = local.en(f64::midpoint(w[0], w[1]));
+        if w[1] - w[0] > 1.6 * p {
+            out.push((w[0], w[1], p));
+        }
+    }
+    out.push((last, end, local.en(last)));
+    out
+}
+
+/// La rejilla con sus tramos sin clic mirados otra vez: donde la red oyó
+/// pulso y la cadena no pudo seguirla, la rejilla propia de ese tramo
+/// (`rescue`). Devuelve los pulsos y cuántos tramos se recuperaron.
+fn with_rescued(
+    beats: &[f64],
+    local: &Local,
+    heard: Peaks<'_>,
+    lg: &[f64],
+    end: f64,
+) -> (Vec<f64>, usize) {
+    let mut extra: Vec<f64> = Vec::new();
+    let mut found = 0;
+    for (a, b, around) in silent_spans(beats, local, end) {
+        if heard.strong_between(a, b) < RESCUE_STRONG {
+            continue;
+        }
+        if let Some(own) = rescue(heard, a, b, lg, around) {
+            // ni pegados a los pulsos de los bordes
+            let edge = 0.5 * around.min(np::median(&np::diff(&own)));
+            extra.extend(own.into_iter().filter(|t| *t > a + edge && *t < b - edge));
+            found += 1;
+        }
+    }
+    if extra.is_empty() {
+        return (beats.to_vec(), 0);
+    }
+    let mut out = beats.to_vec();
+    out.extend(extra);
+    out.sort_by(f64::total_cmp);
+    (drop_close(&out), found)
+}
+
+/// A tempo fijo, de dónde a dónde va el clic: de la cadena hacia fuera
+/// mientras la red lo oiga (hasta cuatro pulsos seguidos sin nada), y antes
+/// del primer pulso siempre que sean como mucho `LEAD_IN` (la entrada). Así
+/// una grabación a clic tiene el suyo desde el principio y hasta que la
+/// banda deja de tocar a ese tempo, y no solo entre el primer y el último
+/// pulso que la red encadenó.
+fn steady_range(
+    period: f64,
+    phase: f64,
+    t0: f64,
+    t1: f64,
+    end: f64,
+    heard: Peaks<'_>,
+) -> (f64, f64) {
+    let reach = |from: f64, dir: f64, limit: f64| -> f64 {
+        let (mut edge, mut blank, mut t) = (from, 0, from + dir * period);
+        while (dir < 0.0 && t >= limit) || (dir > 0.0 && t <= limit) {
+            if heard.nearest(t) <= SUPPORT {
+                edge = t;
+                blank = 0;
+            } else {
+                blank += 1;
+                if blank >= 4 {
+                    break;
+                }
+            }
+            t += dir * period;
+        }
+        edge
+    };
+    // el primer y el último pulso de la rejilla dentro de la cadena
+    let first = phase + period * ((t0 - phase) / period - 1e-9).ceil();
+    let last = phase + period * ((t1 - phase) / period + 1e-9).floor();
+    let lo = if first / period <= LEAD_IN as f64 + 0.5 {
+        0.0
+    } else {
+        reach(first, -1.0, 0.0)
+    };
+    (lo.min(t0), reach(last, 1.0, end).max(t1))
 }
 
 /// Los `k - 1` pulsos que van entre `a` y `b` (que no se mueven): donde la
@@ -477,10 +846,20 @@ fn wrap(x: f64) -> f64 {
 /// de en medio va medio pulso, o un tercio, corrido). Eso se corrige siempre:
 /// cada trozo de la excursión se corre lo que se fue, por su propio tempo de
 /// alrededor (no por el intervalo de al lado: con un hueco al doble dentro,
-/// se rompía). Un salto que no vuelve puede ser una parte libre de verdad (y
-/// se deja: sin clic en el hueco); solo se corrige si el bombo y el bajo
-/// dicen claramente que lo de un lado golpea a contratiempo y es lo corto.
-/// Devuelve los pulsos y cuántos trozos se movieron.
+/// se rompía).
+///
+/// **La fase buena es la de la mayoría**: la que suma más pulsos entre todos
+/// sus trozos. Hasta la 1.40 era la del primer trozo, fuera el que fuera: en
+/// una canción con la intro medio pulso corrida y un final que volvía a esa
+/// fase, la «excursión» era la canción entera, y se movía toda a la fase de
+/// la intro: el clic a contratiempo de principio a fin, con la red diciendo
+/// el pulso con toda seguridad medio pulso más allá.
+///
+/// Lo que queda antes del primer trozo en la fase buena o después del último
+/// (un salto que no vuelve) puede ser una parte libre de verdad, y se deja
+/// (sin clic en el hueco); solo se corrige si el bombo y el bajo dicen
+/// claramente que golpea a contratiempo y es lo corto. Devuelve los pulsos y
+/// cuántos trozos se movieron.
 pub fn repair_flips(
     beats: &[f64],
     local: &Local,
@@ -495,31 +874,44 @@ pub fn repair_flips(
     // la fase de cada trozo, desde el primero
     let mut off = vec![0.0];
     off.extend(np::cumsum(&fracs));
-    let mut shift = vec![0.0f64; n];
-    // el último trozo en la fase buena
-    let mut good = 0;
-    let mut i = 1;
-    while i < n {
-        // ¿vuelve a la fase de `good` más adelante?
-        let back = (i + 1..n).find(|&j| wrap(off[j] - off[good]).abs() < PHASE_JUMP);
-        if wrap(off[i] - off[good]).abs() < PHASE_JUMP {
-            good = i;
-            i += 1;
-            continue;
+    // la fase de la mayoría: cada trozo vota con sus pulsos a la primera
+    // fase que le case (a menos de `PHASE_JUMP`)
+    let mut phases: Vec<(usize, usize)> = Vec::new();
+    for (k, c) in chunks.iter().enumerate() {
+        match phases
+            .iter_mut()
+            .find(|(first, _)| wrap(off[k] - off[*first]).abs() < PHASE_JUMP)
+        {
+            Some((_, weight)) => *weight += c.len(),
+            None => phases.push((k, c.len())),
         }
-        let Some(back) = back else { break };
-        for k in i..back {
+    }
+    // con empate, la que salió antes
+    let mut good = 0;
+    let mut most = 0;
+    for (first, weight) in &phases {
+        if *weight > most {
+            (good, most) = (*first, *weight);
+        }
+    }
+    let in_phase: Vec<bool> = (0..n)
+        .map(|k| wrap(off[k] - off[good]).abs() < PHASE_JUMP)
+        .collect();
+    let first = in_phase.iter().position(|x| *x).unwrap_or(0);
+    let last = in_phase.iter().rposition(|x| *x).unwrap_or(0);
+    let mut shift = vec![0.0f64; n];
+    // lo que queda entre dos trozos en la fase buena es una excursión
+    for k in first..=last {
+        if !in_phase[k] {
             shift[k] = wrap(off[k] - off[good]);
         }
-        good = back;
-        i = back + 1;
     }
-    // lo que queda al final (o al principio) en otra fase sin volver: solo
-    // con el bombo y el bajo, y si es lo corto
+    // lo de antes o lo de después, en otra fase sin volver: solo con el
+    // bombo y el bajo, y si es lo corto
     if has_low {
         let total: usize = chunks.iter().map(Vec::len).sum();
         let rest: Vec<usize> = (0..n)
-            .filter(|&k| wrap(off[k] - off[good]).abs() >= PHASE_JUMP && shift[k] == 0.0)
+            .filter(|&k| !in_phase[k] && (k < first || k > last))
             .collect();
         let tam: usize = rest.iter().map(|&k| chunks[k].len()).sum();
         if !rest.is_empty() && (tam as f64) < 0.3 * total as f64 {
@@ -778,6 +1170,18 @@ fn smooth(beats: &[f64]) -> Vec<f64> {
     out
 }
 
+/// Los compases que se saben poner: de dos, tres, cuatro y seis tiempos (un
+/// 2/4 o un 6/8, que la red oye a corcheas, seis pulsos por compás). Salvo
+/// que se diga otro, el de cuatro, y uno de los otros solo si cuadra
+/// claramente mejor (`finish`).
+pub const METERS: [i64; 4] = [2, 3, 4, 6];
+/// Un compás distinto de 4 solo se elige solo si sus «1» destacan al menos esto
+/// (en probabilidad de «1» de la red) sobre los demás pulsos, y al menos lo
+/// que destacan los del 4: una red que marca el «1» fuerte cada cuatro
+/// pulsos y uno más flojo en el tercero (un 4/4 lento) no es un 2/4, aunque
+/// el compás de dos puntúe más acumulando décimas.
+pub const MIN_CONTRAST: f64 = 0.3;
+
 /// El «1» de cada compás (Viterbi): los estados son el tiempo del compás
 /// (0..compás-1) y uno más para un compás con un tiempo de más; lo normal es
 /// pasar al siguiente, y cortar o alargar un compás cuesta
@@ -854,6 +1258,11 @@ pub struct Final {
     pub first_downbeat: i64,
     pub phase3: i64,
     pub phase4: i64,
+    /// Dónde cae el «1» si el compás es de dos o de seis (los «1» de cada
+    /// compás de esos, módulo 2 o 6). Con solo `phase3` y `phase4`, un compás
+    /// de seis puesto a mano acertaba el «1» una de cada dos veces.
+    pub phase2: i64,
+    pub phase6: i64,
     pub confidence: f64,
     pub bars: Vec<i64>,
 }
@@ -917,12 +1326,12 @@ pub fn grid(beat: &[f64], down: &[f64], op: Options<'_>) -> Result<Grid, String>
     let local = Local::new(if strong.len() >= 4 { &strong } else { &times }, period, 7);
     // dos pasadas: la primera cadena ya va en un solo nivel, y el tempo de
     // alrededor que sale de ella (sin los golpes sueltos de la red) es fiable
-    let first: Vec<f64> = chain(&times, &probs, &local)
+    let first: Vec<f64> = chain(&times, &probs, &local, TEMPO_COST)
         .into_iter()
         .map(|i| times[i])
         .collect();
     let local = Local::new(&first, period, 4);
-    let mut chained: Vec<f64> = chain(&times, &probs, &local)
+    let mut chained: Vec<f64> = chain(&times, &probs, &local, TEMPO_COST)
         .into_iter()
         .map(|i| times[i])
         .collect();
@@ -931,6 +1340,7 @@ pub fn grid(beat: &[f64], down: &[f64], op: Options<'_>) -> Result<Grid, String>
         ("flips", Value::Integer(0)),
         ("holes", Value::Integer(0)),
         ("steady", Value::Boolean(false)),
+        ("rescued", Value::Integer(0)),
     ];
     let (_, jumps) = chunks(&chained, &local);
     put(&mut report, "holes", Value::Integer(jumps.len() as i64));
@@ -957,8 +1367,9 @@ pub fn grid(beat: &[f64], down: &[f64], op: Options<'_>) -> Result<Grid, String>
             p0,
             if bpm.is_some() { 0.01 } else { 0.03 },
         );
-        let looks_steady =
-            fit.r >= STEADY_R && fit.drift <= STEADY_DRIFT && fit.flipped_share <= STEADY_FLIPPED;
+        let still = fit.drift <= STEADY_DRIFT
+            || (fit.r >= STEADY_SURE && fit.drift <= STEADY_DRIFT_SHARE * fit.period);
+        let looks_steady = fit.r >= STEADY_R && still && fit.flipped_share <= STEADY_FLIPPED;
         put(&mut report, "regular", Value::Real(np::round_to(fit.r, 3)));
         put(
             &mut report,
@@ -969,11 +1380,23 @@ pub fn grid(beat: &[f64], down: &[f64], op: Options<'_>) -> Result<Grid, String>
             steady = Some(fit);
         }
     }
-    let beats = if let Some(f) = steady {
+    let heard = Peaks {
+        times: &times,
+        probs: &probs,
+    };
+    let follow = op.mode == "follow";
+    let mut beats = if let Some(f) = steady {
         let (lo, hi) = if op.edges {
             (0.0, end)
         } else {
-            (chained[0], chained[chained.len() - 1])
+            steady_range(
+                f.period,
+                f.phase,
+                chained[0],
+                chained[chained.len() - 1],
+                end,
+                heard,
+            )
         };
         put(&mut report, "steady", Value::Boolean(true));
         put(
@@ -983,18 +1406,23 @@ pub fn grid(beat: &[f64], down: &[f64], op: Options<'_>) -> Result<Grid, String>
         );
         steady_beats(f.period, f.phase, lo, hi)
     } else {
-        let lg = if op.mode == "follow" {
-            None
-        } else {
-            Some(beat)
-        };
-        let p = smooth(&fill(&chained, &local, lg));
+        let lg = if follow { None } else { Some(beat) };
+        let mut p = smooth(&fill(&chained, &local, lg, (!follow).then_some(heard)));
+        if !follow {
+            p = grown(&p, &local, heard);
+        }
         if op.edges {
             extend_edges(&p, &local, 0.0, end, Some(beat))
         } else {
             p
         }
     };
+    // lo que se quedó sin clic con pulso sonando: su propia rejilla
+    if !follow && !op.edges {
+        let (with, found) = with_rescued(&beats, &local, heard, beat, end);
+        beats = with;
+        put(&mut report, "rescued", Value::Integer(found as i64));
+    }
     if beats.len() < 4 {
         return Err(NO_BEAT.into());
     }
@@ -1018,18 +1446,15 @@ pub fn grid(beat: &[f64], down: &[f64], op: Options<'_>) -> Result<Grid, String>
     })
 }
 
-/// La rejilla con sus pulsos ya puestos: el «1» de cada compás (con el compás
-/// que se diga, o el que cuadre: 4 salvo que el 3 cuadre claramente mejor),
-/// el tempo y lo demás que espera la app.
-pub fn finish(beats: &[f64], down: &[f64], meter: Option<i64>) -> Result<Final, String> {
-    // la probabilidad de «1» en cada pulso (la mejor de su trama y las de al
-    // lado)
+/// La probabilidad de «1» en cada pulso (la mejor de su trama y las de al
+/// lado).
+fn downbeat_probs(beats: &[f64], down: &[f64]) -> Result<Vec<f64>, String> {
     let dp: Vec<f64> = down.iter().map(|x| np::sigmoid(*x)).collect();
     if dp.is_empty() {
         return Err("la red no dijo nada de esta canción".into());
     }
     let cap = dp.len() as i64 - 1;
-    let down_p: Vec<f64> = beats
+    Ok(beats
         .iter()
         .map(|t| {
             let f = (t * FPS).round_ties_even() as i64;
@@ -1045,21 +1470,81 @@ pub fn finish(beats: &[f64], down: &[f64], meter: Option<i64>) -> Result<Final, 
                     }
                 })
         })
-        .collect();
-    let three = bars(&down_p, 3)?;
-    let four = bars(&down_p, 4)?;
-    let meter = match meter {
-        Some(m @ (3 | 4)) => m,
-        // 4 salvo que el 3 cuadre claramente mejor
-        _ => {
-            if three.1 > four.1 + 0.05 * beats.len() as f64 {
-                3
-            } else {
-                4
+        .collect())
+}
+
+/// Cómo cuadra un compás de `meter` tiempos con los «1» que dijo la red.
+#[derive(Clone, Debug, PartialEq)]
+pub struct MeterFit {
+    pub meter: i64,
+    /// Lo bien que cuadra (log-verosimilitud del camino de Viterbi).
+    pub fit: f64,
+    /// Cuánto destacan los «1» de ese compás sobre los demás pulsos: la media
+    /// de la probabilidad de «1» donde los pone, menos la de los otros
+    /// pulsos. Si la red marca «1» en todos los pulsos (o en ninguno) no
+    /// dice nada del compás, y sale cerca de 0.
+    pub contrast: f64,
+    /// El índice del pulso de cada «1».
+    pub bars: Vec<usize>,
+}
+
+/// Cómo cuadra cada compás que se sabe poner (`METERS`) con lo que dijo la red.
+pub fn meter_fits(beats: &[f64], down: &[f64]) -> Result<Vec<MeterFit>, String> {
+    let down_p = downbeat_probs(beats, down)?;
+    METERS
+        .iter()
+        .map(|&meter| {
+            let (bars, fit) = bars(&down_p, meter as usize)?;
+            let mut on = vec![false; down_p.len()];
+            for &b in &bars {
+                on[b] = true;
             }
+            let mean = |wanted: bool| {
+                let v: Vec<f64> = down_p
+                    .iter()
+                    .zip(&on)
+                    .filter(|(_, o)| **o == wanted)
+                    .map(|(p, _)| *p)
+                    .collect();
+                if v.is_empty() { 0.0 } else { np::media(&v) }
+            };
+            Ok(MeterFit {
+                meter,
+                fit,
+                contrast: mean(true) - mean(false),
+                bars,
+            })
+        })
+        .collect()
+}
+
+/// La rejilla con sus pulsos ya puestos: el «1» de cada compás (con el compás
+/// que se diga, o el que cuadre: 4 salvo que el 2, el 3 o el 6 cuadren
+/// claramente mejor), el tempo y lo demás que espera la app.
+pub fn finish(beats: &[f64], down: &[f64], meter: Option<i64>) -> Result<Final, String> {
+    let down_p = downbeat_probs(beats, down)?;
+    let fits = meter_fits(beats, down)?;
+    let fit_of = |m: i64| fits.iter().find(|f| f.meter == m).unwrap_or(&fits[2]);
+    let four = fit_of(4);
+    let meter = match meter {
+        Some(m) if METERS.contains(&m) => m,
+        // 4 salvo que otro cuadre claramente mejor (y sus «1» destaquen más
+        // que los del 4: con la red marcando «1» en todos los pulsos, el
+        // compás más corto siempre puntúa más); si cuadran varios (un 6
+        // también cuadra a medias como 3), el que más
+        _ => {
+            fits.iter()
+                .filter(|f| {
+                    f.meter != 4
+                        && f.fit > four.fit + 0.05 * beats.len() as f64
+                        && f.contrast >= MIN_CONTRAST
+                        && f.contrast >= four.contrast
+                })
+                .fold(four, |best, f| if f.fit > best.fit { f } else { best })
+                .meter
         }
     };
-    let downbeats = if meter == 3 { &three.0 } else { &four.0 };
+    let downbeats = &fit_of(meter).bars;
     let phase = |c: &[usize], m: usize| -> i64 {
         if c.is_empty() {
             return 0;
@@ -1086,8 +1571,10 @@ pub fn finish(beats: &[f64], down: &[f64], meter: Option<i64>) -> Result<Final, 
         meter,
         beats: beats.iter().map(|t| np::round_to(*t, 4)).collect(),
         first_downbeat: downbeats.first().map_or(0, |b| *b as i64),
-        phase3: phase(&three.0, 3),
-        phase4: phase(&four.0, 4),
+        phase3: phase(&fit_of(3).bars, 3),
+        phase4: phase(&four.bars, 4),
+        phase2: phase(&fit_of(2).bars, 2),
+        phase6: phase(&fit_of(6).bars, 6),
         confidence: np::round_to(confidence, 3),
         bars: downbeats.iter().map(|b| *b as i64).collect(),
     })

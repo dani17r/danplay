@@ -296,6 +296,160 @@ fn mp3_duration_still_right() {
     assert!(seconds > 1.5, "{seconds}");
 }
 
+// ------------------------------------------- lo que no es lo que dice su nombre
+// 18 de los 319 «.mp3» de una biblioteca de verdad eran por dentro un MP4 en
+// fragmentos (el audio de YouTube guardado tal cual: `ftyp dash`, `moov`,
+// `sidx`, `moof`+`mdat`...). Se leían, pero al escribir se miraba la
+// extensión: «formato sin etiquetas editables», y las estrellas, las listas
+// y el estudio vivían solo en la base sin que nada lo dijera.
+
+/// El sonido de un archivo, decodificado y resumido: si cambia, se ha roto.
+fn decoded_md5(path: &Path) -> String {
+    let out = Command::new("ffmpeg")
+        .args(["-v", "error", "-i"])
+        .arg(path)
+        .args(["-map", "0:a", "-f", "md5", "-"])
+        .output()
+        .expect("ffmpeg");
+    assert!(out.status.success(), "{}", path.display());
+    String::from_utf8_lossy(&out.stdout).trim().to_owned()
+}
+
+/// Un MP4 en fragmentos como los de YouTube (cada fragmento cuenta desde sí
+/// mismo), con el nombre que se le diga.
+fn dash_like(dir: &Scratch, name: &str) -> Option<std::path::PathBuf> {
+    let codec = [
+        "-codec:a",
+        "aac",
+        "-b:a",
+        "64k",
+        "-movflags",
+        // sin el índice del final (`mfra`), que los de YouTube no traen
+        "+dash+frag_keyframe+skip_trailer",
+        "-frag_duration",
+        "500000",
+        "-f",
+        "mp4",
+    ];
+    make_audio(&dir.join(name), &codec, 3.0, Some(440.0))
+}
+
+#[test]
+fn an_mp4_named_mp3_takes_its_tags_and_keeps_its_sound() {
+    let dir = Scratch::new("mp4-llamado-mp3");
+    let Some(path) = dash_like(&dir, "de youtube.mp3") else {
+        return without_ffmpeg("el mp4 que se llama mp3");
+    };
+    let raw = std::fs::read(&path).expect("leer");
+    assert_eq!(&raw[4..8], b"ftyp", "es un MP4 por dentro");
+    assert!(
+        raw.windows(4).filter(|w| w == b"moof").count() > 1,
+        "y en fragmentos"
+    );
+    let sound = decoded_md5(&path);
+    assert!(writable(&path));
+    let jpeg: Vec<u8> = [&b"\xff\xd8\xff\xe0"[..], &b"portada".repeat(60)].concat();
+    write(
+        &path,
+        &Changes {
+            artist: Some("Barak".into()),
+            title: Some("Mi Gozo".into()),
+            stars: Some(4),
+            favorite: Some("1".into()),
+            playlists: Some("Herlin; Domingo".into()),
+            study: Some(r#"{"loop":[1.0,2.5]}"#.into()),
+            ..Changes::default()
+        },
+    )
+    .expect("las etiquetas se escriben en el formato de verdad");
+    write_cover(&path, &jpeg, "image/jpeg").expect("portada");
+    let d = read(&path);
+    assert_eq!((d.artist.as_str(), d.title.as_str()), ("Barak", "Mi Gozo"));
+    assert_eq!((d.stars, d.favorite, d.cover), (4, true, true));
+    assert_eq!(d.playlists, ["Herlin", "Domingo"]);
+    assert_eq!(d.study, r#"{"loop":[1.0,2.5]}"#);
+    // sigue siendo el mismo archivo (ni renombrado ni convertido) y suena
+    // igual, muestra a muestra
+    let after = std::fs::read(&path).expect("leer");
+    assert_eq!(&after[4..8], b"ftyp");
+    assert_eq!(decoded_md5(&path), sound, "el sonido cambió al etiquetar");
+    // y otra vuelta (ahora ya tiene dónde escribir) lo deja igual de bien
+    write(
+        &path,
+        &Changes {
+            stars: Some(2),
+            ..Changes::default()
+        },
+    )
+    .expect("estrellas");
+    assert_eq!(read(&path).stars, 2);
+    assert_eq!(decoded_md5(&path), sound);
+}
+
+#[test]
+fn an_mp4_in_fragments_with_fixed_offsets_is_left_alone() {
+    let dir = Scratch::new("mp4-fijo");
+    // sin «dash», cada fragmento dice dónde está su sonido contando desde el
+    // principio del archivo; y con él pero con el índice de fragmentos al
+    // final (`mfra`), ese índice es el que cuenta desde el principio
+    for (name, flags) in [
+        ("fijo.m4a", "+frag_keyframe+empty_moov"),
+        ("con-indice.m4a", "+dash+frag_keyframe"),
+    ] {
+        let codec = [
+            "-codec:a",
+            "aac",
+            "-b:a",
+            "64k",
+            "-movflags",
+            flags,
+            "-frag_duration",
+            "500000",
+            "-f",
+            "mp4",
+        ];
+        let Some(path) = make_audio(&dir.join(name), &codec, 3.0, Some(440.0)) else {
+            return without_ffmpeg("el mp4 de posiciones fijas");
+        };
+        let before = std::fs::read(&path).expect("leer");
+        assert!(!writable(&path), "{name}");
+        let why = write(
+            &path,
+            &Changes {
+                stars: Some(4),
+                ..Changes::default()
+            },
+        )
+        .expect_err("no se escribe donde se rompería el sonido");
+        assert!(why.contains("sin etiquetas editables"), "{name}: {why}");
+        assert!(write_cover(&path, b"\xff\xd8\xff\xe0", "image/jpeg").is_err());
+        assert_eq!(std::fs::read(&path).expect("leer"), before, "{name}");
+    }
+}
+
+#[test]
+fn what_cannot_hold_tags_says_so() {
+    let dir = Scratch::new("sin-etiquetas");
+    let odd = dir.join("raro.xyz");
+    std::fs::write(&odd, b"no es audio").expect("escribir");
+    assert!(!writable(&odd));
+    assert!(!writable(&dir.join("no-esta.mp3")));
+    let Some(mp3) = two_second_mp3(&dir) else {
+        return without_ffmpeg("lo que admite etiquetas");
+    };
+    assert!(writable(&mp3));
+    let wma = make_audio(
+        &dir.join("vieja.wma"),
+        &["-codec:a", "wmav2", "-b:a", "64k"],
+        1.0,
+        None,
+    );
+    match wma {
+        Some(wma) => assert!(!writable(&wma), "un wma no admite etiquetas"),
+        None => println!("este ffmpeg no sabe escribir wma: se salta"),
+    }
+}
+
 // ---------------------------------------------------- en todos los formatos
 // Las etiquetas en todos los formatos que DanPlay organiza, con archivos de
 // verdad hechos con ffmpeg: lo que se escribe tiene que volver al leer. Antes

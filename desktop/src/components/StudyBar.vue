@@ -29,6 +29,13 @@ import { api, app as tauriApp, errorMessage, pickAudio, pickSavePath, JOBS } fro
 import { notify } from '../composables/useNotices.js'
 import { ask } from '../composables/useDialog.js'
 import { usePlayback, MAX_VOLUME } from '../composables/usePlayback.js'
+import {
+  LANE_MIN,
+  isTight,
+  laneHeight as fittedLane,
+  waveRoom as roomFor
+} from '../utils/studyFit.js'
+import { useViewport } from '../composables/useViewport.js'
 import { useSeparation } from '../composables/useSeparation.js'
 import { useClick } from '../composables/useClick.js'
 import { useRouting } from '../composables/useRouting.js'
@@ -50,7 +57,6 @@ import {
   clickTimes,
   gridToOwn,
   nearestBeat,
-  isDownbeat,
   METERS
 } from '../utils/beats.js'
 import {
@@ -80,8 +86,7 @@ const props = defineProps({
 // cerraban antes (el celular)
 const emit = defineEmits(['hide', 'exit', 'close'])
 const player = usePlayback()
-const { track, position, duration, speed, pitch, metronome, pitchPreserved, playing, volume } =
-  player
+const { track, position, duration, speed, pitch, metronome, playing, volume } = player
 
 const SPEEDS = [0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.1, 1.25]
 // `loops`: los tramos que se repiten, [[a, b], …] (uno solo es el bucle A-B);
@@ -113,6 +118,8 @@ const clickMode = click.mode
 const clickWanted = click.wanted
 // por dónde suena cada cosa
 const routing = useRouting()
+/** El alto de la ventana: con poco, el panel aprieta sus espacios (`isTight`). */
+const { height: windowHeight } = useViewport()
 // cómo se pinta la onda (de quien toca, no de cada canción)
 const { waveStyle } = usePreferences()
 /** El submenú «Estilo de la onda». */
@@ -193,11 +200,14 @@ function parse(raw) {
     return {}
   }
 }
+/** De qué canción es ya `study` (mientras se lee la nueva, aún es el de la anterior). */
+const studyFor = ref(null)
 async function loadFor(id) {
   // lo pendiente es de la cancion que se deja: se guarda en ELLA ya, sin
   // esperar (su copia y su id ya van apuntados)
   flushSave()
   loadedFor.value = id
+  studyFor.value = null
   selected.value = null
   checked.value = new Set()
   stems.value = null
@@ -241,16 +251,25 @@ async function loadFor(id) {
         )
       }
     }
+    studyFor.value = id
     multi.value = loops.length > 1
     lastTouched.value = loops.length - 1
-    // lo guardado se aplica al entrar: para eso se guardo
+    // Lo guardado se aplica al entrar: para eso se guardó. Tras cada espera
+    // se mira que siga siendo esta canción: saltando deprisa de una a otra,
+    // la velocidad, el tono o el clic de esta caían sobre la siguiente.
+    const still = () => loadedFor.value === id
     await player.setLoops(loops, { end: loopEndWanted.value })
+    if (!still()) return
     if (study.value.speed !== speed.value) await player.setSpeed(study.value.speed)
+    if (!still()) return
     if (study.value.pitch !== pitch.value) await player.setPitch(study.value.pitch)
+    if (!still()) return
     // los ajustes del clic de esta canción (su rejilla la pide `useClick`)
     await click.songSettings(id, study.value.metronome)
+    if (!still()) return
     selected.value = markerOf(study.value.loops)
     await sendCues()
+    if (!still()) return
     // y las pistas: si las tiene y se dejaron sonando, vuelven a sonar
     await loadStems(id)
   } catch (e) {
@@ -341,6 +360,25 @@ function scheduleSave() {
   clearTimeout(saveTimer)
   saveTimer = setTimeout(flushSave, 600)
 }
+/** Las canciones de las que ya se avisó de que su estudio vive solo en DanPlay. */
+const warnedOnlyHere = new Set()
+/**
+ * El núcleo dice si la etiqueta del archivo se escribió. Si no se pudo (el
+ * archivo no admite etiquetas, o no se le puede escribir), el estudio queda
+ * solo en la base de DanPlay: se avisa una vez por canción, no en cada
+ * guardado (que se hace solo, a cada cambio).
+ */
+function warnIfOnlyHere(id, saved) {
+  if (!saved || saved.tags_written !== false || warnedOnlyHere.has(id)) return
+  if (saved.tags_skipped === 'unsupported') {
+    notify('Este archivo no admite etiquetas: el estudio de esta canción se guarda solo en DanPlay')
+  } else if (saved.tags_skipped === 'failed') {
+    notify(
+      'No se pudo escribir en el archivo (¿es de solo lectura?): el estudio de esta canción se guarda solo en DanPlay'
+    )
+  } else return
+  warnedOnlyHere.add(id)
+}
 /** Guarda ya lo pendiente, si hay algo. */
 async function flushSave() {
   clearTimeout(saveTimer)
@@ -350,7 +388,7 @@ async function flushSave() {
   if (!job) return
   saving.value = true
   try {
-    await api.setStudy(job.id, job.study)
+    warnIfOnlyHere(job.id, await api.setStudy(job.id, job.study))
   } catch (e) {
     notify('No se pudo guardar el estudio: ' + errorMessage(e))
   } finally {
@@ -560,7 +598,14 @@ function markB() {
   const at = round2(position.value)
   const list = study.value.loops
   const single = !multi.value && list.length === 1
-  const from = pendingA.value ?? (single ? list[0][0] : 0)
+  // B sin A (y sin un tramo que alargar) hacía el tramo desde 0:00 y mandaba
+  // la canción al principio: un dedo en la tecla de al lado, a media
+  // práctica, y se perdía por dónde se iba
+  if (pendingA.value == null && !single) {
+    notify('Marca primero dónde empieza el tramo, con A')
+    return
+  }
+  const from = pendingA.value ?? list[0][0]
   if (at - from < 0.5) {
     notify('El bucle tiene que durar al menos medio segundo')
     return
@@ -583,7 +628,7 @@ async function playNow(index = 0) {
 }
 /** Los bordes de los tramos, al pulso mas cercano: para que entren a tiempo. */
 function snapLoops() {
-  const beats = shownGrid.value?.beats
+  const beats = soundingGrid.value?.beats
   if (!beats?.length || !hasLoop.value) return
   const snapped = snapToBeats(study.value.loops, beats)
   const m = selected.value
@@ -635,7 +680,7 @@ function showOptions({ index, t, x, y, event }) {
     items.push({
       label: 'Ajustar a los pulsos',
       icon: 'note',
-      disabled: !shownGrid.value?.beats?.length,
+      disabled: !soundingGrid.value?.beats?.length,
       action: snapLoops
     })
     if (!loopSaved.value)
@@ -751,17 +796,50 @@ const shownGrid = computed(() => {
   const m = study.value.metronome || {}
   return effectiveGrid(grid.value, {
     mult: m.mult || 0,
-    meter: m.meter ?? null,
+    // sin compás propio, el de la preferencia general (Ajustes)
+    meter: m.meter ?? player.defaultMeter.value,
     shift: m.shift || 0
   })
 })
 
-/** El tempo que se oye: siguiendo la cancion, el suyo por la velocidad; a mano, el puesto. */
-const bpmHeard = computed(() => {
+/**
+ * La rejilla del clic tal como SUENA. Con el tempo puesto a mano sobre una
+ * canción con rejilla, el clic deja de seguir los pulsos detectados (que es
+ * justo lo que falló): va a un tempo fijo desde el primer «1» de la canción
+ * (como el motor, `click_plan`). La onda, el imán de las guías, «ajustar a
+ * los pulsos» y la guía automática usaban la detectada tal cual. Sin tempo a
+ * mano, es la de la canción.
+ */
+const soundingGrid = computed(() => {
+  const g = shownGrid.value
   const m = metronome.value
-  const base = m.bpm || 0
-  return m.free ? base : base * speed.value
+  if (!g || !m.free || !m.has_grid || !(m.bpm > 0)) return g
+  const { beats, accents } = clickTimes(g, m, duration.value || 0)
+  if (beats.length < 2) return g
+  const bars = []
+  accents.forEach((on, i) => {
+    if (on) bars.push(i)
+  })
+  return {
+    ...g,
+    bpm: m.bpm,
+    meter: m.meter ?? g.meter,
+    beats,
+    first_downbeat: bars[0] ?? 0,
+    phase3: 0,
+    phase4: 0,
+    bars,
+    closed: true
+  }
 })
+
+/**
+ * El tempo que se oye: el del clic por la velocidad. También con el tempo a
+ * mano: el motor lleva sus golpes en tiempo de canción (así no se despega de
+ * ella), y a 0,8× un 100 suena a 80. Se enseñaba 100, y al tocar «+»
+ * siguiendo la canción a 0,8× (96 oídos) se guardaba 97, que sonaba a 77,6.
+ */
+const bpmHeard = computed(() => (metronome.value.bpm || 0) * speed.value)
 const bpmShown = computed(() => (bpmHeard.value ? formatBpm(bpmHeard.value) : '—'))
 /** Lo que se esta escribiendo en el tempo (o null: se enseña el que va). */
 const bpmDraft = ref(null)
@@ -776,8 +854,16 @@ const metroStatus = computed(() => {
   if (player.state.counting_in) return 'contando…'
   if (!click.auto.value) return 'a mano: el mismo tempo en todas las canciones'
   if (clickLoading.value) return `cargando el clic de esta canción… ${clickPercent.value} %`
+  if (click.reanalyzing.value != null) {
+    return `oyendo la batería separada… ${Math.round(click.reanalyzing.value * 100)} %`
+  }
   if (click.error.value) return 'sin compás detectado: va libre'
   if (!m.has_grid) return 'sin compás: va libre'
+  // el detector no pudo con esta canción: lo que suena es el clic de
+  // reserva, a un solo tempo. Antes no se decía y parecía cosa del clic
+  if (click.source.value === 'rust' && click.fallbackWhy.value) {
+    return `clic aproximado, a un solo tempo: el detector no pudo con esta canción (${click.fallbackWhy.value}). «Re-analizar» lo vuelve a intentar`
+  }
   if (m.free) return 'tempo a mano: entra con el pulso de la canción y va a su aire'
   if (clickMode.value === 'own') {
     return hasOwn.value
@@ -813,9 +899,12 @@ function onClickLane(patch) {
  * puestos se guarda el tempo sin ellos: al quitarlos, vuelve al que era.
  */
 function setBpm(heard) {
-  // a mano no hay doble ni mitad: el tempo es el que se oye
-  if (!click.auto.value) return click.setManual({ bpm: round2(clamp(heard, 20, 300)) })
-  const base = heard / multFactor(metronome.value.mult)
+  // lo que se escribe es lo que se quiere oír: a otra velocidad, el tempo
+  // del clic (en tiempo de canción) es ese entre la velocidad
+  const own = heard / (speed.value || 1)
+  // a mano no hay doble ni mitad
+  if (!click.auto.value) return click.setManual({ bpm: round2(clamp(own, 20, 300)) })
+  const base = own / multFactor(metronome.value.mult)
   return metroPatch({ bpm: round2(clamp(base, 20, 300)) })
 }
 function bumpBpm(delta) {
@@ -871,7 +960,12 @@ const followSong = () => metroPatch({ bpm: null })
  */
 const setMeter = (v) =>
   clickAuto.value
-    ? metroPatch({ meter: grid.value?.meter === v ? null : v, shift: 0 })
+    ? metroPatch({
+        // (con «sin acento» por defecto, el detectado SÍ se guarda: no
+        // guardarlo lo devolvería a «sin acento» al tocarlo)
+        meter: grid.value?.meter === v && player.accentDefault.value ? null : v,
+        shift: 0
+      })
     : click.setManual({ meter: v })
 const shiftOne = () =>
   metroPatch({ shift: ((metronome.value.shift || 0) + 1) % (metronome.value.meter || 4) })
@@ -885,7 +979,11 @@ function multTitle(mult) {
     ? `El doble de clics (${to}): para ir a corcheas en una lenta, o si el tempo salió a la mitad`
     : `La mitad de clics (${to})`
 }
-const setMetroVolume = (v) => player.setMetronome({ volume: v })
+/** El volumen del clic: de quien toca, como la cuenta y el sonido (se recuerda). */
+function setMetroVolume(v) {
+  savePref(PREF_VOLUME, v)
+  return player.setMetronome({ volume: v })
+}
 
 // ---- el clic propio: los pulsos ajustados a mano sobre la onda
 /** Editando los pulsos en la onda. */
@@ -907,6 +1005,10 @@ async function onOwnGrid(edited) {
   delete study.value.metronome.mult
   scheduleSave()
   await flushSave()
+  // Lo ajustado ya lleva el doble, la mitad y el «1» corrido que se veían:
+  // a Rust también hay que quitárselos, o los aplica otra vez encima (el
+  // clic al cuádruple, o el «1» corrido dos veces, con la onda bien pintada).
+  await player.setMetronome({ mult: 0, shift: 0 })
   await click.applyOwn(id, own)
 }
 /** Empezar el propio desde el automático, o quitarlo (vuelve el automático). */
@@ -966,6 +1068,9 @@ const CLICK_SOUNDS = [
 ]
 const PREF_COUNT = 'danplay.click.countIn'
 const PREF_SOUND = 'danplay.click.sound'
+const PREF_VOLUME = 'danplay.click.volume'
+/** Hasta dónde sube el clic: el triple (en el panel, en su carril y al exportar). */
+const CLICK_MAX = 3
 function setCountIn(v) {
   savePref(PREF_COUNT, v)
   return player.setMetronome({ count_in: v })
@@ -978,9 +1083,12 @@ function setClickSound(v) {
 {
   const count = Math.min(2, Math.max(0, Math.round(Number(readPref(PREF_COUNT, 0)) || 0)))
   const sound = readPref(PREF_SOUND, 'clasico')
+  // el volumen también: antes volvía al 80 % cada vez que se abría DanPlay
+  const volume = Number(readPref(PREF_VOLUME, null))
   player.setMetronome({
     count_in: count,
-    sound: CLICK_SOUNDS.some((c) => c.v === sound) ? sound : 'clasico'
+    sound: CLICK_SOUNDS.some((c) => c.v === sound) ? sound : 'clasico',
+    ...(Number.isFinite(volume) && volume > 0 ? { volume: Math.min(CLICK_MAX, volume) } : {})
   })
 }
 /** Más ajustes del clic (compás, cuenta, sonido): plegados, que son muchos. */
@@ -1000,18 +1108,22 @@ async function reanalyze(ev) {
   const run = async (mode, range) => {
     notify('Analizando el clic otra vez…', 'info', 4)
     try {
-      const r = await api.reanalyzeBeats(id, {
+      const r = await click.reanalyze(id, {
         mode,
         ...(range ? { start: range[0], end: range[1] } : {})
       })
-      await click.reload()
+      // la rejilla nueva, al motor y a la onda (si sigue sonando esa canción)
+      const heard = loadedFor.value === id && (await click.reload(r?.grid || null))
       const fixed = r?.report?.fixed || 0
+      const what = fixed
+        ? `Clic analizado otra vez: ${fixed} ${fixed === 1 ? 'pulso cambió' : 'pulsos cambiaron'} de sitio`
+        : 'Clic analizado otra vez: ya estaba así, no cambió ningún pulso'
       notify(
-        fixed
-          ? `Clic arreglado: ${fixed} ${fixed === 1 ? 'tropiezo' : 'tropiezos'} corregidos`
-          : 'Clic analizado otra vez',
-        'ok',
-        5
+        heard || loadedFor.value !== id
+          ? what
+          : what + '. Suena tu clic ajustado a mano: con «quitar el mío» vuelve el automático',
+        fixed ? 'ok' : 'info',
+        heard ? 5 : 8
       )
     } catch (e) {
       notify('No se pudo analizar: ' + errorMessage(e))
@@ -1036,6 +1148,15 @@ async function reanalyze(ev) {
       note: hasStems.value ? 'la más precisa' : 'sepárala antes',
       disabled: !hasStems.value,
       action: () => run('drums', null)
+    },
+    {
+      label: 'Solo con la canción',
+      icon: 'note',
+      // al separar, DanPlay rellena solo los huecos sin clic con la batería
+      // (si no cambia nada de lo que ya sonaba): esto lo deshace
+      note: 'sin la batería separada',
+      hint: 'Deshace lo que la batería separada añadió al clic, también lo que DanPlay añadió solo al separar',
+      action: () => run('mix', null)
     },
     {
       label: 'Rellenar silencios',
@@ -1241,6 +1362,21 @@ watch(
   () => JSON.stringify(routing.routing.value.stems),
   () => sendCues()
 )
+// Rust anuncia la canción nueva un instante antes de que su ruta sea la del
+// motor (el estado lleva `track` de la cola y `path` del audio). Lo que se
+// mandó en ese instante iba con la ruta de la anterior y el motor lo
+// descartó: la siguiente sonaba sin sus guías, o entera con «Pistas»
+// encendido. Al llegar su ruta, se manda otra vez.
+watch(
+  () => player.state.path,
+  (path, before) => {
+    const id = track.value?.id ?? null
+    if (!path || path === before || id == null) return
+    if (loadedFor.value !== id || studyFor.value !== id) return
+    sendCues()
+    if (mixerOn.value) sendMix()
+  }
+)
 /**
  * Las guías se ponen, se mueven y se cambian con la canción parada: sonando,
  * un doble clic o un arrastre sin querer movería lo que está sonando.
@@ -1261,7 +1397,7 @@ watch(snapCues, (v) => savePref(SNAP_KEY, v))
  * uno cada tanto. A ellos se pegan las guías con el imán.
  */
 const clickBeats = computed(() => {
-  if (shownGrid.value?.beats?.length) return shownGrid.value.beats
+  if (soundingGrid.value?.beats?.length) return soundingGrid.value.beats
   const m = metronome.value
   return m.free && m.bpm ? clickTimes(null, m, duration.value || 0).beats : []
 })
@@ -1546,29 +1682,36 @@ async function readyVoice(okLabel) {
   }
   return chooseVoice({ title: 'La voz de la guía', okLabel, current: wanted })
 }
-/** Dónde empieza cada compás (los «1» que se ven) y lo que dura un pulso. */
+/**
+ * Los compases del clic ajustado a mano (el «propio» de esta canción) y lo
+ * que dura un pulso, para la guía automática. Solo esos: los del clic
+ * automático los saca el núcleo de su análisis. Antes se mandaban siempre
+ * «los "1" que se ven», y con «sin acento» puesto no se ve ninguno: salía
+ * uno de cada cuatro pulsos, empezara donde empezara, y las partes caían
+ * hasta tres pulsos fuera de su sitio.
+ */
 function barsAndBeat() {
-  const g = shownGrid.value
-  let beats = g?.beats || []
-  let ones = beats.filter((_, i) => isDownbeat(g, i))
-  if (!beats.length) {
-    const m = metronome.value
-    if (m.free && m.bpm) {
-      const c = clickTimes(null, m, duration.value || 0)
-      beats = c.beats
-      ones = c.beats.filter((_, i) => c.accents[i])
-    }
-  }
-  if (!ones.length) ones = beats.filter((_, i) => i % 4 === 0)
+  // con el tempo a mano, el clic que suena es el regular: sus compases (los
+  // de la detectada son justo los que se corrigió)
+  const tempo = clickAuto.value && metronome.value.free && metronome.value.has_grid
+  const g = tempo
+    ? soundingGrid.value
+    : clickMode.value === 'own' && hasOwn.value
+      ? grid.value
+      : null
+  const beats = g?.beats || []
+  const bars = (g?.bars || []).map((i) => beats[i]).filter((t) => Number.isFinite(t))
   const gaps = beats
     .slice(1)
     .map((t, i) => t - beats[i])
     .sort((a, b) => a - b)
   const beat = gaps.length ? gaps[Math.floor(gaps.length / 2)] : 0
-  return { bars: ones.map(round3), beat: beat > 0.2 && beat < 2 ? round3(beat) : 0 }
+  return { bars: bars.map(round3), beat: beat > 0.2 && beat < 2 ? round3(beat) : 0 }
 }
 /** Haciendo la guía automática. */
 const autoBusy = ref(false)
+/** Por dónde va (lo que dice su trabajo): «Esperando al clic… 40 %». */
+const autoStage = ref('')
 /**
  * La guía automática: DanPlay busca las partes de la canción (intro,
  * estrofas, coros, puente, solos…) y las dice con la voz justo antes de
@@ -1581,9 +1724,11 @@ async function autoGuide() {
   if (!voice) return
   const id = loadedFor.value
   autoBusy.value = true
+  autoStage.value = ''
   notify('Buscando las partes de la canción…', 'info', 4)
   try {
     const { bars, beat } = barsAndBeat()
+    let waiting = false
     const r = await api.runJob(
       () =>
         api.autoCues(id, {
@@ -1591,13 +1736,34 @@ async function autoGuide() {
           ...(bars.length >= 8 ? { bars } : {}),
           ...(beat ? { beat } : {})
         }),
-      JOBS.autoGuide
+      // un trabajo por canción: el de otra ni se espera ni se confunde
+      `${JOBS.autoGuide}-${id}`,
+      {
+        onProgress: (job) => {
+          autoStage.value = job?.message || ''
+          // pulsada antes de que cargue el clic: el núcleo lo espera (las
+          // partes se ajustan a sus compases), y aquí se dice
+          if (!waiting && autoStage.value.startsWith('Esperando al clic')) {
+            waiting = true
+            notify(
+              'Esperando al clic de la canción para ajustar las partes a sus compases…',
+              'info',
+              6
+            )
+          }
+        }
+      }
     )
+    // lo que llega dice de qué canción es: las partes de otra no se colocan
+    if (r?.song != null && r.song !== id) {
+      throw new Error('llegó la guía de otra canción: pídela otra vez')
+    }
     if (loadedFor.value === id) placeAutoGuide(r, voice)
   } catch (e) {
     notify('No se pudo hacer la guía automática: ' + errorMessage(e))
   } finally {
     autoBusy.value = false
+    autoStage.value = ''
   }
 }
 /** Las guías de las partes, a su carril (el de la guía automática, o uno nuevo). */
@@ -1636,7 +1802,25 @@ function placeAutoGuide(r, voice) {
   scheduleSave()
   sendCues()
   const names = (r.sections || []).map((s) => s.label)
-  notify(`Guía lista: ${names.slice(0, 5).join(', ')}${names.length > 5 ? '…' : ''}`, 'ok', 6)
+  // de dónde salieron las partes: de lo más fiable a lo menos
+  const from =
+    {
+      sheet: 'con los nombres del cifrado, casado con la letra',
+      lyrics: 'por la letra',
+      sequence: 'las de la secuencia',
+      sound: 'por cómo suena (sin letra con tiempos de esta grabación: es aproximada)'
+    }[r.source] || ''
+  // sin los compases del clic (no llegó a tiempo, o aquí no lo hay) las
+  // partes no se ajustan al «1»: se dice, que salen distintas
+  const loose =
+    r.click === false
+      ? `. Sin el clic de la canción${r.click_why ? ' (' + r.click_why + ')' : ''}: las partes no van ajustadas al compás`
+      : ''
+  notify(
+    `Guía lista${from ? ', ' + from : ''}: ${names.slice(0, 5).join(', ')}${names.length > 5 ? '…' : ''}${loose}`,
+    'ok',
+    r.source === 'sound' || loose ? 9 : 6
+  )
 }
 /** Decir otra vez con otra voz las guías escritas (de un carril, o todas). */
 async function changeVoice(laneKey = null) {
@@ -1729,6 +1913,10 @@ const mixerOn = computed(() => hasStems.value && !!study.value.mixer?.on)
 const plan = computed(() => stemPlan(stems.value?.tracks || [], study.value.mixer?.tracks || {}))
 /** Los carriles de la onda: solo con las pistas sonando. */
 const lanes = computed(() => (mixerOn.value ? plan.value : []))
+/** Con más pistas que estas (una secuencia), el estudio va a todo el alto. */
+const MANY_LANES = 10
+/** El sitio que le queda a la onda en el panel, en px (null: sin medir). */
+const waveRoom = ref(null)
 /**
  * Lo alto de cada carril: más bajos cuantas más pistas (una secuencia trae
  * veintitantas y la onda pasaba de 700 px), sin bajar de lo que piden sus
@@ -1738,8 +1926,19 @@ const laneHeight = computed(() => {
   const base = isMobileApp ? 42 : big.value ? 46 : 34
   const n = lanes.value.length
   if (!n) return base
+  // en el escritorio, lo que mide de verdad el sitio de la onda (`waveRoom`):
+  // los carriles llenan lo que deja el panel, ni más (y el resto del estudio
+  // se quedaba sin sitio) ni menos (y sobraba media pantalla)
+  if (!isMobileApp && waveRoom.value != null) return fittedLane(n, waveRoom.value)
   const room = isMobileApp ? 460 : big.value ? 520 : 340
-  return Math.max(isMobileApp ? 26 : 20, Math.min(base, Math.floor(room / n)))
+  return Math.max(isMobileApp ? 26 : LANE_MIN, Math.min(base, Math.floor(room / n)))
+})
+/** El alto de la onda de la canción (sin pistas): en grande, lo que deje el panel. */
+const waveHeight = computed(() => {
+  if (isMobileApp) return 120
+  const base = big.value ? 150 : 80
+  if (waveRoom.value == null) return base
+  return Math.round(clamp(waveRoom.value, 80, big.value ? 280 : 130))
 })
 const progress = computed(() => separation.progressOf(track.value?.id))
 const canSeparate = computed(() => separation.state.ok)
@@ -1952,7 +2151,8 @@ async function saveMix({
           ...(clickTrack ? { click: clickTrack } : {}),
           ...(guides.length ? { cues: guides } : {})
         }),
-      JOBS.mix
+      JOBS.mix,
+      { busy: 'aún se está guardando la anterior: espera a que termine' }
     )
     notify(`Guardada «${r.name}»${r.id ? ': ya está en tu biblioteca' : ''}`, 'ok', 6)
   } catch (e) {
@@ -2017,7 +2217,8 @@ function stemsMenu(ev) {
     )
   }
   const items = [
-    { label: 'Exportar…', icon: 'download', action: () => openExport('mix') },
+    // exportar no va aquí: un solo «Exportar…», el del ⋯ del estudio, que con
+    // las pistas sonando ya abre con su mezcla elegida
     { label: 'Que suenen todas, como vienen', icon: 'refresh', action: resetMix },
     { label: 'Abrir la carpeta', icon: 'folderOpen', action: revealStems },
     { separator: true },
@@ -2070,8 +2271,11 @@ async function exit() {
   await player.clearLoop()
   if (speed.value !== 1) await player.setSpeed(1)
   if (pitch.value !== 0) await player.setPitch(0)
-  // la cuenta y las guías son cosa del estudio: fuera de el, play es play
-  await player.setMetronome({ on: false, count_in: 0 })
+  // la cuenta y las guías son cosa del estudio: fuera de el, play es play.
+  // Y el clic se quita de verdad (`click.stop`): callado solo en Rust,
+  // volvía él solo al pasar de canción.
+  await click.stop()
+  await player.setMetronome({ count_in: 0 })
   await player.setCues([], cueVolume.value)
   emit('exit')
 }
@@ -2080,7 +2284,12 @@ function headMenu(ev) {
     ...(isMobileApp
       ? []
       : [
-          { label: 'Exportar…', icon: 'download', action: () => openExport('song') },
+          {
+            label: 'Exportar…',
+            icon: 'download',
+            hint: 'La canción, la mezcla de las pistas o un .danpista para el celular',
+            action: () => openExport(mixerOn.value ? 'mix' : 'song')
+          },
           {
             label: 'Guía automática',
             icon: 'sparkles',
@@ -2152,16 +2361,69 @@ onUnmounted(() => {
   stopStudyTour()
 })
 let sizeWatch = null
+/**
+ * Mide el sitio que le queda a la onda dentro del panel: el alto del panel
+ * menos lo de arriba (la cabecera y la barra), menos lo que se le guarda al
+ * cuerpo (las columnas de velocidad, clic, marcadores y notas) y menos lo
+ * demás de la línea de tiempo (el carril del clic, los de las guías, la
+ * regla). Con eso se reparten los carriles.
+ *
+ * Antes el alto de los carriles salía de un número fijo, y con una secuencia
+ * de veintitantas pistas la onda se comía el panel entero: las columnas de
+ * abajo se quedaban en su título y no se podía llegar a la velocidad, al
+ * clic ni a los marcadores.
+ */
+function fitTimeline() {
+  const el = root.value
+  const tl = timeline.value?.$el
+  if (isMobileApp || !el || !tl?.querySelector) return
+  const box = tl.querySelector('.tl-box')
+  const inner = el.clientHeight
+  // sin medidas (la capa aún no se ve, o un entorno sin maquetación): lo de siempre
+  if (!box || !(inner > 0) || !(box.offsetHeight > 0)) return
+  const cs = getComputedStyle(el)
+  const pad = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0)
+  const gap = parseFloat(cs.rowGap) || 0
+  let others = 0
+  let rows = 0
+  for (const child of el.children) {
+    const pos = getComputedStyle(child).position
+    if (pos === 'fixed' || pos === 'absolute') continue // las ventanas que se abren encima
+    rows++
+    if (child !== tl && !child.classList.contains('study-body')) others += child.offsetHeight
+  }
+  const rest = tl.scrollHeight - box.offsetHeight
+  // lo que piden las columnas de los mandos (velocidad y tono, y el clic):
+  // la suma de lo suyo, que no depende del alto que tengan ahora. Las de
+  // los marcadores y las notas se estiran o se desplazan: no cuentan.
+  let wanted = 0
+  for (const col of [...el.querySelectorAll('.study-body > .study-col')].slice(0, 2)) {
+    const between = parseFloat(getComputedStyle(col).rowGap) || 0
+    const items = [...col.children]
+    const sum = items.reduce((total, item) => total + item.offsetHeight, 0)
+    wanted = Math.max(wanted, sum + between * Math.max(0, items.length - 1))
+  }
+  const next = roomFor({ inner, pad, others, gap, rows, rest, wanted })
+  // de dos en dos píxeles: que un redondeo no la tenga midiendo sin parar
+  if (waveRoom.value == null || Math.abs(next - waveRoom.value) >= 2) waveRoom.value = next
+}
 onMounted(() => {
   // cuántos canales tiene la salida: los botones de cada carril son L y R, o
   // 1, 2, 3… con una interfaz de más salidas
   if (!isMobileApp) routing.loadDevices?.().catch?.(() => {})
   if (isMobileApp || typeof ResizeObserver !== 'function' || !root.value) return
-  sizeWatch = new ResizeObserver(([e]) => {
-    const w = e.contentRect.width
-    tabbed.value = w >= 680 && w < 1100
+  sizeWatch = new ResizeObserver((entries) => {
+    for (const e of entries) {
+      if (e.target !== root.value) continue
+      const w = e.contentRect.width
+      tabbed.value = w >= 680 && w < 1100
+    }
+    fitTimeline()
   })
   sizeWatch.observe(root.value)
+  // y lo de dentro de la línea de tiempo: otro carril de guías, el del clic
+  const tl = timeline.value?.$el
+  if (tl?.nodeType === 1) sizeWatch.observe(tl)
 })
 onUnmounted(() => sizeWatch?.disconnect())
 
@@ -2174,7 +2436,15 @@ defineExpose({ close: hide, hide, exit })
     ref="root"
     v-tips
     class="study"
-    :class="{ 'with-lanes': lanes.length, big }"
+    :class="{
+      'with-lanes': lanes.length,
+      'many-lanes': lanes.length > MANY_LANES,
+      big,
+      desk: !isMobileApp,
+      // en una ventana baja, los espacios más apretados para que las
+      // tarjetas quepan (el texto no cambia): ver `isTight`
+      tight: !isMobileApp && !big && isTight(windowHeight)
+    }"
     role="region"
     aria-label="Modo estudio"
   >
@@ -2197,6 +2467,7 @@ defineExpose({ close: hide, hide, exit })
            otro, como una secuencia, en estéreo o en mono -->
       <button
         class="btn mini study-head-icon study-outputs"
+        :class="{ warn: routing.short.value }"
         type="button"
         aria-label="Salidas"
         @click="outputsOpen = true"
@@ -2263,7 +2534,7 @@ defineExpose({ close: hide, hide, exit })
             type="button"
             class="btn mini icon-btn study-stems-more"
             aria-label="Opciones de las pistas"
-            title="Exportar, convertir a DanPista, abrir la carpeta, separar otra vez…"
+            title="Que suenen todas, abrir la carpeta, separar otra vez, borrarlas…"
             @click="stemsMenu"
           >
             <Icon n="more" :t="13" />
@@ -2308,9 +2579,14 @@ defineExpose({ close: hide, hide, exit })
         <span class="study-head-sep" aria-hidden="true"></span>
         <button
           class="btn mini icon-btn study-outputs"
+          :class="{ warn: routing.short.value }"
           type="button"
           aria-label="Salidas"
-          title="Salidas: por dónde suena la música, cada pista, el clic y las guías (izquierda, derecha, una interfaz…)"
+          :title="
+            routing.short.value
+              ? 'Salidas: a esta salida le faltan canales para su reparto y suena todo junto'
+              : 'Salidas: por dónde suena la música, cada pista, el clic y las guías (izquierda, derecha, una interfaz…)'
+          "
           @click="outputsOpen = true"
         >
           <Icon n="outputs" :t="14" />
@@ -2343,7 +2619,7 @@ defineExpose({ close: hide, hide, exit })
           class="btn mini icon-btn study-more"
           type="button"
           aria-label="Más del modo estudio"
-          title="Exportar, salir del modo estudio, convertir a DanPista, el estilo de la onda…"
+          title="Exportar, la guía automática, las salidas, el estilo de la onda, salir del modo estudio…"
           @click="headMenu"
         >
           <Icon n="more" :t="14" />
@@ -2381,7 +2657,7 @@ defineExpose({ close: hide, hide, exit })
           :title="
             isMobileApp
               ? 'Que suenen todas, como vienen'
-              : 'Guardar la mezcla, convertir a DanPista, abrir la carpeta, separar otra vez…'
+              : 'Que suenen todas, abrir la carpeta, separar otra vez, borrarlas…'
           "
           aria-label="Opciones de las pistas"
           @click="stemsMenu"
@@ -2594,7 +2870,7 @@ defineExpose({ close: hide, hide, exit })
             !track
               ? ''
               : autoBusy
-                ? 'Buscando las partes de la canción…'
+                ? autoStage || 'Buscando las partes de la canción…'
                 : cueEdit
                   ? 'Guía automática: DanPlay busca las partes (intro, estrofas, coros, puente, solos…) y las dice justo antes de cada una'
                   : STOP_FIRST
@@ -2696,7 +2972,7 @@ defineExpose({ close: hide, hide, exit })
       :markers="study.markers"
       :cues="study.cues"
       :selected="selected"
-      :grid="shownGrid"
+      :grid="soundingGrid"
       :edit-beats="editingBeats"
       :show-mix="showMix"
       :show-routes="showRoutes"
@@ -2704,8 +2980,8 @@ defineExpose({ close: hide, hide, exit })
         !isMobileApp && track ? { on: !!metronome.on, volume: metronome.volume ?? 0.8 } : null
       "
       :seek-click="seekClick"
-      :click-loading="clickLoading ? click.progress.value : null"
-      :height="isMobileApp ? 120 : big ? 150 : 80"
+      :click-loading="clickLoading ? click.progress.value : click.reanalyzing.value"
+      :height="waveHeight"
       :lane-height="laneHeight"
       :locked="locked"
       :playing="playing"
@@ -2795,9 +3071,7 @@ defineExpose({ close: hide, hide, exit })
           <div class="study-block-head">
             <span class="study-block-name"><Icon n="forward10" :t="12" /> Velocidad</span>
             <span class="mono study-value"
-              >{{ speedPercent }} %
-              <em v-if="speed !== 1 && !pitchPreserved" class="model-warn">cambia el tono</em>
-              <em v-else-if="speed !== 1">mismo tono</em></span
+              >{{ speedPercent }} % <em v-if="speed !== 1">mismo tono</em></span
             >
           </div>
           <div class="btn-row study-speeds">
@@ -2892,7 +3166,6 @@ defineExpose({ close: hide, hide, exit })
             >
               original
             </button>
-            <em v-if="!pitchPreserved && speed === 1" class="model-warn">no se puede aquí</em>
           </div>
         </div>
       </section>
@@ -3056,7 +3329,7 @@ defineExpose({ close: hide, hide, exit })
             <SliderField
               :model-value="metronome.volume"
               :min="0"
-              :max="3"
+              :max="CLICK_MAX"
               :step="0.05"
               :mark="1"
               width="100%"
@@ -3372,6 +3645,7 @@ defineExpose({ close: hide, hide, exit })
           :rows="6"
           width="100%"
           :placeholder="'qué trabajar en «' + selected.label + '»…'"
+          maxlength="2000"
           class="study-notes-field"
           @update:model-value="
             (v) => {
@@ -3388,6 +3662,7 @@ defineExpose({ close: hide, hide, exit })
           width="100%"
           placeholder="cejilla en 2, entrar tras el redoble…"
           :disabled="!track"
+          maxlength="4000"
           class="study-notes-field"
           @update:model-value="
             (v) => {

@@ -1,7 +1,7 @@
 //! El comando `api` del celular: el mismo puente que en la PC (`invoke('api',
 //! {method, path, body})`, docs/INTERNAL-CONTRACT.md §2), pero sin el nucleo
 //! de la PC detras. Contesta lo que pide la interfaz de la PC con las pistas
-//! importadas (`index.rs`), con la misma forma que el nucleo.
+//! importadas (`library.rs`), con la misma forma que el nucleo.
 //!
 //! Lo que en el celular no existe (separar, buscar letras o cifrados en
 //! internet, editar las etiquetas de un archivo, descargar...) contesta 404
@@ -125,8 +125,11 @@ pub fn handle(lib: &Library, method: &str, full: &str, body: Option<&str>) -> Re
             let limit = query(q, "limit")
                 .and_then(|l| l.parse().ok())
                 .unwrap_or(20_000usize);
-            let songs: Vec<Value> = lib
-                .songs()
+            // una sola vez: leer la lista es abrir el `pista.json` de cada
+            // pista, y se hacia dos veces por busqueda (y hay una por tecla)
+            let all = lib.songs();
+            let total = all.len();
+            let songs: Vec<Value> = all
                 .into_iter()
                 .filter(|s| {
                     let haystack = plain(&format!(
@@ -141,7 +144,7 @@ pub fn handle(lib: &Library, method: &str, full: &str, body: Option<&str>) -> Re
                 .collect();
             let count = songs.len();
             let songs: Vec<Value> = songs.into_iter().take(limit).collect();
-            Ok(json!({"total": lib.songs().len(), "count": count, "songs": songs}))
+            Ok(json!({"total": total, "count": count, "songs": songs}))
         }
         ("GET", ["facets"]) => Ok(json!({"artists": [], "keys": [], "genres": [], "years": []})),
         ("GET", ["playlists"]) => {
@@ -383,6 +386,26 @@ mod tests {
         let status = handle(&lib, "GET", "/api/status", None).expect("estado");
         assert_eq!(status["stats"]["total"], json!(0));
         assert!(handle(&lib, "GET", "/api/song/123", None).is_err());
+    }
+
+    /// Buscar leia la lista entera dos veces (una para filtrar y otra solo
+    /// para contarla), y leerla es abrir el `pista.json` de cada pista.
+    #[test]
+    fn a_search_reads_the_tracks_once() {
+        use crate::library::{LISTINGS, tests::library_with};
+        let (lib, id) = library_with(
+            "search",
+            &json!([{"source": "drums", "name": "Batería", "file": "partes/Bateria.ogg"}]),
+        );
+        let before = LISTINGS.get();
+        let found =
+            handle(&lib, "GET", "/api/search?q=g%C3%B3zo+barak&limit=5", None).expect("busca");
+        assert_eq!(LISTINGS.get() - before, 1);
+        assert_eq!((&found["total"], &found["count"]), (&json!(1), &json!(1)));
+        assert_eq!(found["songs"][0]["id"], json!(id));
+        let none = handle(&lib, "GET", "/api/search?q=otra", None).expect("busca");
+        assert_eq!((&none["total"], &none["count"]), (&json!(1), &json!(0)));
+        assert_eq!(none["songs"], json!([]));
     }
 
     #[test]

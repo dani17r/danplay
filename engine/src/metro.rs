@@ -110,9 +110,14 @@ impl Metro {
         });
     }
 
+    /// ¿Iria con la cancion (este puesto el clic o no), o a un tempo a mano?
+    pub fn tracks(&self) -> bool {
+        self.settings.bpm.is_none() && self.effective.is_some()
+    }
+
     /// ¿Sigue la cancion, o va libre?
     pub fn follows(&self) -> bool {
-        self.settings.on && self.settings.bpm.is_none() && self.effective.is_some()
+        self.settings.on && self.tracks()
     }
 
     /// El doble o la mitad. Vale tambien para el tempo a mano: antes solo
@@ -146,7 +151,10 @@ impl Metro {
             mult: s.mult,
             volume: s.volume,
             has_grid: g.is_some(),
-            free: !self.follows(),
+            // «libre» es que lleva un tempo a mano (o que no hay rejilla que
+            // seguir), no que este parado: con el clic quitado el estudio
+            // decia «tempo a mano» y ofrecia «el de la cancion»
+            free: !self.tracks(),
             confidence: g.map_or(0.0, |g| g.confidence),
             sound: s.sound,
             count_in: s.count_in.min(MAX_COUNT_IN),
@@ -170,10 +178,12 @@ pub fn click_plan(metro: &Metro, duration: f64) -> crate::render::ClickPlan {
         sound: settings.sound,
         ..ClickPlan::default()
     };
-    if !settings.on {
-        return plan;
-    }
-    match (&metro.effective, metro.follows()) {
+    // Los golpes se cuentan tambien con el clic quitado (no suenan:
+    // `plan.on`): la cuenta de entrada los usa para saber donde cae el
+    // siguiente pulso y en que tiempo del compas. Sin ellos, con el clic
+    // apagado la cuenta empezaba siempre en «1» y la cancion entraba donde
+    // estuviera parada, no en su pulso.
+    match (&metro.effective, metro.tracks()) {
         (Some(g), true) => {
             let mut i = 0;
             loop {
@@ -210,3 +220,69 @@ pub fn click_plan(metro: &Metro, duration: f64) -> crate::render::ClickPlan {
 
 /// Hasta cuantos compases de cuenta.
 pub const MAX_COUNT_IN: u8 = 2;
+
+#[cfg(all(test, feature = "engine"))]
+mod tests {
+    use super::*;
+
+    fn with_grid(settings: MetronomeSettings) -> Metro {
+        let grid = BeatGrid {
+            bpm: 120.0,
+            meter: 4,
+            beats: (0..40).map(|i| 1.0 + 0.5 * f64::from(i)).collect(),
+            first_downbeat: 0,
+            phase3: 0,
+            phase4: 0,
+            phase2: None,
+            phase6: None,
+            confidence: 0.9,
+            bars: Vec::new(),
+            closed: true,
+        };
+        let mut metro = Metro::default();
+        metro.set(
+            settings,
+            Some(("/musica/a.mp3".into(), Arc::new(grid))),
+            "/musica/a.mp3",
+        );
+        metro
+    }
+
+    #[test]
+    fn with_the_click_off_it_still_follows_the_song() {
+        // «libre» es llevar un tempo a mano, no estar parado: con el clic
+        // quitado el estudio decía «tempo a mano» y ofrecía «el de la canción»
+        let off = with_grid(MetronomeSettings::default());
+        assert!(!off.settings.on && !off.follows());
+        assert!(!off.state().free);
+        let by_hand = with_grid(MetronomeSettings {
+            bpm: Some(90.0),
+            ..MetronomeSettings::default()
+        });
+        assert!(by_hand.state().free);
+        assert!(
+            Metro::default().state().free,
+            "sin rejilla no hay qué seguir"
+        );
+    }
+
+    #[test]
+    fn the_beats_are_planned_with_the_click_off_too() {
+        // la cuenta de entrada los usa para caer en el pulso de la canción;
+        // sonar, no suenan (`on`)
+        let off = click_plan(&with_grid(MetronomeSettings::default()), 30.0);
+        assert!(!off.on);
+        assert_eq!(off.beats.len(), 40);
+        assert!((off.beats[0] - 1.0).abs() < 1e-9 && (off.beats[1] - 1.5).abs() < 1e-9);
+        let on = click_plan(
+            &with_grid(MetronomeSettings {
+                on: true,
+                ..MetronomeSettings::default()
+            }),
+            30.0,
+        );
+        assert!(on.on);
+        assert_eq!(on.beats, off.beats);
+        assert_eq!(on.accents, off.accents);
+    }
+}

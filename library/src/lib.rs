@@ -23,6 +23,7 @@ pub mod lenient_json;
 pub mod names;
 pub mod net;
 pub mod num;
+pub mod parts;
 pub mod paths;
 pub mod playlists;
 pub mod processes;

@@ -4,7 +4,7 @@ use crate::app::App;
 use crate::error::ApiError;
 use crate::http::Response;
 use crate::router::{Ctx, Reply, Route};
-use crate::services::{beats, enrich, media, songs};
+use crate::services::{beats, enrich, media, songs, stems};
 use crate::validate::{self, Fields, Float, Int, Kind, List};
 use library::index::Dict;
 use library::value;
@@ -84,6 +84,19 @@ fn song(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     c.insert("playlists".into(), Value::Array(lists));
     let exists = songs::exists(&c);
     c.insert("existe".into(), Value::Bool(exists));
+    // sin tono en la ficha, el que se deduce de los acordes de su cifrado
+    // (aparte: no es el tono de la canción, y la interfaz lo dice «deducido»)
+    let deduced = library::enrich::song_deduced_key(&c);
+    if !deduced.is_empty() {
+        c.insert("key_deduced".into(), Value::String(deduced));
+    }
+    // si el archivo no admite etiquetas, lo que se cambie de la canción se
+    // guarda solo en DanPlay: la ficha lo dice (solo las de la biblioteca,
+    // que a las de fuera no se les escribe nada)
+    if exists && cid > 0 {
+        let supported = songs::tags_supported(&c);
+        c.insert("tags_supported".into(), Value::Bool(supported));
+    }
     Ok(Value::Object(c).into())
 }
 
@@ -172,30 +185,59 @@ fn song_beats(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let app = ctx.app;
     let c = resolved_file(app, cid, "archivo no encontrado")?;
     let path = path_of(&c);
+    if !wait {
+        // lo que se pregunta cada 700 ms mientras carga: todo de una vez
+        return match beats::peek(app, &path, true).map_err(beats_error)? {
+            beats::Peek::Ready(grid) => Ok(grid.into()),
+            beats::Peek::Pending(done) => {
+                Ok(Response::json(202, &json!({"pending": true, "progress": done})).into())
+            }
+            beats::Peek::Unavailable(reason) => Err(ApiError::http(503, reason)),
+        };
+    }
     let reason = beats::available(app);
     if !reason.is_empty() && !beats::cached(app, &path) {
         return Err(ApiError::http(503, reason));
     }
-    if wait {
-        let grid = beats::grid_of(app, &path).map_err(beats_error)?;
-        return Ok(grid.into());
-    }
-    if let Some(grid) = beats::request(app, &path, true).map_err(beats_error)? {
-        return Ok(grid.into());
-    }
-    let done = beats::progress(&path).unwrap_or(0.0);
-    Ok(Response::json(202, &json!({"pending": true, "progress": done})).into())
+    let grid = beats::grid_of(app, &path).map_err(beats_error)?;
+    Ok(grid.into())
 }
+
+/// Las que caben en una petición de preparar el clic (una lista entera).
+const MAX_PREPARED: usize = 500;
 
 /// Deja calculándose, detrás, la rejilla de una canción que vendrá después.
+/// Con `ids`, también las de esas (una lista o un disco enteros, en su
+/// orden): `left` son las que no se pudieron dejar (no están, aquí no hay
+/// detector, ya fallaron o no caben en la cola).
 fn song_beats_prepare(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let cid = ctx.path().int("cid").required();
-    ctx.check()?;
+    let mut b = ctx.opt_body()?;
+    let ids = b
+        .as_mut()
+        .map(|b| b.int_list("ids").max_items(MAX_PREPARED).or(Vec::new()));
+    ctx.done_with(b)?;
     let c = resolved_file(ctx.app, cid, "archivo no encontrado")?;
-    Ok(json!({"queued": beats::prepare(ctx.app, &path_of(&c))}).into())
+    let queued = beats::prepare(ctx.app, &path_of(&c));
+    let Some(ids) = ids else {
+        return Ok(json!({"queued": queued}).into());
+    };
+    let left: Vec<i64> = ids
+        .into_iter()
+        .filter(|id| {
+            !matches!(
+                songs::resolve(ctx.app, *id),
+                Ok(Some(c)) if songs::exists(&c) && beats::prepare(ctx.app, &path_of(&c))
+            )
+        })
+        .collect();
+    Ok(json!({"queued": queued, "left": left}).into())
 }
 
-/// «Re-analizar el clic», de toda la canción o de un tramo.
+/// «Re-analizar el clic», de toda la canción o de un tramo. Con
+/// `wait=false`, lo que tarda (pasar la red por la batería separada) no se
+/// espera dentro de la petición: va por la cola, y mientras tanto contesta
+/// 202 con por dónde va; se vuelve a pedir hasta que sale la rejilla.
 fn song_beats_reanalyze(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let cid = ctx.path().int("cid").required();
     let mut b = ctx.body()?;
@@ -203,6 +245,7 @@ fn song_beats_reanalyze(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let start = b.float("start").ge(0).opt();
     let end = b.float("end").gt(0).opt();
     let bpm = b.float("bpm").ge(20).le(300).opt();
+    let wait = b.bool("wait").or(true);
     ctx.done(b)?;
     let c = resolved_file(ctx.app, cid, "archivo no encontrado")?;
     if let (Some(s), Some(e)) = (start, end)
@@ -213,8 +256,14 @@ fn song_beats_reanalyze(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
             "un tramo necesita su principio y su final",
         ));
     }
-    let grid =
-        beats::reanalyze(ctx.app, &path_of(&c), &mode, start, end, bpm).map_err(beats_error)?;
+    let path = path_of(&c);
+    if !wait
+        && mode == "drums"
+        && let Some(done) = beats::drums_pending(ctx.app, &path).map_err(beats_error)?
+    {
+        return Ok(Response::json(202, &json!({"pending": true, "progress": done})).into());
+    }
+    let grid = beats::reanalyze(ctx.app, &path, &mode, start, end, bpm).map_err(beats_error)?;
     let report = grid
         .get("report")
         .filter(|r| value::truthy(r))
@@ -225,10 +274,30 @@ fn song_beats_reanalyze(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
 
 // ---------------------------------------------------------------- la onda
 
+/// El archivo de una pista separada de la canción (`stem` es su `source`, la
+/// clave del carril): el de la propia pista y no el de la mezcla. 404 si la
+/// canción no tiene esa pista o el archivo no está.
+fn stem_file(app: &App, song: &Dict, stem: &str) -> Result<PathBuf, ApiError> {
+    let tracks = stems::info(app, song)
+        .and_then(|d| d.get("tracks").cloned())
+        .map(|t| value::list_of(&t))
+        .unwrap_or_default();
+    tracks
+        .iter()
+        .find(|t| t.get("source").and_then(Value::as_str) == Some(stem))
+        .and_then(|t| t.get("path").and_then(Value::as_str))
+        .map(PathBuf::from)
+        .filter(|p| p.is_file())
+        .ok_or_else(|| ApiError::not_found("esa pista no está"))
+}
+
 /// La forma de onda para el modo estudio; con `start` y `end`, solo ese
-/// trozo y con detalle (sin guardarlo).
+/// trozo y con detalle (sin guardarlo). Con `stem`, la de esa pista separada
+/// (la respuesta repite `stem`, para que quien pregunta sepa que se entendió:
+/// un núcleo que lo ignorase daría la mezcla entera en cada carril).
 fn song_waveform(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let cid = ctx.path().int("cid").required();
+    let stem = ctx.query().str("stem").max_len(200).opt();
     let buckets = ctx
         .query()
         .int("buckets")
@@ -239,7 +308,10 @@ fn song_waveform(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let end = ctx.query().float("end").gt(0).opt();
     ctx.check()?;
     let c = resolved_file(ctx.app, cid, "archivo no encontrado")?;
-    let path = path_of(&c);
+    let path = match stem.as_deref() {
+        Some(stem) => stem_file(ctx.app, &c, stem)?,
+        None => path_of(&c),
+    };
     if start.is_some() || end.is_some() {
         let (Some(s), Some(e)) = (start, end) else {
             return Err(ApiError::http(
@@ -260,14 +332,22 @@ fn song_waveform(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
             ));
         };
         let n = peaks.len();
-        return Ok(json!({"peaks": peaks, "rms": rms, "buckets": n, "start": s, "end": e}).into());
+        let mut out = json!({"peaks": peaks, "rms": rms, "buckets": n, "start": s, "end": e});
+        if let Some(stem) = &stem {
+            out["stem"] = stem.clone().into();
+        }
+        return Ok(out.into());
     }
     let Some((peaks, rms)) = media::waveform(ctx.app, &path, buckets)? else {
         return Err(ApiError::http(422, "no se pudo decodificar el archivo"));
     };
     let n = peaks.len();
     // es un `Response` hecho a mano, para poder llevar la cabecera de caché
-    let body = json!({"peaks": peaks, "rms": rms, "buckets": n}).to_string();
+    let mut body = json!({"peaks": peaks, "rms": rms, "buckets": n});
+    if let Some(stem) = &stem {
+        body["stem"] = stem.clone().into();
+    }
+    let body = body.to_string();
     Ok(Response::bytes(200, "application/json", body.into_bytes())
         .with_header("cache-control", "private, max-age=3600")
         .into())
@@ -316,8 +396,14 @@ fn stars(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     if songs::by_id(ctx.app, cid)?.is_none() {
         return Err(ApiError::not_found("no esta en la biblioteca"));
     }
-    songs::rate(ctx.app, cid, stars)?;
-    Ok(by_id(ctx.app, cid)?.into())
+    // la respuesta ya lleva la canción como quedó: no hace falta, además,
+    // decirle a la interfaz que recargue todo (`index::quietly`)
+    let _quiet = library::index::quietly();
+    let written = songs::rate(ctx.app, cid, stars)?;
+    Ok(card(
+        songs::by_id(ctx.app, cid)?.map(|c| songs::with_tags_outcome(ctx.app, c, written, false)),
+    )
+    .into())
 }
 
 fn favorite(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
@@ -328,8 +414,11 @@ fn favorite(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     if songs::by_id(ctx.app, cid)?.is_none() {
         return Err(ApiError::not_found("no esta en la biblioteca"));
     }
-    songs::favorite(ctx.app, cid, value)?;
-    Ok(by_id(ctx.app, cid)?.into())
+    let written = songs::favorite(ctx.app, cid, value)?;
+    Ok(card(
+        songs::by_id(ctx.app, cid)?.map(|c| songs::with_tags_outcome(ctx.app, c, written, false)),
+    )
+    .into())
 }
 
 // ---------------------------------------------------------------- «Transformar»
@@ -365,6 +454,10 @@ fn tidy_song(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
 }
 
 const CATEGORIES: [&str; 3] = ["track", "sequence", "tutorial"];
+/// Lo que se admite de largo en las notas del estudio: de sobra para un
+/// pegado grande, y aun así con tope (se guardan las primeras
+/// `library::index::songs::MAX_NOTES` letras).
+const NOTES_ACCEPTED: usize = 100_000;
 
 /// A su carpeta: la Drum Cam a Pistas, el tutorial a Tutoriales y Play
 /// Along, la secuencia a Secuencias.
@@ -516,6 +609,9 @@ fn song_study(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let mut b = ctx.body()?;
     let study = study_in(&mut b);
     ctx.done(b)?;
+    // se guarda solo, cada 0,6 s de cambios, y quien lo guarda es quien lo
+    // tiene delante: sin avisar a la interfaz (`index::quietly`)
+    let _quiet = library::index::quietly();
     let c =
         songs::set_study(ctx.app, cid, &study)?.ok_or_else(|| ApiError::not_found("no existe"))?;
     Ok(Value::Object(c).into())
@@ -852,11 +948,14 @@ fn study_in(b: &mut Fields) -> Value {
         b.absorb(m);
         out.insert("metronome".into(), v);
     }
-    if let Some(items) = models(b, &loc, "markers", 200) {
+    if let Some(items) = models(b, &loc, "markers", library::index::songs::MAX_MARKERS) {
         let v = each(b, items, marker);
         out.insert("markers".into(), Value::Array(v));
     }
-    if let Some(v) = b.str("notes").max_len(4000).opt() {
+    // unas notas más largas de lo que se guarda se recortan al guardar
+    // (`library::index::songs::MAX_NOTES`): rechazarlas dejaba sin guardar
+    // también los tramos, los marcadores y la mezcla
+    if let Some(v) = b.str("notes").max_len(NOTES_ACCEPTED).opt() {
         out.insert("notes".into(), v.into());
     }
     if let Some(mut m) = model(b, &loc, "mixer") {

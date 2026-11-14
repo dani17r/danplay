@@ -169,6 +169,17 @@ Es lo mismo que comprueba la CI en cada push, y todo tiene que pasar:
 
 `./scripts/test.sh --quick` se salta las e2e y las de humo.
 
+**La instalación limpia** va aparte, antes de entregar un paquete:
+`./scripts/test-install.sh` instala el `.deb` recién construido en una
+Debian 13 y una Ubuntu 24.04 recién hechas (Docker) y comprueba que no le
+falte nada para abrirse y sonar: que `apt` resuelva lo que pide, que ningún
+programa eche en falta una biblioteca, que ALSA tenga su puente al servidor
+de sonido, que contesten los programas que viajan dentro y que la app se
+abra (con una pantalla de mentira) y el núcleo conteste. Nació de un fallo
+de verdad: la 1.40.1 se instalaba bien y no sonaba en un sistema recién
+instalado con PipeWire, porque el paquete no pedía `pipewire-alsa`. Con
+ese paquete, la prueba falla justo ahí.
+
 Si no quieres cargar el equipo, que las corra GitHub: sube el commit
 (`git push`) y
 
@@ -223,6 +234,14 @@ necesitan lo dicen y vuelven sin comprobar nada.
 método que la interfaz llame y la prueba no haya programado falla diciendo
 cuál es. Cinco fallos de la interfaz eran nombres que dejaron de existir al
 pasar el código a inglés y que nadie comparó con el núcleo.
+
+El de la reproducción (`createPlaybackDouble`) cuenta las cosas en el orden de
+Rust: la canción (`track`, de la cola) y la ruta de su archivo (`path`, del
+audio) **nunca llegan en el mismo estado**, así que un parche que cambia de
+canción y de ruta sale en dos. Y su motor descarta, como el de verdad, las
+guías y las pistas que se le mandan con la ruta de otra canción (`engine` dice
+qué aceptó). `holdPaths()` y `releasePaths()` retienen y entregan la ruta para
+probar el orden en que la interfaz carga antes de que llegue.
 
 ### El banco de pruebas contra un modelo de verdad
 

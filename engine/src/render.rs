@@ -69,6 +69,9 @@ pub struct Controls {
     pub speed: AtomicU32,
     /// Tono en semitonos (f32 en bits).
     pub pitch: AtomicU32,
+    /// Al cambiar el tono, que los formantes no se muevan (para las voces).
+    /// Apagado por defecto: es lo de siempre.
+    pub formants: AtomicBool,
     /// Compases de cuenta antes de entrar (0: sin cuenta).
     pub count_in: AtomicU32,
     /// Al darle a sonar se pide la cuenta (si hay compases).
@@ -100,6 +103,7 @@ impl Default for Controls {
             playing: AtomicBool::new(false),
             speed: AtomicU32::new(one),
             pitch: AtomicU32::new(0),
+            formants: AtomicBool::new(false),
             count_in: AtomicU32::new(0),
             count_request: AtomicBool::new(false),
             ended: AtomicBool::new(false),
@@ -164,6 +168,34 @@ pub struct ClickPlan {
     pub sound: Sound,
 }
 
+/// Un metronomo suelto: sin cancion ni rejilla, al tempo que se le diga. Suena
+/// solo cuando la cancion no suena (no hay ninguna cargada, o esta en pausa),
+/// por el bus del clic, y se calla en cuanto la cancion echa a andar (entonces
+/// manda su clic, el de la rejilla).
+#[derive(Clone, Debug, PartialEq)]
+pub struct FreeClick {
+    pub on: bool,
+    /// Pulsos por minuto (de `metro::MIN_BPM` a `metro::MAX_BPM`).
+    pub bpm: f32,
+    /// Pulsos por compas, para acentuar el primero (0: ninguno acentuado).
+    pub meter: u8,
+    /// 0..3, como el del clic de una cancion.
+    pub volume: f32,
+    pub sound: Sound,
+}
+
+impl Default for FreeClick {
+    fn default() -> Self {
+        FreeClick {
+            on: false,
+            bpm: crate::metro::DEFAULT_BPM,
+            meter: 4,
+            volume: 1.0,
+            sound: Sound::default(),
+        }
+    }
+}
+
 /// Una voz guia: lo que se dice (en estereo, a la tasa del motor) y en que
 /// segundo de la cancion empieza.
 #[derive(Clone, Debug)]
@@ -181,6 +213,21 @@ pub struct CuePlan {
     pub on: bool,
     pub volume: f32,
     pub cues: Vec<Cue>,
+    /// Las guias que se dejaron fuera porque su archivo no se pudo leer
+    /// (`spec::Clips::plan`). Antes se saltaban sin decir nada y la guia
+    /// simplemente no sonaba. Vacio, si estan todas.
+    pub problems: Vec<CueProblem>,
+}
+
+/// Una voz guia que no suena porque su archivo no se pudo leer del todo.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct CueProblem {
+    /// En que segundo de la cancion iba.
+    pub at: f64,
+    /// Su archivo.
+    pub path: String,
+    /// Que le pasa, para decirselo a quien la puso.
+    pub reason: String,
 }
 
 /// A donde va un bus: dos canales de la salida (izquierdo y derecho), o uno
@@ -327,6 +374,8 @@ pub enum Msg {
     Handoff(Box<Handoff>),
     Click(Arc<ClickPlan>),
     Cues(Arc<CuePlan>),
+    /// El metronomo suelto: encenderlo, apagarlo o cambiarlo.
+    FreeClick(Arc<FreeClick>),
     /// Otro enrutado, con un estirador por bus ya hecho (hacerlo pide memoria).
     Routing(Arc<Routing>, Vec<Stretch>),
 }
@@ -338,6 +387,7 @@ pub enum Trash {
     Routing1(Arc<Routing>),
     Click(Arc<ClickPlan>),
     Cues(Arc<CuePlan>),
+    FreeClick(Arc<FreeClick>),
     Routing(Arc<Routing>, Vec<Stretch>),
 }
 
@@ -462,11 +512,17 @@ pub struct Render {
     music_bus: [bool; MAX_BUSES],
     stretches: Vec<Stretch>,
     stretching: bool,
+    /// Se tomo lo ultimo de la cancion y el estirador aun tiene dentro lo
+    /// que retrasa (unos 150 ms): muestras de salida que faltan por sacar, con
+    /// silencio de entrada, antes de darla por acabada.
+    drain: Option<usize>,
     primed: bool,
     /// Lo que sobra de muestra al pedir entrada a otra velocidad.
     frac: f64,
     /// El tono que tienen puesto los estiradores (nada: hay que ponerselo).
     pitch_now: Option<f32>,
+    /// Y si conservan los formantes (nada: hay que decirselo).
+    formants_now: Option<bool>,
     /// Los canales de la salida y su tasa.
     channels: usize,
     resampler: Option<Resampler>,
@@ -476,6 +532,13 @@ pub struct Render {
     /// Hasta donde (en `fed`) ya se miro si habia golpes.
     click_cursor: f64,
     plan: Arc<ClickPlan>,
+    /// El metronomo suelto, y por donde va: muestras que faltan para el
+    /// siguiente pulso (desde el principio del trozo), el pulso que toca (para
+    /// acentuar el primero de cada compas) y si ya sonaba en el trozo anterior.
+    free: Arc<FreeClick>,
+    free_next: f64,
+    free_beat: u32,
+    free_was: bool,
     voices: [Voice; VOICES],
     cues: Arc<CuePlan>,
     cue_voices: [CueVoice; CUE_VOICES],
@@ -523,15 +586,21 @@ impl Render {
             music_bus: [false; MAX_BUSES],
             stretches: vec![stretch],
             stretching: false,
+            drain: None,
             primed: false,
             frac: 0.0,
             pitch_now: None,
+            formants_now: None,
             channels: 2,
             resampler: None,
             fed: 0,
             runs: VecDeque::with_capacity(256),
             click_cursor: 0.0,
             plan: Arc::new(ClickPlan::default()),
+            free: Arc::new(FreeClick::default()),
+            free_next: 0.0,
+            free_beat: 0,
+            free_was: false,
             voices: [Voice::default(); VOICES],
             cues: Arc::new(CuePlan::default()),
             cue_voices: [CueVoice::default(); CUE_VOICES],
@@ -599,6 +668,7 @@ impl Render {
         self.envelope = 0.0;
         self.pending = None;
         self.count = None;
+        self.drain = None;
         self.primed = false;
         self.runs.clear();
         self.voices = [Voice::default(); VOICES];
@@ -615,6 +685,11 @@ impl Render {
     /// El clic nuevo. Devuelve el de antes, para soltarlo fuera.
     pub fn set_click(&mut self, plan: Arc<ClickPlan>) -> Arc<ClickPlan> {
         std::mem::replace(&mut self.plan, plan)
+    }
+
+    /// El metronomo suelto nuevo. Devuelve el de antes, para soltarlo fuera.
+    pub fn set_free_click(&mut self, free: Arc<FreeClick>) -> Arc<FreeClick> {
+        std::mem::replace(&mut self.free, free)
     }
 
     /// Las voces guia nuevas. Devuelve las de antes, para soltarlas fuera.
@@ -663,6 +738,7 @@ impl Render {
         }
         self.primed = false;
         self.pitch_now = None;
+        self.formants_now = None;
         self.click_cursor = self.fed as f64;
         let old = std::mem::replace(&mut self.routing, routing);
         (old, old_stretches)
@@ -694,6 +770,7 @@ impl Render {
             Msg::Handoff(h) => self.start_handoff(h),
             Msg::Click(plan) => Some(Trash::Click(self.set_click(plan))),
             Msg::Cues(plan) => Some(Trash::Cues(self.set_cues(plan))),
+            Msg::FreeClick(free) => Some(Trash::FreeClick(self.set_free_click(free))),
             Msg::Routing(routing, stretches) => self
                 .set_routing(routing, stretches)
                 .map(|(r, s)| Trash::Routing(r, s)),
@@ -798,10 +875,14 @@ impl Render {
     fn stage_chunk(&mut self, n: usize) {
         let buses = self.routing.bus_count();
         self.bus_out[..buses * CHUNK * 2].fill(0.0);
+        let wanted = self.controls.playing.load(Ordering::Acquire);
+        // el metronomo suelto suena cuando la cancion no (sin cancion, o en
+        // pausa): en cuanto echa a andar, manda el clic de su rejilla
+        let song_runs = self.ring.is_some() && (self.running || wanted);
+        self.free_click(n, !song_runs);
         if self.ring.is_none() {
             return;
         }
-        let wanted = self.controls.playing.load(Ordering::Acquire);
         if !self.running && !wanted {
             return;
         }
@@ -835,7 +916,19 @@ impl Render {
         // la cuenta: golpes solos hasta que entra la cancion
         let mut music_from = 0;
         if let Some(mut c) = self.count.take() {
-            music_from = (c.song_in.saturating_sub(c.elapsed) as usize).min(n);
+            // estirando, el estirador saca lo primero que recibe unos 90 ms
+            // despues: la cancion se le da esos 90 ms antes, para que su
+            // primera muestra suene donde cae el pulso. Antes la cuenta
+            // contaba como si saliera al momento y entraba tarde
+            let lead = if self.stretching {
+                self.stretches
+                    .first()
+                    .map_or(0, |s| s.output_latency() as u64)
+            } else {
+                0
+            };
+            let entry = c.song_in.saturating_sub(lead);
+            music_from = (entry.saturating_sub(c.elapsed) as usize).min(n);
             let end = c.elapsed + n as u64;
             while c.next < c.hits.len() && c.hits[c.next].0 < end {
                 let (at, accent) = c.hits[c.next];
@@ -851,8 +944,17 @@ impl Render {
             }
         }
         let old_fading = self.pending == Some(Pending::Switch);
+        let draining = self.drain.is_some();
         if music_from < n && (self.generation == good || old_fading) {
             self.music(music_from, n, speed, pitch);
+        }
+        // la cola del estirador va saliendo; al acabar, la cancion se acaba
+        // (el que se acaba de poner en este trozo cuenta desde el siguiente)
+        if draining && let Some(left) = self.drain.as_mut() {
+            *left = left.saturating_sub(n - music_from);
+            if *left == 0 {
+                self.finish_song();
+            }
         }
         self.mix_voices(n);
         self.mix_cues(n);
@@ -957,6 +1059,7 @@ impl Render {
             self.promote(None);
         }
         self.catch_up = None;
+        self.drain = None;
         let Some(ring) = &mut self.ring else { return };
         let good = ring.shared.generation.load(Ordering::Acquire);
         if let Some(b) = self.current.take() {
@@ -987,20 +1090,28 @@ impl Render {
     }
 
     fn toggle_stretch(&mut self) {
+        // cambiar de velocidad en la cola del final: ya no hay nada que vaciar
+        if self.drain.take().is_some() {
+            self.finish_song();
+        }
         self.stretching = !self.stretching;
         self.primed = false;
         self.pitch_now = None;
+        self.formants_now = None;
         for s in &mut self.stretches {
             s.reset();
         }
         self.click_cursor = self.fed as f64;
     }
 
-    /// Los buses que llevan musica y tienen estirador.
+    /// Los buses que tienen estirador: todos, lleven musica ahora o no. Un
+    /// estirador que solo recibe lo que le llega, al entrar musica por un bus
+    /// nuevo (un relevo a una salida propia) estaba en frio: no habia visto
+    /// nada, y lo primero que entraba (medido: un golpe a 33 ms del relevo)
+    /// no salia. Con silencio de entrada no cuesta nada (Signalsmith lo
+    /// reconoce y lo copia) y se queda a la par de los demas.
     fn stretched_buses(&self) -> impl Iterator<Item = usize> + use<> {
-        let music = self.music_bus;
-        let count = self.routing.bus_count().min(self.stretches.len());
-        (0..count).filter(move |&b| music[b])
+        0..self.routing.bus_count().min(self.stretches.len())
     }
 
     /// La musica de este trozo, de `from` a `n` de cada bus.
@@ -1013,6 +1124,13 @@ impl Render {
                     self.stretches[b].set_pitch(pitch);
                 }
                 self.pitch_now = Some(pitch);
+            }
+            let formants = self.controls.formants.load(Ordering::Relaxed);
+            if self.formants_now != Some(formants) {
+                for b in self.stretched_buses() {
+                    self.stretches[b].set_formants(formants);
+                }
+                self.formants_now = Some(formants);
             }
             if !self.primed {
                 // lo primero que va a sonar, por delante: asi sale justo desde ahi
@@ -1096,6 +1214,11 @@ impl Render {
             self.bus_in[b * cap * 2..][..frames * 2].fill(0.0);
         }
         self.n_pieces = 0;
+        if self.drain.is_some() {
+            // no queda cancion: el estirador sigue recibiendo silencio
+            self.fed += frames as u64;
+            return;
+        }
         let Some(ring) = &mut self.ring else {
             return;
         };
@@ -1202,9 +1325,7 @@ impl Render {
                 }
                 if last {
                     self.fed += (frames - i) as u64;
-                    self.controls.ended.store(true, Ordering::Release);
-                    self.controls.playing.store(false, Ordering::Release);
-                    self.pending = Some(Pending::Stop);
+                    self.end_of_song();
                     break;
                 }
             }
@@ -1213,6 +1334,29 @@ impl Render {
         if self.incoming.is_some() {
             self.blend();
         }
+    }
+
+    /// Se tomo lo ultimo de la cancion. Estirando, lo que suena va por
+    /// detras de lo tomado lo que retrasa el estirador (unos 150 ms): parar
+    /// aqui dejaba sin sonar el final de la cancion, o del ultimo tramo con
+    /// «Parar». Se le sigue dando silencio hasta que sale todo.
+    fn end_of_song(&mut self) {
+        if !self.stretching || self.stretches.is_empty() {
+            return self.finish_song();
+        }
+        let speed = f64::from(load_f32(&self.controls.speed).clamp(0.25, 3.0));
+        let s = &self.stretches[0];
+        // lo que tarda en salir lo ultimo que entro, en muestras de salida
+        // (y diez milisegundos mas, por si acaso)
+        let latency = s.input_latency() as f64 / speed + s.output_latency() as f64;
+        self.drain = Some(latency.ceil() as usize + self.rate as usize / 100);
+    }
+
+    /// La cancion se acabo (y se para, con su envolvente).
+    fn finish_song(&mut self) {
+        self.controls.ended.store(true, Ordering::Release);
+        self.controls.playing.store(false, Ordering::Release);
+        self.pending = Some(Pending::Stop);
     }
 
     /// Empieza un relevo (ver `Handoff`). Si no esta sonando, las partes
@@ -1488,8 +1632,47 @@ impl Render {
             .map(|r| r.song + (fed as u64 - r.fed))
     }
 
+    /// Como suena el clic ahora y lo fuerte que va: el del metronomo suelto si
+    /// es el que suena, y si no, el de la cancion.
+    fn click_voice(&self) -> (Sound, f32) {
+        if self.free_was {
+            (self.free.sound, self.free.volume)
+        } else {
+            (self.plan.sound, self.plan.volume)
+        }
+    }
+
+    /// El metronomo suelto en este trozo: los pulsos al tempo que se le dijo,
+    /// el primero de cada compas acentuado. `idle`: la cancion no suena. Al
+    /// empezar (o volver a empezar), el primer pulso es ya.
+    fn free_click(&mut self, n: usize, idle: bool) {
+        if !(idle && self.free.on) {
+            self.free_was = false;
+            return;
+        }
+        if !self.free_was {
+            self.free_was = true;
+            self.free_next = 0.0;
+            self.free_beat = 0;
+        }
+        let bpm = f64::from(self.free.bpm).clamp(
+            f64::from(crate::metro::MIN_BPM),
+            f64::from(crate::metro::MAX_BPM),
+        );
+        let period = 60.0 * f64::from(self.rate) / bpm;
+        let per_bar = u32::from(self.free.meter);
+        while self.free_next < n as f64 {
+            let accent = per_bar > 0 && self.free_beat.is_multiple_of(per_bar);
+            self.voices_start(self.free_next as usize, accent);
+            self.free_beat = self.free_beat.wrapping_add(1);
+            self.free_next += period;
+        }
+        self.free_next -= n as f64;
+        self.mix_voices(n);
+    }
+
     fn voices_start(&mut self, wait: usize, accent: bool) {
-        let sound = self.plan.sound;
+        let (sound, _) = self.click_voice();
         let len = click_len(accent, self.rate, sound);
         // la que lleve mas sonando, si no hay libre
         let slot = self
@@ -1525,8 +1708,8 @@ impl Render {
     }
 
     fn mix_voices(&mut self, n: usize) {
-        let (sound, rate) = (self.plan.sound, self.rate);
-        let volume = self.plan.volume.clamp(0.0, crate::metro::MAX_VOLUME);
+        let ((sound, volume), rate) = (self.click_voice(), self.rate);
+        let volume = volume.clamp(0.0, crate::metro::MAX_VOLUME);
         let b = self.routing.click_bus();
         let buf = &mut self.bus_out[b * CHUNK * 2..][..n * 2];
         for v in &mut self.voices {
@@ -1616,6 +1799,10 @@ impl Render {
         if self.envelope <= 0.0 {
             match self.pending.take() {
                 Some(Pending::Stop) => {
+                    // parado en plena cola del final: la cancion si se acabo
+                    if self.drain.take().is_some() {
+                        self.controls.ended.store(true, Ordering::Release);
+                    }
                     self.running = false;
                     self.count = None;
                     self.controls.counting.store(0, Ordering::Release);

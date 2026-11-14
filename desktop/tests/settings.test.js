@@ -391,6 +391,22 @@ describe('the separated stems', () => {
     expect(card.text()).toContain('FLAC')
   })
 
+  it('Ogg Vorbis is offered too: what the engine plays without waiting', async () => {
+    // Opus hay que prepararlo (pasarlo a FLAC) la primera vez que se abren
+    // las pistas; Vorbis lo lee el motor tal cual
+    const { resetSeparation, useSeparation } = await import('../src/composables/useSeparation.js')
+    resetSeparation()
+    await useSeparation().refresh()
+    await mountView()
+    const field = w
+      .findAllComponents({ name: 'SelectField' })
+      .find((f) => f.props('label') === 'Guardar las pistas en')
+    const options = field.props('options')
+    expect(options.map((o) => o.v)).toEqual(['flac', 'ogg', 'opus'])
+    expect(options[1].note).toContain('suenan al momento')
+    expect(options[2].note).toContain('prepararlas la primera vez')
+  })
+
   it('if this computer cannot do it, it says why', async () => {
     const { resetSeparation, useSeparation } = await import('../src/composables/useSeparation.js')
     resetSeparation()

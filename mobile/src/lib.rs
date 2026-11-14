@@ -9,7 +9,7 @@
 //! - el reproductor, con sus mismas ordenes y su mismo evento (`player.rs`),
 //!   sobre el motor de pistas (`danplay-engine`);
 //! - el puente `api`, que en la PC lleva al nucleo (el crate `server`), aqui
-//!   lo contesta esta app con las pistas importadas (`api.rs`, `index.rs`);
+//!   lo contesta esta app con las pistas importadas (`api.rs`, `library.rs`);
 //! - las portadas, por el mismo protocolo `danplay://`.
 //!
 //! Lo que es de la PC (ventanas, bandeja, Telegram, el explorador) contesta
@@ -284,6 +284,34 @@ fn core_ready() -> bool {
     true
 }
 
+/// Copia a `cache` el `.danpista` que llega por `from` y lo importa.
+///
+/// Cada copia con su nombre. Todas se llamaban `incoming.danpista`: con dos
+/// importaciones a la vez (otro toque en «Importar», o un segundo archivo
+/// abierto desde WhatsApp) la segunda vaciaba la copia de la primera a medio
+/// escribir, y salia «no es un ZIP» o «pista.json está roto». El numero
+/// empieza de cero en cada arranque: lo que dejara un cierre a medias lo pisa
+/// una importacion de despues.
+fn copy_and_import(
+    lib: &Library,
+    from: &mut impl std::io::Read,
+    cache: &std::path::Path,
+) -> Result<Summary, String> {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let copy = cache.join(format!("incoming-{n}.danpista"));
+    let result = std::fs::File::create(&copy)
+        .map_err(|e| e.to_string())
+        .and_then(|mut to| {
+            std::io::copy(from, &mut to)
+                .map(|_| ())
+                .map_err(|e| format!("no se pudo copiar: {e}"))
+        })
+        .and_then(|()| lib.import(&copy));
+    let _ = std::fs::remove_file(&copy);
+    result
+}
+
 /// Importa el `.danpista` de esa ruta o de ese `content://` (Android).
 #[tauri::command]
 async fn import_bundle(
@@ -295,7 +323,6 @@ async fn import_bundle(
     use tauri_plugin_fs::{FilePath, FsExt, OpenOptions};
     let cache = app.path().app_cache_dir().map_err(|e| e.to_string())?;
     std::fs::create_dir_all(&cache).map_err(|e| e.to_string())?;
-    let copy = cache.join("incoming.danpista");
     let lib = Arc::clone(&lib);
     let source = FilePath::from_str(&uri).map_err(|_| "esa ruta no se entiende".to_string())?;
     let mut opts = OpenOptions::new();
@@ -304,16 +331,9 @@ async fn import_bundle(
         .fs()
         .open(source, opts)
         .map_err(|e| format!("no se pudo abrir el archivo: {e}"))?;
-    tauri::async_runtime::spawn_blocking(move || {
-        let mut to = std::fs::File::create(&copy).map_err(|e| e.to_string())?;
-        std::io::copy(&mut from, &mut to).map_err(|e| format!("no se pudo copiar: {e}"))?;
-        drop(to);
-        let r = lib.import(&copy);
-        let _ = std::fs::remove_file(&copy);
-        r
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || copy_and_import(&lib, &mut from, &cache))
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 // ------------------------------------------------- lo de la PC, aqui sin nada
@@ -445,5 +465,132 @@ pub fn run() {
         .run(tauri::generate_context!());
     if let Err(e) = app {
         log::error!("no se pudo arrancar DanPlay: {e}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cell::RefCell;
+    use std::io::Read;
+
+    /// El CRC-32 de un zip.
+    fn crc32(data: &[u8]) -> u32 {
+        let mut crc = !0u32;
+        for &byte in data {
+            crc ^= u32::from(byte);
+            for _ in 0..8 {
+                crc = (crc >> 1) ^ (0xedb8_8320 & 0u32.wrapping_sub(crc & 1));
+            }
+        }
+        !crc
+    }
+
+    /// Un zip con esas entradas, sin comprimir (este crate no lleva `zip`:
+    /// lo justo para que lo abra el motor).
+    fn zip_of(entries: &[(&str, &[u8])]) -> Vec<u8> {
+        let (mut out, mut index) = (Vec::new(), Vec::new());
+        for (name, data) in entries {
+            let offset = out.len() as u32;
+            // version, opciones, metodo, hora, fecha (1-1-1980), crc, tamaños, nombre, extra
+            let mut head = Vec::new();
+            for field in [20u16, 0, 0, 0, 33] {
+                head.extend(field.to_le_bytes());
+            }
+            for field in [crc32(data), data.len() as u32, data.len() as u32] {
+                head.extend(field.to_le_bytes());
+            }
+            head.extend((name.len() as u16).to_le_bytes());
+            head.extend(0u16.to_le_bytes());
+            out.extend(b"PK\x03\x04");
+            out.extend(&head);
+            out.extend(name.as_bytes());
+            out.extend(*data);
+            index.extend(b"PK\x01\x02");
+            index.extend(20u16.to_le_bytes());
+            index.extend(&head);
+            // comentario, disco, atributos (dos), y donde empieza la entrada
+            index.extend([0u8; 10]);
+            index.extend(offset.to_le_bytes());
+            index.extend(name.as_bytes());
+        }
+        let (start, size, count) = (out.len() as u32, index.len() as u32, entries.len() as u16);
+        out.extend(index);
+        out.extend(b"PK\x05\x06");
+        out.extend([0u8; 4]);
+        out.extend(count.to_le_bytes());
+        out.extend(count.to_le_bytes());
+        out.extend(size.to_le_bytes());
+        out.extend(start.to_le_bytes());
+        out.extend(0u16.to_le_bytes());
+        out
+    }
+
+    /// El `.danpista` de una cancion con ese titulo.
+    fn bundle_of(title: &str) -> Vec<u8> {
+        let manifest = serde_json::json!({
+            "format": "danpista", "version": 1,
+            "song": {"title": title, "artist": "Barak", "file": format!("Barak - {title}.flac")},
+            "tracks": [{"source": "drums", "name": "Batería", "file": "partes/Bateria.ogg"}],
+        })
+        .to_string();
+        zip_of(&[
+            ("pista.json", manifest.as_bytes()),
+            ("partes/Bateria.ogg", title.repeat(500).as_bytes()),
+        ])
+    }
+
+    /// Lee `data` a trozos y, a mitad, hace `then` (una vez).
+    struct Halfway<'a> {
+        data: &'a [u8],
+        at: usize,
+        then: Option<Box<dyn FnOnce() + 'a>>,
+    }
+
+    impl Read for Halfway<'_> {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            if self.at >= self.data.len() / 2
+                && let Some(then) = self.then.take()
+            {
+                then();
+            }
+            let n = buf.len().min(64).min(self.data.len() - self.at);
+            buf[..n].copy_from_slice(&self.data[self.at..self.at + n]);
+            self.at += n;
+            Ok(n)
+        }
+    }
+
+    /// Dos importaciones a la vez: la segunda llega con la copia de la
+    /// primera a medio escribir. Compartian el archivo (`incoming.danpista`),
+    /// y la primera acababa en «no se pudo abrir» o «no es un ZIP».
+    #[test]
+    fn two_imports_at_once_do_not_share_their_copy() {
+        let dir =
+            std::env::temp_dir().join(format!("danplay-mobile-import-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let cache = dir.join("cache");
+        std::fs::create_dir_all(&cache).expect("carpeta");
+        let lib = Library::new(dir.join("tracks"));
+        let (one, two) = (bundle_of("Uno"), bundle_of("Dos"));
+        let second = RefCell::new(None);
+        let mut first_reader = Halfway {
+            data: &one,
+            at: 0,
+            then: Some(Box::new(|| {
+                *second.borrow_mut() = Some(copy_and_import(&lib, &mut &two[..], &cache));
+            })),
+        };
+        let first = copy_and_import(&lib, &mut first_reader, &cache);
+        drop(first_reader);
+        let second = second.into_inner().expect("la segunda");
+        assert_eq!(first.map(|s| s.title), Ok("Uno".to_string()));
+        assert_eq!(second.map(|s| s.title), Ok("Dos".to_string()));
+        assert_eq!(lib.songs().len(), 2);
+        // y ninguna deja su copia, tampoco la que no se pudo importar
+        let bad = copy_and_import(&lib, &mut &b"no es un zip"[..], &cache);
+        assert!(bad.expect_err("no es un zip").contains("no es un ZIP"));
+        assert_eq!(std::fs::read_dir(&cache).expect("copias").count(), 0);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

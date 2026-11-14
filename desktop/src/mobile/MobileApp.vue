@@ -23,7 +23,7 @@ import { useDialog, ask } from '../composables/useDialog.js'
 import { useContextMenu, closeMenu, openMenu } from '../composables/useContextMenu.js'
 import { usePreferences } from '../composables/usePreferences.js'
 import { formatMinutes } from '../utils/format.js'
-import { importBundles, importUri } from './importer.js'
+import { importBundles, importUri, importing } from './importer.js'
 import { tapPlays, compactList, keepAwake } from './prefs.js'
 import { useMediaSession } from './mediaSession.js'
 import Drawer from '../components/ui/Drawer.vue'
@@ -213,6 +213,8 @@ function toggleSearch() {
 
 async function importTracks() {
   menuOpen.value = false
+  // con una en marcha no se pide otra: ya dice que está importando
+  if (importing.value) return
   if (await importBundles()) await refresh()
 }
 
@@ -577,7 +579,7 @@ function help() {
     kind: 'alert',
     title: 'Cómo traer pistas de la PC',
     message:
-      'En DanPlay de la PC, abre el modo estudio de una canción separada y, en el menú ⋯ de las pistas, elige «Convertir a DanPista (para el celular)». Sale un archivo .danpista en la carpeta «Celular» de tu biblioteca.',
+      'En DanPlay de la PC, abre el modo estudio de una canción separada y, en «Exportar…» (su menú ⋯), elige «Para el celular». Sale un archivo .danpista en la carpeta «Celular» de tu biblioteca. Con varias canciones elegidas, el clic derecho las prepara todas.',
     detail:
       'Pásalo al teléfono como quieras (WhatsApp, Drive, cable) y tócalo: «Abrir con DanPlay». O aquí, en el menú, «Importar pistas».',
     okLabel: 'Entendido'
@@ -589,6 +591,14 @@ onMounted(() => {
   // con los de fábrica)
   prefs.applyAll()
   refresh()
+  // La salida de audio y el reparto que se dejaron elegidos, desde ya (como
+  // en la PC, `App.vue`). Solo los ponía el modo estudio al abrirse: con una
+  // interfaz o un cable en Y elegidos, cada arranque sonaba todo junto por la
+  // salida del sistema, y al abrir el estudio la salida se reabría a mitad de
+  // canción. (`useRouting` los manda al motor la primera vez que alguien lo usa.)
+  if (api.inTauri) {
+    import('../composables/useRouting.js').then((m) => m.useRouting()).catch(() => {})
+  }
 })
 
 // El botón «atrás» de Android: cierra lo que haya abierto, de lo de encima a
@@ -602,6 +612,9 @@ window.__danplayBack = () => {
   else if (detailsOpen.value) detailsOpen.value = false
   else if (settingsOpen.value) settingsOpen.value = false
   else if (aboutOpen.value) aboutOpen.value = false
+  // «Carpetas» no estaba: «atrás» salía de la música del teléfono por debajo
+  // y el panel se quedaba abierto encima
+  else if (foldersOpen.value) foldersOpen.value = false
   else if (menuOpen.value) menuOpen.value = false
   else if (studyOpen.value) closeStudy()
   else if (editing.value) editing.value = false
@@ -676,6 +689,7 @@ onUnmounted(() => delete window.__danplayOpen)
         type="button"
         class="m-icon"
         aria-label="Importar pistas (.danpista) hechas en DanPlay de la PC"
+        :disabled="importing > 0"
         @click="importTracks"
       >
         <Icon n="download" :t="22" />
@@ -760,9 +774,14 @@ onUnmounted(() => delete window.__danplayOpen)
         <EmptyState
           icon="mixer"
           title="Todavía no hay pistas en el celular"
-          hint="En DanPlay de la PC: el menú de las pistas de una canción › «Convertir a DanPista». Pasa el archivo .danpista al teléfono (WhatsApp, Drive, cable) y tócalo, o tráelo desde aquí."
+          hint="En DanPlay de la PC: el modo estudio de una canción separada › «Exportar…» › «Para el celular». Pasa el archivo .danpista al teléfono (WhatsApp, Drive, cable) y tócalo, o tráelo desde aquí."
         />
-        <button type="button" class="m-chip-btn m-primary" @click="importTracks">
+        <button
+          type="button"
+          class="m-chip-btn m-primary"
+          :disabled="importing > 0"
+          @click="importTracks"
+        >
           <Icon n="download" :t="16" /> Importar pistas
         </button>
       </div>

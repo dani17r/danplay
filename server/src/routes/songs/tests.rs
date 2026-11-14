@@ -116,6 +116,42 @@ fn the_card_and_its_errors() {
     );
 }
 
+/// La ficha dice el tono que se deduce de los acordes de su cifrado, aparte
+/// del tono de la canción (`key_deduced`), y solo si la canción no tiene el
+/// suyo: no se completa, no se pisa.
+#[test]
+fn the_card_says_the_key_deduced_from_the_chords_apart_from_its_own() {
+    let app = app();
+    let ids = songs(&app, &["Artistas/Ana/Ana - Uno.wav"]);
+    let url = format!("/api/song/{}", ids[0]);
+    let sheet = json!({"sheet": {
+        "source": "LaCuerda", "key": "", "capo": 0,
+        "sections": [{"name": "", "chords": ["Am", "F", "C", "G", "Am", "E", "Am"], "lines": []}],
+    }});
+    crate::services::songs::update_one(&app, ids[0], "chords", sheet.to_string().into())
+        .expect("cifrado");
+    let (st, v) = call(&app, "GET", &url, None);
+    assert_eq!(
+        (st, &v["key"], &v["key_deduced"]),
+        (200, &json!(""), &json!("Am")),
+        "{v}"
+    );
+    // con tono propio, no se enseña ninguno deducido
+    let (st, v) = call(&app, "PATCH", &url, Some(json!({"key": "Gm"})));
+    assert_eq!(st, 200, "{v}");
+    let (_, v) = call(&app, "GET", &url, None);
+    assert_eq!(
+        (&v["key"], v.get("key_deduced")),
+        (&json!("Gm"), None),
+        "{v}"
+    );
+    // y sin cifrado, tampoco
+    crate::services::songs::update_one(&app, ids[0], "chords", "".into()).expect("sin cifrado");
+    crate::services::songs::update_one(&app, ids[0], "key", "".into()).expect("sin tono");
+    let (_, v) = call(&app, "GET", &url, None);
+    assert_eq!(v.get("key_deduced"), None, "{v}");
+}
+
 #[test]
 fn editing_writes_the_index_and_the_file() {
     let app = app();
@@ -252,6 +288,122 @@ fn study_is_validated_and_saved_clean() {
     );
 }
 
+/// Guardar el estudio (o una estrella) dice si la etiqueta del archivo se
+/// escribió y, si no, por qué: antes no se sabía cuándo lo guardado quedaba
+/// solo en la base. Y la ficha dice si el archivo admite etiquetas.
+#[test]
+fn saving_says_whether_the_file_took_it() {
+    let app = app();
+    // un wma no admite etiquetas (y este, además, ni es audio)
+    let old = library(&app).join(crate::tests::native("Artistas/Ana/Ana - Vieja.wma"));
+    std::fs::create_dir_all(old.parent().expect("carpeta")).expect("carpeta");
+    std::fs::write(&old, b"no admite etiquetas").expect("escribir");
+    let ids = songs(
+        &app,
+        &["Artistas/Ana/Ana - Uno.wav", "Artistas/Ana/Ana - Vieja.wma"],
+    );
+    // (el ayudante escribe un wav en cada ruta: el de mentira, otra vez)
+    std::fs::write(&old, b"no admite etiquetas").expect("escribir");
+    let (taggable, untaggable) = (ids[0], ids[1]);
+    let study = json!({"speed": 0.8});
+
+    let (st, v) = call(
+        &app,
+        "PUT",
+        &format!("/api/song/{taggable}/study"),
+        Some(study.clone()),
+    );
+    assert_eq!(
+        (st, &v["tags_written"], &v["tags_skipped"]),
+        (200, &json!(true), &Value::Null),
+        "{v}"
+    );
+    let path = PathBuf::from(v["path"].as_str().expect("ruta"));
+    assert_eq!(library::tags::read(&path).study, r#"{"speed":0.8}"#);
+    assert_eq!(
+        call(&app, "GET", &format!("/api/song/{taggable}"), None).1["tags_supported"],
+        true
+    );
+
+    let (st, v) = call(
+        &app,
+        "PUT",
+        &format!("/api/song/{untaggable}/study"),
+        Some(study.clone()),
+    );
+    assert_eq!(
+        (st, &v["tags_written"], &v["tags_skipped"]),
+        (200, &json!(false), &json!("unsupported")),
+        "{v}"
+    );
+    // guardado queda, en la base; y la respuesta sigue diciendo que ese
+    // archivo no admite etiquetas (la ficha de la interfaz se pone al día con ella)
+    assert_eq!(v["study"], r#"{"speed":0.8}"#);
+    assert_eq!(v["tags_supported"], false);
+    let (st, v) = call(
+        &app,
+        "POST",
+        &format!("/api/song/{untaggable}/stars"),
+        Some(json!({"stars": 4})),
+    );
+    assert_eq!(
+        (st, &v["stars"], &v["tags_written"], &v["tags_skipped"]),
+        (200, &json!(4), &json!(false), &json!("unsupported")),
+        "{v}"
+    );
+    assert_eq!(
+        call(&app, "GET", &format!("/api/song/{untaggable}"), None).1["tags_supported"],
+        false
+    );
+    let (st, v) = call(
+        &app,
+        "POST",
+        &format!("/api/song/{taggable}/stars"),
+        Some(json!({"stars": 4})),
+    );
+    assert_eq!(
+        (st, &v["tags_written"], &v["tags_skipped"]),
+        (200, &json!(true), &Value::Null),
+        "{v}"
+    );
+
+    // un archivo de solo lectura: se puede, pero no se pudo
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o444)).expect("permisos");
+        // (quien todo lo puede escribe igual: ahí no hay nada que probar)
+        if std::fs::OpenOptions::new().write(true).open(&path).is_err() {
+            let (st, v) = call(
+                &app,
+                "PUT",
+                &format!("/api/song/{taggable}/study"),
+                Some(json!({"speed": 0.7})),
+            );
+            assert_eq!(
+                (st, &v["tags_written"], &v["tags_skipped"]),
+                (200, &json!(false), &json!("failed")),
+                "{v}"
+            );
+        }
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).expect("permisos");
+    }
+
+    // con las etiquetas desactivadas en Ajustes, es lo que se pidió
+    app.update_config(|c| c.write_tags = false);
+    let (st, v) = call(
+        &app,
+        "PUT",
+        &format!("/api/song/{taggable}/study"),
+        Some(study),
+    );
+    assert_eq!(
+        (st, &v["tags_written"], &v["tags_skipped"]),
+        (200, &json!(false), &json!("off")),
+        "{v}"
+    );
+}
+
 #[test]
 fn transposing_text_and_the_stored_sheet() {
     let app = app();
@@ -272,10 +424,9 @@ fn transposing_text_and_the_stored_sheet() {
         Some(json!({"text": "Bb", "to_key": "Eb"})),
     );
     assert_eq!(v["text"], "Bb");
-    assert_eq!(
-        v["capo"],
-        json!([[1, "D"], [1, "Dm"], [3, "C"], [6, "A"], [6, "Am"]])
-    );
+    // Mi bemol mayor, con formas mayores (antes iban también las menores,
+    // que con esa cejilla suenan Mi bemol menor)
+    assert_eq!(v["capo"], json!([[1, "D"], [3, "C"], [6, "A"]]));
     let (st, v) = call(
         &app,
         "POST",

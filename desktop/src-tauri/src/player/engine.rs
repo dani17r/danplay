@@ -8,7 +8,7 @@
 //! la par de lo que suena (`handoff_files`), sin corte.
 use super::formats;
 use super::state::{MAX_VOLUME, lock, nudged_volume};
-use super::{Command, CueSpec, Event, LoopEnd, Notify, OutputConfig, RoutingSpec, State, StemTrack, balance};
+use super::{Command, CueSpec, Event, LoopEnd, Notify, OutputConfig, RoutingSpec, State, StemTrack, Upcoming, balance};
 use danplay_engine::bundle::PartFile;
 use danplay_engine::metro::{Metro, click_plan};
 use danplay_engine::render::Routing;
@@ -39,6 +39,17 @@ const HANDOFF: f32 = 0.06;
 /// Cada cuanto se mira el motor mientras suena, y en reposo.
 const ACTIVE: Duration = Duration::from_millis(40);
 const IDLE: Duration = Duration::from_millis(500);
+/// Y cuando a la que suena le queda menos de `NEAR_END`: lo que tarde en
+/// verse que acabó es silencio entre ella y la siguiente.
+const CLOSE: Duration = Duration::from_millis(2);
+const NEAR_END: f64 = 0.25;
+const CLOSE_AT_MOST: Duration = Duration::from_secs(2);
+/// Lo que lleva anunciada la siguiente antes de prepararla (pasarla a FLAC):
+/// pasando canciones deprisa no se lanza un ffmpeg por cada una.
+const SETTLED: Duration = Duration::from_secs(2);
+/// Cuando a la que suena le queda menos que esto, la siguiente se prepara ya
+/// y su archivo se lee, para que al abrirlo no haya que esperar al disco.
+const PRELOAD: f64 = 20.0;
 /// Cada cuanto se avisa de la posicion mientras suena.
 const TICK: Duration = Duration::from_millis(250);
 
@@ -51,6 +62,8 @@ pub(super) struct Carry {
     pub(super) volume: f32,
     pub(super) speed: f32,
     pub(super) pitch: f32,
+    /// Conservar el timbre al cambiar el tono (`Command::Formants`).
+    pub(super) formants: bool,
     /// La cancion (su ruta de la biblioteca: la de verdad).
     pub(super) path: String,
     pub(super) duration: f64,
@@ -75,6 +88,7 @@ impl Carry {
             volume: 0.9,
             speed: 1.0,
             pitch: 0.0,
+            formants: false,
             path: String::new(),
             duration: 0.0,
             loops: Vec::new(),
@@ -120,18 +134,35 @@ struct Loaded {
     stems: Vec<(String, Stamp)>,
 }
 
-/// Lo que se prepara aparte (pasar a FLAC lo que el motor no lee).
-enum Prepared {
-    Ready,
+/// Lo que se preparó aparte (pasar a FLAC lo que el motor no lee): la orden
+/// que lo esperaba y, si no se pudo, por qué.
+struct Prepared {
+    turn: u64,
+    error: Option<String>,
 }
 
 /// Una vuelta del bucle: lo que hay que contar.
 #[derive(Default)]
 struct Step {
     failure: Option<String>,
+    /// El fallo es de no poder abrir la cancion: se le avisa a la cola.
+    could_not_open: bool,
     clear_error: bool,
     /// Se pidio un salto: la posicion nueva se avisa aunque este en pausa.
     sought: bool,
+    /// Entró sola la que la cola había anunciado con este número, al acabar
+    /// la de esta ruta.
+    advanced: Option<(u64, String)>,
+}
+
+/// La siguiente, tal como la anunció la cola, y lo que ya se ha hecho por
+/// tenerla lista.
+struct Next {
+    song: Upcoming,
+    since: Instant,
+    /// Ya se mandó preparar (o no hace falta) y ya se leyó su archivo.
+    prepared: bool,
+    read: bool,
 }
 
 #[expect(
@@ -142,8 +173,21 @@ struct Engine<'a> {
     shared: &'a Arc<Mutex<State>>,
     notify: &'a Notify,
     carry: &'a mut Carry,
-    audio: danplay_engine::Engine,
+    audio: Arc<danplay_engine::Engine>,
     loaded: Option<Loaded>,
+    /// Lo cargado es la canción que se va: la cola ya pidió la siguiente
+    /// (con fundido), que se está preparando, y la de antes sigue sonando
+    /// hasta su final en vez de cortarse. Lo que dura la que se va.
+    outgoing: Option<f64>,
+    /// La que viene detrás, si la cola la ha anunciado.
+    upcoming: Option<Next>,
+    /// Desde cuándo se mira el motor casi seguido (ver `pace`).
+    close_since: Option<Instant>,
+    /// Se abrió una canción con el clic puesto siguiendo a la canción y su
+    /// rejilla aún no ha llegado: el clic calla hasta que la interfaz diga
+    /// algo (`Command::Metronome`). La que había era de la anterior; sin esto
+    /// sonaba a 100 bpm los instantes que tardaba en llegar.
+    click_hold: bool,
     /// Ya se aviso de que esta cancion se acaba (`Event::Ending`).
     ending_sent: bool,
     was_finished: bool,
@@ -155,36 +199,51 @@ struct Engine<'a> {
     idle_since: Option<Instant>,
     /// Hay salida de audio en el equipo (mirado al empezar).
     any_output: bool,
-    /// La orden que espera a que se prepare un archivo (`formats`).
-    waiting: Option<Command>,
+    /// La orden que espera a que se prepare un archivo (`formats`), con su
+    /// turno: lo que acabe de prepararse para otra ya no la repite.
+    waiting: Option<(u64, Command)>,
+    turns: u64,
     prepared_tx: Sender<Prepared>,
     prepared_rx: Receiver<Prepared>,
-    preparing: bool,
     /// Las voces guia ya leidas, por archivo.
     clips: Clips,
 }
 
 /// El bucle del hilo de audio. Vuelve solo cuando se cierra el canal; si hace
 /// panic, `Handle::new` lo vuelve a lanzar.
-pub(super) fn run(rx: &Receiver<Command>, shared: &Arc<Mutex<State>>, notify: &Notify, carry: &mut Carry) {
+///
+/// `audio` es el motor; `offline`, que no tiene salida (las pruebas tiran de
+/// él a mano): entonces no se mira si el equipo tiene por dónde sonar.
+pub(super) fn run(
+    rx: &Receiver<Command>,
+    shared: &Arc<Mutex<State>>,
+    notify: &Notify,
+    carry: &mut Carry,
+    audio: Arc<danplay_engine::Engine>,
+    offline: bool,
+) {
     let (prepared_tx, prepared_rx) = channel();
     let mut engine = Engine {
         shared,
         notify,
         carry,
-        audio: danplay_engine::Engine::new(),
+        audio,
         loaded: None,
+        outgoing: None,
+        upcoming: None,
+        close_since: None,
+        click_hold: false,
         ending_sent: false,
         was_finished: false,
         rewound: false,
         last_sent: State::default(),
         last_tick: Instant::now(),
         idle_since: None,
-        any_output: danplay_engine::output::has_default(),
+        any_output: offline || danplay_engine::output::has_default(),
         waiting: None,
+        turns: 0,
         prepared_tx,
         prepared_rx,
-        preparing: false,
         clips: Clips::default(),
     };
     engine.apply_session();
@@ -192,11 +251,11 @@ pub(super) fn run(rx: &Receiver<Command>, shared: &Arc<Mutex<State>>, notify: &N
     if !engine.any_output {
         first.failure = Some(NO_OUTPUT.into());
     }
-    if !engine.publish(first) {
+    if !engine.publish(first, None) {
         return;
     }
     loop {
-        let wait = if engine.sounding() { ACTIVE } else { IDLE };
+        let wait = engine.pace();
         let mut step = Step::default();
         match rx.recv_timeout(wait) {
             Ok(command) => {
@@ -209,14 +268,11 @@ pub(super) fn run(rx: &Receiver<Command>, shared: &Arc<Mutex<State>>, notify: &N
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => return,
         }
-        if engine.prepared_rx.try_recv().is_ok() {
-            engine.preparing = false;
-            if let Some(command) = engine.waiting.take() {
-                engine.handle(command, &mut step);
-            }
+        while let Ok(done) = engine.prepared_rx.try_recv() {
+            engine.prepared(done, &mut step);
         }
-        engine.watch(&mut step);
-        if !engine.publish(step) {
+        let seen = engine.watch(&mut step);
+        if !engine.publish(step, Some(seen)) {
             return;
         }
     }
@@ -227,11 +283,52 @@ impl Engine<'_> {
         self.loaded.is_some() && self.audio.state().playing
     }
 
+    /// Cada cuánto mirar el motor: en reposo, de tarde en tarde; sonando, a
+    /// menudo; y a punto de acabar la canción, casi seguido.
+    fn pace(&mut self) -> Duration {
+        if self.loaded.is_none() {
+            return IDLE;
+        }
+        let st = self.audio.state();
+        // una que acaba de acabar y aún no se ha contado (ni se le ha puesto
+        // la siguiente): se mira ya. Si acababa justo entre dos miradas, «ya
+        // no suena» mandaba a dormir el bucle medio segundo, y ese era el
+        // silencio entre las dos canciones.
+        if st.ended && !st.segments_done && !self.was_finished && self.outgoing.is_none() && !self.carry.path.is_empty()
+        {
+            return CLOSE;
+        }
+        if !st.playing {
+            return IDLE;
+        }
+        let left = (st.duration - st.position) / f64::from(self.carry.speed.max(0.25));
+        if st.duration <= 0.0 || left > NEAR_END {
+            self.close_since = None;
+            return ACTIVE;
+        }
+        // (un archivo que dura más de lo que dice no deja el bucle girando
+        // sin parar hasta que acabe de verdad)
+        let since = *self.close_since.get_or_insert_with(Instant::now);
+        if since.elapsed() <= CLOSE_AT_MOST {
+            CLOSE
+        } else {
+            ACTIVE
+        }
+    }
+
+    /// Fuera lo cargado (y, si era la que se iba, deja de serlo).
+    fn unload(&mut self) {
+        self.audio.unload();
+        self.loaded = None;
+        self.outgoing = None;
+    }
+
     /// Lo de la sesion (tras una caida, o al empezar): velocidad, tono,
     /// salida y enrutado.
     fn apply_session(&mut self) {
         self.audio.set_speed(self.carry.speed);
         self.audio.set_pitch(self.carry.pitch);
+        self.audio.set_formants(self.carry.formants);
         self.audio.set_output_config(self.carry.output.clone());
         self.audio.set_count_in(u32::from(self.carry.metro.settings.count_in));
         self.audio.set_routing(self.routing());
@@ -239,9 +336,50 @@ impl Engine<'_> {
 
     fn handle(&mut self, command: Command, step: &mut Step) {
         step.clear_error = matches!(command, Command::Play { .. } | Command::Load { .. } | Command::Stop);
+        // lo que esperaba a prepararse era para lo de antes: si no se
+        // olvida, al acabar ffmpeg entraba la canción vieja sobre la nueva
+        let replaces = matches!(
+            (&command, &self.waiting),
+            (
+                Command::Play { .. } | Command::Load { .. } | Command::Stop | Command::Fail(_),
+                Some(_)
+            ) | (Command::Stems { .. }, Some((_, Command::Stems { .. })))
+        );
+        if replaces {
+            self.waiting = None;
+        }
+        // lo que es para «la canción» ya es para la que se prepara: la que
+        // se iba no puede seguir debajo recibiendo saltos, tramos o el clic
+        // de otra
+        let for_the_new = match &command {
+            Command::Seek(_) | Command::Toggle | Command::Pause | Command::Resume => true,
+            Command::Loops { segments, .. } => !segments.is_empty(),
+            Command::Metronome { settings, .. } => settings.on,
+            _ => false,
+        };
+        if for_the_new && self.outgoing.is_some() {
+            self.unload();
+        }
         match command {
             Command::Play { path, duration } => self.play(path, duration, step),
             Command::Load { path, duration } => self.load(path, duration),
+            Command::Upcoming(next) => {
+                // la misma otra vez (la cola la repite al cambiar de forma)
+                // no pierde lo ya hecho por ella
+                let same = |n: &Next, u: &Upcoming| n.song.path == u.path;
+                self.upcoming = match (self.upcoming.take(), next) {
+                    (Some(mut old), Some(new)) if same(&old, &new) => {
+                        old.song = new;
+                        Some(old)
+                    }
+                    (_, next) => next.map(|song| Next {
+                        song,
+                        since: Instant::now(),
+                        prepared: false,
+                        read: false,
+                    }),
+                };
+            }
             Command::Toggle => self.toggle(None, step),
             Command::Resume => self.toggle(Some(true), step),
             Command::Pause => self.toggle(Some(false), step),
@@ -257,6 +395,7 @@ impl Engine<'_> {
             Command::Metronome { settings, grid } => {
                 let path = self.carry.path.clone();
                 self.carry.metro.set(settings, grid, &path);
+                self.click_hold = false; // la interfaz ya decidió para esta canción
                 self.audio.set_count_in(u32::from(self.carry.metro.settings.count_in));
                 self.send_click();
             }
@@ -270,6 +409,10 @@ impl Engine<'_> {
             Command::Pitch(semitones) => {
                 self.carry.pitch = clean_pitch(semitones);
                 self.audio.set_pitch(self.carry.pitch);
+            }
+            Command::Formants(on) => {
+                self.carry.formants = on;
+                self.audio.set_formants(on);
             }
             Command::Relocated { from, to } => self.relocated(&from, to),
             Command::Crossfade(seconds) => {
@@ -332,20 +475,44 @@ impl Engine<'_> {
             return formats::playable(&missing[0]).map(|_| None);
         }
         // aparte: el hilo de audio no se queda esperando a ffmpeg
-        self.waiting = Some(command());
-        self.preparing = true;
+        self.turns += 1;
+        let turn = self.turns;
+        self.waiting = Some((turn, command()));
         let tx = self.prepared_tx.clone();
         let _ = std::thread::Builder::new()
             .name("danplay-prepare".into())
             .spawn(move || {
+                let mut error = None;
                 for path in missing {
                     if let Err(e) = formats::playable(&path) {
                         log::warn!("no se pudo preparar {}: {e}", path.display());
+                        error.get_or_insert(e);
                     }
                 }
-                let _ = tx.send(Prepared::Ready);
+                let _ = tx.send(Prepared { turn, error });
             });
         Ok(None)
+    }
+
+    /// Acabó de prepararse lo que esperaba una orden: se repite; y si no se
+    /// pudo, se dice (repetirla lo volvía a intentar sin fin, con el
+    /// reproductor en «preparando» y sin un error).
+    fn prepared(&mut self, done: Prepared, step: &mut Step) {
+        if self.waiting.as_ref().is_none_or(|(turn, _)| *turn != done.turn) {
+            return; // era para una orden que ya no espera
+        }
+        let Some((_, command)) = self.waiting.take() else {
+            return;
+        };
+        match (done.error, command) {
+            (None, command) => self.handle(command, step),
+            // sin sus pistas, la canción sigue sonando entera
+            (Some(error), Command::Stems { .. }) => {
+                self.carry.stems = None;
+                step.failure = Some(readable(&error));
+            }
+            (Some(error), _) => self.failed(error, step),
+        }
     }
 
     /// Volver a pedir las pistas de la que suena (cuando acaben de
@@ -386,15 +553,21 @@ impl Engine<'_> {
         // Con fundido, la que suena no se corta: baja mientras sube la nueva.
         // Si la mando la cola porque esta se acaba (`Ending`), en lo que le
         // queda; si es un cambio a mano, en poco.
+        // (lo que dura la que suena: la puesta o, si esta orden ya esperaba
+        // a prepararse, la que se va)
+        let lasts = self.outgoing.unwrap_or(self.carry.duration);
+        let ending = self.ending_sent;
         let fade = self.can_crossfade().then(|| {
-            let len = self.crossfade_len();
-            if self.ending_sent {
-                let left = (self.carry.duration - self.audio.state().position).max(0.0) as f32;
+            let len = crossfade_len(self.carry.crossfade, lasts);
+            if ending {
+                let left = (lasts - self.audio.state().position).max(0.0) as f32;
                 left.clamp(0.3, len.max(0.3))
             } else {
                 len.min(MANUAL_FADE)
             }
         });
+        // la que suena sigue hasta su final aunque la siguiente no llegue
+        let keep_old = fade.is_some() && ending;
         if path != self.carry.path {
             // las pistas, los tramos y las voces eran de la cancion de antes
             // (la misma otra vez, como al repetirla, sigue con los suyos)
@@ -412,12 +585,24 @@ impl Engine<'_> {
         let song = match self.playable(std::slice::from_ref(&path), retry) {
             Ok(Some(mut files)) => files.remove(0),
             Ok(None) => {
-                // se prepara aparte: lo que sonaba, fuera
-                self.audio.unload();
-                self.loaded = None;
+                // se prepara aparte. Si la mandó la cola porque la que suena
+                // se acaba, esta llega a su final (antes se cortaba ahí
+                // mismo: hasta doce segundos antes de acabar); a mano, fuera,
+                // que quien pulsa quiere el cambio ya
+                if keep_old {
+                    self.outgoing = Some(lasts);
+                } else {
+                    self.unload();
+                }
                 return;
             }
-            Err(e) => return self.failed(e, step),
+            Err(e) => {
+                // (tampoco se corta la que suena si la siguiente no abre)
+                if keep_old {
+                    self.outgoing = Some(lasts);
+                }
+                return self.failed(e, step);
+            }
         };
         // las pistas que haya que preparar entran luego, a la par; la
         // cancion no espera por ellas
@@ -446,6 +631,7 @@ impl Engine<'_> {
                     playable: song,
                     stems: stems.iter().map(|(t, p)| (t.path.clone(), stamp(p))).collect(),
                 });
+                self.outgoing = None;
                 self.after_open();
                 if fade.is_none() {
                     // la que entra sola en la cola no cuenta
@@ -455,7 +641,12 @@ impl Engine<'_> {
                 self.was_finished = false;
                 self.rewound = false;
             }
-            Err(e) => self.failed(e, step),
+            Err(e) => {
+                if keep_old {
+                    self.outgoing = Some(lasts);
+                }
+                self.failed(e, step);
+            }
         }
     }
 
@@ -466,6 +657,8 @@ impl Engine<'_> {
         self.apply_mix();
         let path = self.carry.path.clone();
         self.carry.metro.rebuild(&path);
+        let metro = &self.carry.metro;
+        self.click_hold = metro.settings.on && metro.settings.bpm.is_none() && metro.effective.is_none();
         self.audio.set_segments(&self.carry.loops, self.carry.loop_end);
         self.send_click();
         self.send_cues();
@@ -474,16 +667,19 @@ impl Engine<'_> {
     /// No se pudo abrir: se dice y se olvida (sin limpiar la ruta, el
     /// siguiente play reproducia la cancion ANTERIOR).
     fn failed(&mut self, error: String, step: &mut Step) {
-        self.audio.unload();
-        self.loaded = None;
+        // (la que se iba mientras se preparaba esta sigue hasta su final: la
+        // cola, al saberlo, manda otra, que aún puede fundirse con ella)
+        if self.outgoing.is_none() {
+            self.unload();
+        }
         self.carry.forget_song();
         step.failure = Some(readable(&error));
+        step.could_not_open = true;
     }
 
     /// Deja una cancion preparada pero en silencio (ver `Command::Load`).
     fn load(&mut self, path: String, hint: f64) {
-        self.audio.unload();
-        self.loaded = None;
+        self.unload();
         if path != self.carry.path {
             self.carry.stems = None;
             self.carry.loops.clear();
@@ -541,8 +737,7 @@ impl Engine<'_> {
     }
 
     fn stop(&mut self) {
-        self.audio.unload();
-        self.loaded = None;
+        self.unload();
         self.carry.forget_song();
         self.was_finished = false;
     }
@@ -749,7 +944,10 @@ impl Engine<'_> {
     }
 
     fn send_click(&self) {
-        let plan = click_plan(&self.carry.metro, self.carry.duration.max(1.0));
+        let mut plan = click_plan(&self.carry.metro, self.carry.duration.max(1.0));
+        if self.click_hold {
+            plan.on = false; // (los golpes se planean igual: la cuenta los usa)
+        }
         self.audio.set_click(plan);
     }
 
@@ -771,31 +969,44 @@ impl Engine<'_> {
             && self.audio.state().counting == 0
     }
 
-    /// Cuanto dura el fundido con la que suena: el puesto, o un tercio de
-    /// ella si es corta.
+    /// Cuanto dura el fundido con la que suena.
     fn crossfade_len(&self) -> f32 {
-        let duration = self.carry.duration as f32;
-        if duration > 0.0 {
-            self.carry.crossfade.min(duration / 3.0)
-        } else {
-            self.carry.crossfade
-        }
+        crossfade_len(self.carry.crossfade, self.carry.duration)
     }
 
     // ------------------------------------------- vigilar y contar
 
-    fn watch(&mut self, step: &mut Step) {
-        let st = self.audio.state();
+    /// Mira el motor y hace lo que toca (encadenar la siguiente, volver al
+    /// principio de los tramos, soltar la salida). Devuelve el estado con el
+    /// que decidió, para que `publish` cuente lo mismo: si lo volviera a
+    /// leer, una canción que acabara entre las dos lecturas se daría por
+    /// acabada (`Finished`) sin que `chain` hubiera podido ponerle la
+    /// siguiente, y entre las dos quedaba el silencio de ir a preguntar a la
+    /// cola (una vez de cada veinticinco).
+    fn watch(&mut self, step: &mut Step) -> danplay_engine::State {
+        let mut st = self.audio.state();
+        // la que se iba llegó a su final antes de que la siguiente
+        // estuviera preparada: fuera, y se sigue esperando a la otra (no es
+        // un `Finished`: la cola ya pasó a la siguiente)
+        if self.outgoing.is_some() && !st.playing {
+            self.unload();
+            st = self.audio.state();
+        }
+        self.ready_the_next(&st);
+        if self.chain(&st, step) {
+            st = self.audio.state();
+        }
         // parado al acabar los tramos: al principio del primero, en pausa
         if st.ended && st.segments_done && !self.rewound {
             self.rewound = true;
             if let Some(&(a, _)) = self.carry.loops.first() {
                 self.audio.seek(a);
                 step.sought = true;
+                st = self.audio.state();
             }
         }
         // en pausa un rato: la salida, fuera
-        if st.playing || st.counting > 0 || self.preparing {
+        if st.playing || st.counting > 0 || self.waiting.is_some() {
             self.idle_since = None;
         } else {
             let since = *self.idle_since.get_or_insert_with(Instant::now);
@@ -804,12 +1015,90 @@ impl Engine<'_> {
                 self.audio.release_output();
             }
         }
+        st
     }
 
-    fn publish(&mut self, step: Step) -> bool {
-        let st = self.audio.state();
+    /// La siguiente, lista de antemano: mientras suena esta, lo que haya que
+    /// pasar a FLAC se pasa ya (con fundido, si no, la que suena tendría que
+    /// esperarla o cortarse), y cerca del final se lee su archivo, que al
+    /// abrirlo no haya que esperar al disco.
+    fn ready_the_next(&mut self, st: &danplay_engine::State) {
+        if !st.playing || self.loaded.is_none() {
+            return;
+        }
+        let Some(next) = self.upcoming.as_mut() else {
+            return;
+        };
+        let near = st.duration > 0.0 && st.duration - st.position <= PRELOAD;
+        if !next.prepared && (near || next.since.elapsed() >= SETTLED) {
+            next.prepared = true;
+            let file = PathBuf::from(&next.song.path);
+            if file.is_file() && !formats::is_native(&file) && formats::cached(&file).is_none() {
+                let _ = std::thread::Builder::new()
+                    .name("danplay-prepare".into())
+                    .spawn(move || {
+                        if let Err(e) = formats::playable(&file) {
+                            log::warn!("no se pudo preparar {}: {e}", file.display());
+                        }
+                    });
+                return;
+            }
+        }
+        if !next.read
+            && near
+            && let Some(file) = ready_file(&next.song.path)
+        {
+            next.read = true;
+            let _ = std::thread::Builder::new()
+                .name("danplay-preload".into())
+                .spawn(move || {
+                    if let Ok(mut source) = std::fs::File::open(&file) {
+                        let _ = std::io::copy(&mut source, &mut std::io::sink());
+                    }
+                });
+        }
+    }
+
+    /// La que suena acabó sola y la cola ya había dicho cuál viene: entra
+    /// aquí mismo. Ir a preguntárselo (`Finished`, y esperar su `Play`) es
+    /// una vuelta por otro hilo, que además puede estar ocupado: silencio
+    /// entre canción y canción. True si entró (o se intentó).
+    ///
+    /// Solo si está lista para sonar ya; si no (hay que prepararla, su
+    /// archivo no está), se hace lo de siempre: `Finished`, y la cola decide.
+    fn chain(&mut self, st: &danplay_engine::State, step: &mut Step) -> bool {
+        let over = self.loaded.is_some()
+            && self.outgoing.is_none()
+            && st.ended
+            && !st.segments_done
+            && !st.failed
+            && !self.was_finished
+            && !self.carry.path.is_empty();
+        let ready = self
+            .upcoming
+            .as_ref()
+            .is_some_and(|n| ready_file(&n.song.path).is_some());
+        if !over || !ready {
+            return false;
+        }
+        let Some(next) = self.upcoming.take() else {
+            return false;
+        };
+        self.waiting = None;
+        step.clear_error = true;
+        step.advanced = Some((next.song.ticket, self.carry.path.clone()));
+        self.play(next.song.path, next.song.duration, step);
+        true
+    }
+
+    fn publish(&mut self, step: Step, seen: Option<danplay_engine::State>) -> bool {
+        let could_not_open = step.could_not_open;
+        let st = seen.unwrap_or_else(|| self.audio.state());
         let output = self.audio.output_status();
-        let finished = self.loaded.is_some() && st.ended && !st.segments_done;
+        // (con la que se va sonando mientras se prepara la siguiente, lo
+        // cargado no es «la canción»: ni su posición ni su final se cuentan)
+        let leaving = self.outgoing.is_some();
+        let finished = self.loaded.is_some() && !leaving && st.ended && !st.segments_done;
         let current = {
             let mut e = lock(self.shared);
             if let Some(reason) = step.failure {
@@ -820,34 +1109,45 @@ impl Engine<'_> {
             if let Some(err) = output.as_ref().and_then(|o| o.error.clone()) {
                 e.error = format!("La salida de audio falla: {err}");
             }
+            // la canción se cortó porque su archivo dejó de poder leerse: se
+            // dice cuál (se da por acabada, y la lista sigue con la siguiente)
+            if st.failed && finished && !self.was_finished {
+                e.error = format!(
+                    "«{}» está dañado y no se pudo seguir leyendo: se pasa a la siguiente.",
+                    file_name(&self.carry.path)
+                );
+                log::warn!("el archivo {} dejó de poder leerse a mitad", self.carry.path);
+            }
             let loaded = self.loaded.is_some();
             e.playing = loaded && (st.playing || st.counting > 0);
-            e.position = if loaded {
+            e.position = if leaving {
+                0.0
+            } else if loaded {
                 st.position
             } else {
                 self.carry.resume_at.unwrap_or(0.0)
             };
             e.has_output = self.any_output && output.as_ref().is_none_or(|o| o.error.is_none());
             e.path.clone_from(&self.carry.path);
-            e.duration = if self.carry.duration > 0.0 {
+            e.duration = if self.carry.duration > 0.0 || leaving {
                 self.carry.duration
             } else {
                 st.duration
             };
             e.volume = self.carry.volume;
             e.speed = self.carry.speed;
-            e.pitch_preserved = true;
             let loops = &self.carry.loops;
             e.loop_a = loops.first().map_or(0.0, |s| s.0);
             e.loop_b = loops.last().map_or(0.0, |s| s.1);
             e.loops = loops.iter().map(|&(a, b)| [a, b]).collect();
             e.loop_end = self.carry.loop_end;
             e.pitch = self.carry.pitch;
+            e.formants = self.carry.formants;
             e.metronome = self.carry.metro.state();
             e.stems = loaded && self.carry.stems.is_some();
             e.counting_in = st.counting > 0;
             e.output = output;
-            e.preparing = self.preparing;
+            e.preparing = self.waiting.is_some();
             e.clone()
         };
 
@@ -865,7 +1165,7 @@ impl Engine<'_> {
 
         // Se acaba y hay fundido: se avisa una vez, lo que dura el fundido
         // antes, para que la cola mande ya la siguiente.
-        if self.loaded.is_some() && current.duration > 0.0 {
+        if self.loaded.is_some() && !leaving && current.duration > 0.0 {
             let len = f64::from(self.crossfade_len());
             let left = current.duration - current.position;
             if !self.ending_sent && self.can_crossfade() && left <= len {
@@ -880,14 +1180,37 @@ impl Engine<'_> {
 
         let changed = step.sought || current.differs_from(&self.last_sent);
         let due = current.playing && self.last_tick.elapsed() >= TICK;
-        if changed || due {
+        if changed || due || step.advanced.is_some() {
             self.last_sent = current.clone();
             self.last_tick = Instant::now();
-            if !(self.notify)(Event::Changed(current)) {
+            let event = match step.advanced {
+                Some((ticket, from)) => Event::Advanced {
+                    ticket,
+                    from,
+                    state: current,
+                },
+                None => Event::Changed(current),
+            };
+            if !(self.notify)(event) {
                 return false;
             }
         }
+        // después del estado (que ya lleva el motivo): no se pudo abrir
+        if could_not_open && !(self.notify)(Event::Failed) {
+            return false;
+        }
         true
+    }
+}
+
+/// Cuanto dura el fundido con una cancion de `duration` segundos: el puesto,
+/// o un tercio de ella si es corta.
+fn crossfade_len(crossfade: f32, duration: f64) -> f32 {
+    let duration = duration as f32;
+    if duration > 0.0 {
+        crossfade.min(duration / 3.0)
+    } else {
+        crossfade
     }
 }
 
@@ -897,6 +1220,20 @@ pub(super) fn clean_pitch(semitones: f32) -> f32 {
         return 0.0;
     }
     (semitones.clamp(-12.0, 12.0) * 100.0).round() / 100.0
+}
+
+/// El archivo que sonaría de `path` si se pidiera ahora mismo, sin esperar a
+/// nada: él, o su FLAC ya hecho.
+fn ready_file(path: &str) -> Option<PathBuf> {
+    let file = Path::new(path);
+    if !file.is_file() {
+        return None;
+    }
+    if formats::is_native(file) {
+        Some(file.to_path_buf())
+    } else {
+        formats::cached(file)
+    }
 }
 
 fn file_name(path: &str) -> String {

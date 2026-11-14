@@ -50,6 +50,7 @@ import { useSearch } from './composables/useSearch.js'
 import { usePlaylistActions } from './composables/usePlaylistActions.js'
 import { useDownloads } from './composables/useDownloads.js'
 import { useSequence } from './composables/useSequence.js'
+import { useBundle } from './composables/useBundle.js'
 import { connectChat } from './composables/chatLink.js'
 import { groupedOrder } from './utils/groups.js'
 import { useRouter } from 'vue-router'
@@ -147,6 +148,21 @@ async function openSequence(path) {
   const song = await api.song(made.id).catch(() => null)
   if (!song) return
   player.setQueue([song], song.id, { kind: 'all', label: 'Secuencias' })
+  selection.showDetail(song.id)
+  if (!StudyBar.value && !(await loaded(islands.study))) return
+  studyActive.value = true
+  studyOpen.value = true
+}
+// Abrir un `.danpista` (la canción con sus pistas, como la que va al
+// celular): al acabar, a sonar en el estudio. Si ya estaba, se enseña.
+const bundles = useBundle()
+async function openBundle(path) {
+  const made = await bundles.open(typeof path === 'string' ? path : undefined)
+  if (!made) return
+  if (!made.existing) await refreshAll()
+  const song = await api.song(made.id).catch(() => null)
+  if (!song) return
+  player.setQueue([song], song.id, { kind: 'all', label: 'Todas las canciones' })
   selection.showDetail(song.id)
   if (!StudyBar.value && !(await loaded(islands.study))) return
   studyActive.value = true
@@ -425,6 +441,7 @@ let coreWasReady = false
 let stopCoreWatch = null
 let stopExternalWatch = null
 let stopSequenceWatch = null
+let stopBundleWatch = null
 let stopChangeWatch = null
 
 const title = computed(
@@ -980,8 +997,9 @@ onMounted(async () => {
     coreWasReady = !!e?.ready
   })
   try {
-    await loadStatus()
-    await Promise.all([configured.value ? load() : Promise.resolve(), playlistActions.load()])
+    // a la vez todo lo que no depende de otra cosa: la lista solo espera al
+    // estado (`useLibrary.start`), y los repertorios, a nada
+    await Promise.all([library.start(), playlistActions.load()])
   } catch {
     /* el núcleo aún no contesta: el aviso de arriba lo carga todo al llegar */
   }
@@ -990,6 +1008,15 @@ onMounted(async () => {
   // desplegable del buscador). Lo demás, al pasar por su botón.
   preloadWhenIdle([islands.details, islands.selectionBar, islands.searchResults])
   offerToBeDefault()
+  warnAboutSound()
+  // La salida de audio y el reparto que se dejaron elegidos, desde ya. Solo
+  // los ponía el modo estudio al abrirse: con una interfaz elegida, cada
+  // arranque sonaba por la del sistema, y al abrir el estudio la salida se
+  // reabría a mitad de canción. (`useRouting` los manda al motor la primera
+  // vez que alguien lo usa; aquí, aparte, para no cargarlo con la lista.)
+  if (api.inTauri) {
+    import('./composables/useRouting.js').then((m) => m.useRouting()).catch(() => {})
+  }
   termsAtStart()
   // la primera vez no hay nada que contar; tras actualizar, se avisa una vez
   if (!newsSeen.value) markNewsSeen()
@@ -1012,6 +1039,19 @@ onMounted(async () => {
   stopSequenceWatch = await api.onSequence((folder) => {
     if (folder) openSequence(folder)
   })
+  // se abrió un .danpista desde fuera: los de antes de montarse la ventana
+  // (la app estaba cerrada) y los que lleguen después
+  const opened = new Set()
+  const openOnce = (file) => {
+    if (!file || opened.has(file)) return
+    opened.add(file)
+    openBundle(file).finally(() => opened.delete(file))
+  }
+  stopBundleWatch = await api.onBundle(async (file) => {
+    await api.takeOpenedBundles().catch(() => [])
+    openOnce(file)
+  })
+  for (const file of await api.takeOpenedBundles().catch(() => [])) openOnce(file)
 
   // Cualquier cambio en el núcleo —lo haga quien lo haga— se refleja aquí
   // sin salir y volver a entrar. Rust avisa; esta ventana escucha.
@@ -1024,6 +1064,26 @@ onMounted(async () => {
 /** La clave de «ya lo pregunté». Una vez en la vida, no en cada arranque. */
 const ASKED_DEFAULT = 'danplay.default-player-asked'
 
+/**
+ * En Linux el motor suena por ALSA, y sin el puente al servidor de sonido
+ * (el paquete `pipewire-alsa`) todo «suena» sin error y no se oye nada: pasó
+ * con un sistema recién instalado. Rust ya ofrece instalarlo al arrancar; si
+ * no se instaló, la ventana lo dice, con lo que hay que poner.
+ */
+async function warnAboutSound() {
+  // sin saberlo (la orden falla) no se asusta a nadie
+  const bridge = await tauriApp.soundBridge().catch(() => null)
+  if (!bridge?.server || bridge.pcm) return
+  const what =
+    bridge.server === 'pipewire'
+      ? 'el paquete «pipewire-alsa» (sudo apt install pipewire-alsa)'
+      : 'el complemento de ALSA para PulseAudio (sudo apt install libasound2-plugins)'
+  notify(
+    `Puede que DanPlay no se oiga: a este sistema le falta ${what}. Instálalo y vuelve a darle a play.`,
+    'info',
+    90
+  )
+}
 /**
  * La primera vez, ofrece abrir las canciones con DanPlay.
  *
@@ -1068,6 +1128,7 @@ onUnmounted(() => {
   stopCoreWatch?.()
   stopExternalWatch?.()
   stopSequenceWatch?.()
+  stopBundleWatch?.()
   stopChangeWatch?.()
   clearTimeout(changeTimer)
   cancelDrag()
@@ -1309,6 +1370,7 @@ function onUpdated(song) {
         :news-badge="unreadNews"
         @go="goTo"
         @open-sequence="openSequence()"
+        @open-bundle="openBundle()"
         @new-playlist="playlistActions.create()"
         @playlist-menu="playlistMenu"
       />
@@ -1324,6 +1386,7 @@ function onUpdated(song) {
           :news-badge="unreadNews"
           @go="goTo"
           @open-sequence="openSequence()"
+          @open-bundle="openBundle()"
           @new-playlist="playlistActions.create()"
           @playlist-menu="playlistMenu"
         />

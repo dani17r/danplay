@@ -2,7 +2,13 @@
 //! batería y volumen distintos por parte) con la voz de mentira de
 //! `services::cues::fake_voice`. (Las cuentas, con
 //! rasgos sintéticos, están en `analysis::structure`.)
+//!
+//! La guía mira el clic de la canción, y la cola del clic y su detector son
+//! de todo el proceso: estas pruebas van una detrás de otra con las del
+//! pulso (`serial`). Sin eso, el detector de mentira de otra prueba podía
+//! darle a esta una rejilla que no es la de su canción.
 use crate::app::App;
+use crate::services::beats::tests::{Detector, Paused, serial};
 use crate::services::{cues, songs};
 use crate::testkit::{call, rows, run_job, scanned_library, text, wait_job};
 use serde_json::{Value, json};
@@ -212,7 +218,7 @@ fn auto(app: &App, cid: i64, body: Value) -> Value {
     run_job(
         app,
         &format!("/api/song/{cid}/cues/auto"),
-        "auto-cue",
+        &format!("auto-cue-{cid}"),
         Some(body),
     )
 }
@@ -235,6 +241,7 @@ fn the_automatic_guide_finds_the_parts_and_says_them() {
     let Some((app, cid, _)) = song() else {
         return;
     };
+    let _serial = serial();
     let r = auto(
         &app,
         cid,
@@ -245,8 +252,8 @@ fn the_automatic_guide_finds_the_parts_and_says_them() {
     let end = sections[5]["end"].as_f64().expect("final");
     assert!((end - 80.0).abs() <= 0.1, "{end}");
     assert_eq!(labels(sections), NAMES);
-    // una guía por parte (la intro no hace falta), medio segundo de voz y un
-    // pulso antes de que empiece la parte
+    // una guía por parte (la intro no hace falta), medio segundo de voz que
+    // entra en el «1» del compás anterior (y no entre dos pulsos)
     let said = r["cues"].as_array().expect("guías");
     let texts: Vec<&str> = said.iter().filter_map(|c| c["text"].as_str()).collect();
     assert_eq!(texts, NAMES[1..]);
@@ -258,7 +265,7 @@ fn the_automatic_guide_finds_the_parts_and_says_them() {
                 .is_some_and(|f| Path::new(f).extension().is_some_and(|e| e == "wav"))
         );
         let at = c["t"].as_f64().expect("cuándo");
-        assert!((at - (start - 1.0)).abs() <= 0.01, "{c}");
+        assert!((at - (start - BAR)).abs() <= 0.01, "{c}");
     }
     // sin compases (trozos de 2 s), las mismas partes
     let r = auto(&app, cid, json!({"voice": "st-F1"}));
@@ -272,6 +279,7 @@ fn with_its_stems_the_intro_and_the_end_are_where_nobody_sings() {
     let Some((app, cid, root)) = song() else {
         return;
     };
+    let _serial = serial();
     let (band, voice) = the_song();
     let folder = root.join(crate::tests::native("Separadas/Prueba - Partes"));
     // la intro y el final, tan fuertes como el resto: sin la voz no se sabría
@@ -312,11 +320,78 @@ fn with_its_stems_the_intro_and_the_end_are_where_nobody_sings() {
     assert_eq!(labels(sections), NAMES);
 }
 
+/// Las pistas de esta carpeta que se decodificaron hasta ahora.
+fn stems_read(folder: &str) -> usize {
+    crate::services::structure::DECODED
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .iter()
+        .filter(|p| p.contains(folder))
+        .count()
+}
+
+#[test]
+fn the_stems_are_read_together_and_the_same_guide_again_reads_nothing() {
+    // La guía decodificaba todas las pistas cada vez, una detrás de otra, y
+    // no guardaba nada: pedirla otra vez (con otra voz, tras un cambio) lo
+    // repetía todo.
+    let Some((app, cid, root)) = song() else {
+        return;
+    };
+    let (band, voice) = the_song();
+    let folder = root.join(crate::tests::native("Separadas/Pistas leidas"));
+    for (name, x) in [
+        ("Otros.wav", band),
+        ("Voces.wav", voice),
+        ("Bajo.wav", band),
+    ] {
+        write(&folder.join(name), x);
+    }
+    let manifest = json!({
+        "tracks": [
+            {"source": "vocals", "file": "Voces.wav"},
+            {"source": "other", "file": "Otros.wav"},
+            {"source": "bass", "file": "Bajo.wav"},
+        ],
+        "quality": "mejor",
+    });
+    std::fs::write(library::stems::manifest_path(&folder), manifest.to_string())
+        .expect("manifiesto");
+    let stems = json!({"folder": "Separadas/Pistas leidas"}).to_string();
+    songs::update_one(&app, cid, "stems", Value::from(stems)).expect("pistas");
+    let body = json!({"voice": "st-F1", "bars": every_bar(), "beat": 0.5});
+    assert_eq!(stems_read("Pistas leidas"), 0);
+    let first = auto(&app, cid, body.clone());
+    assert_eq!(stems_read("Pistas leidas"), 3, "las tres, una vez");
+    // otra vez, con lo mismo: sale igual y sin leer nada
+    let again = auto(&app, cid, body);
+    assert_eq!(stems_read("Pistas leidas"), 3, "ya estaban");
+    assert_eq!(again["sections"], first["sections"]);
+    assert_eq!(labels(&first["sections"]), NAMES);
+    // otros compases: otra cuenta, y se leen otra vez
+    let fewer: Vec<f64> = (0..20).map(|i| f64::from(i) * 2.0 * BAR).collect();
+    auto(
+        &app,
+        cid,
+        json!({"voice": "st-F1", "bars": fewer, "beat": 0.5}),
+    );
+    assert_eq!(stems_read("Pistas leidas"), 6);
+    // una pista que cambia (otra fecha o tamaño) no se da por leída
+    write(&folder.join("Bajo.wav"), &band[..band.len() / 2]);
+    auto(
+        &app,
+        cid,
+        json!({"voice": "st-F1", "bars": every_bar(), "beat": 0.5}),
+    );
+    assert_eq!(stems_read("Pistas leidas"), 7, "solo la que cambió");
+}
+
 #[test]
 fn named_parts_are_used_as_they_are() {
     let Some((app, cid, _)) = song() else {
         return;
     };
+    let _serial = serial();
     let r = auto(
         &app,
         cid,
@@ -365,6 +440,7 @@ fn without_the_voice_it_starts_downloading_it() {
     let Some((app, cid, _)) = song() else {
         return;
     };
+    let _serial = serial();
     cues::fake_voice(&app, false);
     let url = format!("/api/song/{cid}/cues/auto");
     let (st, r) = call(&app, "POST", &url, Some(json!({"voice": "st-F1"})));
@@ -403,6 +479,7 @@ fn a_song_too_short_has_no_parts() {
     let Some((app, _, _)) = song() else {
         return;
     };
+    let _serial = serial();
     let short = rows(&app)
         .into_iter()
         .find(|s| s["file"] == "Barak - Mi Gozo.mp3")
@@ -415,11 +492,324 @@ fn a_song_too_short_has_no_parts() {
         Some(json!({"voice": "st-F1"})),
     );
     assert_eq!(st, 202);
-    let job = wait_job(&app, "auto-cue");
+    let job = wait_job(&app, &format!("auto-cue-{short}"));
     assert!(
         job["error"]
             .as_str()
             .is_some_and(|e| e.contains("demasiado corta")),
         "{job}"
     );
+}
+
+#[test]
+fn each_song_has_its_own_guide_and_the_result_says_whose_it_is() {
+    // El trabajo se llamaba igual para todas («auto-cue»): pedir la guía de
+    // una canción mientras se hacía la de otra devolvía «ya está en marcha»
+    // con el trabajo de la otra, y sus partes llegaban como si fueran de
+    // esta.
+    let Some((app, cid, _)) = song() else {
+        return;
+    };
+    let _serial = serial();
+    let short = rows(&app)
+        .into_iter()
+        .find(|s| s["file"] == "Barak - Mi Gozo.mp3")
+        .and_then(|s| s["id"].as_i64())
+        .expect("Mi Gozo");
+    let (st, long) = call(
+        &app,
+        "POST",
+        &format!("/api/song/{cid}/cues/auto"),
+        Some(json!({"voice": "st-F1", "bars": every_bar(), "beat": 0.5})),
+    );
+    assert_eq!(st, 202, "{long}");
+    // la de otra canción, pedida mientras: la suya, no «la que ya está»
+    let (st, other) = call(
+        &app,
+        "POST",
+        &format!("/api/song/{short}/cues/auto"),
+        Some(json!({"voice": "st-F1"})),
+    );
+    assert_eq!(st, 202, "{other}");
+    assert!(other.get("already_running").is_none(), "{other}");
+    assert_eq!(long["job"]["name"], format!("auto-cue-{cid}"));
+    assert_eq!(other["job"]["name"], format!("auto-cue-{short}"));
+    let job = wait_job(&app, &format!("auto-cue-{short}"));
+    assert!(
+        job["error"]
+            .as_str()
+            .is_some_and(|e| e.contains("demasiado corta")),
+        "{job}"
+    );
+    let job = wait_job(&app, &format!("auto-cue-{cid}"));
+    assert_eq!(job["error"], "", "{job}");
+    assert_eq!(job["result"]["song"], cid);
+    assert_eq!(labels(&job["result"]["sections"]), NAMES);
+    // y quien aún pregunte por «auto-cue» a secas: la última pedida, que
+    // dice de cuál es
+    let (st, last) = call(&app, "GET", "/api/jobs/auto-cue", None);
+    assert_eq!(st, 200);
+    assert_eq!(last["name"], format!("auto-cue-{short}"));
+}
+
+/// Un cifrado guardado con sus partes por nombre, sobre la letra de
+/// `its_lyrics`: lo que se repite (el «coro» por la letra) es aquí el puente.
+fn its_sheet() -> String {
+    let part = |name: &str, lines: [&str; 4]| {
+        let mut out = Vec::new();
+        for (i, l) in lines.iter().enumerate() {
+            out.push(json!({"t": if i % 2 == 0 { "G   D/F#  Em7" } else { "C   D" }, "c": true}));
+            out.push(json!({"t": l, "c": false}));
+        }
+        json!({"name": name, "chords": ["G", "D/F#", "Em7", "C", "D"], "lines": out})
+    };
+    let chorus = [
+        "Mi gozo eres tú, Señor",
+        "Mi fuerza y mi canción",
+        "Mi gozo eres tú, mi Dios",
+        "Te doy mi adoración",
+    ];
+    json!({"sheet": {"key": "G", "sections": [
+        part("Verse 1", [
+            "En la mañana te buscaré",
+            "Con todo mi corazón",
+            "Tu misericordia veré",
+            "Y cantaré tu canción",
+        ]),
+        part("Bridge", chorus),
+        part("Verse 2", [
+            "Aunque la noche llegue",
+            "No temeré ningún mal",
+            "Tu mano me sostendrá",
+            "Y me harás descansar",
+        ]),
+        part("Bridge", chorus),
+    ]}})
+    .to_string()
+}
+
+#[test]
+fn with_a_chord_sheet_the_parts_carry_the_names_it_gives_them() {
+    // Lo que más se repite no tiene por qué ser el coro (en alabanza suele
+    // ser el puente): con el cifrado de la canción, que trae sus partes con
+    // nombre y en orden, casado con la letra con tiempos, cada parte se
+    // llama como en el cifrado. Sin cifrado (o con uno que no casa), como
+    // siempre.
+    let Some((app, cid, _)) = song() else {
+        return;
+    };
+    let _serial = serial();
+    let file = songs::by_id(&app, cid).expect("índice").expect("canción")["path"]
+        .as_str()
+        .expect("ruta")
+        .to_owned();
+    crate::services::enrich::fake_lrclib::put(&file, &its_lyrics());
+    songs::update_one(&app, cid, "chords", Value::from(its_sheet())).expect("cifrado");
+    let r = auto(
+        &app,
+        cid,
+        json!({"voice": "st-F1", "bars": every_bar(), "beat": 0.5}),
+    );
+    assert_eq!(r["source"], "sheet", "{r}");
+    assert_eq!(
+        labels(&r["sections"]),
+        [
+            "Intro",
+            "Estrofa 1",
+            "Puente",
+            "Estrofa 2",
+            "Puente",
+            "Final"
+        ],
+        "{}",
+        r["sections"]
+    );
+    assert_eq!(starts(&r["sections"]), TRUTH, "{}", r["sections"]);
+    // un cifrado de otra canción no casa con la letra: lo de siempre
+    let other = json!({"sheet": {"key": "D", "sections": [{"name": "Chorus", "chords": ["D"], "lines": [
+        {"t": "D  A", "c": true}, {"t": "Amazing grace how sweet the sound", "c": false},
+        {"t": "G  D", "c": true}, {"t": "That saved a wretch like me", "c": false},
+    ]}]}});
+    songs::update_one(&app, cid, "chords", Value::from(other.to_string())).expect("cifrado");
+    let r = auto(
+        &app,
+        cid,
+        json!({"voice": "st-F1", "bars": every_bar(), "beat": 0.5}),
+    );
+    assert_eq!(r["source"], "lyrics", "{r}");
+    songs::update_one(&app, cid, "chords", Value::from("")).expect("cifrado");
+    songs::update_one(&app, cid, "lyrics_synced", Value::from("")).expect("letra");
+    songs::update_one(&app, cid, "lyrics", Value::from("")).expect("letra");
+    crate::services::enrich::fake_lrclib::put(&file, "");
+}
+
+/// La letra con tiempos de la canción de prueba: cada parte que se canta,
+/// donde suena (`TRUTH`), con sus versos cada 4 s.
+fn its_lyrics() -> String {
+    use std::fmt::Write as _;
+    const VERSE_1: [&str; 4] = [
+        "En la mañana te buscaré",
+        "Con todo mi corazón",
+        "Tu misericordia veré",
+        "Y cantaré tu canción",
+    ];
+    const VERSE_2: [&str; 4] = [
+        "Aunque la noche llegue",
+        "No temeré ningún mal",
+        "Tu mano me sostendrá",
+        "Y me harás descansar",
+    ];
+    const CHORUS: [&str; 4] = [
+        "Mi gozo eres tú, Señor",
+        "Mi fuerza y mi canción",
+        "Mi gozo eres tú, mi Dios",
+        "Te doy mi adoración",
+    ];
+    let mut out = String::new();
+    for (start, verses) in [
+        (8.0, VERSE_1),
+        (24.0, CHORUS),
+        (40.0, VERSE_2),
+        (56.0, CHORUS),
+    ] {
+        for (i, v) in verses.iter().enumerate() {
+            let at: f64 = start + 0.3 + 4.0 * i as f64;
+            let _ = writeln!(out, "[{:02.0}:{:05.2}]{v}", (at / 60.0).floor(), at % 60.0);
+        }
+    }
+    out
+}
+
+#[test]
+fn with_the_lyrics_of_this_recording_the_parts_come_from_what_is_sung() {
+    // La letra con tiempos dice qué es cada parte mucho mejor que el sonido:
+    // lo que se repite es el coro, lo que no, las estrofas, y donde no se
+    // canta, la intro y el final. Se busca (aquí, en el «LRCLIB» de las
+    // pruebas) la de esta grabación, y se guarda con la canción.
+    let Some((app, cid, _)) = song() else {
+        return;
+    };
+    let _serial = serial();
+    let file = songs::by_id(&app, cid).expect("índice").expect("canción")["path"]
+        .as_str()
+        .expect("ruta")
+        .to_owned();
+    crate::services::enrich::fake_lrclib::put(&file, &its_lyrics());
+    let r = auto(
+        &app,
+        cid,
+        json!({"voice": "st-F1", "bars": every_bar(), "beat": 0.5}),
+    );
+    assert_eq!(r["source"], "lyrics", "{r}");
+    assert_eq!(
+        labels(&r["sections"]),
+        ["Intro", "Estrofa 1", "Coro", "Estrofa 2", "Coro", "Final"]
+    );
+    // cada parte, en el «1» de su compás (los versos entran 0,3 s después)
+    assert_eq!(starts(&r["sections"]), TRUTH, "{}", r["sections"]);
+    // y la letra queda con la canción: con sus tiempos, y la limpia
+    let saved = songs::by_id(&app, cid).expect("índice").expect("canción");
+    assert_eq!(saved["lyrics_synced"].as_str(), Some(its_lyrics().as_str()));
+    assert!(
+        saved["lyrics"]
+            .as_str()
+            .is_some_and(|l| l.starts_with("En la mañana te buscaré\nCon todo"))
+    );
+    // la de otra grabación (acaba después que la canción) no vale: el sonido
+    let long = its_lyrics() + "[02:10.00]Un verso de otra versión\n";
+    songs::update_one(&app, cid, "lyrics_synced", Value::from(long)).expect("letra");
+    let r = auto(
+        &app,
+        cid,
+        json!({"voice": "st-F1", "bars": every_bar(), "beat": 0.5}),
+    );
+    assert_eq!(r["source"], "sound", "{r}");
+    songs::update_one(&app, cid, "lyrics_synced", Value::from("")).expect("letra");
+    songs::update_one(&app, cid, "lyrics", Value::from("")).expect("letra");
+    crate::services::enrich::fake_lrclib::put(&file, "");
+}
+
+/// Espera (como mucho 10 s) a que el trabajo diga algo que empiece así.
+fn job_says(app: &App, name: &str, start: &str) -> Value {
+    let limit = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        let job = app.jobs.snapshot(name).expect("trabajo");
+        let said = job["message"].as_str().unwrap_or_default().to_owned();
+        if said.starts_with(start) {
+            return job;
+        }
+        assert!(
+            job["active"] == true && std::time::Instant::now() < limit,
+            "el trabajo no dijo «{start}»: {job}"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+}
+
+#[test]
+fn the_guide_waits_for_the_click_that_is_being_worked_out() {
+    // Pulsada antes de que cargue el clic, la guía no lo esperaba: o partía
+    // la canción en trozos de 2 s (salía distinta, y peor) o pasaba la red
+    // ella misma, a la vez que la cola con esa misma canción. Ahora espera
+    // a la cola, y lo dice.
+    let Some((app, cid, _)) = song() else {
+        return;
+    };
+    let Some(d) = Detector::start(&app) else {
+        return;
+    };
+    let name = format!("auto-cue-{cid}");
+    {
+        // el hilo del clic, parado: la rejilla está pedida y no llega
+        let _paused = Paused::new();
+        let (st, v) = call(
+            &app,
+            "GET",
+            &format!("/api/song/{cid}/beats?wait=false"),
+            None,
+        );
+        assert_eq!((st, &v["pending"]), (202, &json!(true)));
+        let (st, v) = call(
+            &app,
+            "POST",
+            &format!("/api/song/{cid}/cues/auto"),
+            Some(json!({"voice": "st-F1"})),
+        );
+        assert_eq!(st, 202, "{v}");
+        let job = job_says(&app, &name, "Esperando al clic…");
+        assert_eq!(job["active"], true);
+        assert!(d.calls().is_empty(), "nadie más pasa la red");
+    }
+    let job = wait_job(&app, &name);
+    assert_eq!(job["error"], "", "{job}");
+    assert_eq!(job["result"]["click"], true, "{job}");
+    assert!(job["result"].get("click_why").is_none());
+    assert_eq!(d.calls().len(), 1, "la red se pasó una sola vez");
+}
+
+#[test]
+fn if_the_click_does_not_arrive_in_time_the_guide_goes_on_and_says_so() {
+    let Some((app, cid, _)) = song() else {
+        return;
+    };
+    let Some(d) = Detector::start(&app) else {
+        return;
+    };
+    let _paused = Paused::new();
+    let r = auto(&app, cid, json!({"voice": "st-F1", "click_wait": 0.3}));
+    assert_eq!(
+        (&r["click"], &r["click_why"]),
+        (&json!(false), &json!("tarda demasiado"))
+    );
+    // sin compases (trozos de 2 s), las partes de siempre
+    assert!(near(&starts(&r["sections"]), &TRUTH), "{}", r["sections"]);
+    assert!(d.calls().is_empty());
+    // con los compases que manda la interfaz (el clic propio) no se espera
+    // a nada
+    let r = auto(
+        &app,
+        cid,
+        json!({"voice": "st-F1", "bars": every_bar(), "beat": 0.5}),
+    );
+    assert_eq!(r["click"], true);
 }

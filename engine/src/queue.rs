@@ -100,8 +100,6 @@ pub struct PlaybackState {
     pub error: String,
     pub has_output: bool,
     pub origin: Option<serde_json::Value>,
-    /// La velocidad conserva el tono (ffmpeg); false = cambia el tono (sin ffmpeg).
-    pub pitch_preserved: bool,
     /// Bucle A-B en segundos; 0,0 = sin bucle. Con varios tramos, del
     /// principio del primero al final del ultimo.
     pub loop_a: f64,

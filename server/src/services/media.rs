@@ -5,11 +5,11 @@ use crate::app::App;
 use crate::http::{Body, Response};
 use crate::services::ai::log_warnings;
 use library::warnings::Warnings;
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::ffi::OsString;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, PoisonError};
+use std::sync::{LazyLock, Mutex, PoisonError};
 
 // ---------------------------------------------------------------- carátulas
 
@@ -39,8 +39,36 @@ fn size_of(c: Option<&Cover>) -> usize {
     c.map_or(0, |c| c.0.len())
 }
 
+#[cfg(test)]
+thread_local! {
+    /// Las veces que ESTE hilo ha abierto un archivo para sacarle la carátula
+    /// (por hilo: las pruebas corren a la vez).
+    static COVER_READS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Cuántas veces ha abierto este hilo un archivo para sacarle la carátula
+/// (para las pruebas).
+#[cfg(test)]
+pub fn cover_reads() -> usize {
+    COVER_READS.with(std::cell::Cell::get)
+}
+
+/// Los archivos de los que ya se sabe que no tienen carátula, con la fecha y
+/// el tamaño que tenían: una canción sin ella se pide cada vez que entra en
+/// pantalla, y abrirla para volver a no encontrar nada no tiene sentido. Va
+/// aparte de `COVERS` (que se queda con 512, y se las llevaría): esto pesa
+/// unas decenas de bytes por canción. Si el archivo cambia, deja de valer.
+static NO_COVER: LazyLock<Mutex<HashMap<String, (f64, u64)>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// Con más de estas, se empieza de cero (una biblioteca enorme y sin
+/// carátulas de verdad; pesa unos pocos MB).
+const NO_COVER_MAX: usize = 50_000;
+
 /// La carátula incrustada, o `None`.
 fn extract_cover(path: &Path) -> Option<Cover> {
+    #[cfg(test)]
+    COVER_READS.with(|n| n.set(n.get() + 1));
     let read = std::panic::catch_unwind(|| library::tags::read_cover(path));
     read.unwrap_or_else(|_| {
         log::warn!(
@@ -60,6 +88,14 @@ pub fn cached_cover(path: &Path) -> Option<Cover> {
         library::paths::mtime(&meta),
         meta.len(),
     );
+    if NO_COVER
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .get(&key.0)
+        .is_some_and(|stamp| *stamp == (key.1, key.2))
+    {
+        return None;
+    }
     {
         let mut cache = COVERS.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(i) = cache.entries.iter().position(|(k, _)| *k == key) {
@@ -70,6 +106,14 @@ pub fn cached_cover(path: &Path) -> Option<Cover> {
         }
     }
     let found = extract_cover(path);
+    if found.is_none() {
+        let mut none = NO_COVER.lock().unwrap_or_else(PoisonError::into_inner);
+        if none.len() >= NO_COVER_MAX {
+            none.clear();
+        }
+        none.insert(key.0, (key.1, key.2));
+        return None;
+    }
     let mut cache = COVERS.lock().unwrap_or_else(PoisonError::into_inner);
     if !cache.entries.iter().any(|(k, _)| *k == key) {
         cache.bytes += size_of(found.as_ref());
@@ -96,6 +140,10 @@ pub fn cover_cache_bytes() -> (usize, usize) {
 /// Olvida lo recordado de un archivo (por si se tocó sin cambiar la fecha).
 pub fn forget_cover(path: &Path) {
     let name = path.to_string_lossy();
+    NO_COVER
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .remove(name.as_ref());
     let mut cache = COVERS.lock().unwrap_or_else(PoisonError::into_inner);
     let mut freed = 0;
     cache.entries.retain(|((p, _, _), c)| {
@@ -111,17 +159,15 @@ pub fn forget_cover(path: &Path) {
 
 /// Pone la carátula (quita las que hubiera). `false` si no se pudo.
 pub fn write_cover(app: &App, path: &Path, data: &[u8], mime: &str) -> bool {
-    let before = crate::services::tags::stamp(path);
-    let result = std::panic::catch_unwind(|| library::tags::write_cover(path, data, mime))
-        .unwrap_or_else(|_| Err("el lector de etiquetas fallo".into()));
+    // como cosa de la app (`as_own_write`): lo calculado del sonido pasa a
+    // la fecha nueva, y ni se escanea la biblioteca por ello
+    let result = crate::services::tags::as_own_write(app, path, || {
+        std::panic::catch_unwind(|| library::tags::write_cover(path, data, mime))
+            .unwrap_or_else(|_| Err("el lector de etiquetas fallo".into()))
+    });
     if let Err(why) = result {
         log::info!("no se pudo poner la portada de {}: {why}", path.display());
         return false;
-    }
-    if let (Some(before), Some(after)) = (before, crate::services::tags::stamp(path))
-        && before != after
-    {
-        crate::services::tags::carry(app, path, path, before, after);
     }
     // aquí, que es el único sitio donde cambia una carátula: la fecha del
     // archivo puede no cambiar (dos escrituras en el mismo tic del reloj)
@@ -144,8 +190,13 @@ pub fn thumbnails_folder(app: &App) -> PathBuf {
 /// La miniatura (o la carátula tal cual si no se pudo encoger); `None` si no
 /// tiene carátula.
 pub fn thumbnail(app: &App, path: &Path, size: i64) -> Option<Cover> {
-    let original = cached_cover(path)?;
     let folder = thumbnails_folder(app);
+    // la que ya está hecha, sin abrir el archivo de audio: antes se sacaba
+    // siempre la carátula original (de dos megas, a menudo) para no usarla
+    if let Some(t) = library::thumbnails::cached(&folder, path, size) {
+        return Some((t.data, t.mime));
+    }
+    let original = cached_cover(path)?;
     let ffmpeg = app.tool("ffmpeg");
     let mut warnings = Warnings::new();
     let made = library::thumbnails::get(
@@ -535,9 +586,14 @@ mod tests {
         let conf: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(conf).expect("tauri.conf.json"))
                 .expect("JSON");
-        let associations = conf["bundle"]["fileAssociations"]
+        // el `.danpista` (la canción con sus pistas) también se abre con
+        // DanPlay, pero no es audio que sirva la API: se importa
+        let associations: Vec<&serde_json::Value> = conf["bundle"]["fileAssociations"]
             .as_array()
-            .expect("fileAssociations");
+            .expect("fileAssociations")
+            .iter()
+            .filter(|a| a["ext"][0] != "danpista")
+            .collect();
         assert_eq!(associations.len(), AUDIO_TYPES.len());
         for a in associations {
             let ext = format!(".{}", a["ext"][0].as_str().expect("ext"));

@@ -191,7 +191,14 @@ const transposed = ref(null)
 const targetKey = ref('')
 /** el cifrado entero (acordes sobre la letra) en vez de solo los acordes */
 const fullSheet = ref(false)
-const KEYS = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+// Los doce tonos por su nombre de siempre (Bb y no A#, F# y no Gb), en el
+// modo del cifrado. La lista solo tenía sostenidos: no se podía elegir Bb,
+// Eb ni Ab, y un cifrado en menor se llevaba «a G» y quedaba en Sol menor
+// con el título «G».
+const MAJOR_KEYS = ['C', 'Db', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B']
+const MINOR_KEYS = ['Cm', 'C#m', 'Dm', 'Ebm', 'Em', 'Fm', 'F#m', 'Gm', 'G#m', 'Am', 'Bbm', 'Bm']
+/** Si un tono es menor («Em», «F#m», «Amin»; «Edim» no). */
+const isMinorKey = (key) => /m(in)?$/.test(String(key || '').trim()) && !/dim$/.test(key)
 const SEMITONES = [-5, -4, -3, -2, -1, 1, 2, 3, 4, 5, 6]
 
 watch(
@@ -223,6 +230,8 @@ const aiInfo = computed(() => details.value || doc.value)
 /** El cifrado: un objeto, `null` si se busco y no esta, `undefined` si no se ha buscado. */
 const sheet = computed(() => doc.value?.sheet)
 const shown = computed(() => transposed.value || sheet.value)
+/** Los tonos a los que se puede llevar el cifrado: los de su modo. */
+const KEYS = computed(() => (isMinorKey(sheet.value?.key) ? MINOR_KEYS : MAJOR_KEYS))
 const withChords = computed(() => (shown.value?.sections || []).filter((x) => x.chords?.length))
 const searchedIn = computed(
   () => (doc.value?.sheet_tried || []).join(' ni ') || 'las páginas de acordes'
@@ -436,6 +445,13 @@ async function transpose() {
       </div>
     </div>
 
+    <!-- Un archivo que no admite etiquetas (un .mp3 que por dentro es otro
+         formato, un wma): estrellas, listas y estudio se guardan solo en la
+         base de DanPlay, y se dice aquí, no a cada cambio. -->
+    <div v-if="song.tags_supported === false" class="hint no-tags">
+      Este archivo no admite etiquetas: lo que cambies se guarda solo en DanPlay.
+    </div>
+
     <dl v-if="!editing" class="facts">
       <dt>Álbum</dt>
       <dd>{{ song.album || '—' }}</dd>
@@ -448,7 +464,17 @@ async function transpose() {
       <dt>Calidad</dt>
       <dd class="mono">{{ song.bitrate ? Math.round(song.bitrate / 1000) + ' kbps' : '—' }}</dd>
       <dt>Tono</dt>
-      <dd class="mono">{{ song.key || '—' }}</dd>
+      <dd class="mono">
+        {{ song.key || (song.key_deduced ? '' : '—') }}
+        <!-- sin tono propio, el que sale de los acordes de su cifrado: una
+             deducción, no un dato, y se dice -->
+        <span
+          v-if="!song.key && song.key_deduced"
+          class="deduced"
+          title="Deducido de los acordes del cifrado: puede no ser el tono de la canción"
+          >{{ song.key_deduced }} <i>(deducido)</i></span
+        >
+      </dd>
       <dt>BPM</dt>
       <dd class="mono">{{ song.bpm ? Math.round(song.bpm) : '—' }}</dd>
       <dt>Carpeta</dt>
@@ -600,6 +626,12 @@ async function transpose() {
         >
         <span v-else title="Solo se pone el tono que dice el cifrado"
           >El cifrado no dice el tono</span
+        >
+        <span
+          v-if="!shown.key && sheet.key_deduced"
+          class="deduced"
+          title="Por los acordes del cifrado; no se guarda como el tono de la canción"
+          >· por sus acordes, <b>{{ sheet.key_deduced }}</b> <i>(deducido)</i></span
         >
         <span v-if="sheet.capo"> · cejilla en el traste {{ sheet.capo }}</span>
       </div>

@@ -418,9 +418,10 @@ convierten en `<a>`: se enseñan como texto con la dirección al lado.
   el escaneo poda las que no correspondan a ninguna canción del índice.
   `404` sin archivo, `501` sin nada con que decodificar, `422` si no se pudo.
 - Reproducción: `set_loop(a, b, segments?, defer?)` (sin valores, lo quita);
-  el estado trae `loop_a`, `loop_b` (0,0 = sin bucle), `loops`, `loop_defer`
-  y `pitch_preserved` (la velocidad conserva el tono: ffmpeg `atempo`;
-  `false` = sin ffmpeg, cambia el tono). `set_loop` no mueve la canción: el
+  el estado trae `loop_a`, `loop_b` (0,0 = sin bucle), `loops` y `loop_defer`
+  (la velocidad siempre conserva el tono: lo estira el motor, y el campo
+  `pitch_preserved` de las versiones de antes ya no existe). `set_loop` no
+  mueve la canción: el
   tramo se **arma** si la canción está dentro (o cuando entra, o con un
   `seek` dentro) y solo entonces, al pasar de B, vuelve a A. Con un tramo
   puesto la canción no se acaba: al final vuelve a A y no se avisa del fin de

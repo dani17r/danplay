@@ -172,6 +172,67 @@ fn the_watcher_waits_for_calm_before_scanning() {
     assert!(w.due(now + 10.5));
 }
 
+/// Con la app en reposo, el vigilante no da vueltas por darlas (antes
+/// despertaba cada segundo): duerme hasta lo próximo que le toca, y se
+/// despierta al momento con un aviso.
+#[test]
+fn an_idle_watcher_sleeps_until_something_happens() {
+    let app = app();
+    library_of_three(&app);
+    // sin repaso y sin mirar las carpetas en un buen rato
+    let w = Watcher::new(&app, 0.3, 3600.0, Some(0.0), false);
+    w.start(&app);
+    assert!(until(|| w.scans() >= 1, Duration::from_secs(15)));
+    std::thread::sleep(Duration::from_millis(300));
+    let (loops, scans) = (w.loops(), w.scans());
+    std::thread::sleep(Duration::from_millis(2500));
+    println!(
+        "el vigilante, en reposo: {} vueltas en 2,5 s",
+        w.loops() - loops
+    );
+    assert_eq!(w.loops(), loops, "dio vueltas sin nada que hacer");
+    // un aviso lo despierta, y escanea cuando hay calma (0,3 s), no al cabo
+    // de un rato
+    let start = Instant::now();
+    w.mark();
+    assert!(until(|| w.scans() > scans, Duration::from_secs(5)));
+    assert!(
+        start.elapsed() < Duration::from_millis(1500),
+        "tardó {:?} en escanear lo apuntado",
+        start.elapsed()
+    );
+    // una carpeta que cambia desde la app también lo despierta
+    let loops = w.loops();
+    w.folders_changed();
+    assert!(until(|| w.loops() > loops, Duration::from_secs(5)));
+    w.stop();
+}
+
+#[test]
+fn how_long_the_watcher_can_sleep() {
+    let app = app();
+    let w = Watcher::new(&app, 2.0, 5.0, Some(600.0), false);
+    // lo próximo: mirar las carpetas, a los 5 s
+    assert_eq!(w.next_wait(100.0, 100.0, 100.0), Duration::from_secs(5));
+    assert_eq!(w.next_wait(103.0, 100.0, 100.0), Duration::from_secs(2));
+    // ya tocaba: un mínimo, no cero
+    assert_eq!(w.next_wait(110.0, 100.0, 100.0), Duration::from_millis(50));
+    // con algo apuntado, hasta que haya calma (2 s tras el último aviso)
+    w.mark();
+    let at = lock(&w.timing).last_event;
+    assert_eq!(w.next_wait(at, at, at), Duration::from_secs(2));
+    assert_eq!(
+        w.next_wait(at + 1.5, at + 1.5, at),
+        Duration::from_millis(500)
+    );
+    // sin mirar las carpetas ni repasar, lo más que duerme es un minuto
+    let lazy = Watcher::new(&app, 2.0, 3600.0, Some(0.0), false);
+    assert_eq!(lazy.next_wait(0.0, 0.0, 0.0), Duration::from_secs(60));
+    // y el repaso entero cuenta
+    let rescan = Watcher::new(&app, 2.0, 3600.0, Some(10.0), false);
+    assert_eq!(rescan.next_wait(0.0, 0.0, 0.0), Duration::from_secs(10));
+}
+
 #[test]
 fn a_folder_added_in_settings_is_indexed_without_asking() {
     // Ajustes añade la carpeta sin analizarla: el vigilante la ve y la indexa
@@ -245,6 +306,115 @@ fn the_watcher_follows_what_happens_on_disk() {
         Ok(())
     })();
     w.stop();
+    assert_eq!(outcome, Ok(()));
+}
+
+/// Una estrella puesta desde la app reescribe el archivo. El vigilante lo
+/// tomaba por un cambio de fuera y a los dos segundos escaneaba la
+/// biblioteca entera para releerlo; y la interfaz, avisada, lo recargaba
+/// todo. Ni lo uno ni lo otro: el índice ya sabe cómo quedó, y quien puso
+/// la estrella ya la tiene delante. Lo que cambia por fuera se sigue viendo.
+#[test]
+fn what_the_app_writes_is_not_scanned_again() {
+    let app = app();
+    let root = library_of_three(&app);
+    let w = Watcher::new(&app, 0.3, 0.3, Some(0.0), true);
+    w.start(&app);
+    let outcome = (|| -> Result<(), String> {
+        if !until(
+            || w.scans() >= 1 && !w.watched().is_empty(),
+            Duration::from_secs(15),
+        ) {
+            return Err("no llegó a vigilar la carpeta".into());
+        }
+        // que acabe el escaneo de arrancar
+        std::thread::sleep(Duration::from_millis(600));
+        let (gozo, path) = ids(&app)["Barak - Mi Gozo.wav"].clone();
+        // lo que cuesta UNA estrella: recargas de la interfaz (la revisión que
+        // mira Rust) y escaneos de la biblioteca (medido sin otras pruebas en
+        // marcha: con `cargo test what_the_app_writes -- --nocapture`)
+        let (revision0, scans0) = (library::index::revision(), w.scans());
+        let (st, _) = crate::testkit::call(
+            &app,
+            "POST",
+            &format!("/api/song/{gozo}/stars"),
+            Some(serde_json::json!({"stars": 2})),
+        );
+        if st != 200 {
+            return Err(format!("la estrella: {st}"));
+        }
+        std::thread::sleep(Duration::from_millis(2500));
+        println!(
+            "una estrella: {} recargas de la interfaz, {} escaneos de la biblioteca",
+            library::index::revision() - revision0,
+            w.scans() - scans0
+        );
+        let scans = w.scans();
+        // (la revisión es de todo el proceso y otras pruebas la mueven a la
+        // vez: si la estrella la moviera, no quedaría quieta en ningún intento)
+        let mut still = false;
+        for attempt in 0..20 {
+            let stars = 4 - attempt % 2;
+            let (revision, writes) = (library::index::revision(), library::index::writes());
+            let (st, v) = crate::testkit::call(
+                &app,
+                "POST",
+                &format!("/api/song/{gozo}/stars"),
+                Some(serde_json::json!({"stars": stars})),
+            );
+            if (st, &v["stars"], &v["tags_written"]) != (200, &stars.into(), &true.into()) {
+                return Err(format!("la estrella: {st} {v}"));
+            }
+            if library::index::writes() == writes {
+                return Err("el diario no se entera de la estrella".into());
+            }
+            if library::index::revision() == revision {
+                still = true;
+                break;
+            }
+        }
+        if !still {
+            return Err("una estrella puesta desde la interfaz la hace recargar".into());
+        }
+        if library::tags::read(Path::new(&path)).stars == 0 {
+            return Err("la estrella no llegó al archivo".into());
+        }
+        // de sobra para la calma (0,3 s) y para que lleguen los avisos
+        std::thread::sleep(Duration::from_millis(1500));
+        if w.scans() != scans || w.pending() {
+            return Err(format!(
+                "escaneó la biblioteca por lo que escribió la app ({} escaneos de más)",
+                w.scans() - scans
+            ));
+        }
+        // el índice sabe cómo quedó el archivo: un escaneo no lo relee
+        let r = lib::scan(&app, &mut |_, _| {}).map_err(|e| e.to_string())?;
+        if r["updated"] != 0 {
+            return Err(format!(
+                "el escaneo releyó lo que la app ya había apuntado: {r}"
+            ));
+        }
+        // otro programa cambia el mismo archivo: eso sí se escanea
+        let outside = library::tags::Changes {
+            album: Some("Por fuera".into()),
+            ..library::tags::Changes::default()
+        };
+        library::tags::write(Path::new(&path), &outside)?;
+        let album = || {
+            app.db(|c| {
+                c.query_row("SELECT album FROM songs WHERE id=?", [gozo], |r| {
+                    r.get::<_, String>(0)
+                })
+            })
+            .is_ok_and(|a| a == "Por fuera")
+        };
+        if !until(album, Duration::from_secs(15)) {
+            return Err("no vio lo que cambió por fuera".into());
+        }
+        Ok(())
+    })();
+    w.stop();
+    let _ = root;
     assert_eq!(outcome, Ok(()));
 }
 

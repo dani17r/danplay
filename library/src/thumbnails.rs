@@ -110,6 +110,43 @@ pub struct Thumbnail {
     pub unsaved: bool,
 }
 
+/// La miniatura guardada de `side` px de la canción `key` con esa versión.
+fn stored(folder: &Path, key: &str, ver: &str, side: i64) -> Option<Thumbnail> {
+    for (ext, mime) in KINDS {
+        let cached = folder.join(format!("{key}_{side}_{ver}{ext}"));
+        let Ok(data) = std::fs::read(&cached) else {
+            continue;
+        };
+        // marca de uso: al pasar del tope se van las que hace más que no se piden
+        let now = std::time::SystemTime::now();
+        let _ = std::fs::OpenOptions::new()
+            .write(true)
+            .open(&cached)
+            .and_then(|f| {
+                f.set_times(
+                    std::fs::FileTimes::new()
+                        .set_accessed(now)
+                        .set_modified(now),
+                )
+            });
+        return Some(Thumbnail {
+            data,
+            mime: mime.to_string(),
+            unsaved: false,
+        });
+    }
+    None
+}
+
+/// La miniatura de `side` px de esa canción si ya está hecha. Solo mira la
+/// fecha y el tamaño del archivo de audio, no lo abre: sacar de él la
+/// carátula original (a menudo de dos megas) para no usarla era lo que más
+/// costaba de servir una miniatura que ya estaba.
+pub fn cached(folder: &Path, path: &Path, side: i64) -> Option<Thumbnail> {
+    let meta = std::fs::metadata(path).ok()?;
+    stored(folder, &key(path), &version(&meta), side)
+}
+
 /// La miniatura de `side` px de la carátula `original` (datos, mime) de la
 /// canción `path`: la guardada si la hay, y si no, la carátula encogida (o tal
 /// cual, si no se pudo encoger), que se guarda para la próxima.
@@ -130,28 +167,8 @@ pub fn get(
     };
     let key = key(path);
     let ver = version(&meta);
-    for (ext, mime) in KINDS {
-        let cached = folder.join(format!("{key}_{side}_{ver}{ext}"));
-        let Ok(data) = std::fs::read(&cached) else {
-            continue;
-        };
-        // marca de uso: al pasar del tope se van las que hace más que no se piden
-        let now = std::time::SystemTime::now();
-        let _ = std::fs::OpenOptions::new()
-            .write(true)
-            .open(&cached)
-            .and_then(|f| {
-                f.set_times(
-                    std::fs::FileTimes::new()
-                        .set_accessed(now)
-                        .set_modified(now),
-                )
-            });
-        return Ok(Thumbnail {
-            data,
-            mime: mime.to_string(),
-            unsaved: false,
-        });
+    if let Some(found) = stored(folder, &key, &ver, side) {
+        return Ok(found);
     }
     let (data, mime) = shrink_bytes(original.0, original.1, side, ffmpeg, warnings)?;
     let stored = store(folder, &key, side, &ver, &data, &mime, warnings);
@@ -383,6 +400,35 @@ mod tests {
         );
         assert_eq!(forget(&dir, &[song], &mut warnings), 2);
         assert!(entries(&dir).expect("leer").is_empty());
+        std::fs::remove_dir_all(&dir).expect("borrar");
+    }
+
+    #[test]
+    fn a_stored_thumbnail_needs_no_original() {
+        let dir = scratch("sin-original");
+        let covers = dir.join("covers");
+        std::fs::create_dir_all(&covers).expect("covers");
+        let song = dir.join("a.mp3");
+        std::fs::write(&song, b"mp3").expect("canción");
+        // aún no hay miniatura: no la inventa (quien llama sacará la carátula)
+        assert!(cached(&covers, &song, 96).is_none());
+        let meta = std::fs::metadata(&song).expect("meta");
+        std::fs::write(
+            covers.join(format!("{}_96_{}.png", key(&song), version(&meta))),
+            b"miniatura",
+        )
+        .expect("miniatura");
+        let got = cached(&covers, &song, 96).expect("la guardada");
+        assert_eq!(
+            (got.data.as_slice(), got.mime.as_str()),
+            (&b"miniatura"[..], "image/png")
+        );
+        // de otro tamaño, no; una canción que no está, tampoco
+        assert!(cached(&covers, &song, 192).is_none());
+        assert!(cached(&covers, &dir.join("no.mp3"), 96).is_none());
+        // si el archivo cambió (otra fecha, otro tamaño), la vieja ya no vale
+        std::fs::write(&song, b"mp3 con otra caratula").expect("cambia");
+        assert!(cached(&covers, &song, 96).is_none());
         std::fs::remove_dir_all(&dir).expect("borrar");
     }
 

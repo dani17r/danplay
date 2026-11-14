@@ -115,6 +115,44 @@ describe('startup without folders', () => {
   })
 })
 
+// Al arrancar iban en fila el estado, la Entrada y el estado otra vez: tres
+// idas y vueltas al núcleo antes de pedir la primera canción.
+describe('startup with a library', () => {
+  it('asks for the list after a single round trip to the core, without waiting for the inbox', async () => {
+    state.status.configured = true
+    state.songs = [song(1), song(2)]
+    // la Entrada tarda lo que tarde: la lista no la espera
+    let release
+    const gate = new Promise((r) => (release = r))
+    const inbox = api.inbox.getMockImplementation()
+    api.inbox.mockImplementation(async () => {
+      await gate
+      return { ...(await inbox()), total: 5 }
+    })
+    try {
+      const w = await mountView()
+      expect(api.search).toHaveBeenCalled()
+      expect(w.text()).toContain(song(2).title)
+      // lo que tuvo que contestar el núcleo antes de pedírsela: el estado, una vez
+      const asked = api.search.mock.invocationCallOrder[0]
+      const before = (fn) => fn.mock.invocationCallOrder.filter((n) => n < asked).length
+      expect(before(api.status)).toBe(1)
+      // (la Entrada y los repertorios ya estaban pedidos, a la vez)
+      expect(before(api.inbox)).toBe(1)
+      expect(before(api.playlists)).toBe(1)
+      // y cuando la Entrada contesta, se cuenta lo que espera en ella
+      release()
+      await flushPromises()
+      await flushPromises()
+      const inboxLink = w.findAll('.sidebar button').find((x) => x.text().includes('Entrada'))
+      expect(inboxLink.find('.count').text()).toBe('5')
+    } finally {
+      release()
+      api.inbox.mockImplementation(inbox)
+    }
+  })
+})
+
 describe('the core arrives late', () => {
   it('the library fills itself when the core starts', async () => {
     // Abrir DanPlay con una cancion desde el explorador es cuando mas tarda
@@ -1677,6 +1715,181 @@ describe('the whole list', () => {
     }
   })
 
+  // Cada refresco de fondo (algo cambió en el núcleo: una descarga, una
+  // estrella, el asistente) dejaba la lista en sus 400 primeras y la volvía a
+  // llenar. Con más canciones, a media lista, el panel encogía por debajo de
+  // donde se estaba y el desplazamiento saltaba.
+  it('a background refresh of a long list keeps what is loaded until the new one is whole', async () => {
+    vi.useFakeTimers()
+    state.status.configured = true
+    state.songs = Array.from({ length: 1000 }, (_, i) => song(i + 1))
+    const original = api.search.getMockImplementation()
+    try {
+      const w = await mountLight()
+      expect(inTable(w)).toHaveLength(1000)
+      // mientras tanto, en el núcleo: una canción cambia de nombre y se quita otra
+      state.songs = state.songs
+        .filter((x) => x.id !== 900)
+        .map((x) => (x.id === 700 ? { ...x, title: 'Con otro nombre' } : x))
+      // las páginas de detrás tardan: se mira la lista mientras llegan
+      let release
+      const gate = new Promise((r) => (release = r))
+      api.search.mockImplementation(async (p) => {
+        const r = await original(p)
+        if (Number(p.from_key) > 0) await gate
+        return r
+      })
+      api.search.mockClear()
+      // (el aviso de «algo cambió» se agrupa un cuarto de segundo)
+      held.changeListener?.({ revision: 2 })
+      await vi.advanceTimersByTimeAsync(300)
+      await flushPromises()
+      // ya se pidió la primera página y se espera a la de detrás
+      expect(api.search.mock.calls.map(([p]) => [p.limit, p.from_key])).toEqual([
+        [400, 0],
+        [5000, 400]
+      ])
+      // la lista de antes sigue entera, y no dice que esté cargando nada
+      expect(inTable(w)).toHaveLength(1000)
+      expect(inTable(w).find((x) => x.id === 700).title).toBe('Cancion 700')
+      expect(w.text()).not.toContain('cargando el resto')
+      release()
+      await flushPromises()
+      await flushPromises()
+      // y cuando llega entera, se cambia de una vez
+      expect(inTable(w)).toHaveLength(999)
+      expect(inTable(w).find((x) => x.id === 700).title).toBe('Con otro nombre')
+      expect(inTable(w).some((x) => x.id === 900)).toBe(false)
+      expect(w.find('.filters .chip').text()).toBe('999')
+    } finally {
+      api.search.mockImplementation(original)
+      vi.useRealTimers()
+    }
+  })
+
+  // Lo mismo, con la tabla de verdad y a media lista. jsdom no maqueta: se
+  // simula lo justo (filas de 30 px en un panel de 600, como en
+  // virtual-rows.test.js) para ver lo que haría saltar el desplazamiento: que
+  // lo pintado más los huecos mida menos que donde se está.
+  it('halfway down a long list, a background refresh does not shrink it under the scroll position', async () => {
+    const ROW = 30
+    const PANEL = 600
+    const before = {
+      offsetHeight: Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight'),
+      offsetTop: Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetTop'),
+      clientHeight: Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'clientHeight'),
+      style: window.getComputedStyle
+    }
+    Object.defineProperty(HTMLElement.prototype, 'offsetHeight', {
+      configurable: true,
+      get() {
+        const own = parseInt(this.style?.height || '', 10)
+        return own > 0 ? own : this.tagName === 'TR' ? ROW : 0
+      }
+    })
+    Object.defineProperty(HTMLElement.prototype, 'offsetTop', {
+      configurable: true,
+      get() {
+        let t = 0
+        for (let el = this.previousElementSibling; el; el = el.previousElementSibling) {
+          t += el.offsetHeight
+        }
+        return t
+      }
+    })
+    Object.defineProperty(HTMLElement.prototype, 'clientHeight', {
+      configurable: true,
+      get() {
+        return this.classList?.contains('table-wrap') ? PANEL : 0
+      }
+    })
+    window.getComputedStyle = (el, ...rest) => {
+      const real = before.style.call(window, el, ...rest)
+      if (!el.classList?.contains('table-wrap')) return real
+      return new Proxy(real, {
+        get: (t, k) =>
+          k === 'overflowY' ? 'auto' : typeof t[k] === 'function' ? t[k].bind(t) : t[k]
+      })
+    }
+    state.status.configured = true
+    state.songs = Array.from({ length: 1000 }, (_, i) => song(i + 1))
+    const original = api.search.getMockImplementation()
+    try {
+      const w = await mountView()
+      const panel = w.find('.table-wrap').element
+      const tall = () =>
+        w.findAll('tbody tr:not([data-spacer])').length * ROW +
+        w
+          .findAll('tbody tr[data-spacer]')
+          .reduce((t, tr) => t + (parseInt(tr.element.style.height, 10) || 0), 0)
+      expect(tall()).toBe(1000 * ROW)
+      // se baja hasta la canción 700
+      const top = 700 * ROW
+      Object.defineProperty(panel, 'scrollTop', { configurable: true, value: top })
+      w.find('tbody').element.getBoundingClientRect = () => ({ top: -top, height: 0 })
+      panel.dispatchEvent(new Event('scroll'))
+      await new Promise((r) => requestAnimationFrame(r))
+      await flushPromises()
+      expect(w.text()).toContain(song(701).title)
+
+      let release
+      const gate = new Promise((r) => (release = r))
+      api.search.mockImplementation(async (p) => {
+        const r = await original(p)
+        if (Number(p.from_key) > 0) await gate
+        return r
+      })
+      held.changeListener?.({ revision: 2 })
+      await new Promise((r) => setTimeout(r, 320))
+      await flushPromises()
+      await flushPromises()
+      // con la página de detrás aún por llegar, sigue habiendo lista debajo
+      expect(tall()).toBeGreaterThanOrEqual(top + PANEL)
+      expect(w.text()).toContain(song(701).title)
+      release()
+      await flushPromises()
+      await flushPromises()
+      expect(tall()).toBe(1000 * ROW)
+      expect(w.text()).toContain(song(701).title)
+    } finally {
+      api.search.mockImplementation(original)
+      for (const prop of ['offsetHeight', 'offsetTop', 'clientHeight']) {
+        if (before[prop]) Object.defineProperty(HTMLElement.prototype, prop, before[prop])
+        else delete HTMLElement.prototype[prop]
+      }
+      window.getComputedStyle = before.style
+    }
+  })
+
+  it('another search (not a refresh) still shows its first page right away', async () => {
+    state.status.configured = true
+    state.songs = Array.from({ length: 1000 }, (_, i) => song(i + 1))
+    const original = api.search.getMockImplementation()
+    try {
+      const w = await mountLight()
+      expect(inTable(w)).toHaveLength(1000)
+      let release
+      const gate = new Promise((r) => (release = r))
+      api.search.mockImplementation(async (p) => {
+        const r = await original(p)
+        if (Number(p.from_key) > 0) await gate
+        return r
+      })
+      // otro orden es otra lista: lo primero, cuanto antes
+      await w.findComponent({ name: 'SongTable' }).vm.$emit('sortBy', 'title', false)
+      await flushPromises()
+      await flushPromises()
+      expect(inTable(w)).toHaveLength(400)
+      expect(w.text()).toContain('cargando el resto')
+      release()
+      await flushPromises()
+      await flushPromises()
+      expect(inTable(w)).toHaveLength(1000)
+    } finally {
+      api.search.mockImplementation(original)
+    }
+  })
+
   it('views that arrive whole (a playlist) count what they bring', async () => {
     state.status.configured = true
     state.songs = [song(1)]
@@ -1687,5 +1900,56 @@ describe('the whole list', () => {
     await flushPromises()
     await flushPromises()
     expect(w.find('.filters .chip').text()).toBe('3')
+  })
+})
+
+// En Linux el motor suena por ALSA, y sin el puente al servidor de sonido
+// (`pipewire-alsa`) todo «suena» y no se oye nada. Pasó con un sistema recién
+// instalado: la ventana lo tiene que decir, con lo que hay que instalar.
+describe('the sound bridge', () => {
+  it('missing: the window says so, with the package to install', async () => {
+    const { useNotices } = await import('../src/composables/useNotices.js')
+    held.app.soundBridge.mockResolvedValueOnce({ server: 'pipewire', pcm: null })
+    await mountView()
+    await flushPromises()
+    const said = useNotices().notices.value.map((n) => n.message)
+    expect(said.some((m) => m.includes('pipewire-alsa') && m.includes('no se oiga'))).toBe(true)
+  })
+
+  it('in place (or with no sound server), nothing is said', async () => {
+    const { useNotices } = await import('../src/composables/useNotices.js')
+    await mountView()
+    await flushPromises()
+    held.app.soundBridge.mockResolvedValueOnce({ server: null, pcm: null })
+    await mountView()
+    await flushPromises()
+    const said = useNotices().notices.value.map((n) => n.message)
+    expect(said.some((m) => m.includes('no se oiga'))).toBe(false)
+  })
+})
+
+// La salida de audio y el reparto elegidos se aplican al abrir DanPlay. Solo
+// los ponía el modo estudio al abrirse: hasta entonces, todo sonaba por la
+// salida del sistema.
+describe('the audio output chosen', () => {
+  it('is applied when the app starts, without opening the study', async () => {
+    const { resetRouting } = await import('../src/composables/useRouting.js')
+    resetRouting()
+    localStorage.setItem(
+      'danplay.outputs',
+      JSON.stringify({ device: 'alsa:hw:CARD=Scarlett,DEV=0', preset: 'split' })
+    )
+    resetRouting()
+    playback.bridge.setOutput.mockClear()
+    await mountView()
+    await flushPromises()
+    await new Promise((r) => setTimeout(r, 20))
+    await flushPromises()
+    expect(playback.bridge.setOutput).toHaveBeenCalledWith(
+      expect.objectContaining({ device: 'alsa:hw:CARD=Scarlett,DEV=0' })
+    )
+    expect(playback.bridge.setRouting).toHaveBeenCalled()
+    localStorage.removeItem('danplay.outputs')
+    resetRouting()
   })
 })

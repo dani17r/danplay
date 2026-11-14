@@ -26,7 +26,10 @@ const props = defineProps({
   disabled: Boolean,
   compact: Boolean, // mas bajo, para filtros dentro de paneles
   multiline: Boolean, // para textos largos, como la letra
-  rows: { type: Number, default: 8 }
+  rows: { type: Number, default: 8 },
+  // lo más que se deja escribir (lo que de verdad se guarda): sin tope, lo
+  // que sobraba se perdía al guardar sin que se viera
+  maxlength: { type: [Number, String], default: undefined }
 })
 const emit = defineEmits(['enter'])
 const attrs = useAttrs()
@@ -84,6 +87,7 @@ const inner = computed(() => {
         :placeholder="placeholder"
         :disabled="disabled"
         :rows="rows"
+        :maxlength="maxlength"
         @input="model = $event.target.value"
         @focus="focused = true"
         @blur="focused = false"
@@ -95,6 +99,7 @@ const inner = computed(() => {
         :type="realType"
         :placeholder="placeholder"
         :disabled="disabled"
+        :maxlength="maxlength"
         :aria-invalid="error ? 'true' : undefined"
         @input="model = $event.target.value"
         @focus="focused = true"

@@ -96,8 +96,10 @@ Bun (MIT).
 
 **Viajan dentro de los paquetes** (`tools/` y, ONNX Runtime, `data/`), con
 versión fija y su SHA-256 comprobado al construirlos; compilada desde el
-código, la app usa las del sistema si están (el `.deb` declara además ffmpeg
-y fpcalc).
+código, la app usa las del sistema si están. El `.deb` ya no pide ffmpeg ni
+fpcalc al sistema (van dentro, y se instalaban dos veces); lo que pide es el
+puente de ALSA al servidor de sonido (`pipewire-alsa`, o `pulseaudio` donde
+no hay PipeWire), sin el que la app «sonaba» sin error y no se oía nada.
 
 | Programa | Licencia | Para qué |
 | --- | --- | --- |

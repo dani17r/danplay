@@ -25,6 +25,17 @@ mod tray;
 use std::path::Path;
 use tauri::Manager;
 
+/// Lo que merece una línea en el registro. `lofty` (las etiquetas) y
+/// `symphonia` (el sonido) avisan de cada rareza de cada archivo —una
+/// cabecera Xing sin datos, un ID3 en otra codificación—, y con una
+/// biblioteca de unos cientos de canciones eran nueve de cada diez líneas:
+/// con la rotación a 1 MB, lo que de verdad contaba un fallo se iba antes de
+/// que nadie lo leyera. De ellas, solo los errores.
+fn worth_logging(target: &str, level: log::Level) -> bool {
+    let chatty = target.starts_with("lofty") || target.starts_with("symphonia");
+    !chatty || level <= log::Level::Error
+}
+
 /// Los avisos de la app, a un archivo en su carpeta de registros (y ademas a
 /// la consola en desarrollo). En Windows, una compilacion de verdad no tiene
 /// consola: todo lo que se escribia con `eprintln!` se perdia, y con ello la
@@ -42,6 +53,7 @@ fn logs() -> tauri::plugin::TauriPlugin<tauri::Wry> {
         .level_for("wry", log::LevelFilter::Warn)
         .level_for("zbus", log::LevelFilter::Warn)
         .level_for("tracing", log::LevelFilter::Warn)
+        .filter(|meta| worth_logging(meta.target(), meta.level()))
         .max_file_size(1 << 20)
         .rotation_strategy(RotationStrategy::KeepSome(3))
         .timezone_strategy(TimezoneStrategy::UseLocal);
@@ -101,8 +113,13 @@ fn main() {
             // sistema arranca un segundo proceso, este le pasa los argumentos
             // al primero y se va. Una ruta relativa es relativa a donde
             // estaba ese segundo proceso, no a donde esta este.
-            let files = open::files_in(args.into_iter().skip(1).map(Into::into), Some(Path::new(&cwd)));
-            if files.is_empty() {
+            let args: Vec<std::ffi::OsString> = args.into_iter().skip(1).map(Into::into).collect();
+            let bundles = open::bundles_in(args.iter().cloned(), Some(Path::new(&cwd)));
+            let files = open::files_in(args, Some(Path::new(&cwd)));
+            if !bundles.is_empty() {
+                // un .danpista: la interfaz lo trae a la biblioteca
+                open::open_bundles(app, bundles);
+            } else if files.is_empty() {
                 tray::show_main(app);
             } else {
                 open::play(app, files);
@@ -165,6 +182,7 @@ fn main() {
             record::preview_clip,
             record::preview_stop,
             queue::commands::set_pitch,
+            queue::commands::set_formants,
             queue::commands::set_metronome,
             queue::commands::set_stems,
             queue::commands::set_crossfade,
@@ -185,6 +203,8 @@ fn main() {
             reveal::open_in_browser,
             reveal::open_html,
             share::share_targets,
+            dependencies::sound_bridge,
+            open::take_opened_bundles,
             share::send_to_telegram,
             shape::set_window_shape,
             shape::window_shape,
@@ -208,6 +228,11 @@ fn main() {
         // salida, y con `prevent_exit` eso dejaria la aplicacion viva pero
         // sin nucleo.
         tauri::RunEvent::Exit => {
+            // la sesion de la cola se guarda aparte: que lo ultimo este en el
+            // disco antes de irse
+            if let Some(playback) = app.try_state::<queue::Playback>() {
+                playback.flush_session();
+            }
             if let Some(core) = app.try_state::<core::Core>() {
                 core.stop();
             }
@@ -234,6 +259,7 @@ fn setup(app: &tauri::App) {
     // La cola vive en Rust: con la ventana escondida, los temporizadores del
     // WebView se ralentizan y la musica se quedaba parada entre canciones.
     app.manage(queue::Playback::new(handle.clone(), address));
+    app.manage(open::OpenedBundles::default());
     tray::install(&handle);
     media::install(&handle);
     core::watch(handle.clone());
@@ -246,6 +272,9 @@ fn setup(app: &tauri::App) {
     // en la linea de ordenes. `play` ya espera al nucleo por su cuenta, asi
     // que esto no retrasa el arranque. Tal cual las da el sistema: un nombre
     // que no sea UTF-8 no puede impedir que la app arranque.
+    // Un .danpista abierto con la app cerrada: queda apuntado, y la ventana
+    // lo recoge al montarse (`take_opened_bundles`).
+    open::open_bundles(&handle, open::bundles_in(std::env::args_os().skip(1), None));
     let files = open::files_in(std::env::args_os().skip(1), None);
     if files.is_empty() {
         // Sin canciones que abrir, se vuelve a donde se dejo: la misma lista
@@ -349,5 +378,19 @@ mod tests {
             .filter(|l| l.trim_start().starts_with('"') && l.trim_end().ends_with("\","))
             .count();
         assert_eq!(declared, commands.len(), "build.rs declara comandos que no existen");
+    }
+
+    /// El ruido de las bibliotecas no entra al registro; sus errores y todo
+    /// lo de DanPlay, sí.
+    #[test]
+    fn the_log_keeps_what_matters() {
+        use log::Level::{Error, Info, Warn};
+        assert!(!super::worth_logging("lofty::mpeg::properties", Warn));
+        assert!(!super::worth_logging("symphonia_bundle_mp3::layer3", Warn));
+        assert!(!super::worth_logging("symphonia_bundle_mp3::demuxer", Info));
+        assert!(super::worth_logging("symphonia_core::formats::probe", Error));
+        assert!(super::worth_logging("lofty::id3", Error));
+        assert!(super::worth_logging("danplay_app::core", Info));
+        assert!(super::worth_logging("server::startup", Warn));
     }
 }

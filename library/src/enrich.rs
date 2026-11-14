@@ -377,6 +377,44 @@ pub fn lyrics_lrclib<O: Outside>(o: &mut O, track: &Track) -> Option<Lyrics> {
     None
 }
 
+/// La letra con tiempos de ESTA grabación: la de LRCLIB que dura lo mismo
+/// que el archivo (±3 s). Para lo que depende de los tiempos (las partes de
+/// la guía automática, `parts`): la de otra versión de la canción (el disco
+/// de estudio frente al directo) lleva cada verso en otro segundo, y la
+/// búsqueda difusa de `lyrics_lrclib` devuelve la primera que encuentra,
+/// dure lo que dure. Sin duración conocida no se puede saber: ninguna.
+pub fn synced_lyrics<O: Outside>(o: &mut O, track: &Track) -> Option<Lyrics> {
+    if track.duration < 1.0 || track.title.is_empty() {
+        return None;
+    }
+    let same_length = |d: &Value| {
+        d.get("duration")
+            .and_then(Value::as_f64)
+            .is_some_and(|x| (x - track.duration).abs() <= 3.0)
+    };
+    let usable =
+        |d: &Value| lrclib_result(d).filter(|l| same_length(d) && lrc::has_stamp(&l.synced));
+    let seconds = (track.duration as i64).to_string();
+    let mut pairs = vec![
+        ("artist_name", track.artist.as_str()),
+        ("track_name", track.title.as_str()),
+        ("duration", seconds.as_str()),
+    ];
+    if !track.album.is_empty() {
+        pairs.push(("album_name", track.album.as_str()));
+    }
+    if let Ok(d) = fetch_json(o, "https://lrclib.net/api/get?", &pairs)
+        && let Some(found) = usable(&d)
+    {
+        return Some(found);
+    }
+    let query = format!("{} {}", track.artist, track.title);
+    match fetch_json(o, "https://lrclib.net/api/search?", &[("q", query.trim())]) {
+        Ok(Value::Array(items)) => items.iter().take(20).find_map(usable),
+        _ => None,
+    }
+}
+
 /// La letra: la de LRCLIB y, si no la tiene y se deja, la de la IA (si la
 /// sabe con certeza).
 pub fn lyrics<O: Outside>(o: &mut O, track: &Track, allow_ai: bool) -> Option<Lyrics> {
@@ -555,6 +593,56 @@ pub fn stored_sheet(song: &Dict) -> Option<Value> {
     doc(song).remove("sheet").filter(Value::is_object)
 }
 
+/// El tono que se DEDUCE de los acordes de un cifrado (ver
+/// `theory::guess`), o vacío: si el cifrado dice el suyo, si ya lo trae
+/// deducido (se respeta) o si no se puede. Nunca es el tono de la canción:
+/// quien lo enseña tiene que decir que es una deducción.
+pub fn deduced_key(sheet: &Value) -> String {
+    if !truthy(sheet) || sheet.get("key").is_some_and(truthy) {
+        return String::new();
+    }
+    if let Some(k) = sheet.get("key_deduced").and_then(Value::as_str)
+        && !k.is_empty()
+    {
+        return k.to_owned();
+    }
+    let chords: Vec<String> = sheet
+        .get("sections")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .flat_map(|s| texts_or_values(s.get("chords")))
+        .filter_map(|c| c.as_str().map(str::to_owned))
+        .collect();
+    let capo = number(sheet.get("capo")) as i64;
+    theory::guess::key_of(&chords, capo)
+        .map(|g| g.key.to_owned())
+        .unwrap_or_default()
+}
+
+/// El tono deducido de una canción (de su cifrado guardado), o vacío si la
+/// ficha ya tiene su tono: lo que puso quien la hizo, o el archivo, no se
+/// toca ni se «completa».
+pub fn song_deduced_key(song: &Dict) -> String {
+    if !field(song, "key").trim().is_empty() {
+        return String::new();
+    }
+    stored_sheet(song).map_or_else(String::new, |sheet| deduced_key(&sheet))
+}
+
+/// El cifrado con su tono deducido apuntado (`key_deduced`), si no lo trae y
+/// se puede deducir: los guardados antes de saber deducirlo.
+fn with_deduced_key(sheet: &Value) -> Value {
+    let mut out = sheet.clone();
+    let deduced = deduced_key(sheet);
+    if !deduced.is_empty()
+        && let Some(map) = out.as_object_mut()
+    {
+        map.insert("key_deduced".into(), Value::String(deduced));
+    }
+    out
+}
+
 /// Guarda la columna `chords`.
 pub fn save_doc<O: Outside>(o: &mut O, id: i64, doc: &Dict) -> Result<(), O::Error> {
     let mut fields = Dict::new();
@@ -630,7 +718,7 @@ pub fn chords<O: Outside>(o: &mut O, song: &Dict, refresh: bool) -> Result<Value
     let mut d = doc(song);
     if !refresh && let Some(sheet) = d.get("sheet") {
         return Ok(json!({
-            "sheet": sheet,
+            "sheet": with_deduced_key(sheet),
             "cached": true,
             "checked": d.get("sheet_checked").cloned().unwrap_or_else(|| json!("")),
             "tried": d.get("sheet_tried").cloned().unwrap_or_else(|| json!([])),
@@ -679,21 +767,39 @@ fn transposed(x: &Value, n: i64, flats: Option<bool>) -> Value {
 pub fn transpose_sheet(sheet: &Value, semitones: i64, to_key: &str) -> Value {
     let mut out = sheet.as_object().cloned().unwrap_or_default();
     let from_key = text_of(sheet.get("key"));
-    let (n, flats, key) = if !to_key.is_empty() && !from_key.is_empty() {
+    let from = theory::split_key(&from_key);
+    let (n, flats, key) = if !to_key.is_empty() && from.is_some() {
         let n = theory::distance(&from_key, to_key).unwrap_or(0);
-        (
-            n,
-            Some(theory::FLAT_KEYS.contains(&to_key)),
-            to_key.to_owned(),
-        )
+        // El modo es el del cifrado: llevar uno en Mi menor «a Sol» es
+        // subirlo tres semitonos, y queda en Sol MENOR. Se titulaba «G».
+        let key = theory::in_mode(to_key, from.is_some_and(|(_, minor)| minor));
+        (n, Some(theory::uses_flats(&key)), key)
     } else {
         let n = semitones.rem_euclid(12);
-        let key = if from_key.is_empty() || n == 0 {
-            from_key
-        } else {
-            theory::transpose(&from_key, n, None)
-        };
-        (n, None, key)
+        match from {
+            // por semitonos, al tono de llegada con su nombre de siempre (de
+            // La, uno arriba es Si bemol, no «A#») y sus acordes como él
+            Some((i, minor)) if n != 0 => {
+                let key = theory::usual_key(i as i64 + n, minor).to_owned();
+                (n, Some(theory::uses_flats(&key)), key)
+            }
+            Some(_) => (n, None, from_key),
+            // sin tono: como se suelen escribir esos acordes
+            None => {
+                let roots: Vec<String> = sheet
+                    .get("sections")
+                    .and_then(Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .flat_map(|s| texts_or_values(s.get("chords")))
+                    .filter_map(|c| c.as_str().map(|c| theory::transpose(c, n, Some(false))))
+                    .flat_map(|c| theory::chord_roots(&c))
+                    .collect();
+                let flats =
+                    (n != 0).then(|| theory::prefer_flats(roots.iter().map(String::as_str)));
+                (n, flats, from_key)
+            }
+        }
     };
     let sections: Vec<Value> = sheet
         .get("sections")
@@ -726,7 +832,7 @@ pub fn transpose_sheet(sheet: &Value, semitones: i64, to_key: &str) -> Value {
             Value::Object(section)
         })
         .collect();
-    let capo: Vec<Value> = if theory::index(&key).is_some() {
+    let capo: Vec<Value> = if theory::split_key(&key).is_some() {
         theory::suggested_capo(&key, &theory::EASY_SHAPES)
             .into_iter()
             .map(|(fret, shape)| json!([fret, shape]))
@@ -799,8 +905,14 @@ fn key_from_sheet<O: Outside>(o: &mut O, song: &Dict, out: &mut Filling) -> Resu
             .push("el cifrado va con cejilla: su tono no es el que suena".into());
     } else if truthy(&sheet) {
         let source = text_of(sheet.get("source"));
-        out.reasons
-            .push(format!("el cifrado de {source} no dice el tono"));
+        let guess = deduced_key(&sheet);
+        out.reasons.push(if guess.is_empty() {
+            format!("el cifrado de {source} no dice el tono")
+        } else {
+            format!(
+                "el cifrado de {source} no dice el tono (por sus acordes sería {guess}, pero es una deducción y no se pone)"
+            )
+        });
     } else if r.get("failed").is_some_and(truthy) {
         out.failures += 1;
         let failed = texts(r.get("failed")).join(" ni ");

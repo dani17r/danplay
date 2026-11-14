@@ -9,6 +9,7 @@
 // que aplica exactamente la misma máquina de estados (playback/queueLogic).
 import { reactive, ref, shallowRef, computed } from 'vue'
 import { api, playback as bridge } from '../api.js'
+import { notify } from './useNotices.js'
 import { cleanSegments, segmentAt } from '../utils/segments.js'
 import {
   afterEnd,
@@ -22,13 +23,25 @@ import {
 /** @typedef {import('../api.js').Track} Track */
 
 const VOLUME_KEY = 'danplay.vol'
-const SPEED_KEY = 'danplay.speed'
 const CROSSFADE_KEY = 'danplay.crossfade'
+const FORMANTS_KEY = 'danplay.pitch.formants'
 /** Lo que se puede elegir de fundido entre canciones, en segundos (0 = sin él). */
 export const CROSSFADES = [0, 2, 4, 6, 8, 12]
 /** El de fábrica: se nota la transición sin que se pisen mucho. */
 const DEFAULT_CROSSFADE = 4
 const REPEAT_KEY = 'danplay.repeat'
+const ACCENT_KEY = 'danplay.click.accent'
+
+/**
+ * Las velocidades que se ofrecen: las mismas en el reproductor y en el modo
+ * estudio. Eran dos listas distintas, y desde un 80 % puesto en el estudio el
+ * botón del reproductor (que buscaba la suya) saltaba al 50 %.
+ */
+export const SPEEDS = [0.5, 0.6, 0.7, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 2]
+/** La siguiente de la lista desde `speed` (esté o no en ella); tras la última, la primera. */
+export function nextSpeed(speed) {
+  return SPEEDS.find((s) => s > (Number(speed) || 1) + 0.005) ?? SPEEDS[0]
+}
 
 /** @type {PlaybackState} */
 const EMPTY = {
@@ -47,10 +60,9 @@ const EMPTY = {
   error: '',
   has_output: true,
   origin: null,
-  // modo estudio: la velocidad conserva el tono, y el bucle A-B (0,0 = sin
-  // bucle); con varios tramos, `loops` los lleva todos y `loop_end` dice qué
-  // pasa al acabar el último: repetir, parar o seguir
-  pitch_preserved: true,
+  // modo estudio: el bucle A-B (0,0 = sin bucle); con varios tramos, `loops`
+  // los lleva todos y `loop_end` dice qué pasa al acabar el último: repetir,
+  // parar o seguir. (La velocidad siempre conserva el tono.)
   loop_a: 0,
   loop_b: 0,
   loops: [],
@@ -336,6 +348,9 @@ function createWebBackend() {
     },
     // aquí suena una canción cada vez (un <audio>): sin fundido
     setCrossfade: async () => {},
+    // el navegador cambia la velocidad conservando el tono, y aquí no hay
+    // tono que cambiar
+    setFormants: async () => {},
     setSpeed: async (value) => {
       s.speed = clamp(Number(value) || 1, 0.25, 3)
       // el navegador conserva el tono al cambiar playbackRate
@@ -443,6 +458,41 @@ function savedCrossfade() {
 /** Cuánto se funden dos canciones al pasar de una a otra (0 = nada). */
 const crossfade = ref(savedCrossfade())
 
+/** ¿Se conserva el timbre de la voz al cambiar el tono? No, de fábrica. */
+function savedFormants() {
+  try {
+    return localStorage.getItem(FORMANTS_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+const formants = ref(savedFormants())
+
+/**
+ * ¿El clic acentúa el «1» de las canciones que no tienen su compás ajustado?
+ * Sí, de fábrica. En la biblioteca de quien lo pidió, «sin acento» estaba
+ * puesto a mano en 16 de las 22 canciones que ajustó: una preferencia general
+ * lo ahorra. Lo que se ajuste en una canción manda siempre.
+ */
+function savedAccent() {
+  try {
+    return localStorage.getItem(ACCENT_KEY) !== 'false'
+  } catch {
+    return true
+  }
+}
+const accentDefault = ref(savedAccent())
+/**
+ * El compás que se manda al motor para una canción sin el suyo: `null` (el
+ * que detectó el análisis, con su «1» acentuado) o 0 (sin acento).
+ */
+const defaultMeter = () => (accentDefault.value ? null : 0)
+/**
+ * Si el compás que va ahora es uno puesto por alguien (para la canción o a
+ * mano) y no el de por defecto: ese no lo toca un cambio de preferencia.
+ */
+let meterIsOwn = false
+
 function remember(key, value) {
   try {
     localStorage.setItem(key, String(value))
@@ -479,6 +529,7 @@ function applyState(s) {
     state[k] = s[k]
   }
   state.repeat = normalizeRepeat(state.repeat)
+  sayError(state.error)
   // Tras un salto, un tick que venía en camino traía la posición VIEJA y la
   // aguja daba un respingo atrás antes de ir a donde se pidió. Hasta que
   // Rust confirme (o pase el plazo), la posición se queda donde se pidió.
@@ -502,7 +553,6 @@ function applyState(s) {
   if (ready && backend && (changed || state.length !== queue.value.length)) refreshQueue(changed)
   if (ready) {
     remember(VOLUME_KEY, state.volume)
-    remember(SPEED_KEY, state.speed)
     remember(REPEAT_KEY, state.repeat)
   }
 }
@@ -542,7 +592,6 @@ async function boot() {
     // cambiar el volumen, la velocidad ni la repetición.
     if (isMainWindow()) {
       const vol = readNumber(VOLUME_KEY)
-      const savedSpeed = readNumber(SPEED_KEY)
       let repeat = null
       try {
         repeat = localStorage.getItem(REPEAT_KEY)
@@ -550,9 +599,11 @@ async function boot() {
         /* sin almacenamiento */
       }
       if (vol != null && Number.isFinite(vol)) await backend.setVolume(clamp(vol, 0, MAX_VOLUME))
-      if (savedSpeed != null && Number.isFinite(savedSpeed) && savedSpeed > 0)
-        await backend.setSpeed(savedSpeed)
+      // La velocidad NO se recuerda de un día para otro: la del estudio se
+      // guarda con su canción y vuelve con ella; cerrando DanPlay con una
+      // canción al 70 %, al día siguiente sonaba todo al 70 %.
       await backend.setCrossfade?.(crossfade.value)
+      if (formants.value) await backend.setFormants?.(true)
       if (REPEAT_MODES.includes(repeat)) await backend.setRepeat(normalizeRepeat(repeat))
     }
     applyState(await backend.state())
@@ -580,12 +631,16 @@ export function resetPlayback() {
   ready = false
   seenRevision = -1
   seekGuard = null
+  saidError = ''
   queue.value = []
   crossfade.value = savedCrossfade()
+  formants.value = savedFormants()
+  accentDefault.value = savedAccent()
+  meterIsOwn = false
   Object.assign(metronomeSettings, {
     on: false,
     bpm: null,
-    meter: null,
+    meter: defaultMeter(),
     shift: 0,
     mult: 0,
     volume: 0.8,
@@ -593,6 +648,23 @@ export function resetPlayback() {
     count_in: 0
   })
   Object.assign(state, { ...EMPTY })
+}
+
+/** El último fallo del reproductor que se dijo (vacío: no hay ninguno puesto). */
+let saidError = ''
+/**
+ * Un fallo del reproductor, dicho en un aviso que se queda unos segundos.
+ * En el estado dura lo que tarda Rust en mandar el siguiente (un cuarto de
+ * segundo sonando), o hasta que empieza la canción siguiente: «este archivo
+ * está dañado» o «falta el archivo de una pista» no daba tiempo a leerlos.
+ * Una vez por fallo, y solo en la ventana principal (las otras no tienen
+ * dónde enseñarlo).
+ * @param {string} message
+ */
+function sayError(message) {
+  const text = String(message || '')
+  if (text && text !== saidError && isMainWindow()) notify(text, 'info', 8)
+  saidError = text
 }
 
 // ------------------------------------------------------------------ órdenes
@@ -604,6 +676,7 @@ async function send(fn) {
     await fn(backend)
   } catch (e) {
     state.error = String(e?.message || e)
+    sayError(state.error)
   }
 }
 
@@ -684,7 +757,6 @@ const clearLoop = () => setLoop(null, null)
 
 function setSpeed(value) {
   const v = clamp(Number(value) || 1, 0.25, 3)
-  remember(SPEED_KEY, v)
   return send((b) => b.setSpeed(v))
 }
 /**
@@ -702,6 +774,16 @@ function setCrossfade(seconds) {
   remember(CROSSFADE_KEY, v)
   return send((b) => b.setCrossfade?.(v))
 }
+/**
+ * Conservar el timbre de la voz al cambiar el tono (sin el efecto «ardilla»
+ * al subirlo ni «gigante» al bajarlo). Una preferencia general.
+ * @param {boolean} on
+ */
+function setFormants(on) {
+  formants.value = !!on
+  remember(FORMANTS_KEY, on ? '1' : '0')
+  return send((b) => b.setFormants?.(!!on))
+}
 function setPitch(semitones) {
   const n = cleanPitch(semitones)
   return send((b) => b.setPitch(n))
@@ -717,7 +799,7 @@ function setPitch(semitones) {
 const metronomeSettings = {
   on: false,
   bpm: null,
-  meter: null,
+  meter: defaultMeter(),
   shift: 0,
   mult: 0,
   volume: 0.8,
@@ -729,11 +811,35 @@ const metronomeSettings = {
  */
 function setMetronome(patch) {
   Object.assign(metronomeSettings, patch)
+  // `null` es «el de la canción»: sin compás propio, el de por defecto
+  if ('meter' in patch) {
+    meterIsOwn = patch.meter != null
+    if (!meterIsOwn) metronomeSettings.meter = defaultMeter()
+  }
+  return send((b) => b.setMetronome({ ...metronomeSettings }))
+}
+/**
+ * La preferencia de acento. Con el cambio, lo que suena sin compás propio lo
+ * sigue al momento; lo que lo tiene (la canción o el modo a mano), no.
+ * @param {boolean} on  acentuar el «1»
+ */
+function setDefaultAccent(on) {
+  accentDefault.value = !!on
+  remember(ACCENT_KEY, !!on)
+  if (meterIsOwn || metronomeSettings.meter === defaultMeter()) return Promise.resolve()
+  metronomeSettings.meter = defaultMeter()
   return send((b) => b.setMetronome({ ...metronomeSettings }))
 }
 /** Los ajustes por canción (lo guardado con ella, o nada), sin tocar on/volumen. */
 function resetMetronomeOverrides(overrides = {}) {
-  Object.assign(metronomeSettings, { bpm: null, meter: null, shift: 0, mult: 0 }, overrides)
+  // (`own`, los pulsos ajustados a mano, no es un ajuste del metrónomo: va
+  // a Rust como rejilla, y aquí viajaba entero, miles de números, en cada
+  // cambio de volumen del clic)
+  const { own: _own, ...settings } = /** @type {any} */ (overrides)
+  // el compás de la canción si lo tiene; si no, el de la preferencia general
+  meterIsOwn = settings.meter != null
+  Object.assign(metronomeSettings, { bpm: null, shift: 0, mult: 0 }, settings)
+  if (!meterIsOwn) metronomeSettings.meter = defaultMeter()
   return send((b) => b.setMetronome({ ...metronomeSettings }))
 }
 /**
@@ -882,8 +988,15 @@ export function usePlayback() {
     pitch: computed(() => state.pitch),
     setCrossfade,
     crossfade: computed(() => crossfade.value),
+    setFormants,
+    formants: computed(() => formants.value),
     setMetronome,
     resetMetronomeOverrides,
+    /** acentuar el «1» en las canciones sin compás propio (Ajustes) */
+    accentDefault: computed(() => accentDefault.value),
+    setDefaultAccent,
+    /** el compás de las canciones sin el suyo: null (el detectado) o 0 (sin acento) */
+    defaultMeter: computed(() => (accentDefault.value ? null : 0)),
     metronomeSent,
     metronome: computed(() => state.metronome),
     analyzeBeats,
@@ -909,7 +1022,6 @@ export function usePlayback() {
     output: computed(() => state.output || null),
     /** se está preparando la canción (un formato que se pasa a FLAC) */
     preparing: computed(() => !!state.preparing),
-    pitchPreserved: computed(() => state.pitch_preserved !== false),
     setRepeat,
     cycleRepeat,
     setShuffle,

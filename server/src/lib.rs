@@ -84,6 +84,7 @@ pub mod error;
 pub mod guard;
 pub mod http;
 pub mod jobs;
+pub mod parent;
 pub mod router;
 pub mod routes;
 pub mod serve;
@@ -104,6 +105,14 @@ pub use http::{Body, Request, Response};
 /// escritorio en sus pruebas, con `Config::isolated`).
 pub use library::config::Config;
 pub use router::{Ctx, Reply, Route};
+
+/// El contador de cambios de la biblioteca (el mismo que da `/api/status`).
+/// La app de escritorio lo lee aquí, en su propio proceso, en vez de pedirle a
+/// la API el estado entero cada pocos segundos solo para ver este número.
+#[must_use]
+pub fn revision() -> u64 {
+    library::index::revision()
+}
 
 use std::sync::OnceLock;
 
@@ -135,6 +144,10 @@ pub fn handle(app: &App, req: &Request) -> Response {
 pub fn child_process() -> Option<i32> {
     let args: Vec<std::ffi::OsString> = std::env::args_os().collect();
     let flag = args.get(1)?.to_str()?;
+    // si la app que lo lanzó desaparece, se va (ver `parent`)
+    if flag == "--pulse" || flag == services::separation::FLAG {
+        parent::exit_with_parent();
+    }
     if flag == "--pulse" {
         return Some(services::beats::child_main(&args[2..]));
     }

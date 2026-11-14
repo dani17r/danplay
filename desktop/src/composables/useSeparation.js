@@ -49,9 +49,10 @@ const IDLE = {
   max_pending: 0,
   installed: false,
   folder: 'Separadas',
-  /** en qué se guardan las pistas, y si este ffmpeg sabe hacer Opus */
+  /** en qué se guardan las pistas, y si este ffmpeg sabe hacer Opus y Vorbis */
   format: 'flac',
   opus: false,
+  ogg: false,
   /** @type {QueueItem|null} */
   current: null,
   /** @type {QueueItem[]} */
@@ -92,6 +93,7 @@ function adopt(r) {
     'folder',
     'format',
     'opus',
+    'ogg',
     'current',
     'queue'
   ]) {

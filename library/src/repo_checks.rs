@@ -209,8 +209,13 @@ fn nothing_hardcodes_the_version_in_a_file_name() {
 // separan, el síntoma es «al abrir una canción no pasa nada», que no apunta
 // a ninguno.
 
-/// Las asociaciones de tauri.conf.json: (extensión con punto, tipo MIME).
-pub(crate) fn associations() -> Vec<(String, String)> {
+/// La extensión de la canción con sus pistas: se abre con DanPlay, pero no
+/// es un tipo de audio de la biblioteca.
+const BUNDLE_EXT: &str = ".danpista";
+const BUNDLE_MIME: &str = "application/x-danpista";
+
+/// Todas las asociaciones de tauri.conf.json: (extensión con punto, tipo MIME).
+fn all_associations() -> Vec<(String, String)> {
     json("desktop/src-tauri/tauri.conf.json")["bundle"]["fileAssociations"]
         .as_array()
         .expect("fileAssociations")
@@ -222,6 +227,39 @@ pub(crate) fn associations() -> Vec<(String, String)> {
             )
         })
         .collect()
+}
+
+/// Las de audio (las que tienen que casar con la biblioteca y con la API).
+pub(crate) fn associations() -> Vec<(String, String)> {
+    all_associations()
+        .into_iter()
+        .filter(|(ext, _)| ext != BUNDLE_EXT)
+        .collect()
+}
+
+/// Un `.danpista` se abre con DanPlay desde el explorador. Es un ZIP por
+/// dentro: si el paquete no lleva su tipo (o el `.desktop` no lo declara), el
+/// escritorio lo abre con el gestor de archivos comprimidos.
+#[test]
+fn a_danpista_opens_with_danplay_from_the_file_manager() {
+    assert!(
+        all_associations().contains(&(BUNDLE_EXT.to_owned(), BUNDLE_MIME.to_owned())),
+        "tauri.conf.json no asocia {BUNDLE_EXT}"
+    );
+    // el tipo viaja en el .deb, donde lo busca el escritorio
+    let conf = json("desktop/src-tauri/tauri.conf.json");
+    let files = &conf["bundle"]["linux"]["deb"]["files"];
+    let source = files["/usr/share/mime/packages/danplay-danpista.xml"]
+        .as_str()
+        .expect("el .deb no lleva el tipo de los .danpista");
+    let xml = read(source.trim_start_matches("../../"));
+    assert!(xml.contains(&format!("<mime-type type=\"{BUNDLE_MIME}\">")));
+    assert!(xml.contains("<glob pattern=\"*.danpista\"/>"));
+    assert!(xml.contains("<sub-class-of type=\"application/zip\"/>"));
+    // y al instalar y al quitar se refresca la base de tipos
+    for script in ["packaging/deb/postinst", "packaging/deb/postrm"] {
+        assert!(read(script).contains("update-mime-database"), "{script}");
+    }
 }
 
 #[test]

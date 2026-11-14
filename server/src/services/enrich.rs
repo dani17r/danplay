@@ -143,6 +143,7 @@ fn sheet_value(s: &library::chord_sheets::ChordSheet) -> Value {
         "title": s.title,
         "key": s.key,
         "key_from": s.key_from,
+        "key_deduced": s.key_deduced,
         "capo": s.capo,
         "votes": s.votes,
         "rating": s.rating.map_or(Value::from(0), Value::from),
@@ -327,6 +328,75 @@ pub fn enrich(
         save_to_file: true,
     };
     run(app, |o| e::enrich(o, cid, wanted))
+}
+
+/// La letra con tiempos de una canción, para la guía automática: la que ya
+/// tiene guardada o, si no, la de LRCLIB que dure lo mismo que el archivo
+/// (y entonces se guarda; si la canción no tenía letra, también la limpia,
+/// en el índice y en el archivo, como al buscarla desde su ficha).
+pub fn synced_lyrics(app: &App, song: &Dict) -> Option<String> {
+    let have = song
+        .get("lyrics_synced")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    if library::tags::lrc::has_stamp(have) {
+        return Some(have.to_owned());
+    }
+    let id = song.get("id").and_then(Value::as_i64)?;
+    let track = e::Track::of(song);
+    let mut here = Here { app };
+    // (en las pruebas no se sale a la red: lo que «da LRCLIB» lo pone cada
+    // una, por el título de su canción)
+    #[cfg(not(test))]
+    let found = e::synced_lyrics(&mut here, &track)?;
+    #[cfg(test)]
+    let found = {
+        let _ = &track;
+        fake_lrclib::of(song.get("path").and_then(Value::as_str).unwrap_or_default())?
+    };
+    let mut fields = Dict::new();
+    fields.insert("lyrics_synced".into(), Value::String(found.synced.clone()));
+    let had_lyrics = song.get("lyrics").is_some_and(library::value::truthy);
+    if !had_lyrics && !found.lyrics.is_empty() {
+        fields.insert("lyrics".into(), Value::String(found.lyrics.clone()));
+    }
+    if let Err(e) = e::Outside::update(&mut here, id, fields) {
+        log::warn!("no se pudo guardar la letra con tiempos de la canción {id}: {e}");
+    } else if !had_lyrics && !found.lyrics.is_empty() {
+        let path = song.get("path").and_then(Value::as_str).unwrap_or_default();
+        let _ = e::Outside::write_lyrics(&mut here, Path::new(path), &found.lyrics);
+    }
+    Some(found.synced)
+}
+
+/// Lo que «da LRCLIB» en las pruebas, por la ruta de la canción (cada
+/// prueba tiene su biblioteca: así una no le pone la letra a otra).
+#[cfg(test)]
+pub(crate) mod fake_lrclib {
+    use library::enrich::Lyrics;
+    use std::sync::{Mutex, PoisonError};
+
+    static FOUND: Mutex<Vec<(String, String)>> = Mutex::new(Vec::new());
+
+    /// Desde ahora, la canción de esa ruta tiene esa LRC en «LRCLIB».
+    pub fn put(path: &str, synced: &str) {
+        let mut all = FOUND.lock().unwrap_or_else(PoisonError::into_inner);
+        all.retain(|(p, _)| p != path);
+        all.push((path.to_owned(), synced.to_owned()));
+    }
+
+    pub fn of(path: &str) -> Option<Lyrics> {
+        let all = FOUND.lock().unwrap_or_else(PoisonError::into_inner);
+        let (_, synced) = all.iter().find(|(p, _)| p == path)?;
+        if synced.is_empty() {
+            return None;
+        }
+        Some(Lyrics {
+            lyrics: library::tags::lrc::lrc_to_plain(synced),
+            synced: synced.clone(),
+            source: "lrclib",
+        })
+    }
 }
 
 /// Rellena lo que le falta a la ficha.

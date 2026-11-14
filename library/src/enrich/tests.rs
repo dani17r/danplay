@@ -367,6 +367,93 @@ fn transposes_only_the_chord_lines() {
     assert_eq!(transpose_sheet(&json!("x"), 2, "")["sections"], json!([]));
 }
 
+/// El modo del cifrado no se pierde, y al tono de llegada se le llama por
+/// su nombre de siempre, con sus acordes escritos como él.
+#[test]
+fn the_mode_stays_and_keys_keep_their_usual_names() {
+    let minor = json!({"key": "Em", "sections": [{"name": "Coro", "chords": ["Em", "C", "G", "D"], "lines": []}]});
+    // «a G»: tres semitonos arriba, en menor (se titulaba «G»)
+    let d = transpose_sheet(&minor, 0, "G");
+    assert_eq!((&d["key"], &d["semitones"]), (&json!("Gm"), &json!(3)));
+    assert_eq!(d["sections"][0]["chords"], json!(["Gm", "Eb", "Bb", "F"]));
+    // y en su cejilla, formas menores
+    assert_eq!(d["capo_hint"], json!([[3, "Em"], [5, "Dm"]]));
+    // de La, un semitono arriba: Si bemol, no «A#» con «D#»
+    let major = json!({"key": "A", "sections": [{"chords": ["A", "E", "F#m", "D"], "lines": []}]});
+    let d = transpose_sheet(&major, 1, "");
+    assert_eq!(d["key"], "Bb");
+    assert_eq!(d["sections"][0]["chords"], json!(["Bb", "F", "Gm", "Eb"]));
+    // sin tono, igual: los acordes como se suelen escribir
+    let unknown = json!({"sections": [{"chords": ["A", "E", "F#m", "D"], "lines": []}]});
+    let d = transpose_sheet(&unknown, 1, "");
+    assert_eq!(d["sections"][0]["chords"], json!(["Bb", "F", "Gm", "Eb"]));
+    let d = transpose_sheet(&unknown, 2, "");
+    assert_eq!(d["sections"][0]["chords"], json!(["B", "F#", "G#m", "E"]));
+}
+
+/// Los mismos casos que `the_same_sheet_as_on_the_pc` del celular
+/// (`mobile/src/theory.rs`), que lleva esto mismo escrito a mano (no tiene
+/// `regex`): si cambia uno, cambia el otro.
+#[test]
+fn the_same_sheet_as_on_the_phone() {
+    let chords = |d: &Value| d["sections"][0]["chords"].clone();
+    // sin tono, un semitono arriba: con bemoles, que son un Sib y un Mib
+    let d = transpose_sheet(
+        &json!({"sections": [{"chords": ["A", "F", "Gm", "D"]}]}),
+        1,
+        "",
+    );
+    assert_eq!(chords(&d), json!(["Bb", "Gb", "Abm", "Eb"]));
+    assert_eq!((&d["key"], &d["semitones"]), (&json!(""), &json!(1)));
+    // un tono que no se reconoce se queda como estaba
+    let d = transpose_sheet(
+        &json!({"key": "Do", "sections": [{"chords": ["C", "Am"]}]}),
+        2,
+        "",
+    );
+    assert_eq!(chords(&d), json!(["D", "Bm"]));
+    assert_eq!((&d["key"], &d["capo_hint"]), (&json!("Do"), &json!([])));
+    let d = transpose_sheet(&json!({"key": 5, "sections": []}), 0, "G");
+    assert_eq!((&d["key"], &d["semitones"]), (&json!("5"), &json!(0)));
+    // «C-» es Do menor
+    let d = transpose_sheet(
+        &json!({"key": "C-", "sections": [{"chords": ["Cm", "Eb"]}]}),
+        2,
+        "",
+    );
+    assert_eq!(chords(&d), json!(["Dm", "F"]));
+    assert_eq!(
+        (&d["key"], &d["capo_hint"]),
+        (&json!("Dm"), &json!([[5, "Am"]]))
+    );
+    // lo que no es texto, tal cual; y una línea es de acordes si su «c» cuenta
+    let odd = json!({"key": "G", "source": "LaCuerda", "sections": [
+        {"name": "Coro", "chords": [5, "G", null], "lines": [
+            {"t": 7, "c": true}, {"t": "G  D", "c": 1}, {"t": "G", "c": 0}, {"c": true}, "x",
+        ]},
+        {"name": "Puente"},
+        "x",
+    ]});
+    let d = transpose_sheet(&odd, 2, "");
+    assert_eq!(
+        d,
+        json!({"key": "A", "source": "LaCuerda", "semitones": 2,
+        "capo_hint": [[2, "G"], [5, "E"], [7, "D"]],
+        "sections": [
+            {"name": "Coro", "chords": [5, "A", null], "lines": [
+                {"t": 7, "c": true}, {"t": "A  E", "c": 1}, {"t": "G", "c": 0},
+                {"c": true, "t": null}, "x",
+            ]},
+            {"name": "Puente", "chords": [], "lines": []},
+            "x",
+        ]})
+    );
+    assert_eq!(
+        transpose_sheet(&json!("x"), 2, ""),
+        json!({"sections": [], "key": "", "semitones": 2, "capo_hint": []})
+    );
+}
+
 /// Sin tono en el cifrado se mueve por semitonos, y el tono sigue vacío.
 #[test]
 fn without_a_key_it_transposes_by_semitones() {
@@ -865,6 +952,71 @@ fn filled_key_comes_from_the_chord_sheet_not_the_ai() {
     let r = autofill(&mut f, 5).expect("vale");
     let reason = r["reason"].as_str().expect("motivo");
     assert!(reason.contains("no dice el tono"), "{reason}");
+}
+
+/// El tono que se deduce de los acordes nunca pasa por el dicho por el
+/// cifrado, por quien hizo la ficha o por el archivo: va aparte
+/// (`key_deduced`), no se rellena en la ficha y no pisa nada.
+#[test]
+fn a_key_deduced_from_the_chords_is_kept_apart_from_the_stated_one() {
+    let am = json!([{"name": "", "chords": ["Am", "F", "C", "G", "Am", "E", "Am"]}]);
+    let sheet = |extra: Value| {
+        let mut base = json!({"source": "LaCuerda", "key": "", "capo": 0, "sections": am});
+        for (k, v) in extra.as_object().expect("objeto") {
+            base[k] = v.clone();
+        }
+        base
+    };
+    assert_eq!(deduced_key(&sheet(json!({}))), "Am");
+    // con cejilla, el tono que suena
+    assert_eq!(deduced_key(&sheet(json!({"capo": 2}))), "Bm");
+    // si el cifrado dice el suyo, no hay nada que deducir
+    assert_eq!(deduced_key(&sheet(json!({"key": "C"}))), "");
+    // lo ya deducido se respeta
+    assert_eq!(deduced_key(&sheet(json!({"key_deduced": "Dm"}))), "Dm");
+    // sin cifrado, o sin acordes de sobra, nada
+    assert_eq!(deduced_key(&Value::Null), "");
+    assert_eq!(deduced_key(&json!({"key": "", "sections": []})), "");
+
+    // la ficha de la canción: solo si no tiene tono
+    let doc = |key: &str| {
+        obj(json!({"key": key, "chords": json!({"sheet": sheet(json!({}))}).to_string()}))
+    };
+    assert_eq!(song_deduced_key(&doc("")), "Am");
+    assert_eq!(
+        song_deduced_key(&doc("Bb")),
+        "",
+        "no se pisa el tono de la ficha"
+    );
+
+    // rellenar la ficha NO pone el deducido, y dice por qué
+    let mut f = Fake::default();
+    f.songs.insert(
+        5,
+        obj(json!({
+            "id": 5, "artist": "Barak", "title": "Mi Gozo", "album": "A",
+            "year": "2018", "genre": "X", "key": "", "chords": "",
+        })),
+    );
+    f.sheet = json!({"sheet": sheet(json!({})), "tried": [], "failed": []});
+    let r = autofill(&mut f, 5).expect("vale");
+    assert_eq!(r["filled"], json!({}));
+    assert!(
+        f.edits.is_empty(),
+        "el tono deducido no se escribe en la ficha"
+    );
+    let reason = r["reason"].as_str().expect("motivo");
+    assert!(reason.contains("no dice el tono"), "{reason}");
+    assert!(
+        reason.contains("Am") && reason.contains("deducci"),
+        "{reason}"
+    );
+
+    // un cifrado guardado antes de saber deducir lo lleva al leerlo
+    let stored = json!({"sheet": sheet(json!({}))}).to_string();
+    let again = chords(&mut f, &song(&stored), false).expect("vale");
+    assert_eq!(again["sheet"]["key"], "");
+    assert_eq!(again["sheet"]["key_deduced"], "Am");
 }
 
 #[test]

@@ -18,11 +18,14 @@
 //! Sin la funcion `motor` quedan solo `beats` (el pulso y el compas de una
 //! cancion, y su rejilla), `metro` (los ajustes del metronomo y como va),
 //! `queue` (la cola y lo que ve la interfaz) y `click` (el sonido del clic),
-//! que son lo que usa tambien la app de escritorio.
+//! que son lo que usa tambien la app de escritorio; y `role` (el papel de una
+//! pista por su nombre: clic, guia o musica), que es la regla de la PC
+//! (`library::sequence::role_of`) para quien no lleva `regex`.
 pub mod beats;
 pub mod click;
 pub mod metro;
 pub mod queue;
+pub mod role;
 
 #[cfg(feature = "engine")]
 pub mod bundle;
@@ -32,6 +35,8 @@ pub mod decode;
 pub mod engine;
 #[cfg(feature = "engine")]
 pub mod feeder;
+#[cfg(feature = "engine")]
+mod mp4;
 #[cfg(feature = "engine")]
 pub mod output;
 #[cfg(feature = "engine")]
@@ -47,6 +52,8 @@ pub mod spec;
 #[cfg(feature = "engine")]
 pub mod stretch;
 
+#[cfg(all(test, feature = "engine"))]
+mod real_files;
 #[cfg(all(test, feature = "engine"))]
 mod testing;
 

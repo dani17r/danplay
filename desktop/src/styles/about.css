@@ -232,6 +232,23 @@
   line-height: 1.55;
 }
 
+/* En una ventana ancha, «Acerca de» y las novedades van en rejilla (las
+   tarjetas de una fila, igual de altas): eran una columna de 760 px con dos
+   tercios de la ventana vacíos. Los términos, que son para leer seguido, se
+   quedan en su columna. */
+@media (min-width: 1440px) {
+  .about-page {
+    max-width: none;
+  }
+  .about-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(480px, 1fr));
+  }
+  .about-panel:not(.about-grid) {
+    max-width: 760px;
+  }
+}
+
 /* los términos en la página */
 .terms-state {
   display: flex;

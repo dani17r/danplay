@@ -101,7 +101,7 @@ async function openTelegram() {
     </div>
 
     <!-- acerca de: quién lo hizo -->
-    <section v-if="current === 'about'" class="about-panel" role="tabpanel">
+    <section v-if="current === 'about'" class="about-panel about-grid" role="tabpanel">
       <div class="about-credit">
         <Icon n="music" :t="22" />
         <div>
@@ -142,7 +142,7 @@ async function openTelegram() {
     </section>
 
     <!-- novedades: lo de cada versión, corto -->
-    <section v-else-if="current === 'news'" class="about-panel" role="tabpanel">
+    <section v-else-if="current === 'news'" class="about-panel about-grid" role="tabpanel">
       <article v-for="r in RELEASES" :key="r.version" class="release" :class="{ mine: isMine(r) }">
         <header>
           <span class="release-version">{{ r.version }}</span>

@@ -9,11 +9,13 @@
 //!
 //!   carpetas    las carpetas gestionadas, las exclusiones y qué audio hay dentro
 //!   canciones   una canción: leerla, cambiarla, dónde está, su modo estudio
+//!   orden       el orden de los textos de la lista (como en castellano)
 //!   busqueda    buscar, filtrar, ordenar; las filas ligeras de las listas
 //!   escaneo     poner el índice al día con el disco
 //!   esquema     las tablas y sus migraciones
 //!   historial   el historial de descargas y lo que gasta la IA
 //!   ordenar     «Transformar»: cada canción en su sitio y con su nombre
+pub mod collate;
 pub mod folders;
 pub mod history;
 pub mod scan;
@@ -27,7 +29,7 @@ use rusqlite::{Connection, OpenFlags, Params};
 use serde_json::{Map, Number, Value};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Condvar, Mutex, PoisonError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 /// Las sentencias preparadas que se guardan por conexión: las de cada
@@ -46,6 +48,9 @@ pub fn open(path: &Path) -> rusqlite::Result<Connection> {
             | OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )?;
     conn.set_prepared_statement_cache_capacity(CACHED_STATEMENTS);
+    // el orden de los textos de la lista, como el de la lista agrupada de la
+    // interfaz: sin tildes ni mayúsculas, y la ñ tras la n (ver `collate`)
+    conn.create_collation(collate::NAME, collate::compare)?;
     // Si otra conexión está escribiendo (el escaneo, por ejemplo), se espera
     // hasta cinco segundos en vez de fallar al instante con «database is
     // locked»: puntuar una canción mientras se escanea tiene que funcionar.
@@ -273,15 +278,101 @@ pub fn to_missing(conn: &Connection, paths: &[String]) -> rusqlite::Result<usize
 /// y, si se ha movido, avisa a las ventanas para que se refresquen. Es lo que
 /// hace que un cambio hecho «por detrás» —una descarga que termina, el
 /// asistente, la línea de órdenes— se vea sin tener que salir y volver a entrar.
+/// Lo que la interfaz cambia y ya tiene delante no la mueve (ver `quietly`).
 static REVISION: AtomicU64 = AtomicU64::new(0);
 
 pub fn revision() -> u64 {
     REVISION.load(Ordering::SeqCst)
 }
 
+/// Todo lo que se ha escrito, también lo que `revision` calla (ver
+/// `quietly`). Lo mira quien tiene que enterarse de cada cambio aunque la
+/// interfaz ya lo sepa: el diario.
+static WRITES: AtomicU64 = AtomicU64::new(0);
+
+pub fn writes() -> u64 {
+    WRITES.load(Ordering::SeqCst)
+}
+
+thread_local! {
+    /// Cuántos `Quiet` tiene vivos este hilo.
+    static QUIET: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
+}
+
+/// Mientras viva, lo que escriba este hilo no mueve `revision` (sí `writes`).
+#[derive(Debug)]
+pub struct Quiet(());
+
+/// Para lo que la interfaz cambia y ya tiene delante: la respuesta le trae la
+/// canción como quedó, y no hace falta decirle además «algo cambió, recarga
+/// todo». Poner una estrella o guardar el estudio (que se guarda solo, cada
+/// 0,6 s de cambios) recargaba la lista entera, los repertorios y la ficha
+/// dos segundos después. Lo que cambia por detrás (el asistente, una
+/// descarga, el escaneo) sigue avisando como siempre.
+pub fn quietly() -> Quiet {
+    QUIET.with(|q| q.set(q.get() + 1));
+    Quiet(())
+}
+
+impl Drop for Quiet {
+    fn drop(&mut self) {
+        QUIET.with(|q| q.set(q.get().saturating_sub(1)));
+    }
+}
+
+/// Con qué se despierta a quien espera un cambio (`wait_for_write`).
+static WAITERS: (Mutex<()>, Condvar) = (Mutex::new(()), Condvar::new());
+static WAKES: AtomicU64 = AtomicU64::new(0);
+
+fn notify_waiters() {
+    // con el cerrojo cogido un momento: quien acaba de mirar el contador y
+    // va a dormirse no se pierde el aviso
+    drop(WAITERS.0.lock().unwrap_or_else(PoisonError::into_inner));
+    WAITERS.1.notify_all();
+}
+
 /// Algo cambió en el índice: la próxima `stats` vuelve a contar.
 pub fn touch() {
-    REVISION.fetch_add(1, Ordering::SeqCst);
+    WRITES.fetch_add(1, Ordering::SeqCst);
+    if QUIET.with(std::cell::Cell::get) == 0 {
+        REVISION.fetch_add(1, Ordering::SeqCst);
+    }
+    notify_waiters();
+}
+
+/// Duerme hasta que se escriba algo (`writes()` deje de valer `seen`), hasta
+/// que alguien llame a `wake_waiters` o hasta `timeout`. Devuelve `writes()`.
+/// Es para los hilos de fondo: esperar así no gasta nada con la app en
+/// reposo, y se enteran al momento.
+pub fn wait_for_write(seen: u64, timeout: Duration) -> u64 {
+    let wakes = WAKES.load(Ordering::SeqCst);
+    let guard = WAITERS.0.lock().unwrap_or_else(PoisonError::into_inner);
+    let _ = WAITERS
+        .1
+        .wait_timeout_while(guard, timeout, |()| {
+            writes() == seen && WAKES.load(Ordering::SeqCst) == wakes
+        })
+        .unwrap_or_else(PoisonError::into_inner);
+    writes()
+}
+
+/// Duerme `timeout` (o hasta que alguien llame a `wake_waiters`). Como
+/// `std::thread::sleep`, pero se puede interrumpir: un hilo que espera un rato
+/// largo no tiene que despertar cada poco para ver si hay que irse.
+pub fn pause(timeout: Duration) {
+    let wakes = WAKES.load(Ordering::SeqCst);
+    let guard = WAITERS.0.lock().unwrap_or_else(PoisonError::into_inner);
+    let _ = WAITERS
+        .1
+        .wait_timeout_while(guard, timeout, |()| WAKES.load(Ordering::SeqCst) == wakes)
+        .unwrap_or_else(PoisonError::into_inner);
+}
+
+/// Despierta a los que esperan en `wait_for_write` o en `pause` sin que haya
+/// cambiado nada (al apagar: que miren si tienen que irse).
+pub fn wake_waiters() {
+    WAKES.fetch_add(1, Ordering::SeqCst);
+    notify_waiters();
 }
 
 /// `/api/status` pide las cifras continuamente y calcularlas es un agregado
@@ -380,6 +471,69 @@ mod tests {
         b.execute("INSERT INTO t VALUES (3)", []).expect("ahora sí");
         drop((a, b));
         std::fs::remove_dir_all(&dir).expect("borrar");
+    }
+
+    /// La espera de los hilos de fondo: no consume nada mientras no pase
+    /// nada, y se entera al momento de lo que se escribe o de que hay que irse.
+    #[test]
+    fn waiting_for_a_write_wakes_up_on_it_and_on_shutdown() {
+        let seen = writes();
+        // sin cambios, espera todo lo que se le da (el contador es de todo el
+        // proceso: si otra prueba escribe a la vez, se vuelve antes)
+        let start = Instant::now();
+        let now = wait_for_write(seen, Duration::from_millis(150));
+        assert!(start.elapsed() >= Duration::from_millis(140) || now != seen);
+        // un cambio lo despierta al momento (con mucho margen de espera)
+        let writer = std::thread::spawn(|| {
+            std::thread::sleep(Duration::from_millis(100));
+            touch();
+        });
+        let start = Instant::now();
+        assert_ne!(wait_for_write(seen, Duration::from_secs(30)), seen);
+        assert!(
+            start.elapsed() < Duration::from_secs(5),
+            "{:?}",
+            start.elapsed()
+        );
+        writer.join().expect("hilo");
+        // quien ya vio todo lo escrito sigue esperando; apagar lo despierta
+        let seen = writes();
+        let waiter = std::thread::spawn(move || {
+            let start = Instant::now();
+            wait_for_write(seen, Duration::from_secs(30));
+            start.elapsed()
+        });
+        std::thread::sleep(Duration::from_millis(100));
+        wake_waiters();
+        assert!(waiter.join().expect("hilo") < Duration::from_secs(5));
+        // y `pause` es un `sleep` que se puede interrumpir
+        let napper = std::thread::spawn(|| {
+            let start = Instant::now();
+            pause(Duration::from_secs(30));
+            start.elapsed()
+        });
+        std::thread::sleep(Duration::from_millis(100));
+        wake_waiters();
+        assert!(napper.join().expect("hilo") < Duration::from_secs(5));
+    }
+
+    /// `quietly` calla la revisión (lo que hace recargar la interfaz) pero no
+    /// las escrituras (lo que mira el diario), y solo en el hilo que lo pide.
+    #[test]
+    fn a_quiet_write_moves_the_writes_but_not_the_revision() {
+        let written = writes();
+        {
+            let _quiet = quietly();
+            touch();
+        }
+        assert_eq!(writes(), written + 1);
+        // (la revisión es de todo el proceso y otras pruebas la mueven a la
+        // vez: no se puede afirmar que no se movió; sí que el hilo que
+        // calla no cuenta en el de al lado)
+        let before = revision();
+        let _quiet = quietly();
+        std::thread::spawn(touch).join().expect("hilo");
+        assert!(revision() > before, "otro hilo sí avisa");
     }
 
     #[test]

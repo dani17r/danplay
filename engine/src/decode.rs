@@ -19,7 +19,9 @@ use std::collections::VecDeque;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use symphonia::core::audio::{Channels, Position};
 use symphonia::core::codecs::audio::{AudioDecoder, AudioDecoderOptions};
+use symphonia::core::errors::Error;
 use symphonia::core::formats::probe::Hint;
 use symphonia::core::formats::{FormatOptions, FormatReader, SeekMode, SeekTo, TrackType};
 use symphonia::core::io::{MediaSourceStream, MediaSourceStreamOptions};
@@ -31,6 +33,10 @@ use symphonia::core::units::Timestamp;
 /// cada bloque con el de antes: empezando justo ahi, lo primero sale mal
 /// (medido: un MP3 salia con diferencias de 0,76 en las primeras muestras).
 const PREROLL: u64 = 4_096;
+
+/// El hueco mas largo que se rellena con silencio, en segundos: mas que eso
+/// no es un trozo dañado, es media cancion (o una marca de tiempo rota).
+const LONGEST_GAP: i64 = 30;
 
 /// De donde lee: de memoria o del archivo.
 #[derive(Clone)]
@@ -140,6 +146,13 @@ impl Part {
         })
     }
 
+    /// Lo que dice durar no es un dato del archivo sino una cuenta
+    /// aproximada (un mp3 sin cabecera): puede acabar antes o despues, y
+    /// donde acaba de verdad solo se sabe al llegar.
+    pub fn estimated(&self) -> bool {
+        self.inner.estimated
+    }
+
     /// Ya no queda nada por leer.
     pub fn done(&self) -> bool {
         match &self.conv {
@@ -148,6 +161,12 @@ impl Part {
                 .is_some_and(|end| (c.origin_in as f64 + c.produced as f64 * c.step) >= end as f64),
             None => self.inner.done(),
         }
+    }
+
+    /// Se acabo, pero no porque llegara al final: el archivo dejo de poder
+    /// leerse (esta cortado o dañado). Lo que habia hasta ahi ya se leyo.
+    pub fn failed(&self) -> bool {
+        self.inner.broken && self.done()
     }
 
     /// Se coloca en la muestra `frame` (por canal, a la tasa a la que suena).
@@ -211,6 +230,11 @@ struct Decoded {
     track_id: u32,
     rate: u32,
     frames: Option<u64>,
+    estimated: bool,
+    /// Lo que se salta del principio de lo que decodifica el contenedor
+    /// (ver `Opened::delay`): la muestra 0 de la parte es la `delay` del
+    /// archivo.
+    delay: u64,
     /// Lo decodificado que aun no se ha leido, intercalado en estereo.
     fifo: VecDeque<f32>,
     /// La primera muestra que se quiere: lo de antes se tira. Tras un salto,
@@ -220,13 +244,35 @@ struct Decoded {
     /// por la marca de tiempo de cada paquete. Medido: contando desde donde
     /// dejo el salto, todo salia 1024 muestras corrido.
     want: i64,
+    /// Ya colocada (`want` cumplido): la muestra de la parte de lo proximo
+    /// que entra en `fifo`. Si el paquete que llega empieza mas tarde, lo de
+    /// en medio no se pudo leer y va en silencio.
+    next: i64,
     eof: bool,
+    /// Se acabo antes de tiempo: el contenedor esta roto, o lo que quedaba
+    /// no se decodifica.
+    broken: bool,
+    /// Los ultimos paquetes no se han podido decodificar: desde que muestra
+    /// y hasta cual (mas o menos). Si el siguiente si, su hueco se rellena.
+    lost: Option<(i64, i64)>,
     scratch: Vec<f32>,
+    /// Con mas de dos canales (un 5.1): cuanto de cada uno va a cada lado, y
+    /// de que reparto de canales se saco.
+    mix: Vec<[f32; 2]>,
+    mix_of: Channels,
 }
 
 impl Decoded {
     fn open(media: Media, ext: &str) -> Result<Decoded, String> {
-        let (format, decoder, track_id, rate, frames) = open_reader(&media, ext)?;
+        let Opened {
+            format,
+            decoder,
+            track_id,
+            rate,
+            frames,
+            estimated,
+            delay,
+        } = open_reader(&media, ext)?;
         Ok(Decoded {
             media,
             ext: ext.to_string(),
@@ -235,10 +281,17 @@ impl Decoded {
             track_id,
             rate,
             frames,
+            estimated,
+            delay,
             fifo: VecDeque::new(),
             want: 0,
+            next: 0,
             eof: false,
+            broken: false,
+            lost: None,
             scratch: Vec::new(),
+            mix: Vec::new(),
+            mix_of: Channels::None,
         })
     }
 
@@ -251,17 +304,27 @@ impl Decoded {
     fn seek(&mut self, frame: u64) {
         self.fifo.clear();
         self.want = frame as i64;
+        // llegó al final: un MP4 en fragmentos (audio de YouTube) contesta al
+        // salto con un «bien» y no entrega nada más, así que se vuelve a abrir
+        // (como desde el principio); el resto de formatos no lo necesitan,
+        // pero tampoco les cuesta nada
+        let finished = self.eof;
         self.eof = false;
-        if frame == 0 {
+        // un salto es otra oportunidad
+        self.broken = false;
+        self.lost = None;
+        if frame == 0 || finished {
             // desde el principio, lo mas seguro: abrirla otra vez
-            if let Ok((format, decoder, ..)) = open_reader(&self.media, &self.ext) {
-                self.format = format;
-                self.decoder = decoder;
-                return;
+            if let Ok(again) = open_reader(&self.media, &self.ext) {
+                self.format = again.format;
+                self.decoder = again.decoder;
+                if frame == 0 {
+                    return;
+                }
             }
         }
         let to = SeekTo::Timestamp {
-            ts: Timestamp::new(frame.saturating_sub(PREROLL) as i64),
+            ts: Timestamp::new((frame + self.delay).saturating_sub(PREROLL) as i64),
             track_id: self.track_id,
         };
         match self.format.seek(SeekMode::Accurate, to) {
@@ -269,12 +332,12 @@ impl Decoded {
             Err(_) => {
                 // no se pudo saltar (mas alla del final, o un contenedor que
                 // no sabe): desde el principio, tirando lo de antes
-                match open_reader(&self.media, &self.ext) {
-                    Ok((format, decoder, ..)) => {
-                        self.format = format;
-                        self.decoder = decoder;
-                    }
-                    Err(_) => self.eof = true,
+                if let Ok(again) = open_reader(&self.media, &self.ext) {
+                    self.format = again.format;
+                    self.decoder = again.decoder;
+                } else {
+                    self.eof = true;
+                    self.broken = true;
                 }
             }
         }
@@ -294,38 +357,103 @@ impl Decoded {
         n
     }
 
+    /// Ya no hay mas paquetes. `broken`: no porque se acabe, sino porque el
+    /// archivo no se puede seguir leyendo.
+    fn finish(&mut self, broken: bool) {
+        self.eof = true;
+        // lo ultimo no se decodificaba y ya no hay nada detras: si era mas
+        // que un paquete suelto, la parte se queda sin su final
+        let lost = self.lost.take().map_or(0, |(from, to)| to - from);
+        self.broken = broken || lost >= i64::from(self.rate / 2);
+    }
+
+    /// El archivo se acaba un poco antes de lo que dice su cabecera (un WAV
+    /// con la cuenta mal, una grabacion cortada en el ultimo instante): eso
+    /// es el final y no merece aviso. Mas lejos, es un archivo cortado.
+    fn cut_at_the_end(&self, e: &Error) -> bool {
+        let eof = matches!(e, Error::IoError(io) if io.kind() == std::io::ErrorKind::UnexpectedEof);
+        let near = self.want == i64::MIN
+            && self
+                .frames
+                .is_some_and(|f| self.next + i64::from(self.rate) >= f as i64);
+        eof && near
+    }
+
     fn decode_packet(&mut self) {
         let packet = loop {
             match self.format.next_packet() {
                 Ok(Some(p)) if p.track_id == self.track_id => break p,
                 Ok(Some(_)) => {}
-                // el final, o el contenedor roto: se acaba aqui
-                Ok(None) | Err(_) => {
-                    self.eof = true;
-                    return;
-                }
+                // el final (o detras viene otra cancion encadenada)
+                Ok(None) | Err(Error::ResetRequired) => return self.finish(false),
+                // el contenedor roto: no es el final, es que no se puede
+                // seguir. Antes se tomaba por el final y la cancion seguia
+                // en silencio hasta lo que decia durar
+                Err(e) => return self.finish(!self.cut_at_the_end(&e)),
             }
         };
-        // un paquete que no se decodifica se salta (como hace la PC)
-        let Ok(audio) = self.decoder.decode(&packet) else {
-            return;
+        // lo que sale empieza en la marca del paquete, mas lo que el
+        // decodificador recorta del principio (el retraso del codificador)
+        let start = packet.pts.get() + packet.trim_start.get() as i64 - self.delay as i64;
+        let audio = match self.decoder.decode(&packet) {
+            Ok(audio) => audio,
+            Err(e) => {
+                // un paquete que no se decodifica no da audio, pero su sitio
+                // sigue ahi: se apunta, y si el siguiente si se decodifica,
+                // el hueco va en silencio. Antes se saltaba sin mas y todo lo
+                // de despues sonaba un paquete antes que las demas partes y
+                // que el clic
+                if matches!(e, Error::ResetRequired) {
+                    self.decoder.reset();
+                }
+                let end = start.saturating_add(packet.dur.get() as i64);
+                self.lost = Some((self.lost.map_or(start, |l| l.0), end));
+                return;
+            }
         };
-        let channels = audio.spec().channels().count().max(1);
+        self.lost = None;
+        let layout = audio.spec().channels();
+        let channels = layout.count().max(1);
+        if channels > 2 && *layout != self.mix_of {
+            self.mix = downmix(layout);
+            self.mix_of = layout.clone();
+        }
         self.scratch.resize(audio.samples_interleaved(), 0.0);
         audio.copy_to_slice_interleaved(&mut self.scratch);
-        // lo que sale empieza en la marca del paquete, menos lo que el
-        // decodificador recorta del principio (el retraso del codificador)
-        let start = packet.pts.get() + packet.trim_start.get() as i64;
-        let drop = self.want.saturating_sub(start).max(0) as usize;
-        if drop < self.scratch.len() / channels {
-            self.want = i64::MIN; // ya llego: lo siguiente va seguido
+        let frames = self.scratch.len() / channels;
+        let mut drop = 0;
+        if self.want == i64::MIN {
+            // seguido de lo anterior. Si empieza mas tarde de lo que tocaba,
+            // en medio falta un trozo (paquetes que no se decodificaron, o
+            // que el contenedor se salto por estar dañados): silencio, para
+            // que lo de despues siga en su sitio
+            let gap = start.saturating_sub(self.next);
+            if gap > LONGEST_GAP * i64::from(self.rate.max(1)) {
+                return self.finish(true);
+            }
+            for _ in 0..gap.max(0) * 2 {
+                self.fifo.push_back(0.0);
+            }
+            self.next += gap.max(0);
+        } else {
+            drop = self.want.saturating_sub(start).max(0) as usize;
+            if drop >= frames {
+                return; // aun no llega a donde se pidio
+            }
+            // ya llego: lo siguiente va seguido
+            self.next = start.max(self.want);
+            self.want = i64::MIN;
         }
+        self.next += (frames - drop) as i64;
         for frame in self.scratch.chunks_exact(channels).skip(drop) {
-            // mono a los dos lados; mas de dos canales, los dos primeros
-            let (l, r) = if channels == 1 {
-                (frame[0], frame[0])
-            } else {
-                (frame[0], frame[1])
+            // mono a los dos lados; mas de dos canales, bajados a estereo
+            let (l, r) = match channels {
+                1 => (frame[0], frame[0]),
+                2 => (frame[0], frame[1]),
+                _ => frame
+                    .iter()
+                    .zip(&self.mix)
+                    .fold((0.0, 0.0), |(l, r), (v, g)| (l + v * g[0], r + v * g[1])),
             };
             self.fifo.push_back(l);
             self.fifo.push_back(r);
@@ -333,15 +461,95 @@ impl Decoded {
     }
 }
 
-type Reader = (
-    Box<dyn FormatReader>,
-    Box<dyn AudioDecoder>,
-    u32,
-    u32,
-    Option<u64>,
-);
+/// Como baja a estereo una parte de mas de dos canales (un FLAC 5.1): cuanto
+/// de cada canal va al lado izquierdo y cuanto al derecho, en el orden en que
+/// salen del decodificador.
+///
+/// Los coeficientes de siempre (ITU-R BS.775, los que usa ffmpeg con
+/// `-ac 2`): los frontales tal cual, el central y los de atras a -3 dB, y el
+/// de graves fuera. Antes sonaban solo los dos primeros, y el central, que
+/// suele ser la voz, se perdia. Y todo dividido por lo que suma un lado
+/// (2,41 en un 5.1): asi, ni con todos los canales al tope a la vez pasa de
+/// 1, y no hay nada que recortar.
+///
+/// Sin posiciones (canales sueltos, ambisonico), los dos primeros como antes.
+fn downmix(channels: &Channels) -> Vec<[f32; 2]> {
+    const SIDE: f32 = std::f32::consts::FRAC_1_SQRT_2;
+    let left = Position::FRONT_LEFT | Position::FRONT_LEFT_CENTER;
+    let right = Position::FRONT_RIGHT | Position::FRONT_RIGHT_CENTER;
+    let center = Position::FRONT_CENTER;
+    let lfe = Position::LFE1 | Position::LFE2;
+    let around_left = Position::REAR_LEFT
+        | Position::SIDE_LEFT
+        | Position::TOP_FRONT_LEFT
+        | Position::TOP_REAR_LEFT
+        | Position::TOP_SIDE_LEFT
+        | Position::BOTTOM_FRONT_LEFT
+        | Position::FRONT_LEFT_WIDE;
+    let around_right = Position::REAR_RIGHT
+        | Position::SIDE_RIGHT
+        | Position::TOP_FRONT_RIGHT
+        | Position::TOP_REAR_RIGHT
+        | Position::TOP_SIDE_RIGHT
+        | Position::BOTTOM_FRONT_RIGHT
+        | Position::FRONT_RIGHT_WIDE;
+    let Channels::Positioned(set) = channels else {
+        return (0..channels.count())
+            .map(|c| [f32::from(c == 0), f32::from(c == 1)])
+            .collect();
+    };
+    // en el bufer van por el orden de sus bits (el de un WAV)
+    let mut out: Vec<[f32; 2]> = (0..u64::BITS)
+        .map(|bit| Position::from_bits_retain(set.bits() & (1 << bit)))
+        .filter(|p| !p.is_empty())
+        .map(|p| {
+            if left.contains(p) {
+                [1.0, 0.0]
+            } else if right.contains(p) {
+                [0.0, 1.0]
+            } else if p == center {
+                [SIDE, SIDE]
+            } else if lfe.contains(p) {
+                [0.0, 0.0]
+            } else if around_left.contains(p) {
+                [SIDE, 0.0]
+            } else if around_right.contains(p) {
+                [0.0, SIDE]
+            } else {
+                // los de en medio que quedan (atras, arriba): la mitad a cada lado
+                [0.5, 0.5]
+            }
+        })
+        .collect();
+    let most = out
+        .iter()
+        .fold([0f32; 2], |s, g| [s[0] + g[0], s[1] + g[1]])
+        .into_iter()
+        .fold(1.0, f32::max);
+    for g in &mut out {
+        g[0] /= most;
+        g[1] /= most;
+    }
+    out
+}
 
-fn open_reader(media: &Media, ext: &str) -> Result<Reader, String> {
+/// Un archivo abierto: su contenedor, su decodificador y lo que se sabe de
+/// su pista de audio.
+struct Opened {
+    format: Box<dyn FormatReader>,
+    decoder: Box<dyn AudioDecoder>,
+    track_id: u32,
+    rate: u32,
+    /// Muestras por canal que dice durar (nada, si no lo dice).
+    frames: Option<u64>,
+    /// Esa duracion es una cuenta aproximada, no un dato del archivo.
+    estimated: bool,
+    /// Muestras del archivo (a su tasa) que se saltan al principio: el
+    /// retraso del codificador que dice la lista de ediciones de un MP4.
+    delay: u64,
+}
+
+fn open_reader(media: &Media, ext: &str) -> Result<Opened, String> {
     let mss = match media {
         Media::Bytes(bytes) => MediaSourceStream::new(
             Box::new(Cursor::new(Arc::clone(bytes))),
@@ -372,23 +580,65 @@ fn open_reader(media: &Media, ext: &str) -> Result<Reader, String> {
         .default_track(TrackType::Audio)
         .ok_or_else(|| "sin pista de audio".to_string())?;
     let track_id = track.id;
-    let frames = track.num_frames;
+    // un MP4 en fragmentos dice que dura 0: es que no lo dice
+    let frames = track.num_frames.filter(|&f| f > 0);
     let params = track
         .codec_params
         .as_ref()
         .and_then(|p| p.audio())
         .ok_or_else(|| "sin pista de audio".to_string())?;
     let rate = params.sample_rate.unwrap_or(44_100);
+    // un MP4 (AAC, ALAC) dice donde empieza de verdad en su lista de
+    // ediciones; symphonia no la entrega, y el AAC salia 1024 muestras tarde
+    // (2112 si lo hizo iTunes). Se decide por lo que es y no por como se
+    // llama: hay mp3 que en realidad son MP4. Los demas formatos ya
+    // recortan su retraso por si solos
+    let delay = if format.format_info().short_name == "isomp4" && track.delay.is_none() {
+        read_priming(media, track_id, rate)
+    } else {
+        0
+    };
+    // un mp3 sin cabecera (Xing, Info) no dice cuanto dura ni cuanto
+    // retraso lleva: symphonia lo calcula por el tamaño y la tasa de bits
+    // del principio, y si la tasa es variable se queda corto o se pasa
+    let estimated = matches!(format.format_info().short_name, "mp1" | "mp2" | "mp3")
+        && track.delay.is_none()
+        && track.padding.is_none();
+    // ...y con esa cuenta recorta el final de lo que decodifica (medido: un
+    // mp3 de 3,03 s se quedaba en 2,32). Sin cabecera no hay nada de verdad
+    // que recortar: se le pide entero
+    let options = AudioDecoderOptions::default().gapless(!estimated);
     let decoder = symphonia::default::get_codecs()
-        .make_audio_decoder(params, &AudioDecoderOptions::default())
+        .make_audio_decoder(params, &options)
         .map_err(|e| format!("códec no soportado: {e}"))?;
-    Ok((format, decoder, track_id, rate, frames))
+    Ok(Opened {
+        format,
+        decoder,
+        track_id,
+        rate,
+        frames: frames.map(|f| f.saturating_sub(delay)),
+        estimated,
+        delay,
+    })
+}
+
+/// El retraso de un MP4 segun su lista de ediciones (0 si no la tiene).
+fn read_priming(media: &Media, track_id: u32, rate: u32) -> u64 {
+    let found = match media {
+        Media::Bytes(bytes) => crate::mp4::priming(&mut Cursor::new(&bytes[..]), track_id, rate),
+        Media::File(path) => std::fs::File::open(path)
+            .ok()
+            .and_then(|mut f| crate::mp4::priming(&mut f, track_id, rate)),
+    };
+    found.unwrap_or(0)
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
-    use crate::testing::fixture;
+    use crate::testing::{
+        LONG_MARKS, encoded, ffmpeg, ffmpeg_pcm, fixture, scratch, wav, without_ffmpeg,
+    };
 
     fn all(part: &mut Part) -> Vec<f32> {
         let mut out = Vec::new();
@@ -528,5 +778,483 @@ mod tests {
             part.read(&mut buf);
             assert!(pulse_near(&buf, 600).abs_diff(600) <= 2, "{ext}");
         }
+    }
+
+    /// Cuanto hay de un tono de `hz` en ese canal (`side`: 0 o 1) de un
+    /// segundo entero a 44,1 kHz: la amplitud de ese seno.
+    fn tone_in(pcm: &[f32], side: usize, hz: f64) -> f64 {
+        let frames = 44_100;
+        let step = 2.0 * std::f64::consts::PI * hz / 44_100.0;
+        let (mut sin_sum, mut cos_sum) = (0f64, 0f64);
+        for i in 0..frames {
+            let sample = f64::from(pcm[i * 2 + side]);
+            sin_sum += sample * (step * i as f64).sin();
+            cos_sum += sample * (step * i as f64).cos();
+        }
+        2.0 * sin_sum.hypot(cos_sum) / frames as f64
+    }
+
+    /// Un segundo en 5.1, con un tono distinto en cada canal (izquierdo,
+    /// derecho, central, graves, atras izquierdo y atras derecho), a 0,9.
+    const SURROUND: [f64; 6] = [200.0, 300.0, 500.0, 60.0, 700.0, 1_100.0];
+
+    fn surround(level: f32) -> Vec<f32> {
+        (0..44_100)
+            .flat_map(|i| {
+                SURROUND.map(|hz| {
+                    level * (2.0 * std::f64::consts::PI * hz * f64::from(i) / 44_100.0).sin() as f32
+                })
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_surround_file_keeps_its_centre_when_it_comes_down_to_stereo() {
+        // antes sonaban solo los dos primeros canales: el central (la voz)
+        // y los de atras se perdian
+        let mut part = Part::open(wav(6, 44_100, &surround(0.9)), "wav").expect("wav");
+        let pcm = all(&mut part);
+        assert_eq!(pcm.len(), 88_200);
+        // frontal 1, central y atras a -3 dB, y todo entre 2,414 (lo que
+        // suma un lado): 0,4142 y 0,2929 de cada uno
+        let diagonal = std::f64::consts::FRAC_1_SQRT_2;
+        let (front, side) = (0.9 / 2.414_213_6, 0.9 * diagonal / 2.414_213_6);
+        let expected = [
+            [front, 0.0], // izquierdo
+            [0.0, front], // derecho
+            [side, side], // central: a los dos
+            [0.0, 0.0],   // graves: fuera
+            [side, 0.0],  // atras izquierdo
+            [0.0, side],  // atras derecho
+        ];
+        for (hz, want) in SURROUND.iter().zip(expected) {
+            for (lado, want) in want.iter().enumerate() {
+                let got = tone_in(&pcm, lado, *hz);
+                assert!(
+                    (got - want).abs() < 2e-3,
+                    "{hz} Hz por el lado {lado}: {got:.4} y no {want:.4}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_surround_file_at_full_scale_does_not_clip() {
+        // todos los canales al tope y a la vez: lo peor que puede llegar
+        let full: Vec<f32> = (0..44_100)
+            .flat_map(|i| {
+                let v = (2.0 * std::f64::consts::PI * 441.0 * f64::from(i) / 44_100.0).sin() as f32;
+                [v; 6]
+            })
+            .collect();
+        let mut part = Part::open(wav(6, 44_100, &full), "wav").expect("wav");
+        let pcm = all(&mut part);
+        let peak = pcm.iter().fold(0f32, |m, v| m.max(v.abs()));
+        assert!(peak <= 1.0, "{peak}");
+        assert!(peak > 0.99, "llega al tope sin pasarse: {peak}");
+    }
+
+    #[test]
+    fn a_surround_flac_comes_down_like_ffmpeg_does_it() {
+        // el mismo 5.1 en FLAC, bajado a estereo aqui y por ffmpeg (`-ac 2`,
+        // que es lo que oye el nucleo al analizar): muestra a muestra igual
+        let dir = scratch("surround");
+        let (src, flac) = (dir.join("six.wav"), dir.join("six.flac"));
+        std::fs::write(&src, &wav(6, 44_100, &surround(0.9))[..]).expect("wav");
+        let args = ["-i", src.to_str().expect("ruta"), "-c:a", "flac"];
+        if !ffmpeg(&[&args[..], &[flac.to_str().expect("ruta")]].concat()) {
+            let _ = std::fs::remove_dir_all(&dir);
+            return without_ffmpeg("un FLAC 5.1 bajado a estereo");
+        }
+        let mut part = Part::open_file(&flac, 44_100, u64::MAX).expect("flac");
+        let ours = all(&mut part);
+        let theirs = ffmpeg_pcm(&flac).expect("ffmpeg lo decodifica");
+        assert_eq!(ours.len(), theirs.len());
+        let worst = ours
+            .iter()
+            .zip(&theirs)
+            .map(|(a, b)| (a - b).abs())
+            .fold(0f32, f32::max);
+        assert!(worst < 1e-3, "difieren en {worst}");
+        // y el central esta: medido, 0,2636 por cada lado
+        assert!(tone_in(&ours, 0, 500.0) > 0.25);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// El mp3 de prueba con sesenta bytes cambiados dentro de un cuadro (el
+    /// que va de la muestra 32303 a la 33455): ese paquete no se decodifica.
+    fn with_a_bad_packet() -> Arc<[u8]> {
+        let (bytes, _) = fixture("mp3");
+        let mut bytes = bytes.to_vec();
+        // tras la etiqueta (44 bytes), cuadros de 417: dentro del numero 30
+        let at = 44 + 417 * 30 + 40;
+        for b in &mut bytes[at..at + 60] {
+            *b ^= 0xff;
+        }
+        Arc::from(bytes)
+    }
+
+    #[test]
+    fn a_packet_that_does_not_decode_moves_nothing_that_comes_after() {
+        // antes el paquete se saltaba sin dejar su hueco: todo lo de despues
+        // salia 1152 muestras antes que las demas partes y que el clic
+        let (good, marks) = fixture("mp3");
+        let whole = all(&mut Part::open(good, "mp3").expect("mp3"));
+        let mut part = Part::open(with_a_bad_packet(), "mp3").expect("mp3");
+        let pcm = all(&mut part);
+        assert_eq!(pcm.len(), whole.len(), "dura lo mismo");
+        assert!(!part.failed(), "un paquete suelto no corta la cancion");
+        let at = pulse_near(&pcm, marks[2]);
+        assert!(at.abs_diff(marks[2]) <= 2, "golpe en {at}");
+        // lo de antes del paquete malo y lo de bastante despues, igual que
+        // en el archivo sano
+        let same = |from: usize, to: usize| {
+            pcm[from * 2..to * 2]
+                .iter()
+                .zip(&whole[from * 2..to * 2])
+                .all(|(a, b)| (a - b).abs() < 1e-3)
+        };
+        assert!(same(0, 30_000), "antes");
+        assert!(same(40_000, 88_200), "despues");
+        // y un salto a despues del hueco cae en su sitio
+        part.seek(marks[2] as u64 - 500);
+        let mut buf = vec![0f32; 2_000];
+        part.read(&mut buf);
+        assert!(pulse_near(&buf, 500).abs_diff(500) <= 2);
+    }
+
+    /// El ogg de prueba con una pagina dañada a la mitad (la que va del
+    /// primer segundo al final): el contenedor no puede seguir.
+    pub(crate) fn cut_in_the_middle() -> Arc<[u8]> {
+        let (bytes, _) = fixture("ogg");
+        let mut bytes = bytes.to_vec();
+        for b in &mut bytes[20_000..20_040] {
+            *b ^= 0x5a;
+        }
+        Arc::from(bytes)
+    }
+
+    #[test]
+    fn a_file_that_cannot_be_read_further_is_not_taken_for_its_end() {
+        let mut part = Part::open(cut_in_the_middle(), "ogg").expect("ogg");
+        let pcm = all(&mut part);
+        // lo que habia antes del daño sale entero
+        assert_eq!(pcm.len() / 2, 44_096);
+        assert!(part.done() && part.failed());
+        // un salto es otra oportunidad
+        part.seek(10_000);
+        assert!(!part.failed());
+        // y el archivo sano acaba sin mas
+        let (good, _) = fixture("ogg");
+        let mut part = Part::open(good, "ogg").expect("ogg");
+        all(&mut part);
+        assert!(part.done() && !part.failed());
+    }
+
+    #[test]
+    fn a_wav_a_little_shorter_than_it_says_just_ends() {
+        // dos segundos de tono; la cabecera dice 88200 muestras
+        let tone: Vec<f32> = (0..88_200)
+            .flat_map(|i| {
+                let v = 0.3 * (f64::from(i) * 0.05).sin() as f32;
+                [v, v]
+            })
+            .collect();
+        let whole = wav(2, 44_100, &tone);
+        // le faltan las ultimas cien muestras: es el final, sin aviso
+        let mut part = Part::open(Arc::from(&whole[..whole.len() - 400]), "wav").expect("wav");
+        assert_eq!(all(&mut part).len() / 2, 88_100);
+        assert!(part.done() && !part.failed());
+        // le falta la mitad: esta cortado
+        let mut part = Part::open(Arc::from(&whole[..whole.len() / 2]), "wav").expect("wav");
+        let got = all(&mut part).len() / 2;
+        assert!((44_000..44_200).contains(&got), "{got}");
+        assert!(part.failed());
+    }
+
+    #[test]
+    fn what_a_damaged_flac_skips_stays_as_silence_in_its_place() {
+        // un FLAC con doscientos bytes dañados a la mitad: el contenedor se
+        // salta el cuadro (4608 muestras) y sigue. Antes, lo de despues
+        // sonaba esas 4608 muestras antes de tiempo
+        let dir = scratch("flac-roto");
+        let (src, flac) = (dir.join("tono.wav"), dir.join("tono.flac"));
+        let tone: Vec<f32> = (0..132_300)
+            .flat_map(|i| {
+                let v = 0.4 * (f64::from(i) * 0.031).sin() as f32;
+                [v, -v]
+            })
+            .collect();
+        std::fs::write(&src, &wav(2, 44_100, &tone)[..]).expect("wav");
+        let args = ["-i", src.to_str().expect("ruta"), "-c:a", "flac"];
+        if !ffmpeg(&[&args[..], &[flac.to_str().expect("ruta")]].concat()) {
+            let _ = std::fs::remove_dir_all(&dir);
+            return without_ffmpeg("un FLAC dañado a la mitad");
+        }
+        let good: Arc<[u8]> = Arc::from(std::fs::read(&flac).expect("flac"));
+        let mut bad = good.to_vec();
+        let mid = bad.len() / 2;
+        for b in &mut bad[mid..mid + 200] {
+            *b ^= 0x5a;
+        }
+        let whole = all(&mut Part::open(good, "flac").expect("flac"));
+        let mut part = Part::open(Arc::from(bad), "flac").expect("flac");
+        let pcm = all(&mut part);
+        assert_eq!(pcm.len(), whole.len(), "dura lo mismo");
+        assert!(!part.failed());
+        let differ: Vec<usize> = (0..pcm.len() / 2)
+            .filter(|&i| pcm[i * 2].to_bits() != whole[i * 2].to_bits())
+            .collect();
+        let (first, last) = (differ[0], differ[differ.len() - 1]);
+        // sin perdida: fuera del cuadro dañado, cada muestra es la misma
+        assert!(last - first < 4_608, "difieren de {first} a {last}");
+        // y dentro, silencio
+        assert!(pcm[first * 2..=last * 2].iter().all(|v| *v == 0.0));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_mp3_without_a_header_plays_to_its_real_end() {
+        // sin Xing ni Info, symphonia no sabe cuanto dura: lo calcula por el
+        // tamaño del archivo y recortaba de lo que sale lo que pasaba de esa
+        // cuenta (medido: de 3,03 s se quedaba en 2,32, y el ultimo golpe se
+        // perdia)
+        let dir = scratch("mp3-sin-cabecera");
+        let args = ["-c:a", "libmp3lame", "-q:a", "4", "-write_xing", "0"];
+        let Some(file) = encoded(&dir, "sin.mp3", &args) else {
+            let _ = std::fs::remove_dir_all(&dir);
+            return without_ffmpeg("un mp3 sin cabecera");
+        };
+        let mut part = Part::open_file(&file, 44_100, u64::MAX).expect("mp3");
+        assert!(part.estimated(), "su duracion es una cuenta");
+        let ours = all(&mut part);
+        let theirs = ffmpeg_pcm(&file).expect("ffmpeg lo decodifica");
+        // lo mismo que oye el nucleo: hasta la ultima muestra, y cada golpe
+        // en su sitio
+        assert_eq!(ours.len(), theirs.len(), "dura lo mismo que con ffmpeg");
+        for m in LONG_MARKS {
+            let (a, b) = (pulse_near(&ours, m + 1_138), pulse_near(&theirs, m + 1_138));
+            assert!(a.abs_diff(b) <= 2, "golpe en {a} y con ffmpeg en {b}");
+            assert!(a.abs_diff(m) < 1_200, "golpe en {a}, se escribio en {m}");
+        }
+        // y uno con cabecera sigue sin considerarse una cuenta
+        let args = ["-c:a", "libmp3lame", "-q:a", "4"];
+        let file = encoded(&dir, "con.mp3", &args).expect("mp3");
+        assert!(
+            !Part::open_file(&file, 44_100, u64::MAX)
+                .expect("mp3")
+                .estimated()
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Donde caen los golpes de `LONG_MARKS` en un estereo (el centro de la
+    /// energia del destello, que empieza 33 muestras antes).
+    fn long_hits(pcm: &[f32]) -> Vec<usize> {
+        LONG_MARKS
+            .iter()
+            .map(|&m| pulse_near(pcm, m + 33))
+            .collect()
+    }
+
+    /// Lo mayor que difieren dos estereos de la misma longitud.
+    fn worst(a: &[f32], b: &[f32]) -> f32 {
+        a.iter()
+            .zip(b)
+            .map(|(x, y)| (x - y).abs())
+            .fold(0f32, f32::max)
+    }
+
+    #[test]
+    fn an_aac_m4a_starts_on_the_exact_sample_like_ffmpeg_decodes_it() {
+        // symphonia deja el retraso del codificador (1024 muestras: 23 ms, el
+        // clic iria corrido) y la lista de ediciones del archivo dice que se
+        // salte. Comparado con lo que decodifica ffmpeg, que es lo que ve el
+        // nucleo: la misma longitud, cada golpe en su muestra y las mismas
+        // muestras
+        let dir = scratch("aac");
+        let Some(file) = encoded(&dir, "a.m4a", &["-c:a", "aac", "-b:a", "192k"]) else {
+            let _ = std::fs::remove_dir_all(&dir);
+            return without_ffmpeg("un M4A de AAC");
+        };
+        let mut part = Part::open_file(&file, 44_100, u64::MAX).expect("m4a");
+        let ours = all(&mut part);
+        let theirs = ffmpeg_pcm(&file).expect("ffmpeg lo decodifica");
+        assert_eq!(ours.len(), theirs.len(), "dura lo mismo que con ffmpeg");
+        let (a, b) = (long_hits(&ours), long_hits(&theirs));
+        println!("AAC: golpes {a:?}, con ffmpeg {b:?}; se escribieron en {LONG_MARKS:?}");
+        for ((&m, &x), &y) in LONG_MARKS.iter().zip(&a).zip(&b) {
+            assert!(x.abs_diff(y) <= 1, "golpe en {x} y con ffmpeg en {y}");
+            assert!(x.abs_diff(m + 33) <= 8, "golpe en {x}, se escribio en {m}");
+        }
+        let diff = worst(&ours, &theirs);
+        println!("AAC: lo mas que difiere de ffmpeg, muestra a muestra: {diff:.5}");
+        assert!(diff < 0.02, "{diff}");
+        // del disco por trozos (lo que hace con un archivo grande), igual
+        let mut from_disk = Part::open_file(&file, 44_100, 0).expect("m4a");
+        assert_eq!(all(&mut from_disk), ours);
+        // y un salto cae en su sitio, tambien en lo que va antes de lo ya
+        // decodificado
+        for at in [0u64, 1, 4_095, 30_000, 61_234, 70_000] {
+            part.seek(at);
+            let mut buf = vec![0f32; 4_000];
+            let n = part.read(&mut buf);
+            let from = at as usize * 2;
+            let expected = &ours[from..(from + n * 2).min(ours.len())];
+            let diff = worst(expected, &buf[..expected.len()]);
+            assert!(diff < 1e-3, "salto a {at}, diferencia {diff}");
+        }
+        // con otro retraso en la lista (2112, el de iTunes), lo mismo: se
+        // salta lo que diga, y sigue coincidiendo con ffmpeg
+        let mut bytes = std::fs::read(&file).expect("m4a");
+        let elst = bytes
+            .windows(4)
+            .position(|w| w == b"elst")
+            .expect("lista de ediciones");
+        // tipo, version y banderas, cuantas, y de la primera: duracion y desde donde
+        let media_time = elst + 4 + 4 + 4 + 4;
+        assert_eq!(bytes[elst + 4], 0, "version 0");
+        assert_eq!(bytes[media_time..media_time + 4], 1_024u32.to_be_bytes());
+        bytes[media_time..media_time + 4].copy_from_slice(&2_112u32.to_be_bytes());
+        let itunes = dir.join("itunes.m4a");
+        std::fs::write(&itunes, &bytes).expect("m4a");
+        let ours = all(&mut Part::open_file(&itunes, 44_100, u64::MAX).expect("m4a"));
+        let theirs = ffmpeg_pcm(&itunes).expect("ffmpeg lo decodifica");
+        assert_eq!(ours.len(), theirs.len(), "dura lo mismo que con ffmpeg");
+        let moved = long_hits(&ours);
+        for (x, y) in moved.iter().zip(long_hits(&theirs)) {
+            assert!(x.abs_diff(y) <= 1, "golpe en {x} y con ffmpeg en {y}");
+        }
+        // y es lo que se dijo: 1088 muestras mas pronto que con 1024
+        assert!((moved[1] + 1_088).abs_diff(a[1]) <= 1, "{moved:?} y {a:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Un MP4 en fragmentos (el audio de YouTube, lo que dejan los `.mp3` que
+    /// en realidad son MP4): tras llegar al final, volver atrás tiene que
+    /// seguir sonando. El lector de symphonia, ya en el final de sus
+    /// fragmentos, contestaba al salto con un «bien» y no entregaba nada más:
+    /// la canción se quedaba muda al repetir un tramo del final o al volver
+    /// a empezar tras acabar.
+    #[test]
+    fn a_fragmented_mp4_keeps_playing_when_it_seeks_back_after_the_end() {
+        let dir = scratch("fragmentado");
+        let Some(file) = encoded(
+            &dir,
+            "f.mp4",
+            &[
+                "-c:a",
+                "aac",
+                "-b:a",
+                "192k",
+                "-movflags",
+                "frag_keyframe+empty_moov+default_base_moof",
+            ],
+        ) else {
+            let _ = std::fs::remove_dir_all(&dir);
+            return without_ffmpeg("un MP4 en fragmentos");
+        };
+        let mut part = Part::open_file(&file, 44_100, u64::MAX).expect("mp4");
+        let ours = all(&mut part);
+        assert!(ours.len() > 100_000, "decodificó {}", ours.len());
+        // ya en el final: saltos hacia atrás, a varios sitios y de nuevo al
+        // final
+        for at in [1u64, 4_095, 30_000, 61_234, 120_000, 4_095] {
+            part.seek(at);
+            let mut buf = vec![0f32; 4_000];
+            let n = part.read(&mut buf);
+            assert!(n > 0, "salto a {at}: no leyó nada");
+            let from = at as usize * 2;
+            let expected = &ours[from..(from + n * 2).min(ours.len())];
+            let diff = worst(expected, &buf[..expected.len()]);
+            assert!(diff < 1e-3, "salto a {at}, diferencia {diff}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_alac_m4a_is_exact_and_identical_to_ffmpeg() {
+        // sin perdida: cada muestra es la que se escribio
+        let dir = scratch("alac");
+        let Some(file) = encoded(&dir, "a.m4a", &["-c:a", "alac"]) else {
+            let _ = std::fs::remove_dir_all(&dir);
+            return without_ffmpeg("un M4A de ALAC");
+        };
+        let ours = all(&mut Part::open_file(&file, 44_100, u64::MAX).expect("m4a"));
+        let theirs = ffmpeg_pcm(&file).expect("ffmpeg lo decodifica");
+        assert_eq!(ours.len(), theirs.len());
+        let diff = worst(&ours, &theirs);
+        println!("ALAC: lo mas que difiere de ffmpeg: {diff:.7}");
+        assert!(diff < 1e-6, "{diff}");
+        for (&m, x) in LONG_MARKS.iter().zip(long_hits(&ours)) {
+            assert!(x.abs_diff(m + 33) <= 2, "golpe en {x}, se escribio en {m}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_mp4_called_mp3_is_read_by_what_it_is() {
+        // 18 de los 319 .mp3 de esta biblioteca son en realidad MP4: se
+        // decide por el contenido, no por la extension
+        let dir = scratch("mp4-mp3");
+        let Some(file) = encoded(&dir, "a.m4a", &["-c:a", "aac", "-b:a", "192k"]) else {
+            let _ = std::fs::remove_dir_all(&dir);
+            return without_ffmpeg("un MP4 con nombre de mp3");
+        };
+        let fake = dir.join("falso.mp3");
+        std::fs::copy(&file, &fake).expect("copia");
+        let real = all(&mut Part::open_file(&file, 44_100, u64::MAX).expect("m4a"));
+        let mut part = Part::open_file(&fake, 44_100, u64::MAX).expect("el MP4 con nombre de mp3");
+        let ours = all(&mut part);
+        assert_eq!(ours, real, "suena igual que con su nombre de verdad");
+        let theirs = ffmpeg_pcm(&fake).expect("ffmpeg lo decodifica");
+        for (x, y) in long_hits(&ours).into_iter().zip(long_hits(&theirs)) {
+            assert!(x.abs_diff(y) <= 1, "golpe en {x} y con ffmpeg en {y}");
+        }
+        // en memoria (el celular), con la extension que sea
+        let bytes: Arc<[u8]> = Arc::from(std::fs::read(&fake).expect("bytes"));
+        assert_eq!(all(&mut Part::open(bytes, "mp3").expect("mp3")), real);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_aac_at_48k_keeps_its_hits_when_it_is_converted() {
+        let dir = scratch("aac48");
+        let args = ["-c:a", "aac", "-b:a", "192k", "-ar", "48000"];
+        let Some(file) = encoded(&dir, "a.m4a", &args) else {
+            let _ = std::fs::remove_dir_all(&dir);
+            return without_ffmpeg("un M4A de AAC a 48 kHz");
+        };
+        let mut part = Part::open_file(&file, 44_100, u64::MAX).expect("m4a");
+        assert_eq!(part.source_rate(), 48_000);
+        let hits = long_hits(&all(&mut part));
+        println!("AAC a 48 kHz, convertido a 44,1: golpes {hits:?}");
+        for (&m, x) in LONG_MARKS.iter().zip(hits) {
+            assert!(x.abs_diff(m + 33) <= 10, "golpe en {x}, se escribio en {m}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_aac_it_cannot_decode_fails_to_open_so_the_app_can_convert_it() {
+        // HE-AAC (con SBR) y los AAC de mas de dos canales no los decodifica
+        // symphonia: tienen que fallar al abrir, para que quien llama los
+        // pase por ffmpeg, y no sonar mal
+        let dir = scratch("aac51");
+        let six: Vec<f32> = (0..44_100 * 2)
+            .flat_map(|i| [0.1 * ((i / 40 % 2) as f32 - 0.5); 6])
+            .collect();
+        let src = dir.join("six.wav");
+        std::fs::write(&src, &wav(6, 44_100, &six)[..]).expect("wav");
+        let out = dir.join("six.m4a");
+        let args = ["-i", src.to_str().expect("ruta"), "-c:a", "aac"];
+        if !ffmpeg(&[&args[..], &[out.to_str().expect("ruta")]].concat()) {
+            let _ = std::fs::remove_dir_all(&dir);
+            return without_ffmpeg("un M4A de AAC 5.1");
+        }
+        let opened = Part::open_file(&out, 44_100, u64::MAX);
+        assert!(opened.is_err(), "no deberia abrirse");
+        println!("AAC 5.1: {}", opened.err().unwrap_or_default());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

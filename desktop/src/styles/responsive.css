@@ -67,7 +67,9 @@ td {
 
 /* columnas que se retiran cuando falta anchura. Su <col> va tambien a
    ancho 0: WebKitGTK (el motor de la app en Linux) le seguia guardando el
-   ancho aunque estuviera escondida, y dejaba un hueco */
+   ancho aunque estuviera escondida, y dejaba un hueco.
+   Estos cortes son los de la lista a todo lo ancho (sin la ficha al lado);
+   con la ficha a la vista hay otros, mas abajo */
 @media (max-width: 1460px) {
   .col-kbps {
     display: none;
@@ -101,13 +103,68 @@ td {
   }
 }
 /* por su clase, y no por ser la quinta: asi se va tambien su `col`, y las
-   columnas no se desalinean de sus anchos */
+   columnas no se desalinean de sus anchos. Lo que deja se lo lleva el
+   titulo (con su 34 % sobraba y se repartia al numero) */
 @media (max-width: 1000px) {
   .col-album {
     display: none;
   }
   col.col-album {
     width: 0;
+  }
+  .col-title {
+    width: auto;
+  }
+}
+
+/* Con la ficha al lado la lista tiene 380-440 px menos, y los cortes de
+   arriba aguantaban hasta dejar el titulo en 140-170 px (a 1366, «Al Mundo
+   Paz (Hay…», con artista y album tambien cortados) al lado de columnas de un
+   numero. Aqui cada uno entra antes, donde el titulo bajaria de unos 190 px.
+   Solo con la ficha puesta: sin ella la tabla cabe entera, y a quien toca le
+   importan el tempo y el tono a la vista (a 1536, un portatil al 125 %, con
+   cortes por el ancho de la ventana se perdian columnas sin hacer falta). */
+@media (max-width: 1560px) {
+  main:has(+ .details) .col-kbps {
+    display: none;
+  }
+  main:has(+ .details) col.col-kbps {
+    width: 0;
+  }
+}
+@media (max-width: 1400px) {
+  main:has(+ .details) .col-bpm {
+    display: none;
+  }
+  main:has(+ .details) col.col-bpm {
+    width: 0;
+  }
+}
+@media (max-width: 1340px) {
+  main:has(+ .details) .col-key {
+    display: none;
+  }
+  main:has(+ .details) col.col-key {
+    width: 0;
+  }
+}
+@media (max-width: 1240px) {
+  main:has(+ .details) .col-stars {
+    display: none;
+  }
+  main:has(+ .details) col.col-stars {
+    width: 0;
+  }
+}
+@media (max-width: 1100px) {
+  main:has(+ .details) .col-album {
+    display: none;
+  }
+  main:has(+ .details) col.col-album {
+    width: 0;
+  }
+  main:has(+ .details) .col-title {
+    width: auto;
   }
 }
 
@@ -154,4 +211,259 @@ td {
 }
 .toast {
   max-width: 100%;
+}
+
+/* ============================================================
+   VENTANAS ANCHAS (Y BAJAS)
+   Lo de arriba cuida que nada se rompa al encoger la ventana;
+   esto, que al agrandarla no se quede media pantalla vacia. Todo
+   va de 701 px para arriba: el telefono no cambia.
+   ============================================================ */
+
+/* los laterales crecen con la ventana: en un monitor grande los nombres de
+   las listas se cortaban en 216 px y la letra y el cifrado se leian en una
+   columna de 340 con dos mil pixeles al lado */
+@media (min-width: 1700px) {
+  :root {
+    --sidebar-w: calc(232px * var(--scale));
+    --details-w: calc(380px * var(--scale));
+  }
+  /* la cola tapa justo la ficha, y sus titulos caben mas enteros */
+  .queue {
+    width: max(352px, var(--details-w));
+  }
+  /* en el reproductor, el titulo y el artista se cortaban a 210 px al lado
+     de una aguja de mas de mil */
+  .player {
+    grid-template-columns:
+      auto minmax(110px, 300px) auto minmax(140px, 1fr) auto minmax(80px, 110px)
+      auto;
+  }
+}
+@media (min-width: 2100px) {
+  :root {
+    --sidebar-w: calc(248px * var(--scale));
+    --details-w: calc(440px * var(--scale));
+  }
+  .player {
+    grid-template-columns:
+      auto minmax(110px, 380px) auto minmax(140px, 1fr) auto minmax(80px, 110px)
+      auto;
+  }
+}
+
+@media (min-width: 701px) {
+  /* el punto de «suena desde aqui» llevaba 6 px de mas ademas del hueco de
+     la fila: con el, «Todas las canciones» no cabia y se partia en dos lineas
+     al darle a play */
+  .sidebar .nav-link .now-dot {
+    margin-left: 0;
+  }
+
+  /* la letra es lo ultimo de la ficha y la ficha ya se desplaza: en su caja
+     de 340 px con barra propia se leian diez lineas con media ventana libre
+     debajo */
+  .details .lyrics {
+    max-height: none;
+    overflow-y: visible;
+  }
+  /* la que sigue a la cancion si necesita su caja (se desplaza sola): la que
+     deja la ventana, no 420 px */
+  .details .lrc {
+    max-height: max(420px, calc(100vh - var(--player-h) - 122px));
+  }
+  .details-modal .details .lrc {
+    max-height: max(420px, calc(min(88vh, 860px) - 96px));
+  }
+  /* en una ventana baja la portada no se come la ficha */
+  .details .cover-wrap {
+    max-width: 40vh;
+    margin-inline: auto;
+  }
+
+  /* la cola entera, hasta donde llegue la ventana: se quedaba a dos tercios,
+     con su barra, y media ventana libre encima */
+  .queue.full {
+    max-height: calc(100vh - var(--player-h) - 58px);
+  }
+
+  /* La busqueda avanzada era una tira de 340 px con barra propia: de sus
+     quince campos se veian siete, con la ventana vacia al lado. En dos
+     columnas (a la izquierda lo que se busca; a la derecha los tramos, los
+     filtros y el orden) cabe entera. La primera abarca las tres filas de la
+     derecha, y la ultima de ellas (1fr) se lleva lo que mida de mas para que
+     no separe los bloques de al lado. */
+  .search-panel {
+    width: min(680px, 92vw);
+    max-height: calc(100vh - var(--player-h) - 62px);
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-rows: auto auto 1fr auto;
+    column-gap: 26px;
+  }
+  .search-panel > .menu-block:first-child {
+    grid-column: 1;
+    grid-row: 1 / span 3;
+  }
+  .search-panel > .menu-block:not(:first-child) {
+    grid-column: 2;
+  }
+  .search-panel > .menu-block:nth-child(2) {
+    margin-top: 0;
+    padding-top: 0;
+    border-top: none;
+  }
+  .search-panel > .search-panel-foot {
+    grid-column: 1 / -1;
+  }
+
+  /* Duplicados son filas con su ruta: a 780 px la ruta se cortaba con media
+     ventana libre al lado */
+  .page .card:has(.dup-group) {
+    max-width: 1500px;
+  }
+
+  /* El menu «Vista»: los desplegables de su segunda mitad (tema, tamaño,
+     forma de la ventana) se abrian hacia abajo y en un portatil se salian de
+     la ventana, sin forma de llegar a las ultimas opciones. Hacia arriba
+     caben siempre. */
+  .view-menu .menu-block + .menu-block .select-menu {
+    top: auto;
+    bottom: 41px;
+    transform-origin: bottom center;
+  }
+}
+
+/* «Todas las canciones» con el punto de «suena desde aqui» y un contador de
+   tres o cuatro cifras no cabe en una linea en el lateral estrecho (el de
+   menos de 1700 px de ventana) y se partia en dos. Mientras lleva el punto,
+   el contador le cede el sitio; el que late (una descarga en marcha) no. */
+@media (min-width: 701px) and (max-width: 1699px) {
+  .sidebar .nav-link:has(.now-dot) .count:not(.live) {
+    display: none;
+  }
+}
+/* en un portatil de 768 le faltaban 40 px para caber sin barra: algo mas
+   prieta, entra */
+@media (min-width: 701px) and (max-height: 820px) {
+  .search-panel .menu-block {
+    gap: 8px;
+  }
+  .search-panel .menu-block + .menu-block {
+    margin-top: 10px;
+    padding-top: 10px;
+  }
+  .search-panel > .menu-block:nth-child(2) {
+    margin-top: 0;
+    padding-top: 0;
+  }
+  .search-panel-foot {
+    margin-top: 10px;
+    padding-top: 10px;
+  }
+}
+
+/* y en una ventana mas baja que el propio menu, se desplaza el */
+@media (min-width: 701px) and (max-height: 780px) {
+  .view-menu {
+    max-height: calc(100vh - 54px);
+    overflow-y: auto;
+  }
+}
+
+/* Una ventana baja (un portatil de 768): Biblioteca y Gestion no ceden, y a
+   los repertorios les quedaban dos filas a la vista. Con las filas del
+   lateral algo mas prietas caben cinco. */
+@media (min-width: 701px) and (max-height: 860px) {
+  .sidebar .nav-link {
+    padding-top: 5px;
+    padding-bottom: 5px;
+  }
+  .sidebar .nav-group {
+    padding-top: 8px;
+  }
+  .sidebar .nav-group.nav-bottom {
+    padding-bottom: 6px;
+  }
+}
+
+/* ---------- la ficha en ventana, en dos columnas ----------
+   Con el panel oculto, «Ver detalles» abre la ficha en una ventana: una
+   columna de 460 px con la portada entera arriba, y los datos y la letra
+   fuera de la vista aunque sobrara pantalla a los lados. Con sitio, la
+   portada y el titulo a la izquierda (se quedan quietos) y lo demas a la
+   derecha. Es una rejilla y no dos cajas porque la ficha es la misma del
+   lateral y del telefono, y sus bloques son hermanos: el ultimo carril (1fr)
+   se lleva lo que la cabecera mida de mas, para que no estire los bloques
+   de la derecha. */
+@media (min-width: 1001px) {
+  .details-modal {
+    width: min(900px, 100%);
+  }
+  .details-modal .details {
+    display: grid;
+    grid-template-columns: minmax(0, 340px) minmax(0, 1fr);
+    grid-template-rows: repeat(12, min-content) 1fr;
+  }
+  .details-modal .details-head {
+    grid-column: 1;
+    grid-row: 1 / -1;
+    align-self: start;
+    border-bottom: none;
+  }
+  .details-modal .details > :not(.details-head) {
+    grid-column: 2;
+    border-left: 1px solid var(--border);
+  }
+  /* el boton de cerrar cae sobre la columna de la derecha: se le hace sitio */
+  .details-modal .details > .facts,
+  .details-modal .details > .edit-form {
+    padding-right: 48px;
+  }
+}
+@media (min-width: 1001px) and (min-height: 620px) {
+  .details-modal .details-head {
+    position: sticky;
+    top: 0;
+  }
+}
+
+/* ---------- las paginas, en columnas ----------
+   Ajustes, Descargas y Entrada son tarjetas apiladas en una columna de
+   780 px: en un monitor ancho dos tercios de la ventana quedaban vacios. Con
+   sitio, sus grupos (`.page-col`, en el orden de siempre) van lado a lado;
+   sin el son bloques normales y todo sigue en una columna. Los grupos los
+   reparte la plantilla y no el navegador (columnas de CSS): asi una tarjeta
+   no salta de columna al crecer, ni se parte un desplegable abierto. */
+@media (min-width: 1440px) {
+  .page-cols {
+    display: flex;
+    align-items: flex-start;
+    gap: 0 14px;
+  }
+  .page-cols > .page-col {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+  .page-cols .card {
+    max-width: none;
+  }
+  /* un grupo sin nada que enseñar (el historial vacio) no guarda columna */
+  .page-cols .page-col:empty {
+    display: none;
+  }
+  /* en media ventana, los temas caben de cuatro en cuatro y no de tres */
+  .page-cols .theme-grid {
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  }
+}
+/* tres columnas: el segundo grupo se abre en sus dos mitades */
+@media (min-width: 2200px) {
+  .page-cols > .page-col-split {
+    display: contents;
+  }
+  .page-col-split > .page-col {
+    flex: 1 1 0;
+    min-width: 0;
+  }
 }

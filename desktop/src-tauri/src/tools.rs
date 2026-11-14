@@ -11,7 +11,8 @@
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock, PoisonError};
+use std::time::{Duration, Instant};
 
 /// La carpeta `tools/` que viaja con la app (ffmpeg, fpcalc, QuickJS y
 /// yt-dlp), si la hay. Si no esta, se tira del PATH como siempre.
@@ -76,11 +77,49 @@ pub fn in_path(name: &str) -> bool {
     std::env::var_os("PATH").is_some_and(|path| std::env::split_paths(&path).any(|dir| dir.join(name).is_file()))
 }
 
-/// Donde esta ffmpeg, si esta. Se busca una vez: recorrer el PATH en cada
-/// cancion no aporta nada.
+/// Un programa que se busca hasta encontrarlo. Una vez encontrado, su sitio
+/// se recuerda para siempre (recorrer el PATH en cada cancion no aporta
+/// nada); mientras no este, se vuelve a mirar de vez en cuando: quien lo
+/// instala con la app abierta —ella misma se ofrece a hacerlo— no tiene que
+/// reiniciarla para que valga.
+struct Lookup {
+    found: OnceLock<PathBuf>,
+    last_try: Mutex<Option<Instant>>,
+}
+
+impl Lookup {
+    const fn new() -> Self {
+        Self {
+            found: OnceLock::new(),
+            last_try: Mutex::new(None),
+        }
+    }
+
+    /// Su sitio, si esta. `look` busca; no se llama mas de una vez cada
+    /// `every` mientras no aparezca.
+    fn get(&self, look: impl FnOnce() -> Option<PathBuf>, every: Duration) -> Option<&Path> {
+        if let Some(path) = self.found.get() {
+            return Some(path);
+        }
+        let mut last = self.last_try.lock().unwrap_or_else(PoisonError::into_inner);
+        if last.is_some_and(|at| at.elapsed() < every) {
+            return None;
+        }
+        *last = Some(Instant::now());
+        let path = look()?;
+        Some(self.found.get_or_init(|| path))
+    }
+}
+
+/// Cada cuanto se vuelve a buscar un programa que no estaba. Buscarlo son
+/// unas decenas de consultas al sistema de archivos: con esto no se hacen
+/// para cada cancion si de verdad no esta.
+const LOOK_AGAIN: Duration = Duration::from_secs(2);
+
+/// Donde esta ffmpeg, si esta.
 pub fn ffmpeg() -> Option<&'static Path> {
-    static FOUND: OnceLock<Option<PathBuf>> = OnceLock::new();
-    FOUND.get_or_init(|| find("ffmpeg")).as_deref()
+    static FFMPEG: Lookup = Lookup::new();
+    FFMPEG.get(|| find("ffmpeg"), LOOK_AGAIN)
 }
 
 /// Una orden lista para lanzar, sin ventana de consola en Windows.
@@ -145,6 +184,47 @@ mod tests {
         std::fs::write(&file, b"x").unwrap();
         assert_eq!(existing_file(&file.to_string_lossy()), Ok(file.clone()));
         let _ = std::fs::remove_file(&file);
+    }
+
+    /// Instalar ffmpeg con la app abierta tiene que valer sin reiniciarla: se
+    /// buscaba una sola vez, y el «no esta» de entonces se quedaba para siempre.
+    #[test]
+    fn a_program_installed_later_is_found_without_restarting() {
+        let lookup = Lookup::new();
+        let nothing = Duration::ZERO;
+        assert!(lookup.get(|| None, nothing).is_none());
+        let at = lookup.get(|| Some(PathBuf::from("/usr/bin/ffmpeg")), nothing);
+        assert_eq!(at, Some(Path::new("/usr/bin/ffmpeg")));
+        // y una vez encontrado no se busca mas, ni aunque se pregunte mil veces
+        let again = lookup.get(|| panic!("no hay que volver a buscar"), nothing);
+        assert_eq!(again, at);
+    }
+
+    /// Mientras no este, mirar no cuesta una busqueda por cancion.
+    #[test]
+    fn a_program_that_is_missing_is_not_searched_for_on_every_call() {
+        let lookup = Lookup::new();
+        let searches = std::cell::Cell::new(0);
+        for _ in 0..50 {
+            let found = lookup.get(
+                || {
+                    searches.set(searches.get() + 1);
+                    None
+                },
+                Duration::from_secs(60),
+            );
+            assert!(found.is_none());
+        }
+        assert_eq!(searches.get(), 1);
+        // pasado el plazo, otra vez
+        let later = Lookup::new();
+        assert!(later.get(|| None, Duration::from_millis(30)).is_none());
+        std::thread::sleep(Duration::from_millis(60));
+        assert!(
+            later
+                .get(|| Some(PathBuf::from("/x/ffmpeg")), Duration::from_millis(30))
+                .is_some()
+        );
     }
 
     #[test]

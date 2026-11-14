@@ -55,6 +55,17 @@ void dp_stretch_set_pitch(void *s, float semitones) {
     static_cast<Stretcher *>(s)->stretch.setTransposeSemitones(semitones);
 }
 
+// Con `preserve`, al subir o bajar el tono los formantes se quedan donde
+// estaban: una voz transpuesta sigue siendo la misma garganta (sin ello suena
+// a ardilla o a gigante desde 2 o 3 semitonos). El factor 1 y el modo de
+// compensar el tono: la frecuencia base se detecta sola (0). Sin `preserve`
+// es lo de siempre; y con tono 0 no cuesta nada (no hay formantes que mover).
+void dp_stretch_set_formants(void *s, int preserve) {
+    auto *e = static_cast<Stretcher *>(s);
+    e->stretch.setFormantFactor(1.0f, preserve != 0);
+    e->stretch.setFormantBase(0.0f);
+}
+
 void dp_stretch_seek(void *s, float *input, int frames, double rate) {
     auto *e = static_cast<Stretcher *>(s);
     e->stretch.seek(Interleaved{input, e->channels}, frames, rate);

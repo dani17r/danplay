@@ -261,6 +261,44 @@ fn has_opus(ffmpeg: &str) -> bool {
         .is_ok_and(|o| String::from_utf8_lossy(&o.stdout).contains(" libopus "))
 }
 
+/// En Ogg Vorbis: lo que el motor lee tal cual (Opus hay que prepararlo).
+#[test]
+fn the_tracks_can_be_kept_in_ogg() {
+    let dir = Scratch::new("separar-ogg");
+    let Some((ffmpeg, path, _mix)) = song(&dir, 3.0) else {
+        return;
+    };
+    let vorbis = std::process::Command::new(&ffmpeg)
+        .args(["-hide_banner", "-encoders"])
+        .output()
+        .is_ok_and(|o| String::from_utf8_lossy(&o.stdout).contains(" libvorbis "));
+    if !vorbis {
+        println!("este ffmpeg no sabe hacer Vorbis: no se comprueba");
+        return;
+    }
+    let mut t = job(&dir, &ffmpeg, &path, &[&["drums"]]);
+    t.format = Some("ogg".into());
+    let r = run(
+        &t,
+        &mut |_, _, _, _| Ok(net(&[0.5, 0.0, 0.0, 0.0, 0.0, 0.0])),
+        &mut |_| Ok(()),
+    )
+    .expect("separa");
+    assert_eq!(
+        r.stems,
+        [
+            ("drums".to_owned(), "Bateria.ogg".to_owned()),
+            ("other".to_owned(), "Otros.ogg".to_owned())
+        ]
+    );
+    let mut names: Vec<String> = std::fs::read_dir(dir.join("pistas"))
+        .expect("pistas")
+        .map(|e| e.expect("pista").file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    assert_eq!(names, ["Bateria.ogg", "Otros.ogg"]);
+}
+
 #[test]
 fn the_tracks_can_be_kept_in_opus() {
     let dir = Scratch::new("separar-opus");

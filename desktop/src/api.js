@@ -68,6 +68,8 @@
  *                                 (con compases irregulares, si los hay)
  * @property {number} phase3
  * @property {number} phase4
+ * @property {number} [phase2]  dónde cae el «1» si el compás es de 2 (las rejillas de antes no lo traen)
+ * @property {number} [phase6]  y de 6
  * @property {number} confidence
  * @property {boolean} [closed]    acaba en su último pulso: después no hay clic
  */
@@ -114,7 +116,6 @@
  * @property {string} error       en castellano, vacío si no hay
  * @property {boolean} has_output false = este equipo no tiene salida de audio
  * @property {any} origin         lo que la interfaz pasó en set_queue
- * @property {boolean} pitch_preserved  la velocidad conserva el tono (ffmpeg)
  * @property {number} pitch       el tono corrido, en semitonos (0 = como está grabada; con
  *                                fracciones: 0,5 es un cuarto de tono)
  * @property {MetronomeState} metronome
@@ -519,6 +520,23 @@ export async function pickFolder(title = 'Elige tu carpeta de música') {
 }
 
 /**
+ * Abre el selector de archivos para elegir un `.danpista`. Devuelve la ruta
+ * o null.
+ * @param {string} [title]
+ * @returns {Promise<string|null>}
+ */
+export async function pickBundle(title = 'Elige el .danpista') {
+  if (!inTauri) return null
+  const { open } = await import('@tauri-apps/plugin-dialog')
+  const r = await open({
+    multiple: false,
+    title,
+    filters: [{ name: 'DanPista', extensions: ['danpista'] }]
+  })
+  return typeof r === 'string' ? r : Array.isArray(r) ? r[0] : null
+}
+
+/**
  * Abre el selector de imágenes del sistema. Devuelve la ruta o null.
  * @param {string} [title]
  * @returns {Promise<string|null>}
@@ -643,6 +661,12 @@ export const playback = {
    * de tono). Solo hace algo con ffmpeg.
    */
   setPitch: (semitones) => invoke('set_pitch', { semitones }),
+  /**
+   * Conservar el timbre de la voz al cambiar el tono (los formantes en su
+   * sitio, sin el efecto «ardilla» ni «gigante»). Apagado de fábrica.
+   * @param {boolean} on
+   */
+  setFormants: (on) => invoke('set_formants', { on }),
   setCrossfade: (seconds) => invoke('set_crossfade', { seconds }),
   /** @param {MetronomeSettings} settings */
   setMetronome: (settings) => invoke('set_metronome', { settings }),
@@ -761,6 +785,13 @@ export const app = {
     inTauri
       ? invoke('send_to_telegram', { paths: [].concat(paths) })
       : Promise.reject(new Error('Solo en la aplicación de escritorio')),
+  /**
+   * Cómo llega DanPlay al servidor de sonido (Linux): con `server` y sin
+   * `pcm`, falta el puente de ALSA y puede no oírse nada.
+   * @returns {Promise<{server: 'pipewire'|'pulse'|null, pcm: string|null}>}
+   */
+  soundBridge: () =>
+    inTauri ? invoke('sound_bridge') : Promise.resolve({ server: null, pcm: null }),
   /** Cierra DanPlay del todo, lo mismo que «Salir» en la bandeja. */
   quit: () => (inTauri ? invoke('quit_app') : Promise.resolve()),
   /**
@@ -935,6 +966,7 @@ export const JOBS = {
   mix: 'mix',
   autoGuide: 'auto-cue',
   phone: 'bundle',
+  bundleImport: 'bundle-import',
   sequence: 'sequence'
 }
 
@@ -952,13 +984,22 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
  * una igual en marcha, se sigue esa.
  * @param {() => Promise<any>} start  el POST que la arranca
  * @param {string} name               su nombre en el núcleo (ver `JOBS`)
+ * Pedir otra vez una que ya corre no arranca otra: el núcleo devuelve la
+ * que hay, y aquí se espera a esa. Vale para escanear (es el mismo trabajo
+ * lo pida quien lo pida), pero no para lo que depende de lo que se pidió
+ * (guardar una mezcla, la guía de UNA canción): esperar a la de otro daría
+ * su resultado como si fuera el de uno. Esas dan `busy`, y entonces falla
+ * diciéndolo en vez de unirse.
+ *
  * @param {{ onProgress?: (job: JobSnapshot) => void, interval?: number,
- *           poll?: (name: string) => Promise<JobSnapshot> }} [options]
+ *           poll?: (name: string) => Promise<JobSnapshot>,
+ *           busy?: string }} [options]
  * @returns {Promise<any>} lo que dejó la tarea (`result`)
  */
 export async function runJob(start, name, options = {}) {
-  const { onProgress, interval = JOB_POLL_MS, poll = (n) => api.job(n) } = options
+  const { onProgress, interval = JOB_POLL_MS, poll = (n) => api.job(n), busy } = options
   const first = await start()
+  if (busy && first?.already_running) throw new ApiError(busy, 409)
   /** @type {JobSnapshot} */
   let job = first?.job || (await poll(name))
   onProgress?.(job)
@@ -1155,6 +1196,20 @@ export const api = {
       `/song/${id}/waveform?start=${start.toFixed(3)}&end=${end.toFixed(3)}&buckets=${Math.round(buckets)}`
     ),
   /**
+   * La onda de un trozo de UNA PISTA separada (el carril de un instrumento),
+   * con detalle: como `waveformRange`, pero del archivo de esa pista (`stem`
+   * es su `source`: 'drums', 'vocals'…). La respuesta repite `stem`: sin eso
+   * es de otra cosa (un núcleo que no conociera el parámetro daría la
+   * mezcla entera) y la interfaz no la usa.
+   * @param {number} id @param {string} stem @param {number} start
+   * @param {number} end @param {number} buckets
+   * @returns {Promise<{peaks: number[], rms: number[], stem?: string}>}
+   */
+  stemWaveformRange: (id, stem, start, end, buckets) =>
+    GET(
+      `/song/${id}/waveform?stem=${encodeURIComponent(stem)}&start=${start.toFixed(3)}&end=${end.toFixed(3)}&buckets=${Math.round(buckets)}`
+    ),
+  /**
    * El pulso y el «1» de la canción con Beat This! (la primera vez, unos
    * segundos). 503 si aquí no se puede: la app sigue con su análisis.
    * @param {number} id
@@ -1163,15 +1218,27 @@ export const api = {
   beatGrid: (id) => GET(`/song/${id}/beats`),
   /** sin esperar: la rejilla, o `{pending, progress}` mientras se calcula */
   beatGridNow: (id) => GET(`/song/${id}/beats?wait=false`),
-  /** deja calculándose la de una canción que vendrá después */
-  beatGridPrepare: (id) => POST(`/song/${id}/beats/prepare`),
+  /**
+   * deja calculándose la de una canción que vendrá después; con `ids`,
+   * también las de esas (una lista entera, en su orden): `left` son las que
+   * no se pudieron dejar
+   * @param {number} id @param {number[]} [ids]
+   * @returns {Promise<{queued: boolean, left?: number[]}>}
+   */
+  beatGridPrepare: (id, ids) =>
+    POST(`/song/${id}/beats/prepare`, ids?.length ? { ids } : undefined),
   /**
    * Vuelve a analizar el clic: de toda la canción o de un tramo, arreglando
    * los huecos y los saltos de fase ('repair'), a tempo fijo ('steady'),
-   * con la batería separada ('drums') o rellenando los silencios ('fill').
-   * Devuelve la rejilla nueva y lo que se arregló.
+   * con la batería separada ('drums'), solo con la canción sin la batería
+   * ('mix': deshace lo que la batería añadió) o rellenando los silencios
+   * ('fill').
+   * Devuelve la rejilla nueva y lo que se arregló. Con `wait: false`, lo
+   * que tarda (que la red oiga la batería) va por la cola del núcleo y
+   * mientras contesta `{pending, progress}`: se pide otra vez hasta que sale
+   * (lo hace `useClick().reanalyze`).
    * @param {number} id
-   * @param {{mode: 'repair'|'steady'|'drums'|'fill', start?: number, end?: number}} opts
+   * @param {{mode: 'repair'|'steady'|'drums'|'mix'|'fill', start?: number, end?: number, wait?: boolean}} opts
    * @returns {Promise<{grid: BeatGrid, report: {fixed: number, bpm: number, notes: string[]}}>}
    */
   reanalyzeBeats: (id, opts) => POST(`/song/${id}/beats/reanalyze`, opts),
@@ -1248,8 +1315,10 @@ export const api = {
   /**
    * La guía automática (trabajo «auto-cue»): las partes de la canción
    * (intro, estrofas, coros, puente, solos…) dichas con esa voz justo antes
-   * de cada una. `bars`: dónde empieza cada compás (los pulsos que se ven);
-   * `beat`: lo que dura un pulso. Al acabar: {sections, cues}.
+   * de cada una. `bars` y `beat`: los compases y el pulso del clic ajustado
+   * a mano, si lo hay (los del automático los saca el núcleo). Al acabar:
+   * {sections, cues, source}; `source` dice de dónde salieron las partes:
+   * 'lyrics' (la letra con tiempos), 'sequence', 'given' o 'sound'.
    * @param {number} id
    * @param {{voice: string, bars?: number[], beat?: number,
    *   sections?: Array<{start: number, label: string}>}} body
@@ -1343,6 +1412,27 @@ export const api = {
   onSequence: inTauri
     ? (fn) => listen('danplay://sequence', (e) => fn(String(e.payload || '')))
     : noListener,
+  /**
+   * Abre un `.danpista` en la PC (tarea «bundle-import»): la canción queda en
+   * la biblioteca con sus pistas, su clic y lo del estudio. Si ya estaba,
+   * `result` lleva `existing: true` y su id.
+   * @param {string} path
+   */
+  importBundle: (path) => POST('/bundle/import', { path }),
+  /**
+   * Avisa cuando se abre un `.danpista` desde fuera de la app (con «Abrir
+   * con», o arrastrado a su icono): llega su ruta.
+   * @param {(path: string) => void} fn
+   */
+  onBundle: inTauri
+    ? (fn) => listen('danplay://danpista', (e) => fn(String(e.payload || '')))
+    : noListener,
+  /**
+   * Los `.danpista` abiertos desde fuera antes de que la ventana escuchara
+   * (con la app cerrada). Se recogen una vez.
+   * @returns {Promise<string[]>}
+   */
+  takeOpenedBundles: () => (inTauri ? invoke('take_opened_bundles') : Promise.resolve([])),
 
   inbox: () => GET('/inbox'),
 

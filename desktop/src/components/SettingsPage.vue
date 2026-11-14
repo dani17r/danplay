@@ -419,6 +419,11 @@ const CROSSFADE_OPTIONS = CROSSFADES.map((s) => ({
   v: s,
   n: s ? `${s} segundos` : 'Sin transición: una detrás de otra'
 }))
+// el clic de las canciones que no tienen su compás ajustado
+const ACCENT_OPTIONS = [
+  { v: 'accent', n: 'Acento en el «1» (como viene)' },
+  { v: 'plain', n: 'Sin acento: todos los golpes iguales' }
+]
 </script>
 
 <template>
@@ -429,560 +434,632 @@ const CROSSFADE_OPTIONS = CROSSFADES.map((s) => ({
       {{ Math.round(status.stats.seconds / 3600) }} horas
     </div>
 
-    <Card title="Apariencia" note="El tema se aplica al instante y se recuerda.">
-      <!-- Cada tarjeta es un boton (elegir) y, si el tema es tuyo, dos mas
+    <!-- Las tarjetas, en tres grupos: en una ventana ancha van lado a lado
+         (dos columnas, y tres en un monitor grande: el segundo grupo se abre
+         en sus dos mitades); sin sitio son bloques y todo sigue en una
+         columna, en este mismo orden (responsive.css). -->
+    <div class="page-cols">
+      <div class="page-col">
+        <Card title="Apariencia" note="El tema se aplica al instante y se recuerda.">
+          <!-- Cada tarjeta es un boton (elegir) y, si el tema es tuyo, dos mas
            al lado (editar, borrar): antes era un div pulsable con botones
            dentro, que con el teclado no se podia elegir. -->
-      <div class="theme-grid" role="group" aria-label="Temas">
-        <div
-          v-for="(t, k) in catalog"
-          :key="k"
-          class="theme-card"
-          :style="{ background: t.v.panel, borderColor: theme === k ? t.v.accent : t.v.border }"
-        >
-          <button
-            type="button"
-            class="theme-pick"
-            :aria-pressed="theme === k"
-            :title="'Usar el tema «' + t.name + '»'"
-            @click="theme = k"
-          >
-            <span class="theme-swatches">
-              <span
-                v-for="(c, i) in [t.v.accent, t.v.text, t.v.muted, t.v.panel2]"
-                :key="i"
-                class="theme-swatch"
-                :style="{ background: c, borderColor: t.v.border2 }"
-              ></span>
-            </span>
-            <span
-              class="theme-name"
-              :style="{ color: t.v.text, fontWeight: theme === k ? 600 : 400 }"
-              >{{ t.name }}</span
+          <div class="theme-grid" role="group" aria-label="Temas">
+            <div
+              v-for="(t, k) in catalog"
+              :key="k"
+              class="theme-card"
+              :style="{ background: t.v.panel, borderColor: theme === k ? t.v.accent : t.v.border }"
             >
-            <span v-if="!t.custom" class="theme-kind" :style="{ color: t.v.muted2 }">
-              {{ KIND_LABEL[t.kind] || t.kind }}</span
-            >
-          </button>
-          <div v-if="t.custom" class="theme-actions">
-            <button type="button" class="btn mini" @click="editor = k">Editar</button>
-            <button type="button" class="btn mini" @click="removeTheme(k)">Borrar</button>
-          </div>
-        </div>
-        <button type="button" class="theme-new" @click="editor = ''">
-          <span style="font-size: 20px" aria-hidden="true">＋</span>
-          <span style="font-size: 11.5px">Crear el mio</span>
-        </button>
-      </div>
-
-      <div style="display: flex; align-items: center; gap: 9px; margin-top: 13px">
-        <SelectField
-          :model-value="density"
-          width="220px"
-          label="Densidad de las listas"
-          :options="Object.entries(DENSITIES).map(([k, d]) => ({ v: k, n: d.name }))"
-          @update:model-value="(v) => (density = v)"
-        />
-      </div>
-    </Card>
-
-    <!-- con `key`: editar otro tema con el editor abierto lo empieza de nuevo
-         con los colores de ese, en vez de guardarle los del anterior -->
-    <ThemeEditor
-      v-if="editor !== null"
-      :key="editor || 'new'"
-      :active-theme="theme"
-      :editing="editor || null"
-      @close="editor = null"
-      @saved="afterSave"
-    />
-
-    <Card
-      title="Reproducción"
-      note="Al pasar de una canción a otra, la que se va baja mientras sube la siguiente. Con el clic del metrónomo o tramos puestos no se funden; al cambiar tú de canción, como mucho 2 segundos."
-    >
-      <SelectField
-        :model-value="crossfade"
-        width="260px"
-        label="Transición entre canciones"
-        :options="CROSSFADE_OPTIONS"
-        @update:model-value="(v) => playback.setCrossfade(v)"
-      />
-    </Card>
-
-    <Card title="Atajos de teclado">
-      <div style="display: grid; grid-template-columns: auto 1fr; gap: 5px 14px; font-size: 12px">
-        <span class="mono" style="color: var(--accent)">espacio</span
-        ><span>reproducir / pausar</span> <span class="mono" style="color: var(--accent)">← →</span
-        ><span>retroceder / avanzar 10 s (con Shift, 30 s)</span>
-        <span class="mono" style="color: var(--accent)">↑ ↓</span><span>volumen</span>
-        <span class="mono" style="color: var(--accent)">N / P</span
-        ><span>siguiente / anterior</span> <span class="mono" style="color: var(--accent)">M</span
-        ><span>silenciar</span> <span class="mono" style="color: var(--accent)">S</span
-        ><span>aleatorio</span> <span class="mono" style="color: var(--accent)">R</span
-        ><span>repetir</span>
-      </div>
-    </Card>
-
-    <Card
-      title="Carpetas gestionadas"
-      note="DanPlay analiza e indexa todo lo que haya dentro de estas carpetas."
-    >
-      <div
-        v-if="folders.folders.length > 1"
-        class="hint"
-        style="margin-bottom: 9px; color: var(--amber)"
-      >
-        Si dos carpetas contienen la misma música, cada canción aparecerá dos veces.
-      </div>
-      <div v-for="c in folders.folders" :key="c.path" class="path-row">
-        <span class="path" :title="c.path">{{ c.path }}</span>
-        <span
-          v-if="c.exists === false"
-          class="badge"
-          style="color: var(--amber)"
-          title="Ya no está donde estaba: sus canciones quedan apartadas hasta que vuelva o le digas dónde está ahora"
-        >
-          no está</span
-        >
-        <span v-else class="badge">{{ c.n }} temas</span>
-        <button
-          v-if="c.exists === false"
-          class="btn mini"
-          :disabled="busy === 'folder'"
-          @click="relocate(c.path)"
-        >
-          ¿Dónde está?
-        </button>
-        <button
-          type="button"
-          class="btn mini"
-          :disabled="busy === 'folder'"
-          @click="removeFolder(c.path)"
-        >
-          Quitar
-        </button>
-      </div>
-      <div style="display: flex; gap: 8px; margin-top: 10px">
-        <button class="btn" :disabled="busy === 'folder'" style="gap: 7px" @click="browseFolder">
-          <Icon n="folderOpen" :t="15" /> Examinar…
-        </button>
-        <TextField
-          v-model="newPath"
-          width="100%"
-          icon="folder"
-          placeholder="o escribe la ruta"
-          @enter="addNewFolder()"
-        />
-        <button
-          class="btn"
-          :disabled="busy === 'folder' || !newPath.trim()"
-          @click="addNewFolder()"
-        >
-          Agregar
-        </button>
-      </div>
-      <div
-        v-if="folderNotice"
-        class="hint"
-        :style="{ color: folderNotice.confirmable ? 'var(--amber)' : 'var(--muted)' }"
-      >
-        {{ folderNotice.message }}
-        <div v-if="folderNotice.confirmable" class="btn-row" style="margin-top: 8px">
-          <button class="btn mini" @click="addNewFolder(true)">Añadir igualmente</button>
-          <button class="btn mini" @click="folderNotice = null">Cancelar</button>
-        </div>
-      </div>
-      <div style="margin-top: 12px">
-        <button type="button" class="btn primary" :disabled="busy === 'scan'" @click="scan">
-          {{ busy === 'scan' ? 'Analizando…' : 'Analizar e indexar todo' }}
-        </button>
-        <JobProgress v-if="busy === 'scan'" :job="job" label="analizando la biblioteca…" />
-      </div>
-    </Card>
-
-    <Card title="Carpetas omitidas" note="No se indexan. Util para material de trabajo o copias.">
-      <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px">
-        <button
-          v-for="e in folders.exclusions"
-          :key="e.pattern"
-          type="button"
-          class="chip x"
-          :title="(e.note ? e.note + ' · ' : '') + 'Quitar de las omitidas'"
-          :aria-label="'Dejar de omitir ' + e.pattern"
-          @click="removeExclusion(e.pattern)"
-        >
-          {{ e.pattern }} ×
-        </button>
-        <span v-if="!folders.exclusions.length" style="color: var(--muted2); font-size: 12px">
-          ninguna</span
-        >
-      </div>
-      <div style="display: flex; gap: 8px; align-items: flex-end">
-        <TextField
-          v-model="newPattern"
-          width="100%"
-          placeholder="Secuencias  o  */Copias/*"
-          aria-label="Carpeta o patrón que no se indexa"
-          @enter="addExclusion"
-        />
-        <button type="button" class="btn" :disabled="!newPattern.trim()" @click="addExclusion">
-          Omitir
-        </button>
-      </div>
-      <div class="hint">Siempre omitidas: {{ (folders.always_excluded || []).join(', ') }}</div>
-    </Card>
-
-    <Card
-      title="Formato de archivo"
-      note="Unifica la biblioteca en mp3 cuando llega algo en otro formato."
-    >
-      <ToggleField
-        :model-value="settings.convert_mp3"
-        title="Convertir a mp3 al importar"
-        hint="Si llega un .m4a, .flac, .ogg o .wma, se pasa a mp3 automaticamente"
-        @update:model-value="(v) => save('convert_mp3', v)"
-      />
-      <ToggleField
-        :model-value="settings.keep_original"
-        title="Conservar el archivo original"
-        hint="Ocupa el doble, pero no pierdes la fuente"
-        @update:model-value="(v) => save('keep_original', v)"
-      />
-      <div style="margin-top: 11px">
-        <SelectField
-          :model-value="settings.quality"
-          width="240px"
-          label="Calidad"
-          :options="[
-            { v: 'high', n: 'Alta', note: '320 kbps' },
-            { v: 'medium', n: 'Media', note: '192 kbps' },
-            { v: 'variable', n: 'Variable', note: 'V0, peso ajustado' }
-          ]"
-          @update:model-value="(v) => save('quality', v)"
-        />
-      </div>
-      <div class="hint">
-        Nunca se convierten: {{ status.never_convert.join(', ') }} — ahi los .wav son material de
-        producción y comprimirlos sería perder calidad.
-      </div>
-      <div v-if="convertibles" style="margin-top: 12px">
-        <div style="font-size: 12px; color: var(--muted); margin-bottom: 8px">
-          {{ convertibles.total }} archivos en la biblioteca no son mp3
-        </div>
-        <div v-if="convertibles.total" class="btn-row">
-          <button type="button" class="btn mini" :disabled="!!busy" @click="convert(true)">
-            Simular
-          </button>
-          <button type="button" class="btn mini" :disabled="!!busy" @click="convert(false)">
-            Convertir ahora
-          </button>
-        </div>
-        <JobProgress v-if="busy === 'convert'" :job="job" label="convirtiendo a mp3…" />
-      </div>
-    </Card>
-
-    <Card
-      title="Carpeta de descargas"
-      note="Donde va todo lo que bajas de YouTube, y lo que importas desde su Entrada/. Dentro se usan Artistas, Pistas, Secuencias, Tutoriales y Play Along y Entrada, y se crean las que falten."
-    >
-      <div class="dl-folder" style="margin-top: 0">
-        <Icon n="folder" :t="13" />
-        <span v-if="downloadFolder?.ready" class="mono">{{ downloadFolder.path }}</span>
-        <span v-else>Sin elegir: se pregunta la primera vez que descargues.</span>
-        <button class="btn" @click="changeDownloadFolder">
-          {{ downloadFolder?.ready ? 'Cambiar…' : 'Elegir…' }}
-        </button>
-      </div>
-    </Card>
-
-    <Card
-      title="Inteligencia artificial"
-      note="Identifica lo que la huella acustica no logra, busca letra, acordes y datos, y es el asistente. Vale cualquier proveedor: OpenAI, Anthropic, Google Gemini, DeepInfra, OpenRouter, Ollama en tu equipo…"
-    >
-      <div class="ai-current">
-        <span class="ai-current-ico"><Icon n="ai" :t="22" /></span>
-        <div class="ai-current-txt">
-          <strong v-if="activeAi">{{ activeAi.name }}</strong>
-          <strong v-else>Sin proveedor elegido</strong>
-          <span v-if="activeAi"
-            >conversación: <span class="mono">{{ activeAi.chat_model || '—' }}</span> · identificar:
-            <span class="mono">{{ activeAi.model || '—' }}</span></span
-          >
-          <span v-else
-            >Elige uno y pega su clave; o usa un modelo en tu propio equipo, sin clave.</span
-          >
-        </div>
-        <span class="badge" :class="settings.ai_ready ? 'ok' : 'bad'">
-          {{ settings.ai_ready ? 'lista' : settings.ai_reason || 'sin configurar' }}</span
-        >
-        <div class="btn-row">
-          <button v-if="activeAi" class="btn" @click="openAi(activeAi.id)">Ajustar…</button>
-          <button class="btn primary" @click="openAi()">
-            {{ activeAi ? 'Cambiar…' : 'Elegir proveedor…' }}
-          </button>
-          <button v-if="!activeAi" class="btn" :disabled="tryingFree" @click="tryFree">
-            {{ tryingFree ? 'Buscando uno que responda…' : 'Probar gratis, sin clave' }}
-          </button>
-          <button v-else class="btn" :disabled="checkingKey" @click="checkKey">
-            {{ checkingKey ? 'Probando…' : 'Probar' }}
-          </button>
-        </div>
-      </div>
-      <div v-if="freeResult" class="key-state" :class="freeResult.ok ? 'ok' : 'bad'">
-        <Icon :n="freeResult.ok ? 'check' : 'warning'" :t="14" />
-        <span v-if="freeResult.ok"
-          >Listo: {{ freeResult.name }} con <span class="mono">{{ freeResult.chat_model }}</span
-          >, gratis y sin cuenta. Tiene límites y tus preguntas pasan por un servicio de terceros:
-          para uso serio, pon tu clave o usa un modelo en tu equipo.</span
-        >
-        <span v-else>{{ freeResult.reason }}</span>
-      </div>
-      <div v-if="keyState" class="key-state" :class="keyState.ok ? 'ok' : 'bad'">
-        <Icon :n="keyState.ok ? 'check' : 'warning'" :t="14" />
-        <span v-if="keyState.ok"
-          >Funciona · {{ keyState.model }} responde en {{ keyState.latency_ms }} ms
-          <span v-if="keyState.tools_ok"> · el asistente puede usar {{ keyState.chat_model }}</span>
-          <span v-else style="color: var(--amber)">
-            · {{ keyState.chat_model }}: {{ keyState.tools_reason }}</span
-          >
-        </span>
-        <span v-else>{{ keyState.reason }}</span>
-      </div>
-      <div v-if="aiProfiles.length > 1" class="ai-profiles">
-        <span
-          v-for="p in aiProfiles"
-          :key="p.id"
-          class="ai-profile"
-          :class="{ active: p.id === aiInfo.active }"
-        >
-          <button
-            type="button"
-            class="ai-profile-pick"
-            :aria-pressed="p.id === aiInfo.active"
-            :title="p.id === aiInfo.active ? 'en uso' : 'usar este'"
-            @click="activateAi(p.id)"
-          >
-            <Icon v-if="p.id === aiInfo.active" n="check" :t="11" />
-            {{ p.provider_name }}
-          </button>
-          <button
-            class="field-btn"
-            type="button"
-            title="Ajustar"
-            :aria-label="'Ajustar ' + p.provider_name"
-            @click="openAi(p.id)"
-          >
-            <Icon n="pencil" :t="11" />
-          </button>
-          <button
-            class="field-btn"
-            type="button"
-            title="Quitar"
-            :aria-label="'Quitar ' + p.provider_name"
-            @click="removeAi(p)"
-          >
-            <Icon n="close" :t="11" />
-          </button>
-        </span>
-      </div>
-      <ToggleField
-        :model-value="settings.ai_enabled"
-        title="Usar IA"
-        hint="Apagada, la app identifica solo por etiquetas y huella, y el asistente se calla"
-        @update:model-value="(v) => save('ai_enabled', v)"
-      />
-      <ToggleField
-        v-if="aiInfo"
-        :model-value="aiInfo.fallback"
-        title="Si el proveedor falla, usar los demás"
-        :hint="
-          aiInfo.fallbacks?.length
-            ? 'Caído, sin crédito o saturado: se responde con ' +
-              aiInfo.fallbacks.map((f) => f.name).join(', ') +
-              ' y se avisa'
-            : 'No hay otro configurado: añade uno (o el gratuito) y hará de respaldo'
-        "
-        @update:model-value="setFallback"
-      />
-      <div v-if="usage" class="ai-usage" :class="{ over: usage.over_budget }">
-        <span
-          ><strong>Hoy</strong> {{ usage.today.calls }} llamadas · {{ tokens(usage.today) }} tokens
-          · {{ money(usage.today.cost) }}</span
-        >
-        <span
-          ><strong>Este mes</strong> {{ usage.month.calls }} llamadas ·
-          {{ tokens(usage.month) }} tokens · {{ money(usage.month.cost) }}
-          <span v-if="usage.budget"> de {{ money(usage.budget) }}</span>
-          <span v-if="usage.over_budget" class="ai-over"> · pasado el tope</span></span
-        >
-        <span v-for="p in usage.by_provider || []" :key="p.provider" class="ai-usage-provider">
-          {{ p.provider }}: {{ p.calls }} llamadas · {{ money(p.cost) }}</span
-        >
-        <span v-if="usage.month.unpriced" class="hint" style="margin: 0"
-          >{{ usage.month.unpriced }} llamadas sin precio conocido (no cuentan en el coste)</span
-        >
-        <span class="ai-budget">
-          <TextField
-            v-model="budgetDraft"
-            type="number"
-            width="150px"
-            compact
-            :placeholder="usage.budget ? 'tope: ' + money(usage.budget) : 'sin tope'"
-            @enter="saveBudget"
-          />
-          <button class="btn mini" type="button" :disabled="budgetDraft === ''" @click="saveBudget">
-            Avisar al pasar de $ al mes
-          </button>
-        </span>
-      </div>
-      <div style="display: flex; gap: 8px; align-items: flex-end; margin: 6px 0 10px">
-        <TextField
-          v-model="fingerprintKey"
-          type="password"
-          width="100%"
-          label="Clave de AcoustID"
-          :placeholder="settings.fingerprint_key ? 'Guardada' : 'gratis en acoustid.org, opcional'"
-          @enter="saveFingerprintKey"
-        />
-        <button class="btn" :disabled="!fingerprintKey" @click="saveFingerprintKey">Guardar</button>
-      </div>
-      <ToggleField
-        :model-value="settings.write_tags"
-        title="Escribir etiquetas dentro del archivo"
-        hint="Estrellas, letra, portada y tono viajan con el mp3"
-        @update:model-value="(v) => save('write_tags', v)"
-      />
-      <div v-if="aiInfo" class="hint">
-        Catálogo de modelos (models.dev): {{ aiInfo.catalog_status.models }} modelos de
-        {{ aiInfo.catalog_status.providers }} proveedores, comprobado
-        {{ formatAgo(aiInfo.catalog_status.checked_at) }}. Se vuelve a consultar cada vez que abres
-        el selector.
-      </div>
-    </Card>
-
-    <AiProviderModal
-      :open="aiModal"
-      :initial="aiInitial"
-      @close="aiModal = false"
-      @saved="afterAiSaved"
-    />
-
-    <Card
-      v-if="player?.supported"
-      title="Abrir canciones con DanPlay"
-      note="Para que al abrir una canción desde el explorador de archivos suene aquí."
-    >
-      <div class="setting-row">
-        <div>
-          <div>
-            {{
-              player.is_default
-                ? 'Las canciones se abren con DanPlay.'
-                : 'Ahora mismo las abre otro programa.'
-            }}
-          </div>
-          <div v-if="!player.direct" class="hint">
-            Windows no deja que un programa se ponga solo: DanPlay queda en «Abrir con» y el último
-            clic lo das tú en Ajustes.
-          </div>
-          <div v-else-if="player.is_default" class="hint">
-            Puedes volver a cambiarlo desde los ajustes de tu escritorio.
-          </div>
-        </div>
-        <button
-          class="btn"
-          :disabled="claiming || (player.is_default && player.direct)"
-          @click="claimDefault"
-        >
-          {{
-            claiming
-              ? 'un momento…'
-              : player.is_default
-                ? player.direct
-                  ? 'Ya está puesto'
-                  : 'Volver a Ajustes'
-                : 'Abrirlas con DanPlay'
-          }}
-        </button>
-      </div>
-      <div v-if="player.note" class="hint">{{ player.note }}</div>
-    </Card>
-
-    <Card
-      title="Pistas separadas"
-      note="Batería, voces, bajo… cada una aparte, para callar o dejar sola la que quieras en el modo estudio."
-    >
-      <template v-if="sep.known">
-        <div v-if="!sep.ok" class="hint" style="color: var(--amber)">
-          No se puede separar en este equipo: {{ sep.reason }}.
-        </div>
-        <template v-else>
-          <div class="path-row">
-            <span class="path">Separador · Demucs v4, en dos pasadas</span>
-            <span class="badge" :class="sep.installed ? 'ok' : ''">
-              {{ sep.installed ? 'bajado' : 'sin bajar' }} ·
-              {{ separation.megabytes(sep.bytes) }}</span
-            >
-            <button
-              v-if="sep.bytes > sep.pending"
-              type="button"
-              class="btn mini"
-              :disabled="separation.busy.value"
-              title="Borrar lo bajado del separador (se baja otra vez al usarlo)"
-              @click="removeSeparator"
-            >
-              Borrar
+              <button
+                type="button"
+                class="theme-pick"
+                :aria-pressed="theme === k"
+                :title="'Usar el tema «' + t.name + '»'"
+                @click="theme = k"
+              >
+                <span class="theme-swatches">
+                  <span
+                    v-for="(c, i) in [t.v.accent, t.v.text, t.v.muted, t.v.panel2]"
+                    :key="i"
+                    class="theme-swatch"
+                    :style="{ background: c, borderColor: t.v.border2 }"
+                  ></span>
+                </span>
+                <span
+                  class="theme-name"
+                  :style="{ color: t.v.text, fontWeight: theme === k ? 600 : 400 }"
+                  >{{ t.name }}</span
+                >
+                <span v-if="!t.custom" class="theme-kind" :style="{ color: t.v.muted2 }">
+                  {{ KIND_LABEL[t.kind] || t.kind }}</span
+                >
+              </button>
+              <div v-if="t.custom" class="theme-actions">
+                <button type="button" class="btn mini" @click="editor = k">Editar</button>
+                <button type="button" class="btn mini" @click="removeTheme(k)">Borrar</button>
+              </div>
+            </div>
+            <button type="button" class="theme-new" @click="editor = ''">
+              <span style="font-size: 20px" aria-hidden="true">＋</span>
+              <span style="font-size: 11.5px">Crear el mio</span>
             </button>
           </div>
-          <div style="margin-top: 11px">
+
+          <div style="display: flex; align-items: center; gap: 9px; margin-top: 13px">
             <SelectField
-              :model-value="settings.stems_format || 'flac'"
-              width="240px"
-              label="Guardar las pistas en"
-              :options="[
-                { v: 'flac', n: 'FLAC', note: 'sin pérdida' },
-                {
-                  v: 'opus',
-                  n: 'Opus',
-                  note: sep.opus ? 'unas 4 veces menos' : 'este ffmpeg no sabe hacerlo'
-                }
-              ]"
-              @update:model-value="saveStemsFormat"
+              :model-value="density"
+              width="220px"
+              label="Densidad de las listas"
+              :options="Object.entries(DENSITIES).map(([k, d]) => ({ v: k, n: d.name }))"
+              @update:model-value="(v) => (density = v)"
             />
           </div>
-          <div class="hint">
-            Se separa en tu equipo, sin internet (el separador se baja una vez, la primera que se
-            usa). En unos minutos tienes las pistas; después se mejoran la batería y el bajo, sin
-            cortar lo que suena. Solo salen las que están en la canción. Quedan en
-            <b>{{ sep.folder }}/</b> dentro de tu biblioteca: se abren con cualquier programa.
-          </div>
-          <div v-if="separation.busy.value" class="btn-row" style="margin-top: 8px">
-            <span class="hint" style="margin: 0">
-              {{ sep.message || 'Separando…' }}
-              <template v-if="sep.queue.length"> · {{ sep.queue.length }} en la cola</template>
-            </span>
-            <button type="button" class="btn mini" @click="separation.cancel()">Parar</button>
-          </div>
-        </template>
-      </template>
-      <Loading v-else text="mirando el separador…" />
-    </Card>
+        </Card>
 
-    <Card title="Sistema">
-      <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px">
-        <span class="badge" :class="status.ai ? 'ok' : 'bad'"
-          >IA {{ status.ai ? status.provider || 'lista' : 'sin configurar' }}</span
+        <!-- con `key`: editar otro tema con el editor abierto lo empieza de nuevo
+         con los colores de ese, en vez de guardarle los del anterior -->
+        <ThemeEditor
+          v-if="editor !== null"
+          :key="editor || 'new'"
+          :active-theme="theme"
+          :editing="editor || null"
+          @close="editor = null"
+          @saved="afterSave"
+        />
+
+        <Card
+          title="Reproducción"
+          note="Al pasar de una canción a otra, la que se va baja mientras sube la siguiente. Con el clic del metrónomo o tramos puestos no se funden; al cambiar tú de canción, como mucho 2 segundos."
         >
-        <span class="badge" :class="status.rust ? 'ok' : 'bad'"
-          >Rust {{ status.rust ? 'activo' : 'no compilado' }}</span
+          <SelectField
+            :model-value="crossfade"
+            width="260px"
+            label="Transición entre canciones"
+            :options="CROSSFADE_OPTIONS"
+            @update:model-value="(v) => playback.setCrossfade(v)"
+          />
+          <ToggleField
+            :model-value="playback.formants.value"
+            title="Conservar el timbre de la voz al cambiar el tono"
+            hint="Con el tono subido o bajado, la voz no suena a «ardilla» ni a «gigante». Cuesta un poco más de cálculo y solo cuenta con el tono cambiado; si algo suena raro, apágalo."
+            @update:model-value="(v) => playback.setFormants(v)"
+          />
+        </Card>
+
+        <Card
+          title="Clic del metrónomo"
+          note="Cómo suena el clic en las canciones que no tienen su compás ajustado. Lo que pongas en una canción, en el modo estudio, manda siempre; las que ya ajustaste no cambian."
         >
-        <span class="badge" :class="status.ffmpeg ? 'ok' : 'bad'">ffmpeg</span>
-        <span class="badge" :class="status.fingerprint ? 'ok' : 'bad'">Huella acustica</span>
+          <SelectField
+            :model-value="playback.accentDefault.value ? 'accent' : 'plain'"
+            width="260px"
+            label="Acento del clic por defecto"
+            :options="ACCENT_OPTIONS"
+            @update:model-value="(v) => playback.setDefaultAccent(v === 'accent')"
+          />
+        </Card>
+
+        <Card title="Atajos de teclado">
+          <div
+            style="display: grid; grid-template-columns: auto 1fr; gap: 5px 14px; font-size: 12px"
+          >
+            <span class="mono" style="color: var(--accent)">espacio</span
+            ><span>reproducir / pausar</span>
+            <span class="mono" style="color: var(--accent)">← →</span
+            ><span>retroceder / avanzar 10 s (con Shift, 30 s)</span>
+            <span class="mono" style="color: var(--accent)">↑ ↓</span><span>volumen</span>
+            <span class="mono" style="color: var(--accent)">N / P</span
+            ><span>siguiente / anterior</span>
+            <span class="mono" style="color: var(--accent)">M</span><span>silenciar</span>
+            <span class="mono" style="color: var(--accent)">S</span><span>aleatorio</span>
+            <span class="mono" style="color: var(--accent)">R</span><span>repetir</span>
+          </div>
+        </Card>
+
+        <Card
+          title="Carpetas gestionadas"
+          note="DanPlay analiza e indexa todo lo que haya dentro de estas carpetas."
+        >
+          <div
+            v-if="folders.folders.length > 1"
+            class="hint"
+            style="margin-bottom: 9px; color: var(--amber)"
+          >
+            Si dos carpetas contienen la misma música, cada canción aparecerá dos veces.
+          </div>
+          <div v-for="c in folders.folders" :key="c.path" class="path-row">
+            <span class="path" :title="c.path">{{ c.path }}</span>
+            <span
+              v-if="c.exists === false"
+              class="badge"
+              style="color: var(--amber)"
+              title="Ya no está donde estaba: sus canciones quedan apartadas hasta que vuelva o le digas dónde está ahora"
+            >
+              no está</span
+            >
+            <span v-else class="badge">{{ c.n }} temas</span>
+            <button
+              v-if="c.exists === false"
+              class="btn mini"
+              :disabled="busy === 'folder'"
+              @click="relocate(c.path)"
+            >
+              ¿Dónde está?
+            </button>
+            <button
+              type="button"
+              class="btn mini"
+              :disabled="busy === 'folder'"
+              @click="removeFolder(c.path)"
+            >
+              Quitar
+            </button>
+          </div>
+          <div style="display: flex; gap: 8px; margin-top: 10px">
+            <button
+              class="btn"
+              :disabled="busy === 'folder'"
+              style="gap: 7px"
+              @click="browseFolder"
+            >
+              <Icon n="folderOpen" :t="15" /> Examinar…
+            </button>
+            <TextField
+              v-model="newPath"
+              width="100%"
+              icon="folder"
+              placeholder="o escribe la ruta"
+              @enter="addNewFolder()"
+            />
+            <button
+              class="btn"
+              :disabled="busy === 'folder' || !newPath.trim()"
+              @click="addNewFolder()"
+            >
+              Agregar
+            </button>
+          </div>
+          <div
+            v-if="folderNotice"
+            class="hint"
+            :style="{ color: folderNotice.confirmable ? 'var(--amber)' : 'var(--muted)' }"
+          >
+            {{ folderNotice.message }}
+            <div v-if="folderNotice.confirmable" class="btn-row" style="margin-top: 8px">
+              <button class="btn mini" @click="addNewFolder(true)">Añadir igualmente</button>
+              <button class="btn mini" @click="folderNotice = null">Cancelar</button>
+            </div>
+          </div>
+          <div style="margin-top: 12px">
+            <button type="button" class="btn primary" :disabled="busy === 'scan'" @click="scan">
+              {{ busy === 'scan' ? 'Analizando…' : 'Analizar e indexar todo' }}
+            </button>
+            <JobProgress v-if="busy === 'scan'" :job="job" label="analizando la biblioteca…" />
+          </div>
+        </Card>
+
+        <Card
+          title="Carpetas omitidas"
+          note="No se indexan. Util para material de trabajo o copias."
+        >
+          <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px">
+            <button
+              v-for="e in folders.exclusions"
+              :key="e.pattern"
+              type="button"
+              class="chip x"
+              :title="(e.note ? e.note + ' · ' : '') + 'Quitar de las omitidas'"
+              :aria-label="'Dejar de omitir ' + e.pattern"
+              @click="removeExclusion(e.pattern)"
+            >
+              {{ e.pattern }} ×
+            </button>
+            <span v-if="!folders.exclusions.length" style="color: var(--muted2); font-size: 12px">
+              ninguna</span
+            >
+          </div>
+          <div style="display: flex; gap: 8px; align-items: flex-end">
+            <TextField
+              v-model="newPattern"
+              width="100%"
+              placeholder="Secuencias  o  */Copias/*"
+              aria-label="Carpeta o patrón que no se indexa"
+              @enter="addExclusion"
+            />
+            <button type="button" class="btn" :disabled="!newPattern.trim()" @click="addExclusion">
+              Omitir
+            </button>
+          </div>
+          <div class="hint">Siempre omitidas: {{ (folders.always_excluded || []).join(', ') }}</div>
+        </Card>
       </div>
-      <div v-if="!status.fingerprint" class="hint">{{ status.fingerprint_reason }}</div>
-      <div class="hint">Ajustes en {{ settings.settings_file }}</div>
-    </Card>
+
+      <div class="page-col page-col-split">
+        <div class="page-col">
+          <Card
+            title="Formato de archivo"
+            note="Unifica la biblioteca en mp3 cuando llega algo en otro formato."
+          >
+            <ToggleField
+              :model-value="settings.convert_mp3"
+              title="Convertir a mp3 al importar"
+              hint="Si llega un .m4a, .flac, .ogg o .wma, se pasa a mp3 automaticamente"
+              @update:model-value="(v) => save('convert_mp3', v)"
+            />
+            <ToggleField
+              :model-value="settings.keep_original"
+              title="Conservar el archivo original"
+              hint="Ocupa el doble, pero no pierdes la fuente"
+              @update:model-value="(v) => save('keep_original', v)"
+            />
+            <div style="margin-top: 11px">
+              <SelectField
+                :model-value="settings.quality"
+                width="240px"
+                label="Calidad"
+                :options="[
+                  { v: 'high', n: 'Alta', note: '320 kbps' },
+                  { v: 'medium', n: 'Media', note: '192 kbps' },
+                  { v: 'variable', n: 'Variable', note: 'V0, peso ajustado' }
+                ]"
+                @update:model-value="(v) => save('quality', v)"
+              />
+            </div>
+            <div class="hint">
+              Nunca se convierten: {{ status.never_convert.join(', ') }} — ahi los .wav son material
+              de producción y comprimirlos sería perder calidad.
+            </div>
+            <div v-if="convertibles" style="margin-top: 12px">
+              <div style="font-size: 12px; color: var(--muted); margin-bottom: 8px">
+                {{ convertibles.total }} archivos en la biblioteca no son mp3
+              </div>
+              <div v-if="convertibles.total" class="btn-row">
+                <button type="button" class="btn mini" :disabled="!!busy" @click="convert(true)">
+                  Simular
+                </button>
+                <button type="button" class="btn mini" :disabled="!!busy" @click="convert(false)">
+                  Convertir ahora
+                </button>
+              </div>
+              <JobProgress v-if="busy === 'convert'" :job="job" label="convirtiendo a mp3…" />
+            </div>
+          </Card>
+
+          <Card
+            title="Carpeta de descargas"
+            note="Donde va todo lo que bajas de YouTube, y lo que importas desde su Entrada/. Dentro se usan Artistas, Pistas, Secuencias, Tutoriales y Play Along y Entrada, y se crean las que falten."
+          >
+            <div class="dl-folder" style="margin-top: 0">
+              <Icon n="folder" :t="13" />
+              <span v-if="downloadFolder?.ready" class="mono">{{ downloadFolder.path }}</span>
+              <span v-else>Sin elegir: se pregunta la primera vez que descargues.</span>
+              <button class="btn" @click="changeDownloadFolder">
+                {{ downloadFolder?.ready ? 'Cambiar…' : 'Elegir…' }}
+              </button>
+            </div>
+          </Card>
+
+          <Card
+            title="Inteligencia artificial"
+            note="Identifica lo que la huella acustica no logra, busca letra, acordes y datos, y es el asistente. Vale cualquier proveedor: OpenAI, Anthropic, Google Gemini, DeepInfra, OpenRouter, Ollama en tu equipo…"
+          >
+            <div class="ai-current">
+              <span class="ai-current-ico"><Icon n="ai" :t="22" /></span>
+              <div class="ai-current-txt">
+                <strong v-if="activeAi">{{ activeAi.name }}</strong>
+                <strong v-else>Sin proveedor elegido</strong>
+                <span v-if="activeAi"
+                  >conversación: <span class="mono">{{ activeAi.chat_model || '—' }}</span> ·
+                  identificar: <span class="mono">{{ activeAi.model || '—' }}</span></span
+                >
+                <span v-else
+                  >Elige uno y pega su clave; o usa un modelo en tu propio equipo, sin clave.</span
+                >
+              </div>
+              <span class="badge" :class="settings.ai_ready ? 'ok' : 'bad'">
+                {{ settings.ai_ready ? 'lista' : settings.ai_reason || 'sin configurar' }}</span
+              >
+              <div class="btn-row">
+                <button v-if="activeAi" class="btn" @click="openAi(activeAi.id)">Ajustar…</button>
+                <button class="btn primary" @click="openAi()">
+                  {{ activeAi ? 'Cambiar…' : 'Elegir proveedor…' }}
+                </button>
+                <button v-if="!activeAi" class="btn" :disabled="tryingFree" @click="tryFree">
+                  {{ tryingFree ? 'Buscando uno que responda…' : 'Probar gratis, sin clave' }}
+                </button>
+                <button v-else class="btn" :disabled="checkingKey" @click="checkKey">
+                  {{ checkingKey ? 'Probando…' : 'Probar' }}
+                </button>
+              </div>
+            </div>
+            <div v-if="freeResult" class="key-state" :class="freeResult.ok ? 'ok' : 'bad'">
+              <Icon :n="freeResult.ok ? 'check' : 'warning'" :t="14" />
+              <span v-if="freeResult.ok"
+                >Listo: {{ freeResult.name }} con
+                <span class="mono">{{ freeResult.chat_model }}</span
+                >, gratis y sin cuenta. Tiene límites y tus preguntas pasan por un servicio de
+                terceros: para uso serio, pon tu clave o usa un modelo en tu equipo.</span
+              >
+              <span v-else>{{ freeResult.reason }}</span>
+            </div>
+            <div v-if="keyState" class="key-state" :class="keyState.ok ? 'ok' : 'bad'">
+              <Icon :n="keyState.ok ? 'check' : 'warning'" :t="14" />
+              <span v-if="keyState.ok"
+                >Funciona · {{ keyState.model }} responde en {{ keyState.latency_ms }} ms
+                <span v-if="keyState.tools_ok">
+                  · el asistente puede usar {{ keyState.chat_model }}</span
+                >
+                <span v-else style="color: var(--amber)">
+                  · {{ keyState.chat_model }}: {{ keyState.tools_reason }}</span
+                >
+              </span>
+              <span v-else>{{ keyState.reason }}</span>
+            </div>
+            <div v-if="aiProfiles.length > 1" class="ai-profiles">
+              <span
+                v-for="p in aiProfiles"
+                :key="p.id"
+                class="ai-profile"
+                :class="{ active: p.id === aiInfo.active }"
+              >
+                <button
+                  type="button"
+                  class="ai-profile-pick"
+                  :aria-pressed="p.id === aiInfo.active"
+                  :title="p.id === aiInfo.active ? 'en uso' : 'usar este'"
+                  @click="activateAi(p.id)"
+                >
+                  <Icon v-if="p.id === aiInfo.active" n="check" :t="11" />
+                  {{ p.provider_name }}
+                </button>
+                <button
+                  class="field-btn"
+                  type="button"
+                  title="Ajustar"
+                  :aria-label="'Ajustar ' + p.provider_name"
+                  @click="openAi(p.id)"
+                >
+                  <Icon n="pencil" :t="11" />
+                </button>
+                <button
+                  class="field-btn"
+                  type="button"
+                  title="Quitar"
+                  :aria-label="'Quitar ' + p.provider_name"
+                  @click="removeAi(p)"
+                >
+                  <Icon n="close" :t="11" />
+                </button>
+              </span>
+            </div>
+            <ToggleField
+              :model-value="settings.ai_enabled"
+              title="Usar IA"
+              hint="Apagada, la app identifica solo por etiquetas y huella, y el asistente se calla"
+              @update:model-value="(v) => save('ai_enabled', v)"
+            />
+            <ToggleField
+              v-if="aiInfo"
+              :model-value="aiInfo.fallback"
+              title="Si el proveedor falla, usar los demás"
+              :hint="
+                aiInfo.fallbacks?.length
+                  ? 'Caído, sin crédito o saturado: se responde con ' +
+                    aiInfo.fallbacks.map((f) => f.name).join(', ') +
+                    ' y se avisa'
+                  : 'No hay otro configurado: añade uno (o el gratuito) y hará de respaldo'
+              "
+              @update:model-value="setFallback"
+            />
+            <div v-if="usage" class="ai-usage" :class="{ over: usage.over_budget }">
+              <span
+                ><strong>Hoy</strong> {{ usage.today.calls }} llamadas ·
+                {{ tokens(usage.today) }} tokens · {{ money(usage.today.cost) }}</span
+              >
+              <span
+                ><strong>Este mes</strong> {{ usage.month.calls }} llamadas ·
+                {{ tokens(usage.month) }} tokens · {{ money(usage.month.cost) }}
+                <span v-if="usage.budget"> de {{ money(usage.budget) }}</span>
+                <span v-if="usage.over_budget" class="ai-over"> · pasado el tope</span></span
+              >
+              <span
+                v-for="p in usage.by_provider || []"
+                :key="p.provider"
+                class="ai-usage-provider"
+              >
+                {{ p.provider }}: {{ p.calls }} llamadas · {{ money(p.cost) }}</span
+              >
+              <span v-if="usage.month.unpriced" class="hint" style="margin: 0"
+                >{{ usage.month.unpriced }} llamadas sin precio conocido (no cuentan en el
+                coste)</span
+              >
+              <span class="ai-budget">
+                <TextField
+                  v-model="budgetDraft"
+                  type="number"
+                  width="150px"
+                  compact
+                  :placeholder="usage.budget ? 'tope: ' + money(usage.budget) : 'sin tope'"
+                  @enter="saveBudget"
+                />
+                <button
+                  class="btn mini"
+                  type="button"
+                  :disabled="budgetDraft === ''"
+                  @click="saveBudget"
+                >
+                  Avisar al pasar de $ al mes
+                </button>
+              </span>
+            </div>
+            <div style="display: flex; gap: 8px; align-items: flex-end; margin: 6px 0 10px">
+              <TextField
+                v-model="fingerprintKey"
+                type="password"
+                width="100%"
+                label="Clave de AcoustID"
+                :placeholder="
+                  settings.fingerprint_key ? 'Guardada' : 'gratis en acoustid.org, opcional'
+                "
+                @enter="saveFingerprintKey"
+              />
+              <button class="btn" :disabled="!fingerprintKey" @click="saveFingerprintKey">
+                Guardar
+              </button>
+            </div>
+            <ToggleField
+              :model-value="settings.write_tags"
+              title="Escribir etiquetas dentro del archivo"
+              hint="Estrellas, letra, portada y tono viajan con el mp3"
+              @update:model-value="(v) => save('write_tags', v)"
+            />
+            <div v-if="aiInfo" class="hint">
+              Catálogo de modelos (models.dev): {{ aiInfo.catalog_status.models }} modelos de
+              {{ aiInfo.catalog_status.providers }} proveedores, comprobado
+              {{ formatAgo(aiInfo.catalog_status.checked_at) }}. Se vuelve a consultar cada vez que
+              abres el selector.
+            </div>
+          </Card>
+
+          <AiProviderModal
+            :open="aiModal"
+            :initial="aiInitial"
+            @close="aiModal = false"
+            @saved="afterAiSaved"
+          />
+        </div>
+
+        <div class="page-col">
+          <Card
+            v-if="player?.supported"
+            title="Abrir canciones con DanPlay"
+            note="Para que al abrir una canción desde el explorador de archivos suene aquí."
+          >
+            <div class="setting-row">
+              <div>
+                <div>
+                  {{
+                    player.is_default
+                      ? 'Las canciones se abren con DanPlay.'
+                      : 'Ahora mismo las abre otro programa.'
+                  }}
+                </div>
+                <div v-if="!player.direct" class="hint">
+                  Windows no deja que un programa se ponga solo: DanPlay queda en «Abrir con» y el
+                  último clic lo das tú en Ajustes.
+                </div>
+                <div v-else-if="player.is_default" class="hint">
+                  Puedes volver a cambiarlo desde los ajustes de tu escritorio.
+                </div>
+              </div>
+              <button
+                class="btn"
+                :disabled="claiming || (player.is_default && player.direct)"
+                @click="claimDefault"
+              >
+                {{
+                  claiming
+                    ? 'un momento…'
+                    : player.is_default
+                      ? player.direct
+                        ? 'Ya está puesto'
+                        : 'Volver a Ajustes'
+                      : 'Abrirlas con DanPlay'
+                }}
+              </button>
+            </div>
+            <div v-if="player.note" class="hint">{{ player.note }}</div>
+          </Card>
+
+          <Card
+            title="Pistas separadas"
+            note="Batería, voces, bajo… cada una aparte, para callar o dejar sola la que quieras en el modo estudio."
+          >
+            <template v-if="sep.known">
+              <div v-if="!sep.ok" class="hint" style="color: var(--amber)">
+                No se puede separar en este equipo: {{ sep.reason }}.
+              </div>
+              <template v-else>
+                <div class="path-row">
+                  <span class="path">Separador · Demucs v4, en dos pasadas</span>
+                  <span class="badge" :class="sep.installed ? 'ok' : ''">
+                    {{ sep.installed ? 'bajado' : 'sin bajar' }} ·
+                    {{ separation.megabytes(sep.bytes) }}</span
+                  >
+                  <button
+                    v-if="sep.bytes > sep.pending"
+                    type="button"
+                    class="btn mini"
+                    :disabled="separation.busy.value"
+                    title="Borrar lo bajado del separador (se baja otra vez al usarlo)"
+                    @click="removeSeparator"
+                  >
+                    Borrar
+                  </button>
+                </div>
+                <div style="margin-top: 11px">
+                  <SelectField
+                    :model-value="settings.stems_format || 'flac'"
+                    width="240px"
+                    label="Guardar las pistas en"
+                    :options="[
+                      { v: 'flac', n: 'FLAC', note: 'sin pérdida' },
+                      {
+                        v: 'ogg',
+                        n: 'Ogg Vorbis',
+                        note: sep.ogg
+                          ? 'unas 4 veces menos; suenan al momento'
+                          : 'este ffmpeg no sabe hacerlo'
+                      },
+                      {
+                        v: 'opus',
+                        n: 'Opus',
+                        note: sep.opus
+                          ? 'unas 4 veces menos; hay que prepararlas la primera vez'
+                          : 'este ffmpeg no sabe hacerlo'
+                      }
+                    ]"
+                    @update:model-value="saveStemsFormat"
+                  />
+                </div>
+                <div class="hint">
+                  Se separa en tu equipo, sin internet (el separador se baja una vez, la primera que
+                  se usa). En unos minutos tienes las pistas; después se mejoran la batería y el
+                  bajo, sin cortar lo que suena. Solo salen las que están en la canción. Quedan en
+                  <b>{{ sep.folder }}/</b> dentro de tu biblioteca: se abren con cualquier programa.
+                </div>
+                <div v-if="separation.busy.value" class="btn-row" style="margin-top: 8px">
+                  <span class="hint" style="margin: 0">
+                    {{ sep.message || 'Separando…' }}
+                    <template v-if="sep.queue.length">
+                      · {{ sep.queue.length }} en la cola</template
+                    >
+                  </span>
+                  <button type="button" class="btn mini" @click="separation.cancel()">Parar</button>
+                </div>
+              </template>
+            </template>
+            <Loading v-else text="mirando el separador…" />
+          </Card>
+
+          <Card title="Sistema">
+            <div style="display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px">
+              <span class="badge" :class="status.ai ? 'ok' : 'bad'"
+                >IA {{ status.ai ? status.provider || 'lista' : 'sin configurar' }}</span
+              >
+              <span class="badge" :class="status.rust ? 'ok' : 'bad'"
+                >Rust {{ status.rust ? 'activo' : 'no compilado' }}</span
+              >
+              <span class="badge" :class="status.ffmpeg ? 'ok' : 'bad'">ffmpeg</span>
+              <span class="badge" :class="status.fingerprint ? 'ok' : 'bad'">Huella acustica</span>
+            </div>
+            <div v-if="!status.fingerprint" class="hint">{{ status.fingerprint_reason }}</div>
+            <div class="hint">Ajustes en {{ settings.settings_file }}</div>
+          </Card>
+        </div>
+      </div>
+    </div>
   </div>
   <div v-else class="page"><Loading text="cargando ajustes…" /></div>
 </template>

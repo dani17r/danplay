@@ -255,7 +255,7 @@ pub struct Config {
     /// carpetas que NUNCA se convierten: material de producción
     pub never_convert: Vec<String>,
     pub write_tags: bool,
-    /// en qué se guardan las pistas separadas: "flac" u "opus"
+    /// en qué se guardan las pistas separadas: "flac", "ogg" (Vorbis) u "opus"
     pub stems_format: String,
     pub duplicate_threshold: f64,
 }

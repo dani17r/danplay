@@ -84,6 +84,62 @@ pub fn files_in<I: IntoIterator<Item = OsString>>(args: I, cwd: Option<&Path>) -
 /// (sus pistas, su clic, sus partes). Lleva la carpeta.
 pub const SEQUENCE_EVENT: &str = "danplay://sequence";
 
+/// «Se abrio un .danpista» (la cancion con sus pistas, como la que se manda
+/// al celular): la interfaz lo trae a la biblioteca. Lleva su ruta.
+pub const BUNDLE_EVENT: &str = "danplay://danpista";
+
+/// Los `.danpista` abiertos desde fuera que la interfaz aun no ha recogido:
+/// con la app cerrada, el aviso sale antes de que la ventana escuche. Al
+/// montarse los pide (`take_opened_bundles`); despues le llegan por el aviso.
+#[derive(Default)]
+pub struct OpenedBundles(pub std::sync::Mutex<Vec<String>>);
+
+/// Los `.danpista` que vengan en la linea de ordenes: los que existen, por su
+/// ruta entera. Con el mismo cuidado que `files_in`.
+pub fn bundles_in<I: IntoIterator<Item = OsString>>(args: I, cwd: Option<&Path>) -> Vec<String> {
+    args.into_iter()
+        .map(PathBuf::from)
+        .filter(|a| !a.as_os_str().as_encoded_bytes().starts_with(b"-"))
+        .filter(|a| {
+            a.extension()
+                .and_then(|e| e.to_str())
+                .is_some_and(|e| e.eq_ignore_ascii_case("danpista"))
+        })
+        .map(|a| match cwd {
+            Some(dir) if a.is_relative() => dir.join(a),
+            _ => a,
+        })
+        .filter_map(|a| std::fs::canonicalize(&a).ok())
+        .filter(|p| p.is_file())
+        .filter_map(|p| p.into_os_string().into_string().ok())
+        .collect()
+}
+
+/// Abre esos `.danpista`: enseña la ventana y se lo dice a la interfaz, que
+/// los trae a la biblioteca (con su avance y sus avisos).
+pub fn open_bundles(app: &AppHandle, paths: Vec<String>) {
+    if paths.is_empty() {
+        return;
+    }
+    if let Some(pending) = app.try_state::<OpenedBundles>() {
+        pending
+            .0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .extend(paths.iter().cloned());
+    }
+    tray::show_main(app);
+    for path in paths {
+        let _ = app.emit(BUNDLE_EVENT, path);
+    }
+}
+
+/// Los `.danpista` abiertos desde fuera que quedan por recoger (y se vacia).
+#[tauri::command]
+pub fn take_opened_bundles(pending: tauri::State<'_, OpenedBundles>) -> Vec<String> {
+    std::mem::take(&mut *pending.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner))
+}
+
 /// Lo mas que entra en la cola desde una carpeta.
 const MAX_FOLDER: usize = 1000;
 
@@ -345,6 +401,37 @@ pub fn play(app: &AppHandle, paths: Vec<String>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_danpista_on_the_command_line_is_recognised() {
+        let dir = std::env::temp_dir().join(format!("danplay-danpista-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("carpeta");
+        let file = dir.join("Barak - Mi Gozo.DanPista");
+        std::fs::write(&file, b"zip").expect("archivo");
+        let song = dir.join("cancion.mp3");
+        std::fs::write(&song, b"mp3").expect("archivo");
+        let args = |v: &[&str]| v.iter().map(OsString::from).collect::<Vec<_>>();
+        // por su extension (sin mirar mayusculas), relativa a quien la manda,
+        // y solo si existe; lo demas (opciones, canciones) no es suyo
+        let got = bundles_in(
+            args(&[
+                "--no-sandbox",
+                "Barak - Mi Gozo.DanPista",
+                "cancion.mp3",
+                "no-esta.danpista",
+            ]),
+            Some(&dir),
+        );
+        assert_eq!(got.len(), 1, "{got:?}");
+        assert!(got[0].ends_with("Barak - Mi Gozo.DanPista"));
+        // y no es una cancion: no va a la cola
+        assert!(
+            !files_in(args(&["Barak - Mi Gozo.DanPista"]), Some(&dir))
+                .iter()
+                .any(|f| f.contains("DanPista"))
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn only_audio_files_that_exist() {

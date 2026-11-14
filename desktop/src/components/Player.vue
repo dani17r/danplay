@@ -8,7 +8,13 @@
  */
 import { ref, computed, nextTick, useTemplateRef } from 'vue'
 import { onClickOutside } from '../composables/useClickOutside.js'
-import { usePlayback, MAX_VOLUME, nudgedVolume } from '../composables/usePlayback.js'
+import {
+  usePlayback,
+  MAX_VOLUME,
+  nudgedVolume,
+  SPEEDS,
+  nextSpeed
+} from '../composables/usePlayback.js'
 import { useHotkeys } from '../composables/useHotkeys.js'
 import { useScrub } from '../composables/useScrub.js'
 import { formatTime } from '../utils/format.js'
@@ -61,7 +67,6 @@ const fullQueue = ref(false)
 const queuePanel = useTemplateRef('queuePanel')
 const queueButton = useTemplateRef('queueButton')
 const currentRow = ref(null)
-const SPEEDS = [0.5, 0.75, 0.9, 1, 1.1, 1.25, 1.5, 2]
 
 const failure = computed(
   () => error.value || (hasOutput.value ? '' : 'Este equipo no tiene salida de audio')
@@ -142,8 +147,7 @@ function goToOrigin() {
   showQueue.value = false
 }
 function cycleSpeed() {
-  const i = SPEEDS.indexOf(speed.value)
-  player.setSpeed(SPEEDS[(i + 1) % SPEEDS.length])
+  player.setSpeed(nextSpeed(speed.value))
 }
 
 // ------------------------------------------------------- menús de la barra

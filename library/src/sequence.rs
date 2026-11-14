@@ -783,3 +783,60 @@ pub fn waves_text(waves: &[(String, Vec<f64>, Vec<f64>)]) -> String {
     // en JSON, con lo que no es ASCII escapado
     crate::stems::ascii_json(&Value::Object(out).to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Los mismos casos que `the_role_of_a_track_by_its_name` del celular
+    /// (`engine/src/role.rs`), que lleva esta regla escrita a mano (el motor
+    /// no tiene `regex`) para los `.danpista` que no dicen el papel de cada
+    /// parte: si cambia uno, cambia el otro.
+    #[test]
+    fn the_role_of_a_track_by_its_name() {
+        for (name, role) in [
+            ("Click", "click"),
+            ("Click Track", "click"),
+            ("CLICK", "click"),
+            ("01 click.2", "click"),
+            ("Clic", "click"),
+            ("clik 2", "click"),
+            ("Metronome", "click"),
+            ("Metronomo", "click"),
+            ("Metrónomo", "click"),
+            ("METRÓNOMO", "click"),
+            ("Claqueta", "click"),
+            ("Click Guide", "click"),
+            ("Guide", "guide"),
+            ("Guia", "guide"),
+            ("Guía", "guide"),
+            ("GUÍAS", "guide"),
+            ("Guias (ES)", "guide"),
+            ("Cue", "guide"),
+            ("Cues", "guide"),
+            ("Voice Cues", "guide"),
+            ("VoiceCue", "guide"),
+            ("Count In", "guide"),
+            ("Count  In", "guide"),
+            ("CountIn", "guide"),
+            ("Cuenta", "guide"),
+            ("Vox Chop", ""),
+            ("Keys 2", ""),
+            ("Guitarra", ""),
+            ("Batería", ""),
+            ("Clicks", ""),
+            ("Click_Track", ""),
+            ("Metronomes", ""),
+            ("Rescue", ""),
+            ("Cuentas", ""),
+            ("Counting", ""),
+            ("Count-In", ""),
+            ("Count In2", ""),
+            ("Discount In", ""),
+            ("Voice", ""),
+            ("", ""),
+        ] {
+            assert_eq!(role_of(name), role, "{name:?}");
+        }
+    }
+}
