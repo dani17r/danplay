@@ -619,6 +619,55 @@ fn stems_of_before_1_31_are_still_found() {
     );
 }
 
+/// Con `stem`, la onda (de cerca) es la de esa pista separada y no la de la
+/// mezcla, y la respuesta lo repite: con las pistas sonando, cada carril del
+/// estudio pide su trozo con detalle.
+#[test]
+fn a_stem_has_its_own_waveform_close_up() {
+    let Some((app, _)) = lib() else { return };
+    let cid = id_of(&app, "Barak - Mi Gozo.mp3");
+    separate(&app, cid);
+    let peaks = |d: &Value| -> Vec<f64> {
+        d["peaks"]
+            .as_array()
+            .expect("picos")
+            .iter()
+            .filter_map(Value::as_f64)
+            .collect()
+    };
+    // la mezcla de la prueba es un segundo de silencio y cada pista, un tono
+    let mix = get(
+        &app,
+        &format!("/api/song/{cid}/waveform?start=0&end=1&buckets=20"),
+    );
+    assert!(
+        mix.get("stem").is_none(),
+        "la mezcla no dice de qué pista es"
+    );
+    assert!(peaks(&mix).iter().all(|p| *p < 0.01), "{mix}");
+    let voice = get(
+        &app,
+        &format!("/api/song/{cid}/waveform?stem=vocals&start=0&end=1&buckets=20"),
+    );
+    assert_eq!(voice["stem"], "vocals", "repite de qué pista es: {voice}");
+    assert!(peaks(&voice).iter().all(|p| *p > 0.05), "{voice}");
+    // la onda entera de la pista, sin trozo, también es la suya
+    let whole = get(
+        &app,
+        &format!("/api/song/{cid}/waveform?stem=vocals&buckets=10"),
+    );
+    assert_eq!(whole["stem"], "vocals");
+    assert!(peaks(&whole).iter().any(|p| *p > 0.05), "{whole}");
+    // una pista que la canción no tiene
+    let (status, _) = call(
+        &app,
+        "GET",
+        &format!("/api/song/{cid}/waveform?stem=nada&start=0&end=1&buckets=20"),
+        None,
+    );
+    assert_eq!(status, 404);
+}
+
 #[test]
 fn stems_deleted_by_hand_are_forgotten() {
     let Some((app, _)) = lib() else { return };

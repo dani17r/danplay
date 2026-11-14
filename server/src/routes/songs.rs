@@ -4,7 +4,7 @@ use crate::app::App;
 use crate::error::ApiError;
 use crate::http::Response;
 use crate::router::{Ctx, Reply, Route};
-use crate::services::{beats, enrich, media, songs};
+use crate::services::{beats, enrich, media, songs, stems};
 use crate::validate::{self, Fields, Float, Int, Kind, List};
 use library::index::Dict;
 use library::value;
@@ -274,10 +274,30 @@ fn song_beats_reanalyze(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
 
 // ---------------------------------------------------------------- la onda
 
+/// El archivo de una pista separada de la canción (`stem` es su `source`, la
+/// clave del carril): el de la propia pista y no el de la mezcla. 404 si la
+/// canción no tiene esa pista o el archivo no está.
+fn stem_file(app: &App, song: &Dict, stem: &str) -> Result<PathBuf, ApiError> {
+    let tracks = stems::info(app, song)
+        .and_then(|d| d.get("tracks").cloned())
+        .map(|t| value::list_of(&t))
+        .unwrap_or_default();
+    tracks
+        .iter()
+        .find(|t| t.get("source").and_then(Value::as_str) == Some(stem))
+        .and_then(|t| t.get("path").and_then(Value::as_str))
+        .map(PathBuf::from)
+        .filter(|p| p.is_file())
+        .ok_or_else(|| ApiError::not_found("esa pista no está"))
+}
+
 /// La forma de onda para el modo estudio; con `start` y `end`, solo ese
-/// trozo y con detalle (sin guardarlo).
+/// trozo y con detalle (sin guardarlo). Con `stem`, la de esa pista separada
+/// (la respuesta repite `stem`, para que quien pregunta sepa que se entendió:
+/// un núcleo que lo ignorase daría la mezcla entera en cada carril).
 fn song_waveform(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let cid = ctx.path().int("cid").required();
+    let stem = ctx.query().str("stem").max_len(200).opt();
     let buckets = ctx
         .query()
         .int("buckets")
@@ -288,7 +308,10 @@ fn song_waveform(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let end = ctx.query().float("end").gt(0).opt();
     ctx.check()?;
     let c = resolved_file(ctx.app, cid, "archivo no encontrado")?;
-    let path = path_of(&c);
+    let path = match stem.as_deref() {
+        Some(stem) => stem_file(ctx.app, &c, stem)?,
+        None => path_of(&c),
+    };
     if start.is_some() || end.is_some() {
         let (Some(s), Some(e)) = (start, end) else {
             return Err(ApiError::http(
@@ -309,14 +332,22 @@ fn song_waveform(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
             ));
         };
         let n = peaks.len();
-        return Ok(json!({"peaks": peaks, "rms": rms, "buckets": n, "start": s, "end": e}).into());
+        let mut out = json!({"peaks": peaks, "rms": rms, "buckets": n, "start": s, "end": e});
+        if let Some(stem) = &stem {
+            out["stem"] = stem.clone().into();
+        }
+        return Ok(out.into());
     }
     let Some((peaks, rms)) = media::waveform(ctx.app, &path, buckets)? else {
         return Err(ApiError::http(422, "no se pudo decodificar el archivo"));
     };
     let n = peaks.len();
     // es un `Response` hecho a mano, para poder llevar la cabecera de caché
-    let body = json!({"peaks": peaks, "rms": rms, "buckets": n}).to_string();
+    let mut body = json!({"peaks": peaks, "rms": rms, "buckets": n});
+    if let Some(stem) = &stem {
+        body["stem"] = stem.clone().into();
+    }
+    let body = body.to_string();
     Ok(Response::bytes(200, "application/json", body.into_bytes())
         .with_header("cache-control", "private, max-age=3600")
         .into())
