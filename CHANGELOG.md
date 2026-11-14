@@ -3,6 +3,58 @@
 Lo que cambia en cada versión que se entrega. El detalle de por qué está
 hecho así, en [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
+## 1.43.0 — sin publicar
+
+La 1.42.0 no llegó a publicarse: todo lo suyo sigue más abajo, con lo que se
+hizo antes. Lo nuevo es el clic de las canciones con mal tiempo:
+«Re-analizar» miraba la misma salida de la red con otro modo y a menudo no
+cambiaba nada (en «Sal 22 Te Amo», «con la batería separada» dio cero pulsos
+movidos), y quien movía pulsos a mano no los veía reorganizarse con el
+análisis nuevo.
+
+### El clic
+
+- **«Re-analizar» ahora mira el audio**: mide cada golpe de la canción (de la
+  batería separada si la hay y encaja, o de la mezcla) y pone cada pulso del
+  clic encima de su golpe. En una biblioteca de 25 canciones, el clic de la
+  red caía de 5 a 18 ms después del golpe en 19 de ellas (mediana de -8 ms).
+  Comprobado con la mitad de los pulsos sin usar, la mediana del desfase baja
+  de 7,8 a 0,5 ms y ninguna canción empeora; y medido aparte con la batería
+  separada de «Sal 22 Te Amo», de -15 a 0 ms en casi toda la canción. Tarda
+  lo que ffmpeg en leer el audio (de 0,2 a 0,8 s). Los cambios de tempo de
+  verdad se respetan: el de 120 a 90 bpm de esa canción (a 76 s) queda como
+  estaba. «Arreglar huecos y saltos» ahora también arregla un intervalo
+  suelto que ningún tempo explica (un pulso de menos, uno desplazado, uno
+  doble). **El clic automático no cambia**: afina solo quien pulsa
+  «Re-analizar». Se podría hacer automático (la medida lo justifica), pero
+  cambiaría el clic de todas las canciones sin que nadie lo haya oído; falta
+  decidirlo con el oído. Donde casi no hay batería que oír (en esa canción,
+  de 241 a 270 s) apenas mejora: no inventa evidencia.
+- **Los tres modos se llaman por lo que son**: «Automático» (lo que analizó
+  DanPlay), «Manual» (lo que mueves tú en la onda, antes «Propio») y «Tempo
+  fijo» (un tempo para todas las canciones, antes «A mano»: quien pulsaba «A
+  mano» esperaba lo que había movido y recibía otra cosa). Cambiar de uno a
+  otro no pierde ni mezcla nada: Manual trae tus pulsos, Automático lo último
+  que analizó DanPlay. Manual sin clic propio lo dice, en vez de enseñar el
+  automático sin avisar.
+- **Re-analizar en Manual respeta lo que moviste**: al ajustar pulsos se
+  guardan las zonas que tocaste (`own.touched`); el reanálisis deja tus
+  pulsos en ellas, cose los de alrededor con el análisis nuevo y rehace todo
+  lo demás. Un clic de antes de que se guardaran las zonas (como el de
+  «Lavado») las deduce el núcleo de lo que se diferencia de la rejilla de
+  entonces, y las guarda la primera vez. En Automático, el reanálisis solo
+  toca el automático y dice dónde queda el Manual.
+- **La onda marca dónde el clic es una suposición** (banda ámbar, de 5 s en
+  adelante): tramos sin batería que marque, o con una regularidad que no
+  sale de la música. Es evidencia, no un veredicto: en una canción suave
+  puede ser casi todo.
+- **El aviso de después cuenta lo que pasó**: «N pulsos afinados con el audio
+  (X ms de media)», o por qué no cambió nada, y cómo caía el clic antes y
+  después («14 ms tarde → 3 ms tarde»).
+- **Arreglado**: una rejilla automática lenta que llegaba después de pasar a
+  Manual se aplicaba encima de lo tuyo (ahora cada petición lleva su época y
+  las tardías se descartan).
+
 ## 1.42.0 — sin publicar
 
 La 1.41.0 no llegó a publicarse: todo lo suyo está aquí, con lo que se hizo

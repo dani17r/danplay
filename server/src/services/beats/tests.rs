@@ -1677,6 +1677,11 @@ fn a_hand_made_click_that_makes_no_sense_is_refused() {
 ///     real_click_bench -- --ignored --nocapture
 /// ```
 ///
+/// Con `DANPLAY_CLICK_BENCH_OUT=carpeta` deja también, por canción, la
+/// rejilla de antes (`<id>-antes.json`), la de después (`<id>-despues.json`)
+/// y el clic propio puesto al día (`<id>-propio-despues.json`), para medirlas
+/// con otra herramienta.
+///
 /// `carpeta/<id>/cancion.mp3|flac` y `cancion.npz` (lo que oyó la red);
 /// opcional `propio.json` (`{"beats": [...]}`, el clic propio de la
 /// canción). Una línea de JSON por canción: el ajuste del clic antes y
@@ -1747,6 +1752,19 @@ fn real_click_bench() {
         let (grid, merged) =
             reanalyze_with(&app, &song, "repair", None, None, None, own_req.as_ref())
                 .expect("re-analizar");
+        // para medirlo con otra herramienta: la rejilla de antes y la de después
+        if let Some(dump) = std::env::var_os("DANPLAY_CLICK_BENCH_OUT").map(PathBuf::from) {
+            std::fs::create_dir_all(&dump).expect("carpeta de salida");
+            let write = |name: String, grid: &Value| {
+                std::fs::write(dump.join(name), json!({"grid": grid}).to_string())
+                    .expect("escribir la salida");
+            };
+            write(format!("{id}-antes.json"), &json!({"beats": auto}));
+            write(format!("{id}-despues.json"), &grid);
+            if let Some(merged) = &merged {
+                write(format!("{id}-propio-despues.json"), merged);
+            }
+        }
         let report = &grid["report"];
         let mut line = json!({
             "id": id,

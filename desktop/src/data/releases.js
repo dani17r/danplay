@@ -16,6 +16,18 @@
 /** @type {Release[]} */
 export const RELEASES = [
   {
+    version: '1.43.0',
+    date: '',
+    summary:
+      '«Re-analizar» mira el audio y pone cada pulso sobre su golpe; Manual y Automático se alternan sin perder nada.',
+    items: [
+      '«Re-analizar» mide los golpes de la canción y pone el clic encima de cada uno (en las pruebas, el clic iba de 5 a 18 ms tarde).',
+      'Los modos del clic se llaman Automático, Manual (lo que mueves tú) y Tempo fijo, y cambiar de uno a otro no pierde nada.',
+      'En Manual, «Re-analizar» respeta las zonas que moviste a mano y rehace el resto con el análisis nuevo.',
+      'La onda marca en ámbar los tramos donde el clic es una suposición.'
+    ]
+  },
+  {
     version: '1.42.0',
     date: '',
     summary:

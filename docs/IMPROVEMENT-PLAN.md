@@ -90,6 +90,20 @@ Lo más importante de oír: el timbre de la voz con el tono cambiado, el clic
 relleno con la batería (se apaga con `DANPLAY_CLICK_DRUMS=off`), los 21
 compases que pasan de 3 a 6, y los M4A y `.mp3`-MP4 sonando sin ffmpeg.
 
+**Lo que queda del clic tras la 1.43.0** (nada de esto se ha oído):
+- Hacer automático el afinado con el audio (`grid_of`, con `VERSION = 6`): la
+  medida en 25 canciones lo justifica (mediana de -8 ms a 0), pero cambiaría
+  el clic de todas sin oírlo. Se decide tras probar «Re-analizar» a mano.
+- El tramo sin batería clara (en «Sal 22 Te Amo», de 241 a 270 s) sigue con
+  su desfase: ahí no hay evidencia y no se inventa. Los umbrales del afinado
+  y de «dudoso» (`fit.rs`: `MAX_SPREAD`, `MIN_VOTES`, `STEP`, 22/14 ms) se
+  eligieron con 25 canciones sin verdad de referencia.
+- Un tramo medio pulso desfasado (la 117, a 292,9 s) ni se arregla ni se
+  marca: haría falta recolocar la fase. Los «1» puestos a mano dentro de una
+  zona tocada se recalculan, no se conservan.
+- La batería separada de la canción 28 va 24,5 ms por delante de su mezcla:
+  el afinado la descarta, pero conviene mirar por qué en el separador.
+
 **Visto al validar** (lo que ya había y no se tocó): el `bun` del PATH de
 Vite+ se queda veinte segundos con la casa vacía de la caja de arena y
 cuelga las pruebas de humo en este equipo (le pasa igual a la 1.40.1; con el
