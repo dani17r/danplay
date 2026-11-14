@@ -770,6 +770,17 @@ fn a_scan_cleans_the_pulse_folder_too() {
     let song = PathBuf::from(crate::services::songs::text(&row, "path"));
     grid_of(&app, &song).expect("rejilla");
     let orphan = old_entry(&app, &("d".repeat(40) + ".npz"), 60);
+    // un escaneo sin cambios no poda las cachés (sería recorrerlas enteras
+    // cada diez minutos para nada); poda cuando algo cambió o hace horas que
+    // no lo hace: aquí, lo segundo
+    crate::services::library::scan(&app, &mut |_, _| {}).expect("escaneo");
+    assert!(
+        orphan.exists(),
+        "un escaneo sin cambios no recorre las cachés"
+    );
+    *app.last_prune
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner) = None;
     crate::services::library::scan(&app, &mut |_, _| {}).expect("escaneo");
     assert!(!orphan.exists(), "el escaneo limpia lo huérfano");
     assert!(cached(&app, &song), "y deja lo que sirve");
