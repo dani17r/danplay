@@ -68,6 +68,8 @@
  *                                 (con compases irregulares, si los hay)
  * @property {number} phase3
  * @property {number} phase4
+ * @property {number} [phase2]  dónde cae el «1» si el compás es de 2 (las rejillas de antes no lo traen)
+ * @property {number} [phase6]  y de 6
  * @property {number} confidence
  * @property {boolean} [closed]    acaba en su último pulso: después no hay clic
  */

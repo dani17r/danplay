@@ -54,6 +54,13 @@ pub struct BeatGrid {
     /// Fase del «1» si el compas fuera de 3 o de 4 (para cambiarlo a mano).
     pub phase3: usize,
     pub phase4: usize,
+    /// Y si fuera de 2 o de 6. Las rejillas de antes no las traen: entonces
+    /// el 2 sale de la fase del 4 y el 6 de la del 3, como siempre, y el «1»
+    /// de un 6/8 puesto a mano acierta una de cada dos veces.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub phase2: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub phase6: Option<usize>,
     /// Cuanto destaca el «1» sobre los demas tiempos: 0 = ni idea, 1 = clarisimo.
     pub confidence: f32,
     /// Con Beat This!: el indice de cada «1», compas a compas, como los oye
@@ -94,6 +101,8 @@ impl BeatGrid {
         self.first_downbeat = self.first_downbeat.min(last);
         self.phase3 %= 3;
         self.phase4 %= 4;
+        self.phase2 = self.phase2.map(|p| p % 2);
+        self.phase6 = self.phase6.map(|p| p % 6);
         self.bars.retain(|&b| b <= last);
         self.bars.sort_unstable();
         self.bars.dedup();
@@ -168,10 +177,11 @@ impl BeatGrid {
         g.bars.clear();
         g.meter = normal_meter(meter);
         if g.meter > 0 {
-            let phase = if g.meter.is_multiple_of(3) {
-                g.phase3
-            } else {
-                g.phase4
+            let phase = match g.meter {
+                2 => g.phase2.unwrap_or(g.phase4),
+                6 => g.phase6.unwrap_or(g.phase3),
+                m if m.is_multiple_of(3) => g.phase3,
+                _ => g.phase4,
             };
             g.first_downbeat = phase % usize::from(g.meter);
         }
@@ -228,6 +238,8 @@ impl BeatGrid {
         g.first_downbeat = at(self.first_downbeat);
         g.phase3 *= 2;
         g.phase4 *= 2;
+        g.phase2 = self.phase2.map(|p| p * 2);
+        g.phase6 = self.phase6.map(|p| p * 2);
         g.bars = self.bars.iter().map(|&b| at(b)).collect();
         g
     }
@@ -254,6 +266,8 @@ impl BeatGrid {
         g.first_downbeat = position(self.first_downbeat);
         g.phase3 = self.phase3 / 2;
         g.phase4 = self.phase4 / 2;
+        g.phase2 = self.phase2.map(|p| p / 2);
+        g.phase6 = self.phase6.map(|p| p / 2);
         // los «1» que caen en un pulso de los que se quedan
         g.bars = self
             .bars
@@ -851,6 +865,8 @@ pub fn analyze_frames(frames: FrameAnalyzer, hint_bpm: Option<f32>) -> Result<Be
         first_downbeat: if meter == 3 { phase3 } else { phase4 },
         phase3,
         phase4,
+        phase2: None,
+        phase6: None,
         confidence: ((contrast - 0.5) / 1.5).clamp(0.0, 1.0) as f32,
         bars: Vec::new(),
         closed: false,
@@ -1058,6 +1074,8 @@ mod tests {
             first_downbeat: 1,
             phase3: 2,
             phase4: 1,
+            phase2: None,
+            phase6: None,
             confidence: 1.0,
             bars: Vec::new(),
             closed: false,
@@ -1099,6 +1117,8 @@ mod tests {
             first_downbeat: 3,
             phase3: 2,
             phase4: 3,
+            phase2: None,
+            phase6: None,
             confidence: 1.0,
             bars: Vec::new(),
             closed: false,
@@ -1250,10 +1270,58 @@ mod tests {
             first_downbeat: 0,
             phase3: 0,
             phase4: 0,
+            phase2: None,
+            phase6: None,
             confidence: 0.9,
             bars: vec![0, 4, 8, 10, 14],
             closed: false,
         }
+    }
+
+    /// Un 6/8 (o un 2/4) puesto a mano cae en el «1» que el analisis le
+    /// encontro, no en el del 3 o el del 4: con solo esos, el «1» de un 6/8
+    /// acertaba una de cada dos veces. Una rejilla de antes, sin esas fases,
+    /// sigue como siempre.
+    #[test]
+    fn a_six_or_a_two_chosen_by_hand_starts_where_the_analysis_found_its_one() {
+        let g = BeatGrid {
+            meter: 3,
+            first_downbeat: 2,
+            phase3: 2,
+            phase4: 1,
+            phase2: Some(1),
+            phase6: Some(5),
+            bars: Vec::new(),
+            ..irregular()
+        };
+        assert_eq!(g.with_meter(6).first_downbeat, 5, "un 6/8, en su «1»");
+        assert_eq!(g.with_meter(2).first_downbeat, 1, "un 2/4, en su «1»");
+        let old = BeatGrid {
+            phase2: None,
+            phase6: None,
+            ..g.clone()
+        };
+        assert_eq!(
+            old.with_meter(6).first_downbeat,
+            2,
+            "sin la fase del 6: la del 3"
+        );
+        assert_eq!(
+            old.with_meter(2).first_downbeat,
+            1,
+            "sin la fase del 2: la del 4"
+        );
+        // doblada o a la mitad, sigue la cuenta de los demas
+        assert_eq!(g.doubled().phase6, Some(10));
+        assert_eq!(g.doubled().halved().phase6, Some(5));
+        // y una rejilla de fuera con la fase pasada de largo no rompe nada
+        let wild = BeatGrid {
+            phase6: Some(40),
+            phase2: Some(9),
+            ..g.clone()
+        };
+        let wild = wild.checked().expect("vale");
+        assert_eq!((wild.phase2, wild.phase6), (Some(1), Some(4)));
     }
 
     /// El «1» va donde lo oyo la red, compas irregular incluido; un compas

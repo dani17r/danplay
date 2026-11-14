@@ -1206,3 +1206,26 @@ fn the_api_reanalyses() {
         404
     );
 }
+
+/// La rejilla que sale del detector dice dónde cae el «1» si el compás es de
+/// 2 o de 6, y se guarda así: sin eso, elegir un 6/8 a mano ponía el «1» en
+/// el sitio del 3/4 (acertaba una de cada dos veces).
+#[test]
+fn the_finished_grid_says_where_the_one_falls_in_a_two_and_a_six() {
+    let end = grid::Final {
+        bpm: 120.0,
+        meter: 6,
+        beats: (0..24).map(|i| 0.5 * f64::from(i)).collect(),
+        first_downbeat: 4,
+        phase3: 1,
+        phase4: 2,
+        phase2: 1,
+        phase6: 4,
+        confidence: 0.9,
+        bars: vec![4, 10, 16, 22],
+    };
+    let out = final_json(&end);
+    assert_eq!(out["phase2"], 1);
+    assert_eq!(out["phase6"], 4);
+    assert_eq!(out["meter"], 6);
+}

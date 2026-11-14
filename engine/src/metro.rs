@@ -233,6 +233,8 @@ mod tests {
             first_downbeat: 0,
             phase3: 0,
             phase4: 0,
+            phase2: None,
+            phase6: None,
             confidence: 0.9,
             bars: Vec::new(),
             closed: true,

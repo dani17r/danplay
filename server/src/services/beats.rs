@@ -32,7 +32,9 @@ use std::time::{Duration, Instant};
 // tempo con su propia rejilla, el tempo fijo medido en parte del pulso y el
 // clic de entrada. Las rejillas guardadas con la 3 se rehacen solas de lo
 // que oyó la red (milisegundos por canción).
-pub const VERSION: i64 = 4;
+// 5: el compás de 2 y de 6 (un 6/8 salía de 3), con la fase del «1» de cada
+// uno. Se rehacen solas igual.
+pub const VERSION: i64 = 5;
 /// Lo que puede tardar el detector con una canción.
 pub const TIMEOUT: Duration = Duration::from_secs(600);
 /// Lo que cabe en la cola: un repertorio o un disco enteros, con holgura
@@ -271,6 +273,8 @@ fn final_json(f: &grid::Final) -> Map<String, Value> {
         "first_downbeat": f.first_downbeat,
         "phase3": f.phase3,
         "phase4": f.phase4,
+        "phase2": f.phase2,
+        "phase6": f.phase6,
         "confidence": f.confidence,
         "bars": f.bars,
         "closed": true,
@@ -340,7 +344,7 @@ fn merge(
     let report = json!({"region": [s.region.0, s.region.1], "joins": joins});
     let meter = base
         .get("meter")
-        .and_then(|m| library::value::number_in(m, &[3, 4]));
+        .and_then(|m| library::value::number_in(m, &[2, 3, 4, 6]));
     let end = grid::finish(&s.beats, &f64s(&raw.down), meter).map_err(grid_error)?;
     let mut out = final_json(&end);
     out.insert("report".into(), report);
