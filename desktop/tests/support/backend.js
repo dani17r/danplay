@@ -405,12 +405,38 @@ export function createState() {
 const copy = (v) => JSON.parse(JSON.stringify(v))
 
 /**
- * El clic manual mezclado, como lo devuelve el núcleo: los pulsos de las
- * zonas que tocó él (`touched`) y fuera de ellas los de la rejilla nueva.
- * Sin `touched`, nada es suyo.
+ * Las zonas que tocó quien puso un clic de antes (sin `touched`): donde sus
+ * pulsos no están en la rejilla que había (a 40 ms), con un pulso de margen,
+ * como lo deduce el núcleo.
  */
-function mergeOwn(own, grid) {
-  const windows = Array.isArray(own.touched) ? own.touched : []
+function inferTouched(own, before) {
+  const near = (list, t) => list.some((x) => Math.abs(x - t) <= 0.04)
+  const beat = own.beats.length > 1 ? own.beats[1] - own.beats[0] : 0.5
+  // de la rejilla solo cuenta lo que su clic cubre
+  const lo = Math.min(...own.beats) - 0.04
+  const hi = Math.max(...own.beats) + 0.04
+  const marks = [
+    ...own.beats.filter((t) => !near(before, t)),
+    ...before.filter((t) => t >= lo && t <= hi && !near(own.beats, t))
+  ].sort((a, b) => a - b)
+  const out = []
+  for (const t of marks) {
+    const last = out.at(-1)
+    if (last && t - last[2] <= 1.5 * beat) {
+      last[1] = t + beat
+      last[2] = t
+    } else out.push([t - beat, t + beat, t])
+  }
+  return out.map(([a, b]) => [Math.max(0, a), b])
+}
+
+/**
+ * El clic manual mezclado, como lo devuelve el núcleo: los pulsos de las
+ * zonas que tocó él (`touched`; las deduce si faltan) y fuera de ellas los de
+ * la rejilla nueva.
+ */
+function mergeOwn(own, grid, before = []) {
+  const windows = Array.isArray(own.touched) ? own.touched : inferTouched(own, before)
   const inside = (t) => windows.some(([a, b]) => t >= a && t <= b)
   const bar = (g) => new Set((g.bars || []).map((i) => g.beats[i]))
   const hisBars = bar(own)
@@ -839,7 +865,7 @@ function answers(state) {
         ...(plan.fit ? { fit: copy(plan.fit) } : {})
       }
       const out = { ...copy(next), grid: copy(next), report }
-      if (body.own) out.own = mergeOwn(body.own, next)
+      if (body.own) out.own = mergeOwn(body.own, next, old?.beats || [])
       return out
     }),
     // «Transformar»: las propuestas de `state.tidy`; aplicar una la quita y

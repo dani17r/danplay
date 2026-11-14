@@ -14,7 +14,6 @@ import {
   gridToOwn,
   ownToGrid,
   ownTouched,
-  touchedOrAll,
   touchedByEdit,
   mergeWindows,
   beatChanges,
@@ -310,15 +309,14 @@ describe('the windows moved by hand', () => {
     expect(gridToOwn(g, []).touched).toEqual([])
   })
 
-  it('an own click from before has no windows: it still plays, and counts as all his', () => {
+  it('an own click from before has no windows: it still plays, and the core works them out', () => {
     const old = { beats: [1, 1.5, 2, 2.5, 3], bars: [0], meter: 4 }
     expect(ownToGrid(old).beats).toEqual(old.beats)
+    // `null`: no se sabe cuáles (no es «ninguna»: vacías sí se guardan)
     expect(ownTouched(old)).toBe(null)
-    expect(touchedOrAll(old)).toEqual([[0, 3]])
-    expect(touchedOrAll(old, 200), 'toda la canción').toEqual([[0, 200]])
     expect(ownTouched({ ...old, touched: [[2, 2.5]] })).toEqual([[2, 2.5]])
-    expect(touchedOrAll({ ...old, touched: [] })).toEqual([])
-    expect(touchedOrAll(null)).toEqual([])
+    expect(ownTouched({ ...old, touched: [] })).toEqual([])
+    expect(ownTouched(null)).toBe(null)
     // el que llega con zonas, las lleva a la rejilla sin ellas
     expect(ownToGrid({ ...old, touched: [[2, 2.5]] }).beats).toEqual(old.beats)
   })

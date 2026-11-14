@@ -1466,8 +1466,99 @@ fn the_hand_made_click_keeps_what_was_touched_and_follows_the_new_analysis_elsew
 }
 
 #[test]
-fn a_hand_made_click_without_touched_stretches_is_just_the_new_analysis() {
-    // un clic propio de antes (sin `touched`): no se sabe qué tocó, no se conserva nada
+fn an_old_hand_made_click_gets_its_touched_stretches_from_what_differs_from_the_old_grid() {
+    // un clic propio de antes (sin `touched`): se deduce qué tocó de lo que
+    // se diferencia de la rejilla que había, y eso se conserva
+    let Some(app) = api_library() else {
+        return;
+    };
+    let Some(d) = Detector::start(&app) else {
+        return;
+    };
+    let id = first_ids(&app, 1)[0];
+    let row = crate::services::songs::by_id(&app, id)
+        .expect("base")
+        .expect("canción");
+    let song = PathBuf::from(crate::services::songs::text(&row, "path"));
+    std::fs::write(&song, drum_wav(&drum_hits(0.030), 30.0)).expect("audio");
+    let url = format!("/api/song/{id}/beats/reanalyze");
+    let plain = beats_of(&api(&grid_of(&app, &song).expect("rejilla")));
+    // la rejilla de antes, con un solo tramo (10 a 14 s) movido a su gusto
+    let mine: Vec<f64> = plain
+        .iter()
+        .map(|b| {
+            if (10.0..=14.0).contains(b) {
+                b + 0.1
+            } else {
+                *b
+            }
+        })
+        .collect();
+    let (st, v) = call(
+        &app,
+        "POST",
+        &url,
+        Some(with_own(
+            json!({"beats": mine, "bars": [0, 4, 8], "meter": 4}),
+        )),
+    );
+    assert_eq!(st, 200, "{v}");
+    let auto = beats_of(&v["grid"]);
+    // el tramo deducido rodea lo movido, y no es toda la canción
+    let kept = v["own"]["touched"].as_array().expect("tramos").clone();
+    assert_eq!(kept.len(), 1, "{v}");
+    let (from, to) = (
+        kept[0][0].as_f64().expect("desde"),
+        kept[0][1].as_f64().expect("hasta"),
+    );
+    assert!(from <= 10.0 && from > 8.5, "desde {from}");
+    assert!(to >= 14.1 && to < 15.7, "hasta {to}");
+    assert_eq!(v["own"]["report"]["kept"], v["own"]["touched"]);
+    // dentro, lo suyo; fuera, lo nuevo
+    let own = beats_of(&v["own"]);
+    for b in &own {
+        let inside = (from..=to).contains(b);
+        let ours = mine.iter().any(|m| (m - b).abs() < 1e-3);
+        let new = auto.iter().any(|a| (a - b).abs() < 1e-3);
+        assert!(if inside { ours } else { new }, "{b} (dentro: {inside})");
+    }
+    assert!(
+        own.iter().any(|b| (b - 10.1).abs() < 0.05),
+        "sus pulsos movidos siguen"
+    );
+    assert_eq!(d.calls().len(), 1);
+}
+
+#[test]
+fn an_old_hand_made_click_equal_to_the_old_grid_keeps_nothing() {
+    let Some(app) = api_library() else {
+        return;
+    };
+    let Some(_d) = Detector::start(&app) else {
+        return;
+    };
+    let id = first_ids(&app, 1)[0];
+    let row = crate::services::songs::by_id(&app, id)
+        .expect("base")
+        .expect("canción");
+    let song = PathBuf::from(crate::services::songs::text(&row, "path"));
+    std::fs::write(&song, drum_wav(&drum_hits(0.030), 30.0)).expect("audio");
+    let url = format!("/api/song/{id}/beats/reanalyze");
+    let plain = beats_of(&api(&grid_of(&app, &song).expect("rejilla")));
+    let (st, v) = call(
+        &app,
+        "POST",
+        &url,
+        Some(with_own(json!({"beats": plain, "meter": 4}))),
+    );
+    assert_eq!(st, 200, "{v}");
+    assert_eq!(v["own"]["report"]["kept"], json!([]), "{v}");
+    assert_eq!(v["own"]["touched"], json!([]));
+    assert_eq!(v["own"]["beats"], v["grid"]["beats"]);
+}
+
+#[test]
+fn the_response_has_no_own_without_it_and_overlapping_stretches_are_one() {
     let Some(app) = api_library() else {
         return;
     };
@@ -1476,17 +1567,6 @@ fn a_hand_made_click_without_touched_stretches_is_just_the_new_analysis() {
     };
     let id = first_ids(&app, 1)[0];
     let url = format!("/api/song/{id}/beats/reanalyze");
-    let (st, v) = call(
-        &app,
-        "POST",
-        &url,
-        Some(with_own(
-            json!({"beats": [1.0, 1.4, 1.9, 2.5, 3.0], "meter": 4}),
-        )),
-    );
-    assert_eq!(st, 200, "{v}");
-    assert_eq!(v["own"]["beats"], v["grid"]["beats"]);
-    assert_eq!(v["own"]["report"]["kept"], json!([]));
     // y sin `own`, la respuesta es la de siempre
     let (_, plain) = call(&app, "POST", &url, Some(json!({"mode": "repair"})));
     assert!(plain.get("own").is_none(), "{plain}");
@@ -1501,6 +1581,7 @@ fn a_hand_made_click_without_touched_stretches_is_just_the_new_analysis() {
         )),
     );
     assert_eq!(v["own"]["report"]["kept"], json!([[9.5, 12.0]]), "{v}");
+    assert_eq!(v["own"]["touched"], json!([[9.5, 12.0]]));
 }
 
 #[test]
@@ -1661,7 +1742,7 @@ fn real_click_bench() {
             beats: beats.clone(),
             bars: Vec::new(),
             meter: 4,
-            touched: touched.clone(),
+            touched: Some(touched.clone()),
         });
         let (grid, merged) =
             reanalyze_with(&app, &song, "repair", None, None, None, own_req.as_ref())

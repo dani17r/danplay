@@ -891,18 +891,25 @@ describe('re-analysing with a hand-made click', () => {
     expect(held.state.songs[0].study, 'no se reescribe sin motivo').toBe(before)
   })
 
-  it('an own click from before the windows existed is all his: it is kept whole and says so', async () => {
+  it('an own click from before the windows existed goes without them: the core works out which were his, and they are saved', async () => {
+    // el automático de entonces, con un pulso que movió él (el 40)
     const old = { beats: HIS.beats, bars: HIS.bars, meter: 4 }
     withOwn(old)
     startIn('own')
+    held.state.beatGrid = JSON.parse(JSON.stringify(GRID))
+    held.state.reanalysis = { grid: GRID, fixed: 0 }
     const w = await mountView()
-    const before = held.state.songs[0].study
     await reanalyze(w)
-    // «todo suyo» es toda la canción: ni lo que hay antes ni después se rehace
-    expect(held.api.reanalyzeBeats.mock.calls.at(-1)[1].own.touched).toEqual([[0, 200]])
-    expect(held.state.songs[0].study).toBe(before)
-    expect(last()).toContain('es de antes de que DanPlay marcara lo que mueves: se queda entero')
-    expect(last()).toContain('«Automático»')
+    // no se inventa «toda la canción»: va sin zonas y las deduce el núcleo
+    expect(held.api.reanalyzeBeats.mock.calls.at(-1)[1].own).not.toHaveProperty('touched')
+    // y vuelven, ya guardadas, para que la próxima vez se sepa cuál era su zona
+    const saved = stored().metronome.own
+    expect(saved.touched).toHaveLength(1)
+    const [from, to] = saved.touched[0]
+    expect(from).toBeLessThan(HIS.beats[40])
+    expect(to).toBeGreaterThan(HIS.beats[40])
+    expect(to - from, 'no es toda la canción').toBeLessThan(10)
+    expect(last()).not.toContain('se queda entero')
   })
 
   it('a core that does not return his click leaves it as it was, and says so', async () => {
@@ -1021,7 +1028,7 @@ describe('the windows he moves are saved with his click', () => {
     expect(windows.length).toBe(3)
   })
 
-  it('editing a click from before the windows keeps all of it as his', async () => {
+  it('editing a click from before the windows leaves it without windows: the core works them out', async () => {
     const old = { beats: GRID.beats.slice(0, 120), bars: [0], meter: 4 }
     held.state.songs = [
       song(7, { title: 'Mi Gozo', study: JSON.stringify({ metronome: { own: old } }) }),
@@ -1033,7 +1040,8 @@ describe('the windows he moves are saved with his click', () => {
       w,
       edited((b) => (b[40] += 0.08))
     )
-    expect(saved().touched).toEqual([[0, 200]])
+    // sigue sin zonas guardadas: el núcleo las deduce (con lo que mueve ahora)
+    expect(saved()).not.toHaveProperty('touched')
   })
 })
 
@@ -1103,17 +1111,34 @@ describe('where the click is a guess', () => {
     expect(bands(w)[0].attributes('title')).toContain('0:30 – 0:45')
   })
 
+  it('a guess of a few seconds is not shown: on soft songs almost everything is one and says nothing', async () => {
+    held.state.reanalysis = {
+      grid: NEW,
+      weak: [
+        [10, 12],
+        [60, 75],
+        [90, 93.5]
+      ]
+    }
+    const w = await mountView()
+    await reanalyze(w)
+    expect(bands(w)).toHaveLength(1)
+    expect(bands(w)[0].attributes('title')).toContain('1:00 – 1:15')
+    expect(last()).toContain('1:00–1:15')
+    expect(last()).not.toContain('0:10')
+  })
+
   it('how well the click fits the hits, before and after, is in a tooltip if the core measured it', async () => {
     const fit = {
-      before: { median_ms: -14.2, spread_ms: 48, supported: 100 },
-      after: { median_ms: -3.4, spread_ms: 12, supported: 120 }
+      before: { offset_ms: -14.2, spread_ms: 48, supported: 0.7 },
+      after: { offset_ms: -3.4, spread_ms: 12, supported: 0.7 }
     }
     held.state.reanalysis = { grid: NEW, fit }
     const w = await mountView()
     const status = () => w.find('.study-metro-status')
     expect(status().attributes('title')).toBeUndefined()
     await reanalyze(w)
-    expect(status().attributes('title')).toContain('desfase mediano -14 ms → -3 ms')
+    expect(status().attributes('title')).toContain('14 ms tarde → 3 ms tarde')
     expect(status().attributes('title')).toContain('dispersión 48 ms → 12 ms')
     held.state.reanalysis = { grid: NEW }
     await reanalyze(w)

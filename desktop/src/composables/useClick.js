@@ -35,6 +35,8 @@ import { mergeWindows, ownToGrid } from '../utils/beats.js'
 const AUTO_KEY = 'danplay.click.auto'
 const MODE_KEY = 'danplay.click.mode'
 const MANUAL_KEY = 'danplay.click.manual'
+/** Lo menos que dura una zona dudosa para enseñarla (s). */
+export const WEAK_MIN_S = 5
 /** Cada cuánto se pregunta por la rejilla que se está calculando. */
 export const POLL_MS = 700
 /**
@@ -127,7 +129,9 @@ const weak = shallowRef(
 )
 /** Las zonas dudosas de la canción `id` (lo que no valga se descarta). @param {number|null} id @param {any} list */
 function setWeak(id, list) {
-  weak.value = { id, regions: mergeWindows(list) }
+  // los de unos segundos salen a montones en canciones suaves (con poca
+  // batería casi todo es «poco claro») y no dicen dónde mirar: solo los largos
+  weak.value = { id, regions: mergeWindows(list).filter(([a, b]) => b - a >= WEAK_MIN_S) }
 }
 /**
  * Cómo encajaba el clic con los golpes antes y después del último
@@ -142,10 +146,14 @@ const fit = shallowRef(
   })
 )
 /** @param {any} f */
-const fitSide = (f) =>
-  Number.isFinite(f?.median_ms) && Number.isFinite(f?.spread_ms)
-    ? { median: Number(f.median_ms), spread: Number(f.spread_ms) }
+const fitSide = (f) => {
+  // el núcleo lo llama `offset_ms`: golpe menos clic, en ms (negativo = el
+  // clic cae después del golpe)
+  const offset = Number.isFinite(f?.offset_ms) ? f.offset_ms : f?.median_ms
+  return Number.isFinite(offset) && Number.isFinite(f?.spread_ms)
+    ? { median: Number(offset), spread: Number(f.spread_ms) }
     : null
+}
 /** @param {number|null} id @param {any} f  `{before, after}` o nada */
 function setFit(id, f) {
   const before = fitSide(f?.before)

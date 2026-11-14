@@ -59,7 +59,6 @@ import {
   cleanOwn,
   ownTouched,
   touchedByEdit,
-  touchedOrAll,
   beatChanges,
   windowsText,
   nearestBeat,
@@ -893,7 +892,10 @@ const fitTitle = computed(() => {
   const f = click.fit.value
   if (f.id !== (track.value?.id ?? null) || !f.before || !f.after) return ''
   const ms = (v) => `${Math.round(v)} ms`
-  return `Último re-análisis · cómo encaja el clic con los golpes de la música (antes → ahora): desfase mediano ${ms(f.before.median)} → ${ms(f.after.median)}, dispersión ${ms(f.before.spread)} → ${ms(f.after.spread)}`
+  // negativo: el clic cae después del golpe
+  const lag = (v) =>
+    Math.abs(v) < 1 ? 'a tiempo' : `${ms(Math.abs(v))} ${v < 0 ? 'tarde' : 'antes'}`
+  return `Último re-análisis · cómo encaja el clic con los golpes de la música (antes → ahora): ${lag(f.before.median)} → ${lag(f.after.median)}, dispersión ${ms(f.before.spread)} → ${ms(f.after.spread)}`
 })
 const metroStatus = computed(() => {
   const m = metronome.value
@@ -1050,11 +1052,15 @@ async function onOwnGrid(edited) {
   if (!id) return
   const before = soundingGrid.value
   const prev = study.value.metronome?.own
-  const touched = before
-    ? touchedByEdit(before, edited, prev?.beats?.length ? touchedOrAll(prev, duration.value) : [])
-    : prev?.beats?.length
-      ? touchedOrAll(prev, duration.value)
-      : []
+  const saved = ownTouched(prev)
+  // un clic de antes de que se guardaran las zonas sigue sin ellas: el núcleo
+  // las deduce de lo que se diferencia de la rejilla (con esto que mueve ahora)
+  const legacy = !!prev?.beats?.length && saved === null
+  const touched = legacy
+    ? undefined
+    : before
+      ? touchedByEdit(before, edited, saved ?? [])
+      : (saved ?? [])
   const own = gridToOwn(edited, touched)
   study.value.metronome = { ...(study.value.metronome || {}), own, shift: 0, mult: 0 }
   delete study.value.metronome.shift
@@ -1185,9 +1191,17 @@ function reanalysisNote(r) {
   const weak = r.weak.length
     ? `. Poco claro (aquí el clic es una suposición): ${windowsText(r.weak)}`
     : ''
-  const auto = r.fixed
-    ? `${beatsWord(r.fixed)} ${r.fixed === 1 ? 'cambió' : 'cambiaron'} de sitio`
-    : 'ya estaba así, no cambió ningún pulso'
+  // afinar con el audio mueve unos milisegundos cada pulso: no es «cambió de
+  // sitio» (un pulso de otro lugar del compás), es que cae sobre su golpe
+  const tuned = r.snapped
+    ? `${beatsWord(r.snapped)} ${r.snapped === 1 ? 'afinado' : 'afinados'} con el audio` +
+      (r.shiftMs ? ` (${Math.round(Math.abs(r.shiftMs))} ms de media)` : '')
+    : ''
+  const auto =
+    tuned ||
+    (r.fixed
+      ? `${beatsWord(r.fixed)} ${r.fixed === 1 ? 'cambió' : 'cambiaron'} de sitio`
+      : 'ya estaba así, no cambió ningún pulso')
   if (!r.manual) {
     // el automático: lo nuevo se ve y suena ya; lo manual, si lo hay, sigue ahí
     const kept = r.hadOwn
@@ -1195,25 +1209,20 @@ function reanalysisNote(r) {
       : ''
     return {
       text: `Automático analizado otra vez: ${auto}${kept}${weak}`,
-      kind: r.fixed ? 'ok' : 'info',
+      kind: r.fixed || r.snapped ? 'ok' : 'info',
       secs: r.hadOwn || weak ? 9 : 5
     }
   }
-  const now = r.fixed
-    ? `En «Automático» ${beatsWord(r.fixed)} ${r.fixed === 1 ? 'cambió' : 'cambiaron'}`
-    : ''
+  const now = tuned
+    ? `En «Automático» ${tuned}`
+    : r.fixed
+      ? `En «Automático» ${beatsWord(r.fixed)} ${r.fixed === 1 ? 'cambió' : 'cambiaron'}`
+      : ''
   if (!r.answered) {
     return {
       text: `Tu clic manual se queda como estaba: este núcleo no lo re-analiza. ${now ? now + '. ' : ''}Lo nuevo está en «Automático»${weak}`,
       kind: 'info',
       secs: 9
-    }
-  }
-  if (r.legacy) {
-    return {
-      text: `Tu clic manual de esta canción es de antes de que DanPlay marcara lo que mueves: se queda entero. ${now ? now + '. ' : ''}Lo nuevo está en «Automático»${weak}`,
-      kind: 'info',
-      secs: 10
     }
   }
   const mine = `${r.windows} ${r.windows === 1 ? 'zona tuya' : 'zonas tuyas'}`
@@ -1252,7 +1261,10 @@ async function reanalyze(ev) {
           beats: [...own.beats],
           bars: [...(own.bars || [])],
           meter: own.meter ?? 4,
-          touched: touchedOrAll(own, duration.value)
+          // un clic de antes de que se guardaran las zonas va sin ellas: el
+          // núcleo deduce cuáles movió de lo que se diferencia de la rejilla
+          // de entonces, y las devuelve para guardarlas
+          ...(ownTouched(own) ? { touched: ownTouched(own) } : {})
         }
       : null
     notify('Analizando el clic otra vez…', 'info', 4)
@@ -1266,14 +1278,19 @@ async function reanalyze(ev) {
       click.setWeak(id, weak)
       click.setFit(id, r?.report?.fit)
       // el clic manual mezclado se guarda (el núcleo no escribe el estudio) y suena ya
-      const merged = sent && r?.own ? cleanOwn(r.own, sent.touched) : null
+      const merged = sent && r?.own ? cleanOwn(r.own, sent.touched ?? []) : null
       let changed = 0
       if (merged) {
         changed = beatChanges(sent.beats, merged.beats).changed
         // (los «1» de lo guardado, como se guardarían: de cada compás)
         const mine = cleanOwn(own)
+        // (un clic de antes, sin zonas, se guarda aunque no cambie un pulso: así
+        // las deducidas ya son suyas y no hay que volver a deducirlas)
         const same =
-          changed === 0 && merged.bars.join() === mine?.bars.join() && merged.meter === mine?.meter
+          changed === 0 &&
+          merged.bars.join() === mine?.bars.join() &&
+          merged.meter === mine?.meter &&
+          ownTouched(own) !== null
         if (!same) {
           await saveOwnOf(id, merged)
           if (loadedFor.value === id) await click.applyOwn(id, merged)
@@ -1287,7 +1304,8 @@ async function reanalyze(ev) {
         hadOwn: !!own?.beats?.length,
         manual,
         answered: !!merged,
-        legacy: manual && ownTouched(own) === null,
+        snapped: Number(r?.report?.snapped) || 0,
+        shiftMs: Number(r?.report?.shift_ms) || 0,
         changed,
         windows: merged?.touched?.length ?? 0
       })

@@ -244,7 +244,8 @@ const MAX_TOUCHED: usize = 512;
 
 /// El clic propio que llega con «Re-analizar» (`own`): sus pulsos, sus «1»,
 /// su compás y los tramos que cambió a mano (`touched`, de a dos números:
-/// desde y hasta). Sin `touched` (un clic propio de antes), ninguno.
+/// desde y hasta). Sin `touched` (un clic propio de antes, que no los
+/// guardaba) se deducen de lo que se diferencia de la rejilla de antes.
 fn reanalyze_own(f: &mut Fields) -> beats::Own {
     let second = Float::between(Some(Num::from(0)), Some(Num::from(MAX_SECONDS)));
     let beats = f
@@ -266,6 +267,7 @@ fn reanalyze_own(f: &mut Fields) -> beats::Own {
         )
         .or(Vec::new());
     let meter = f.int("meter").ge(1).le(16).or(4);
+    let given = f.raw().get("touched").is_some_and(|t| !t.is_null());
     let pairs = f
         .field(
             "touched",
@@ -300,7 +302,7 @@ fn reanalyze_own(f: &mut Fields) -> beats::Own {
         beats,
         bars,
         meter,
-        touched,
+        touched: given.then_some(touched),
     }
 }
 

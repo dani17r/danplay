@@ -773,9 +773,10 @@ pub struct Own {
     pub beats: Vec<f64>,
     pub bars: Vec<i64>,
     pub meter: i64,
-    /// los tramos (desde, hasta, en s) que cambió a mano; un clic propio de
-    /// antes, que no los guardaba, trae ninguno y no se conserva nada
-    pub touched: Vec<(f64, f64)>,
+    /// los tramos (desde, hasta, en s) que cambió a mano. `None`: un clic
+    /// propio de antes, que no los guardaba; se deducen de lo que se
+    /// diferencia de la rejilla de antes (`inferred_windows`)
+    pub touched: Option<Vec<(f64, f64)>>,
 }
 
 /// Los tramos tocados en orden, sin los vacíos y con los que se pisan juntos.
@@ -797,6 +798,63 @@ fn windows(touched: &[(f64, f64)]) -> Vec<(f64, f64)> {
     out
 }
 
+/// Los tramos que tocó quien puso un clic propio de antes (que no los
+/// guardaba): donde sus pulsos se diferencian de la rejilla automática de
+/// entonces (más de 40 ms, o un pulso que está en uno y no en el otro). Cada
+/// grupo de diferencias, a menos de pulso y medio unas de otras, es un tramo,
+/// con un pulso de margen. Si lo suyo y la rejilla coinciden, ninguno.
+fn inferred_windows(own: &[f64], auto: &[f64]) -> Vec<(f64, f64)> {
+    const SAME: f64 = 0.04;
+    let mut own = own.to_vec();
+    own.sort_by(f64::total_cmp);
+    let mut auto = auto.to_vec();
+    auto.sort_by(f64::total_cmp);
+    // lo que dista del más cercano de `list` (ordenada)
+    let apart = |list: &[f64], t: f64| -> f64 {
+        let i = list.partition_point(|x| *x < t);
+        let before = i
+            .checked_sub(1)
+            .map_or(f64::INFINITY, |j| (t - list[j]).abs());
+        let after = list.get(i).map_or(f64::INFINITY, |x| (x - t).abs());
+        before.min(after)
+    };
+    // un pulso de los suyos: la mediana de sus intervalos
+    let mut gaps: Vec<f64> = own.windows(2).map(|w| w[1] - w[0]).collect();
+    gaps.sort_by(f64::total_cmp);
+    let beat = gaps.get(gaps.len() / 2).copied().unwrap_or(0.5).max(0.1);
+    // de la rejilla solo cuenta lo que su clic cubre: si acaba antes (o
+    // empieza después), lo de fuera no es algo que quitara, es que no llegó
+    let (Some(&lo), Some(&hi)) = (own.first(), own.last()) else {
+        return Vec::new();
+    };
+    let covered = |t: &f64| *t >= lo - SAME && *t <= hi + SAME;
+    let mut marks: Vec<f64> = own
+        .iter()
+        .copied()
+        .filter(|t| apart(&auto, *t) > SAME)
+        .chain(
+            auto.iter()
+                .copied()
+                .filter(|t| covered(t) && apart(&own, *t) > SAME),
+        )
+        .collect();
+    marks.sort_by(f64::total_cmp);
+    let Some(&first) = marks.first() else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    let (mut from, mut last) = (first, first);
+    for &t in &marks[1..] {
+        if t - last > 1.5 * beat {
+            out.push((from - beat, last + beat));
+            from = t;
+        }
+        last = t;
+    }
+    out.push((from - beat, last + beat));
+    out
+}
+
 /// El compás de un clic propio, si es de los que se saben poner.
 fn meter_hint(meter: i64) -> Option<i64> {
     library::value::number_in(&Value::from(meter), &[2, 3, 4, 6])
@@ -807,7 +865,12 @@ fn meter_hint(meter: i64) -> Option<i64> {
 /// tramo que tocó quien toca, donde se quedan SUS pulsos, cosidos a los de los
 /// lados (`ab::stitch`), y el «1» y el compás sacados otra vez (`finish`). El
 /// informe dice qué tramos se conservaron y cómo cosen.
-fn merge_own(grid: &Value, own: &Own, raw: &Raw) -> Result<Value, BeatsError> {
+fn merge_own(
+    grid: &Value,
+    own: &Own,
+    touched: &[(f64, f64)],
+    raw: &Raw,
+) -> Result<Value, BeatsError> {
     let mut current = grid.clone();
     // el compás de quien lo puso, si se sabe poner
     if let (Some(m), Value::Object(o)) = (meter_hint(own.meter), &mut current) {
@@ -815,7 +878,7 @@ fn merge_own(grid: &Value, own: &Own, raw: &Raw) -> Result<Value, BeatsError> {
     }
     let mut kept = Vec::new();
     let mut seams = Vec::new();
-    for (start, end) in windows(&own.touched) {
+    for (start, end) in windows(touched) {
         let beats = floats(current.get("beats"))?;
         let merged = merge(&current, &beats, &own.beats, (start, end), raw)?;
         seams.push(merged.get("report").cloned().unwrap_or(Value::Null));
@@ -837,6 +900,9 @@ fn merge_own(grid: &Value, own: &Own, raw: &Raw) -> Result<Value, BeatsError> {
     } else {
         current
     };
+    // los tramos que se conservaron, para guardarlos con el clic propio: la
+    // próxima vez, lo que se movió a mano ya se sabe cuál es
+    out["touched"] = json!(kept);
     out["report"] = json!({"kept": kept, "seams": seams});
     Ok(out)
 }
@@ -944,7 +1010,17 @@ pub fn reanalyze_with(
     }
     edits.push(edit);
     save(app, path, &grid, Value::Array(edits))?;
-    let own = own.map(|o| merge_own(&grid, o, &raw)).transpose()?;
+    // un clic propio de antes no sabe qué tocó: se deduce de la rejilla que
+    // había antes de este re-análisis
+    let own = own
+        .map(|o| {
+            let touched = match &o.touched {
+                Some(t) => t.clone(),
+                None => inferred_windows(&o.beats, &floats(current.get("beats"))?),
+            };
+            merge_own(&grid, o, &touched, &raw)
+        })
+        .transpose()?;
     Ok((grid, own))
 }
 

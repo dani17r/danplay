@@ -446,21 +446,6 @@ export function ownTouched(own) {
 }
 
 /**
- * Las zonas que valen como suyas de un clic manual: las guardadas o, si es
- * de antes de que se guardaran, toda la canción (`end`, o hasta su último
- * pulso): nada se rehace sin que él lo pida, que no hay forma de saber qué
- * movió y qué no.
- * @param {any} own @param {number} [end]  lo que dura la canción
- * @returns {Array<[number, number]>}
- */
-export function touchedOrAll(own, end = 0) {
-  const saved = ownTouched(own)
-  if (saved) return saved
-  const beats = Array.isArray(own?.beats) ? own.beats.map(Number).filter(Number.isFinite) : []
-  return beats.length > 1 ? mergeWindows([[0, Math.max(end || 0, ...beats)]]) : []
-}
-
-/**
  * Un clic manual como llega del núcleo, en limpio: pulsos válidos, sus «1» y
  * las zonas tocadas (si no las trae, las `fallback`). null si no vale.
  * @param {any} own

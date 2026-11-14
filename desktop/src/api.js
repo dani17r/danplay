@@ -1246,7 +1246,7 @@ export const api = {
    * clic con los golpes antes y después.
    * @param {number} id
    * @param {{mode: 'repair'|'steady'|'drums'|'mix'|'fill', start?: number, end?: number, wait?: boolean, own?: {beats: number[], bars: number[], meter: number, touched?: Array<[number, number]>}}} opts
-   * @returns {Promise<{grid: BeatGrid, own?: {beats: number[], bars: number[], meter: number, touched: Array<[number, number]>}, report: {fixed: number, bpm: number, notes: string[], weak?: Array<[number, number]>, fit?: {before: {median_ms: number, spread_ms: number, supported: number}, after: {median_ms: number, spread_ms: number, supported: number}}}}>}
+   * @returns {Promise<{grid: BeatGrid, own?: {beats: number[], bars: number[], meter: number, touched: Array<[number, number]>}, report: {fixed: number, bpm: number, notes: string[], weak?: Array<[number, number]>, fit?: {before: {offset_ms: number, spread_ms: number, supported: number}, after: {offset_ms: number, spread_ms: number, supported: number}}}}>}
    */
   reanalyzeBeats: (id, opts) => POST(`/song/${id}/beats/reanalyze`, opts),
   // ---- las guías habladas
