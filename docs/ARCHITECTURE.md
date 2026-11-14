@@ -196,6 +196,17 @@ calculó el núcleo. Opus, WMA y compañía no los lee, y el AAC (M4A) lo lee
 (`player/formats.rs`, con tope de 3 GB), y suena el FLAC: la primera vez tarda
 un par de segundos; las demás, nada.
 
+El FLAC se llama como el **audio** del original (`<huella>.flac`, el MD5 de
+sus paquetes: `ffmpeg -c copy -f md5`, 150 ms para un M4A de cinco minutos), y
+no como su ruta, su tamaño o su fecha: marcar una estrella o guardar el
+estudio reescribe las etiquetas del archivo y cambia las tres cosas, y no hay
+que convertirlo otra vez ni dejar el FLAC de antes huérfano. Un `<ruta>.src`
+por archivo apunta tamaño y fecha de cuando se sacó la huella, para no
+repetirla en cada reproducción; si el archivo cambia se vuelve a mirar, y si
+el audio es otro el FLAC de antes se tira (salvo que lo use otro archivo con
+el mismo audio). La limpieza de la caché quita además los apuntes de lo que
+ya no está y los convertidos con el nombre de antes de la huella.
+
 ## Lo descargado se llama como en YouTube
 
 La cascada de identificación reconoce una canción por cómo suena. Para lo que

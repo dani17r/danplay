@@ -781,10 +781,16 @@ fn measured() -> (Handle, Receiver<Event>, Card) {
 /// Un tono de `seconds` en un WAV (16 bits, 44,1 kHz) que solo suena por un
 /// lado.
 fn tone(name: &str, seconds: f64, right: bool) -> String {
+    use std::hash::{Hash, Hasher};
+    // un tono distinto por prueba: la cache guarda lo convertido por su
+    // audio, y dos pruebas con el mismo se pisarian el FLAC
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    name.hash(&mut hasher);
+    let freq = 300.0 + (hasher.finish() % 600) as f64;
     let frames = (seconds * RATE as f64) as usize;
     let mut data = Vec::with_capacity(frames * 4);
     for i in 0..frames {
-        let phase = 2.0 * std::f64::consts::PI * 441.0 * i as f64 / RATE as f64;
+        let phase = 2.0 * std::f64::consts::PI * freq * i as f64 / RATE as f64;
         let value = (0.5 * phase.sin() * f64::from(i16::MAX)) as i16;
         let (l, r) = if right { (0, value) } else { (value, 0) };
         data.extend_from_slice(&l.to_le_bytes());
@@ -1026,7 +1032,7 @@ fn the_next_song_is_prepared_while_this_one_plays() {
         return;
     };
     let (m, rx, card) = measured();
-    let first = tone("antes-a", 3.0, false);
+    let first = tone("antes-a", 6.0, false);
     m.send(Command::Upcoming(Some(Upcoming {
         ticket: 1,
         path: second.clone(),
@@ -1035,12 +1041,12 @@ fn the_next_song_is_prepared_while_this_one_plays() {
     .unwrap();
     m.send(Command::Play {
         path: first.clone(),
-        duration: 3.0,
+        duration: 6.0,
     })
     .unwrap();
     let seen = attend(
         &rx,
-        Duration::from_secs(10),
+        Duration::from_secs(16),
         |_| {},
         |_| card.span(true).is_some_and(|(a, b)| b - a > frames_of(0.3)),
     );
@@ -1165,7 +1171,7 @@ fn with_a_crossfade_the_announced_next_song_is_ready_when_it_is_time() {
         return;
     };
     let (m, rx, card) = measured();
-    let first = tone("listo-a", 4.0, false);
+    let first = tone("listo-a", 6.0, false);
     m.send(Command::Crossfade(1.0)).unwrap();
     m.send(Command::Upcoming(Some(Upcoming {
         ticket: 3,
@@ -1175,12 +1181,12 @@ fn with_a_crossfade_the_announced_next_song_is_ready_when_it_is_time() {
     .unwrap();
     m.send(Command::Play {
         path: first.clone(),
-        duration: 4.0,
+        duration: 6.0,
     })
     .unwrap();
     let seen = attend(
         &rx,
-        Duration::from_secs(12),
+        Duration::from_secs(16),
         |event| {
             if matches!(event, Event::Ending) {
                 m.send(Command::Play {
@@ -1201,7 +1207,7 @@ fn with_a_crossfade_the_announced_next_song_is_ready_when_it_is_time() {
     let sounded = ms(ends + 1 - begins);
     let overlap = ms(ends.saturating_sub(enters));
     eprintln!("con fundido de 1 s y la siguiente anunciada: se funden {overlap:.0} ms");
-    assert!(sounded > 3850.0, "la que sonaba se corto a los {sounded:.0} ms de 4000");
+    assert!(sounded > 5850.0, "la que sonaba se corto a los {sounded:.0} ms de 6000");
     assert!(
         (700.0..1100.0).contains(&overlap),
         "se fundieron {overlap:.0} ms, y el fundido es de un segundo"
