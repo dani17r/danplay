@@ -2,7 +2,7 @@
 //! suena y publica el estado.
 use super::STATE_EVENT;
 use super::logic::{after_end, compose, is_gone, random_other, reconcile, step_index, without};
-use super::model::{Command, Inner, PlaybackState, Repeat, Track};
+use super::model::{Command, Inner, Planned, PlaybackState, Repeat, Track};
 use super::resolve::{locate, path_of};
 use super::session::{Session, save_session};
 use crate::core::{self, Address};
@@ -75,6 +75,14 @@ impl Playback {
                             auto = true;
                             advance(&mut inner, &player, &address);
                         }
+                        Message::Audio(player::Event::Advanced { ticket, from, state }) => {
+                            auto = true;
+                            if state.playing {
+                                broken = 0;
+                            }
+                            audio = state;
+                            advanced(&mut inner, ticket, &from, &player, &address);
+                        }
                         Message::Audio(player::Event::Ending) => {
                             auto = true;
                             cross_next(&mut inner, &player, &address);
@@ -95,6 +103,10 @@ impl Playback {
                             apply(&mut inner, command, &player, &address);
                         }
                     }
+
+                    // la que viene detrás, al reproductor: en cuanto se sabe
+                    // y cada vez que cambia
+                    announce(&mut inner, &player);
 
                     // ---- estado publicado
                     let state = compose(&inner, &audio);
@@ -184,21 +196,107 @@ pub(super) fn advance_within(
 ) {
     let deadline = std::time::Instant::now() + total;
     let mut from = inner.index;
-    for _ in 0..inner.items.len().max(1) {
-        let target = after_end(inner.items.len(), from, inner.repeat, inner.shuffle);
-        let next = match target {
-            Some(_) if inner.shuffle && inner.repeat != Repeat::One => random_other(inner.items.len(), from),
-            Some(next) => next,
+    for round in 0..inner.items.len().max(1) {
+        // la primera, la que ya estaba decidida (y anunciada al
+        // reproductor); si esa no se encuentra, la de detrás
+        let target = if round == 0 {
+            next_up(inner)
+        } else {
+            following(inner, from)
+        };
+        let Some(next) = target else {
             // fin de la cola, o «solo esta cancion»
-            None => {
-                let _ = player.send(player::Command::Pause);
-                return;
-            }
+            let _ = player.send(player::Command::Pause);
+            return;
         };
         if start_within(inner, next, player, address, deadline) || inner.repeat == Repeat::One {
             return;
         }
         from = next;
+    }
+}
+
+/// La que suena detrás de la de `from` cuando acaba sola, o ninguna.
+fn following(inner: &Inner, from: usize) -> Option<usize> {
+    match after_end(inner.items.len(), from, inner.repeat, inner.shuffle) {
+        Some(_) if inner.shuffle && inner.repeat != Repeat::One => Some(random_other(inner.items.len(), from)),
+        other => other,
+    }
+}
+
+/// La que sonará cuando la actual acabe sola (o ninguna: se para). Se decide
+/// una vez por cada forma de la cola y se mantiene: con aleatorio, la que se
+/// le anunció al reproductor tiene que ser la que luego suene.
+pub(super) fn next_up(inner: &mut Inner) -> Option<usize> {
+    let shape = (inner.revision, inner.index, inner.repeat, inner.shuffle);
+    if let Some(planned) = inner.planned.as_ref().filter(|p| p.shape == shape) {
+        return planned.index;
+    }
+    let index = following(inner, inner.index);
+    inner.planned = Some(Planned {
+        shape,
+        index,
+        told: false,
+        announced: None,
+    });
+    index
+}
+
+/// Le dice al reproductor cuál viene detrás de la que suena (una vez por
+/// cada vez que cambia), para que la tenga lista: ver
+/// `player::Command::Upcoming`.
+///
+/// Solo si se sabe dónde está sin preguntar: esto corre tras cada orden, y
+/// esperar aquí al núcleo sería parar la cola por algo que aún no hace
+/// falta. La que no trae su ruta se resuelve cuando le toque, como siempre.
+pub(super) fn announce(inner: &mut Inner, player: &player::Handle) {
+    let next = next_up(inner);
+    if inner.planned.as_ref().is_none_or(|p| p.told) {
+        return;
+    }
+    let found = next.and_then(|i| inner.items.get(i)).and_then(|track| {
+        let path = track.path.as_deref().filter(|p| !p.is_empty())?;
+        std::path::Path::new(path)
+            .is_file()
+            .then(|| (path.to_string(), track.duration))
+    });
+    let upcoming = found.map(|(path, duration)| {
+        inner.tickets += 1;
+        player::Upcoming {
+            ticket: inner.tickets,
+            path,
+            duration,
+        }
+    });
+    if let Some(planned) = inner.planned.as_mut() {
+        planned.told = true;
+        planned.announced = upcoming.as_ref().map(|u| (u.ticket, u.path.clone()));
+    }
+    let _ = player.send(player::Command::Upcoming(upcoming));
+}
+
+/// El reproductor puso él mismo la que se le había anunciado con `ticket`,
+/// al acabar la de la ruta `from` (`player::Event::Advanced`): la cola pasa
+/// a ella.
+///
+/// Si entre tanto la cola cambió de idea (se quitó esa canción, se puso
+/// aleatorio) y lo que entró ya no es lo que toca, se manda lo que toca,
+/// como si la anterior acabara ahora. Y si la cola ya pasó a otra canción
+/// (se pulsó «siguiente» justo entonces), su orden va de camino: nada.
+pub(super) fn advanced(inner: &mut Inner, ticket: u64, from: &str, player: &player::Handle, address: &Address) {
+    let told = inner
+        .planned
+        .as_ref()
+        .and_then(|p| Some((p.index?, p.announced.clone()?)));
+    match told {
+        Some((index, (number, path))) if number == ticket => {
+            move_to(inner, index);
+            inner.current_path = path;
+            // aunque la cola quede igual (repetir esta): se anuncia otra vez
+            inner.planned = None;
+        }
+        _ if from == inner.current_path => advance(inner, player, address),
+        _ => {}
     }
 }
 
@@ -283,10 +381,9 @@ pub(super) fn cross_next(inner: &mut Inner, player: &player::Handle, address: &A
     if inner.repeat == Repeat::One {
         return;
     }
-    let next = match after_end(inner.items.len(), inner.index, inner.repeat, inner.shuffle) {
-        Some(_) if inner.shuffle => random_other(inner.items.len(), inner.index),
-        Some(next) => next,
-        None => return,
+    // la que ya estaba decidida: es la que el reproductor tiene preparada
+    let Some(next) = next_up(inner) else {
+        return;
     };
     if next == inner.index {
         return; // la unica de la lista: que acabe y vuelva a empezar

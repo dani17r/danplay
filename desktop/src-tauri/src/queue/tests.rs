@@ -309,12 +309,7 @@ fn inner_with(items: Vec<Track>, index: usize) -> Inner {
     Inner {
         items,
         index,
-        repeat: Repeat::List,
-        shuffle: false,
-        origin: None,
-        history: Vec::new(),
-        current_path: String::new(),
-        revision: 0,
+        ..Inner::new()
     }
 }
 

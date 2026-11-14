@@ -9,8 +9,10 @@
 //! tarda un par de segundos; las demas, nada. Se reconoce por la ruta, el
 //! tamaño y la fecha del original: si cambia, se vuelve a hacer.
 use crate::tools;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::sync::{Condvar, Mutex, PoisonError};
 
 /// Lo que el motor lee tal cual, empezando en la muestra exacta.
 const NATIVE: &[&str] = &["mp3", "ogg", "oga", "flac", "wav", "wave", "aif", "aiff", "aifc"];
@@ -69,10 +71,43 @@ pub fn playable(path: &Path) -> Result<PathBuf, String> {
     if is_native(path) {
         return Ok(path.to_path_buf());
     }
+    // de uno en uno por archivo: quien llega mientras otro lo convierte
+    // espera y se lleva el suyo, en vez de escribir los dos el mismo FLAC
+    let _turn = Turn::take(path);
     if let Some(done) = cached(path) {
         return Ok(done);
     }
     convert(path)
+}
+
+/// Los archivos que se estan convirtiendo ahora mismo. La siguiente de la
+/// cola se prepara por adelantado: si se pide justo entonces (se pulsa
+/// «siguiente»), ya hay un ffmpeg con ella.
+static CONVERTING: (Mutex<Option<HashSet<PathBuf>>>, Condvar) = (Mutex::new(None), Condvar::new());
+
+/// El turno de convertir un archivo: mientras se tiene, nadie mas lo hace.
+struct Turn(PathBuf);
+
+impl Turn {
+    fn take(path: &Path) -> Self {
+        let (busy, freed) = &CONVERTING;
+        let mut busy = busy.lock().unwrap_or_else(PoisonError::into_inner);
+        while busy.get_or_insert_default().contains(path) {
+            busy = freed.wait(busy).unwrap_or_else(PoisonError::into_inner);
+        }
+        busy.get_or_insert_default().insert(path.to_path_buf());
+        Self(path.to_path_buf())
+    }
+}
+
+impl Drop for Turn {
+    fn drop(&mut self) {
+        let (busy, freed) = &CONVERTING;
+        if let Some(set) = busy.lock().unwrap_or_else(PoisonError::into_inner).as_mut() {
+            set.remove(&self.0);
+        }
+        freed.notify_all();
+    }
 }
 
 fn convert(path: &Path) -> Result<PathBuf, String> {

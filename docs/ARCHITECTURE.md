@@ -1648,6 +1648,26 @@ un buzón sin candados para las órdenes: el hilo de audio nunca espera.
 - **Entre canciones**, dos «decks»: la que se va baja mientras sube la
   siguiente, con la misma potencia. Con el clic, la cuenta o tramos puestos,
   no se funden.
+- **La siguiente se prepara antes de hacer falta.** La cola decide de
+  antemano cuál viene detrás (con aleatorio, la que se eligió es la que
+  suena) y se la anuncia al reproductor (`Command::Upcoming`). Mientras suena
+  la de ahora, el reproductor pasa a FLAC lo que haga falta (ffmpeg) y, en
+  los últimos 20 s, lee su archivo para que el disco no la retrase. Al acabar
+  la que suena, la anunciada entra **desde el propio hilo de audio**
+  (`Event::Advanced`), sin la vuelta por la cola de `Finished` y `Play`; el
+  motor se mira cada 2 ms en el último cuarto de segundo. Lo que queda entre
+  canción y canción es lo que tarda en abrirse: de 3 a 8 ms medidos con una
+  tarjeta de pruebas (antes, hasta 40 ms de sondeo más la vuelta por la cola,
+  y medio segundo o más si había que pasarla a FLAC). Sin anunciar (la cola
+  no sabe dónde está el archivo) todo sigue como antes. No es sin una sola
+  muestra de silencio: para eso el motor tendría que encadenar la siguiente
+  en la misma muestra del final.
+- **Con fundido, la que suena llega a su final.** Si la siguiente aún hay que
+  prepararla cuando la cola la manda, la que suena sigue (`Engine::outgoing`)
+  y la otra entra fundiéndose en cuanto esté, o sola si tarda más de lo que
+  le queda a la primera; antes se cortaba la que sonaba en ese momento, hasta
+  doce segundos antes de su final. Igual si la siguiente no se puede abrir:
+  se dice, y la que suena no se corta.
 - **De la canción a sus pistas** (o al cambiar una pista): el relevo
   (`handoff`) abre el conjunto nuevo y lo cruza a la par, en la misma
   muestra, antes del estirador de tiempo: no hay salto ni eco.
