@@ -207,6 +207,13 @@ el audio es otro el FLAC de antes se tira (salvo que lo use otro archivo con
 el mismo audio). La limpieza de la caché quita además los apuntes de lo que
 ya no está y los convertidos con el nombre de antes de la huella.
 
+Qué se lee tal cual y qué se convierte se decide **por lo que tiene dentro**,
+no por la extensión (`formats::sniff`, los primeros 192 bytes): un MP4 es un
+MP4 aunque se llame `.mp3` (en la biblioteca de Daniel, 18 de 319), y un Opus
+dentro de un `.ogg` también; un FLAC con nombre de M4A, en cambio, suena tal
+cual. Lo que el principio no dice (un MP3 empieza con su etiqueta ID3 o con
+una trama, igual que un AAC suelto) lo decide la extensión como siempre.
+
 ## Lo descargado se llama como en YouTube
 
 La cascada de identificación reconoce una canción por cómo suena. Para lo que

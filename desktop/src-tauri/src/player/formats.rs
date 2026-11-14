@@ -16,6 +16,10 @@
 //! (tamaño y fecha), para no volver a sacar la huella en cada reproduccion:
 //! si el archivo cambia, se vuelve a mirar, y si el audio es el mismo se
 //! reutiliza el FLAC (sin convertir) y si no se hace otro y se tira el viejo.
+//!
+//! Y si es o no algo que el motor lee tal cual se decide por lo que tiene
+//! dentro, no por la extension: hay `.mp3` que son MP4 (el AAC entra 23 ms
+//! tarde y el clic iria corrido) y `.ogg` que son Opus.
 use crate::tools;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -37,9 +41,81 @@ fn extension_of(path: &Path) -> String {
         .to_ascii_lowercase()
 }
 
-/// Si el motor lo lee tal cual.
+/// Lo que dicen los primeros bytes de un archivo que es.
+#[derive(Debug, PartialEq, Eq)]
+enum Content {
+    /// Algo que el motor lee tal cual (lo dice una marca que no se confunde).
+    Readable,
+    /// Algo que no lee, sea lo que sea lo que diga la extension.
+    Foreign,
+    /// No se sabe: manda la extension.
+    Unknown,
+}
+
+/// Los bytes que se miran al principio de cada archivo.
+const HEAD: usize = 192;
+
+/// Lo que es un archivo por su principio.
+fn sniff(head: &[u8]) -> Content {
+    let at = |from: usize, mark: &[u8]| head.get(from..from + mark.len()) == Some(mark);
+    let has = |mark: &[u8]| head.windows(mark.len()).any(|w| w == mark);
+    // MP4 y QuickTime (M4A, M4B, AAC en un .mp3): el tamaño de la primera caja
+    // y su nombre
+    if [&b"ftyp"[..], b"moov", b"mdat", b"free", b"wide", b"skip"]
+        .iter()
+        .any(|name| at(4, name))
+    {
+        return Content::Foreign;
+    }
+    // Matroska y WebM; ASF (WMA); WavPack y Monkey's Audio
+    if at(0, &[0x1A, 0x45, 0xDF, 0xA3])
+        || at(0, &[0x30, 0x26, 0xB2, 0x75, 0x8E, 0x66, 0xCF, 0x11])
+        || at(0, b"wvpk")
+        || at(0, b"MAC ")
+    {
+        return Content::Foreign;
+    }
+    if at(0, b"OggS") {
+        // lo que va dentro del Ogg lo dice su primer paquete
+        if has(b"OpusHead") {
+            return Content::Foreign;
+        }
+        if has(b"\x01vorbis") {
+            return Content::Readable;
+        }
+        return Content::Unknown;
+    }
+    if at(0, b"fLaC") || (at(0, b"RIFF") && at(8, b"WAVE")) || (at(0, b"FORM") && (at(8, b"AIFF") || at(8, b"AIFC"))) {
+        return Content::Readable;
+    }
+    // (un mp3 empieza con su etiqueta ID3 o con su primera trama, y un AAC
+    // suelto con una cabecera parecida: eso no lo dice sin mirar mas)
+    Content::Unknown
+}
+
+fn read_head(path: &Path) -> Vec<u8> {
+    use std::io::Read;
+    let mut head = vec![0u8; HEAD];
+    let read = std::fs::File::open(path)
+        .and_then(|mut f| f.read(&mut head))
+        .unwrap_or(0);
+    head.truncate(read);
+    head
+}
+
+/// Si el motor lee tal cual lo que hay en esos bytes, con esa extension.
+fn native_by(head: &[u8], ext: &str) -> bool {
+    match sniff(head) {
+        Content::Readable => true,
+        Content::Foreign => false,
+        Content::Unknown => NATIVE.contains(&ext),
+    }
+}
+
+/// Si el motor lo lee tal cual: por lo que tiene dentro y, si eso no lo
+/// dice, por la extension.
 pub fn is_native(path: &Path) -> bool {
-    NATIVE.contains(&extension_of(path).as_str())
+    native_by(&read_head(path), &extension_of(path))
 }
 
 /// Donde se guardan los convertidos.
@@ -408,6 +484,91 @@ mod tests {
             .collect();
         found.sort();
         found
+    }
+
+    #[test]
+    fn what_a_file_holds_decides_over_what_it_is_called() {
+        let mp4 = [&[0, 0, 0, 0x20][..], b"ftypM4A     M4A mp42isom"].concat();
+        let mkv = [0x1A, 0x45, 0xDF, 0xA3, 0x9F, 0x42, 0x86, 0x81, 1];
+        let opus = [&b"OggS\0\x02"[..], &[0; 20], b"\x13OpusHead\x01\x02"].concat();
+        let vorbis = [&b"OggS\0\x02"[..], &[0; 20], b"\x1e\x01vorbis\0\0\0\0"].concat();
+        let wav = [&b"RIFF\x24\0\0\0WAVEfmt "[..], &[0; 20]].concat();
+        let id3 = [&b"ID3\x04\0\0\0\0\0\0"[..], &[0; 20]].concat();
+        // un MP4 con nombre de mp3 (hay 18 asi en la biblioteca de Daniel)
+        assert!(!native_by(&mp4, "mp3"));
+        assert!(!native_by(&mkv, "mp3"));
+        assert!(!native_by(&opus, "ogg"), "un Opus dentro de un .ogg");
+        // lo que se lee tal cual aunque se llame de otra manera
+        assert!(native_by(&vorbis, "opus"));
+        assert!(native_by(&wav, "dat"));
+        assert!(native_by(b"fLaC\0\0\0\x22", "m4a"));
+        assert!(native_by(b"FORM\0\0\0\x20AIFFCOMM", ""));
+        // lo que no lo dice, la extension
+        assert!(native_by(&id3, "mp3"));
+        assert!(!native_by(&id3, "aac"));
+        assert!(native_by(b"\xff\xfb\x90\x00", "mp3"));
+        assert!(!native_by(b"", "m4a"));
+        assert!(native_by(b"", "mp3"));
+        assert!(!native_by(b"no soy audio", "opus"));
+    }
+
+    /// Un M4A guardado como `.mp3` (hay quien lo renombra, y alguna descarga
+    /// lo hace sola): no es de lo que el motor lee, y suena el FLAC.
+    #[test]
+    fn an_mp4_called_mp3_is_prepared_like_any_other_mp4() {
+        let dir = scratch("mp4-as-mp3");
+        let real = dir.join("tone.m4a");
+        if !tone_in(&real, 440) {
+            return;
+        }
+        let liar = dir.join("tone.mp3");
+        std::fs::rename(&real, &liar).unwrap();
+        assert!(!is_native(&liar), "se tomo por mp3 por la extension");
+        let out = playable_in(&dir, &liar).expect("convertido");
+        assert_eq!(out.extension().and_then(|e| e.to_str()), Some("flac"));
+        // y un mp3 de verdad sigue sonando tal cual
+        let honest = dir.join("honest.mp3");
+        if tone_in(&honest, 440) {
+            assert!(is_native(&honest));
+            assert_eq!(playable_in(&dir, &honest).unwrap(), honest);
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Opus guardado en un `.ogg`: el motor no lo lee (solo Vorbis), y se
+    /// tomaba por suyo.
+    #[test]
+    fn an_opus_inside_an_ogg_is_prepared() {
+        let dir = scratch("opus-as-ogg");
+        let src = dir.join("tone.opus");
+        if !tone_in(&src, 440) {
+            return;
+        }
+        let ogg = dir.join("tone.ogg");
+        std::fs::rename(&src, &ogg).unwrap();
+        assert!(!is_native(&ogg));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Lo que se lee tal cual con la extension equivocada de verdad lo abre
+    /// el motor (que mira dentro, y la extension es solo una pista).
+    #[test]
+    fn the_engine_opens_what_is_read_as_it_is_whatever_it_is_called() {
+        let dir = scratch("wrong-name");
+        let flac = dir.join("tone.flac");
+        if !tone_in(&flac, 440) {
+            return;
+        }
+        for name in ["tone.m4a", "tone.opus", "tone.dat"] {
+            let other = dir.join(name);
+            std::fs::copy(&flac, &other).unwrap();
+            assert!(is_native(&other), "{name}");
+            let mut part = danplay_engine::decode::Part::open_file(&other, 44_100, 1 << 24)
+                .unwrap_or_else(|e| panic!("{name}: {e}"));
+            let mut block = vec![0f32; 2048];
+            assert!(part.read(&mut block) > 0, "{name}: no dio audio");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
