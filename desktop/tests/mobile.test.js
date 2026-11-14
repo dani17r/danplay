@@ -206,7 +206,8 @@ describe('the phone app', () => {
     const w = mount(MobileApp, { attachTo: document.body })
     await flushPromises()
     expect(w.text()).toContain('Todavía no hay pistas en el celular')
-    expect(w.text()).toContain('Convertir a DanPista')
+    // por donde se hace hoy en la PC: «Exportar…» del estudio
+    expect(w.text()).toContain('«Exportar…» › «Para el celular»')
     w.unmount()
   })
 })

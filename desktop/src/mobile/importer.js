@@ -1,6 +1,6 @@
 // @ts-check
-// Traer al celular un `.danpista` (el archivo que hace «Convertir a DanPista» en
-// la PC). Se elige con el selector del sistema —en Android llega como
+// Traer al celular un `.danpista` (el archivo que hace «Exportar…» › «Para el
+// celular» en la PC). Se elige con el selector del sistema —en Android llega como
 // `content://`, de Descargas, de WhatsApp o de Drive— y Rust lo copia y lo
 // abre (`import_bundle`, `engine/src/bundle.rs`).
 //

@@ -522,28 +522,46 @@ describe('the separated stems', () => {
     expect(ctx.refreshAll).toHaveBeenCalled()
   })
 
-  it('to the phone: one from its menu, and of several only those with stems', async () => {
+  it('to the phone: only with several chosen, named as in the export window, and only those with stems', async () => {
     const { menus, ctx, songs } = prepare()
     held.state.stems[1] = stemsOf(1)
     held.state.stems[3] = stemsOf(3)
+    // De una sola canción no se ofrece: «Para el celular» es una opción de
+    // «Exportar…» del estudio, y este era un tercer camino a lo mismo.
     const withStems = { ...held.state.songs[0], has_stems: true, stems_best: true }
     menus.songMenu(ev, withStems)
-    await pick('Convertir a DanPista (para el celular)')
-    expect(api().toPhone).toHaveBeenCalledWith([1])
-    expect(notices.value.at(-1).message).toBe('Lista para el celular: «cancion-1.danpista» (23 MB)')
-    // la carpeta se abre con el archivo marcado: de ahí se arrastra a WhatsApp
-    expect(held.app.revealInFolder).toHaveBeenCalledWith('/musica/Celular/cancion-1.danpista')
+    expect(labels().filter((l) => /celular|DanPista/i.test(l))).toEqual([])
+    // (lo demás de sus pistas sigue ahí)
+    expect(labels()).toContain('Abrir la carpeta de sus pistas')
+    closeMenu()
+    // ni con una sola elegida en el modo «Seleccionar»
+    expect(
+      menus
+        .groupItems([withStems])
+        .map((i) => i.label)
+        .filter((l) => /celular|DanPista/i.test(l || ''))
+    ).toEqual([])
+
+    // con varias, sí: un repertorio de una vez
     songs.value[0].has_stems = true
     songs.value[2].has_stems = true
     await ctx.selection.select(1)
     await ctx.selection.select(3, { shiftKey: true })
     menus.songMenu(ev, held.state.songs[0])
-    expect(item('Convertir 2 a DanPista (para el celular)').note).toBe('1 sin pistas')
-    await pick('Convertir 2 a DanPista (para el celular)')
+    expect(labels().filter((l) => /DanPista/i.test(l))).toEqual([])
+    expect(item('Preparar 2 para el celular').note).toBe('1 sin pistas')
+    await pick('Preparar 2 para el celular')
     expect(api().toPhone).toHaveBeenLastCalledWith([1, 3])
     expect(notices.value.at(-1).message).toBe(
       '2 listas para el celular, en la carpeta «Celular»; 1 sin clic'
     )
+    // la carpeta se abre con el archivo marcado: de ahí se arrastra a WhatsApp
+    expect(held.app.revealInFolder).toHaveBeenCalledWith('/musica/Celular/cancion-1.danpista')
+    // todas con pistas: se dice qué sale
+    songs.value[1].has_stems = true
+    menus.songMenu(ev, held.state.songs[0])
+    expect(item('Preparar 3 para el celular').note).toBe('un .danpista por canción')
+    closeMenu()
   })
 
   it('without a separator on this computer it is not offered', async () => {

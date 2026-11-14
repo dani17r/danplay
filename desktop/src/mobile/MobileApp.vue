@@ -579,7 +579,7 @@ function help() {
     kind: 'alert',
     title: 'Cómo traer pistas de la PC',
     message:
-      'En DanPlay de la PC, abre el modo estudio de una canción separada y, en el menú ⋯ de las pistas, elige «Convertir a DanPista (para el celular)». Sale un archivo .danpista en la carpeta «Celular» de tu biblioteca.',
+      'En DanPlay de la PC, abre el modo estudio de una canción separada y, en «Exportar…» (su menú ⋯), elige «Para el celular». Sale un archivo .danpista en la carpeta «Celular» de tu biblioteca. Con varias canciones elegidas, el clic derecho las prepara todas.',
     detail:
       'Pásalo al teléfono como quieras (WhatsApp, Drive, cable) y tócalo: «Abrir con DanPlay». O aquí, en el menú, «Importar pistas».',
     okLabel: 'Entendido'
@@ -774,7 +774,7 @@ onUnmounted(() => delete window.__danplayOpen)
         <EmptyState
           icon="mixer"
           title="Todavía no hay pistas en el celular"
-          hint="En DanPlay de la PC: el menú de las pistas de una canción › «Convertir a DanPista». Pasa el archivo .danpista al teléfono (WhatsApp, Drive, cable) y tócalo, o tráelo desde aquí."
+          hint="En DanPlay de la PC: el modo estudio de una canción separada › «Exportar…» › «Para el celular». Pasa el archivo .danpista al teléfono (WhatsApp, Drive, cable) y tócalo, o tráelo desde aquí."
         />
         <button
           type="button"

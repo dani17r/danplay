@@ -441,13 +441,9 @@ export function useSongMenus(ctx) {
       ]
     }
     if (!song.has_stems) return separateItems([song], 'Separar pistas')
+    // «Para el celular» de una sola canción no va aquí: es una opción de
+    // «Exportar…» del estudio, y este era un tercer camino a la misma ventana
     return [
-      {
-        label: 'Convertir a DanPista (para el celular)',
-        icon: 'send',
-        note: 'un .danpista con las pistas, el clic y los tramos',
-        action: () => takeToPhone([song])
-      },
       { label: 'Abrir la carpeta de sus pistas', icon: 'mixer', action: () => revealStems(song) },
       ...separateItems(
         [song],
@@ -565,16 +561,16 @@ export function useSongMenus(ctx) {
       })
     }
     items.push(...separateItems(list, say('Separar pistas', `Separar las pistas de ${n}`)))
+    // Al celular, solo con varias elegidas: es lo que la ventana de exportar
+    // (que es de una canción) no hace, un repertorio de una vez. Se llama como
+    // allí, «Para el celular».
     const separated = list.filter((s) => s.has_stems)
-    if (separated.length) {
+    if (!one && separated.length) {
       const k = separated.length
       items.push({
-        label:
-          k === 1
-            ? 'Convertir a DanPista (para el celular)'
-            : `Convertir ${k} a DanPista (para el celular)`,
+        label: `Preparar ${k} para el celular`,
         icon: 'send',
-        note: k < n ? `${n - k} sin pistas` : '',
+        note: k < n ? `${n - k} sin pistas` : 'un .danpista por canción',
         action: () => takeToPhone(separated)
       })
     }
