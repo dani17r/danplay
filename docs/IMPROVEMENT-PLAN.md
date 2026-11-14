@@ -26,7 +26,7 @@ final, con todo validado (sección «Cómo se valida»).
 
 ---
 
-## Estado (13 de noviembre de 2026, rama `fase-8/mejoras`)
+## Estado (14 de noviembre de 2026, rama `fase-8/mejoras`, versión 1.42.0)
 
 Lo de abajo sigue siendo la revisión tal como se hizo; aquí va lo que ya
 está hecho de ella, todo con su prueba y compilado y probado en Linux. El
@@ -34,43 +34,72 @@ detalle de cada cosa, en `CHANGELOG.md` («Sin publicar»).
 
 | Bloque | Hecho | Queda |
 | --- | --- | --- |
-| A. Instalar y que suene | A1–A6 (la instalación limpia pasa en Debian 13 y Ubuntu 24.04 con el `.deb` de la 1.41.0) | A7 |
-| B. Re-analizar | B1, B2, B4 | B3 (el avance de «con la batería») |
-| C. Exportar | C1, C2, C4, C5 | C3 |
-| D. El clic | D1–D8, D10, D11; D9 en parte (se dice cuándo es el aproximado y por qué) | D12, D13 |
-| E. Al cambiar de canción | E1, E2, E4, E5 | E3 |
-| F. Salidas, guardado, onda | F1, F4, F5, F6, F8, F9 | F3, F7, F10, F11, F12 |
-| G. El reproductor | G1, G2, G3, G4; G7 (las pistas en Ogg Vorbis suenan sin preparar) | G5, G6, G8–G15 |
-| H. Velocidad y tono | — | todo (H5 queda dicho en ARCHITECTURE) |
-| I. El pulso | I1, I2, I3; I5 en parte (manda la fase de la mayoría) | I4, I6–I11 |
-| J. La guía | J1, J3, J5; J6 en parte (la letra con tiempos; el cifrado aún no) | J2, J4, J7, J8, J9 |
-| K. Tono y acordes | K1, K2, K3 | K4, K5 |
-| L. Rapidez | L1, L9 | el resto |
-| M. Mantenimiento | M1, M7; M3 en parte (el banco del pulso, `gridlab`) | M2, M4, M5, M6 |
+| A. Instalar y que suene | A1–A6 (la instalación limpia pasa en Debian 13 y Ubuntu 24.04 con el `.deb` de la 1.42.0) | A7 (descartado, ver abajo) |
+| B. Re-analizar | B1–B4 | — |
+| C. Exportar | C1–C5 | — |
+| D. El clic | D1–D8, D10–D13; D9 en parte (se dice cuándo es el aproximado y por qué) | — |
+| E. Al cambiar de canción | E1–E5 | — |
+| F. Salidas, guardado, onda | F1, F3–F10, F12; F11 en parte (el motor dice qué guía no pudo leer; falta enseñarlo) | — |
+| G. El reproductor | G1–G14 (G10 con un límite, ver abajo); G15 en parte (el motor cuenta los cortes; falta enseñarlos) | — |
+| H. Velocidad y tono | H1 (opcional, apagado), H4, H7, H8, H9, H11 (M4A, AAC y ALAC; Opus no), H13; H10 en parte (el motor lo hace; falta la interfaz) | H2, H3, H5 (exportar con el mismo estirador), H12; H6 descartado |
+| I. El pulso | I1–I7, I9–I11 (I7 como preferencia en Ajustes) | I8 |
+| J. La guía | J1–J6, J8, J9; J7 hecho y sin ofrecer | — |
+| K. Tono y acordes | K1–K4; K5 (versión barata) hecho y sin ofrecer | medir K5 con una grabación real |
+| L. Rapidez | L1–L12, L14, L15; L13 en parte (lo que se midió y valía la pena) | — |
+| M. Mantenimiento | M1, M2 (queda la descripción del crate del motor), M4, M7; M3 en parte (`gridlab` y `guidelab`) | M5, M6 (quedan nueve ramas locales sin fusionar) |
 
 **F2 no es un fallo**: se decidió que el reparto de las salidas se quede
 como se dejó al salir del estudio, y que valga desde que se abre DanPlay.
 
+**Decidido no hacer, con su porqué**
+
+- **A7 (hablar con PipeWire sin pasar por ALSA)**: la versión de cpal que usa
+  el motor solo ofrece ALSA y JACK en Linux, y cambiarla es subir una
+  dependencia que habría que oír en un equipo de verdad; el paquete ya pide
+  y la app comprueba el puente, que es lo que fallaba.
+- **H6 (limitador con anticipación)**: medido, es mejor (el salto de ganancia
+  por muestra baja 25 veces y la energía por encima de 6 kHz, de −67 a
+  −95 dB), pero −67 dB no se oye, no ataca el «bombeo» (que es la suelta de
+  100 ms), añade 1,5 ms a toda la salida (la posición que se cuenta deja de
+  ser exacta) y obliga a reescribir las pruebas de temporización del render.
+- **Un límite de G10**: un mp3 u Ogg al que se le salta un trozo dañado no
+  lleva marca de dónde faltaba, y lo de después suena antes de tiempo.
+  FLAC y MP4 sí lo dicen, y quedan en su sitio.
+
 **Hecho sin estar en la lista** (se pidió después): una secuencia con
 veintitantas pistas cabe en el estudio; un `.danpista` se abre también en
 la PC (y con doble clic); el clic sigue a las canciones que cambian de
-tempo, medido en toda la biblioteca; la guía automática sale de la letra
-con tiempos; la interfaz aprovecha la ventana grande (revisada con fotos a
-cinco tamaños); y la app del celular, revisada entera: doce arreglos con
-su prueba (lo de Kotlin —pausar al desconectar los auriculares, el foco de
-audio— queda para cuando haya un SDK donde compilarlo).
+tempo, medido en toda la biblioteca; la guía automática sale de la letra y,
+si lo hay, del cifrado; la interfaz aprovecha la ventana grande (revisada
+con fotos a cinco tamaños); la app del celular, revisada entera (doce
+arreglos con su prueba); un MP4 suena tal cual, comprobado con los 18 de la
+biblioteca de Daniel (`engine/src/real_files.rs`); y el tono puede conservar
+el timbre de la voz (opcional).
 
-**Visto al validar** (L15, sin tocar): si la app muere de golpe mientras
-le pregunta la versión a un programa que se cuelga, ese programa se queda
-huérfano. Salió en las pruebas de humo de este equipo, donde el `bun` del
-PATH es un atajo de Vite+ que se queda veinte segundos con la casa vacía de
-la caja de arena; le pasa igual a la 1.40.1. Con el PATH del escritorio las
-de humo pasan las 18.
+**Hecho y sin ofrecer en la interfaz** (el motor o el núcleo ya lo hacen y
+está probado; falta decidir dónde se pone y oírlo): el metrónomo suelto sin
+canción (`Engine::set_free_click`), las guías que no se pudieron leer
+(`State.cue_problems`) y los cortes del audio (`State.underruns`), los
+avisos de arreglo («entra batería», «bajar»: `analysis::arrangement`) y el
+tono por señal contra el cifrado (`analysis::key`). El último no se ha podido
+medir con una grabación real: no hay ninguna con cifrado en la biblioteca.
 
-**Lo que más se notaría de lo que queda**: H1 (el tono sin voz de
-«ardilla»: el estirador ya lo sabe hacer, falta ofrecerlo y oírlo), H9
-(sin hueco entre canciones), H11 (m4a y Opus sin pasar por ffmpeg), I4 (la
-batería separada mejorando el clic sola) y M5 (partir `StudyBar.vue`).
+**Sin oír** (nadie ha podido escuchar nada de esto): todo lo que cambia el
+sonido está respaldado por una medida dentro de una prueba, no por el oído.
+Lo más importante de oír: el timbre de la voz con el tono cambiado, el clic
+relleno con la batería (se apaga con `DANPLAY_CLICK_DRUMS=off`), los 21
+compases que pasan de 3 a 6, y los M4A y `.mp3`-MP4 sonando sin ffmpeg.
+
+**Visto al validar** (lo que ya había y no se tocó): el `bun` del PATH de
+Vite+ se queda veinte segundos con la casa vacía de la caja de arena y
+cuelga las pruebas de humo en este equipo (le pasa igual a la 1.40.1; con el
+PATH del escritorio pasan las 18). Y el `target/` compartido entre copias de
+trabajo hace que Cargo dé por buenos binarios de prueba de otra copia: con
+varias a la vez, `touch` de los `.rs` antes de cada `cargo test`.
+
+**Lo que más se notaría de lo que queda**: H2 (estirar la batería con ventana
+corta, sin cambiar el tono, para practicar lento), H5 (exportar con el mismo
+estirador que suena), H3 y M5 (partir `StudyBar.vue`, que sigue creciendo).
 
 ---
 
