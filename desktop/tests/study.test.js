@@ -1223,6 +1223,9 @@ describe('pitch, fine speed and metronome', () => {
     await flushPromises()
     expect(tempo.element.value).toBe('68')
     const wave = () => w.findComponent({ name: 'StudyTimeline' }).props('grid')
+    // la onda dibuja el clic que suena: uno cada 60/68 s (el tempo a mano)
+    const gap = () => wave().beats[1] - wave().beats[0]
+    expect(gap()).toBeCloseTo(60 / 68, 2)
     const previous = wave().beats.length
     await button(w, '×2').trigger('click')
     await flushPromises()
@@ -1231,7 +1234,8 @@ describe('pitch, fine speed and metronome', () => {
     expect(bridge().setMetronome).toHaveBeenLastCalledWith(
       expect.objectContaining({ bpm: 68, mult: 1 })
     )
-    expect(wave().beats.length).toBe(previous * 2)
+    expect(gap()).toBeCloseTo(60 / 136, 2)
+    expect(Math.abs(wave().beats.length - previous * 2)).toBeLessThanOrEqual(1)
     // escribir con el doble puesto guarda el tempo sin el: al quitarlo vuelve
     await tempo.trigger('focus')
     await tempo.setValue('140')
@@ -2347,6 +2351,40 @@ describe('the 1.28.2 study mode', () => {
     window.dispatchEvent(new PointerEvent('pointerup', { clientX: 61.3 }))
     await flushPromises()
     expect(sentCues().map((c) => c.at)).toEqual([30.75])
+  })
+
+  it('with a hand-set tempo, the waveform and the magnet follow the click that sounds', async () => {
+    // con el tempo puesto a mano el clic deja de seguir los pulsos detectados
+    // (justo los que fallaron): la onda y el imán seguían con ellos
+    held.state.songs = [
+      song(7, { title: 'Mi Gozo', study: JSON.stringify({ cues: [guide(10, '', 'Coro')] }) })
+    ]
+    held.playback.emit({ playing: false })
+    const w = await mountView()
+    await flushPromises()
+    guideWidth(w)
+    const timeline = () => w.findComponent({ name: 'StudyTimeline' })
+    // siguiendo la canción: 120 bpm detectados, un pulso cada medio segundo
+    expect(timeline().props('grid').beats.slice(0, 3)).toEqual([0.25, 0.75, 1.25])
+    await w.find('.study-magnet').trigger('click')
+    // a 60 bpm a mano: uno cada segundo, desde el primer «1» de la canción
+    await held.playback.bridge.setMetronome({ bpm: 60 })
+    await flushPromises()
+    expect(timeline().props('grid').beats.slice(0, 3)).toEqual([0.25, 1.25, 2.25])
+    expect(timeline().props('grid').bpm).toBe(60)
+    // el imán: 50,7 s va al pulso que suena (50,25), no al detectado (50,75)
+    await w.find('.tl-guide-track').trigger('dblclick', { clientX: 101.4 })
+    await flushPromises()
+    expect(w.findComponent({ name: 'StudyCue' }).props('draft').t).toBe(50.25)
+    w.findComponent({ name: 'StudyCue' }).vm.$emit('close')
+    await flushPromises()
+    // y siguiendo la canción otra vez, los detectados
+    await held.playback.bridge.setMetronome({ bpm: null })
+    await flushPromises()
+    expect(timeline().props('grid').beats.slice(0, 3)).toEqual([0.25, 0.75, 1.25])
+    await w.find('.tl-guide-track').trigger('dblclick', { clientX: 101.4 })
+    await flushPromises()
+    expect(w.findComponent({ name: 'StudyCue' }).props('draft').t).toBe(50.75)
   })
 
   it('lane options: a cue here, import a short audio file, rename…', async () => {

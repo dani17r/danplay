@@ -602,7 +602,7 @@ async function playNow(index = 0) {
 }
 /** Los bordes de los tramos, al pulso mas cercano: para que entren a tiempo. */
 function snapLoops() {
-  const beats = shownGrid.value?.beats
+  const beats = soundingGrid.value?.beats
   if (!beats?.length || !hasLoop.value) return
   const snapped = snapToBeats(study.value.loops, beats)
   const m = selected.value
@@ -654,7 +654,7 @@ function showOptions({ index, t, x, y, event }) {
     items.push({
       label: 'Ajustar a los pulsos',
       icon: 'note',
-      disabled: !shownGrid.value?.beats?.length,
+      disabled: !soundingGrid.value?.beats?.length,
       action: snapLoops
     })
     if (!loopSaved.value)
@@ -773,6 +773,37 @@ const shownGrid = computed(() => {
     meter: m.meter ?? null,
     shift: m.shift || 0
   })
+})
+
+/**
+ * La rejilla del clic tal como SUENA. Con el tempo puesto a mano sobre una
+ * canción con rejilla, el clic deja de seguir los pulsos detectados (que es
+ * justo lo que falló): va a un tempo fijo desde el primer «1» de la canción
+ * (como el motor, `click_plan`). La onda, el imán de las guías, «ajustar a
+ * los pulsos» y la guía automática usaban la detectada tal cual. Sin tempo a
+ * mano, es la de la canción.
+ */
+const soundingGrid = computed(() => {
+  const g = shownGrid.value
+  const m = metronome.value
+  if (!g || !m.free || !m.has_grid || !(m.bpm > 0)) return g
+  const { beats, accents } = clickTimes(g, m, duration.value || 0)
+  if (beats.length < 2) return g
+  const bars = []
+  accents.forEach((on, i) => {
+    if (on) bars.push(i)
+  })
+  return {
+    ...g,
+    bpm: m.bpm,
+    meter: m.meter ?? g.meter,
+    beats,
+    first_downbeat: bars[0] ?? 0,
+    phase3: 0,
+    phase4: 0,
+    bars,
+    closed: true
+  }
 })
 
 /**
@@ -1334,7 +1365,7 @@ watch(snapCues, (v) => savePref(SNAP_KEY, v))
  * uno cada tanto. A ellos se pegan las guías con el imán.
  */
 const clickBeats = computed(() => {
-  if (shownGrid.value?.beats?.length) return shownGrid.value.beats
+  if (soundingGrid.value?.beats?.length) return soundingGrid.value.beats
   const m = metronome.value
   return m.free && m.bpm ? clickTimes(null, m, duration.value || 0).beats : []
 })
@@ -1628,7 +1659,14 @@ async function readyVoice(okLabel) {
  * hasta tres pulsos fuera de su sitio.
  */
 function barsAndBeat() {
-  const g = clickMode.value === 'own' && hasOwn.value ? grid.value : null
+  // con el tempo a mano, el clic que suena es el regular: sus compases (los
+  // de la detectada son justo los que se corrigió)
+  const tempo = clickAuto.value && metronome.value.free && metronome.value.has_grid
+  const g = tempo
+    ? soundingGrid.value
+    : clickMode.value === 'own' && hasOwn.value
+      ? grid.value
+      : null
   const beats = g?.beats || []
   const bars = (g?.bars || []).map((i) => beats[i]).filter((t) => Number.isFinite(t))
   const gaps = beats
@@ -2892,7 +2930,7 @@ defineExpose({ close: hide, hide, exit })
       :markers="study.markers"
       :cues="study.cues"
       :selected="selected"
-      :grid="shownGrid"
+      :grid="soundingGrid"
       :edit-beats="editingBeats"
       :show-mix="showMix"
       :show-routes="showRoutes"

@@ -436,6 +436,33 @@ describe('the automatic cue', () => {
     expect(w.find('.study-auto-guide').attributes('title')).not.toContain('Esperando')
   })
 
+  it('with a hand-set tempo, the guide gets the bars of the click that sounds', async () => {
+    // el clic a mano es el que suena: la guía partía la canción por la
+    // rejilla detectada, que es justo la que se corrigió
+    prepare()
+    localStorage.setItem('danplay.cues.voice', JSON.stringify('st-F1'))
+    const w = await mountView()
+    await held.playback.bridge.setMetronome({ bpm: 60 })
+    await flushPromises()
+    await w.find('.study-auto-guide').trigger('click')
+    await flushPromises()
+    const body = held.api.autoCues.mock.calls.at(-1)[1]
+    // 60 bpm en 4/4: un compás cada 4 s, desde el primer «1» de la canción
+    expect(body.beat).toBe(1)
+    expect(body.bars.slice(0, 3)).toEqual([
+      expect.any(Number),
+      expect.any(Number),
+      expect.any(Number)
+    ])
+    expect(body.bars[1] - body.bars[0]).toBeCloseTo(4, 3)
+    // siguiendo la canción otra vez, no manda nada: lo saca el núcleo
+    await held.playback.bridge.setMetronome({ bpm: null })
+    await flushPromises()
+    await w.find('.study-auto-guide').trigger('click')
+    await flushPromises()
+    expect(held.api.autoCues.mock.calls.at(-1)[1]).toEqual({ voice: 'st-F1' })
+  })
+
   it('the bars come from the core, not from how the click is accented', async () => {
     // con «sin acento» no se ve ningún «1»: se mandaba uno de cada cuatro
     // pulsos, empezara donde empezara, y las partes caían fuera de su sitio
