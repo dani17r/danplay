@@ -35,10 +35,13 @@ use std::time::{Duration, Instant};
 pub const VERSION: i64 = 4;
 /// Lo que puede tardar el detector con una canción.
 pub const TIMEOUT: Duration = Duration::from_secs(600);
-/// La cola es corta: lo que se queda fuera se pedirá cuando toque.
-pub const MAX_QUEUE: usize = 6;
+/// Lo que cabe en la cola: un repertorio o un disco enteros, con holgura
+/// (cada entrada es una ruta). Eran 6, y lo que no cabía se tiraba diciendo
+/// que quedaba en cola. Lo que no cabe ahora se dice (`prepare` contesta que
+/// no), y lo que hace falta ya entra siempre.
+pub const MAX_QUEUE: usize = 512;
 /// Las opciones de «Re-analizar el clic».
-pub const REANALYZE_MODES: [&str; 5] = ["repair", "steady", "fill", "drums", "follow"];
+pub const REANALYZE_MODES: [&str; 6] = ["repair", "steady", "fill", "drums", "follow", "mix"];
 
 /// Por qué no hay rejilla.
 #[derive(Debug, Clone, PartialEq)]
@@ -89,6 +92,8 @@ pub fn graph(app: &App) -> PathBuf {
 
 /// Por qué no se puede calcular aquí, o vacío.
 pub fn available(app: &App) -> String {
+    #[cfg(test)]
+    tests::AVAILABLE.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     // con otro detector (`set_detector`), ONNX Runtime es cosa suya
     let custom = custom_detector().is_some();
     if !custom && crate::services::onnx::library(app).is_none() {
@@ -125,12 +130,25 @@ pub(crate) fn raw_file(app: &App, path: &Path) -> std::io::Result<PathBuf> {
 
 /// Si hay rejilla guardada que valga.
 pub fn cached(app: &App, path: &Path) -> bool {
+    #[cfg(test)]
+    tests::READS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     cache(app, path).is_ok_and(|c| lb::is_valid(&c, VERSION))
 }
 
 /// La rejilla guardada de un archivo.
 fn saved(app: &App, path: &Path) -> Option<Map<String, Value>> {
+    #[cfg(test)]
+    tests::READS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     lb::saved(&cache(app, path).ok()?)
+}
+
+/// La rejilla de lo guardado, si vale: de esta versión (o exacta, la de un
+/// proyecto) y con algo dentro.
+fn valid_grid(entry: &Map<String, Value>) -> Option<&Value> {
+    (entry.get("version").and_then(Value::as_f64) == Some(VERSION as f64)
+        || entry.get("exact").is_some_and(library::value::truthy))
+    .then(|| entry.get("grid").filter(|g| library::value::truthy(g)))
+    .flatten()
 }
 
 /// Guarda la rejilla de un archivo, con lo re-analizado a mano.
@@ -140,6 +158,51 @@ pub(crate) fn save(app: &App, path: &Path, grid: &Value, edits: Value) -> Result
     let entry = lb::entry(VERSION, &path.to_string_lossy(), grid.clone(), edits);
     lb::write(&c, &entry);
     Ok(())
+}
+
+/// Lo que se espera para borrar el pulso de un archivo que no se ve: lo mismo
+/// que se guarda una canción que falta (`services::library::MISSING_DAYS`).
+/// Un disco sin enchufar un rato no cuesta los 15-20 s de cada canción.
+pub const ORPHAN_DAYS: u64 = 30;
+
+/// Quita de DATA_DIR/beats lo de archivos que ya no están: la rejilla y lo
+/// que oyó la red (`.json` y `.npz`) de lo borrado, movido por fuera o
+/// cambiado por fuera (otra fecha o tamaño: otra clave), y las baterías de
+/// pistas que se quitaron. `known` son todos los archivos que hay (canciones
+/// y pistas separadas). Lo que lleva menos de `ORPHAN_DAYS` sin tocarse se
+/// queda, y sin ningún archivo conocido no se borra nada. Devuelve cuántos
+/// archivos se fueron.
+pub fn prune(app: &App, known: &[String]) -> usize {
+    let alive: std::collections::HashSet<String> = known
+        .iter()
+        .filter_map(|p| key_of(Path::new(p)).ok())
+        .collect();
+    if alive.is_empty() {
+        return 0;
+    }
+    let Ok(entries) = std::fs::read_dir(folder(app)) else {
+        return 0;
+    };
+    let grace = Duration::from_secs(ORPHAN_DAYS * 86_400);
+    let mut removed = 0;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let ours = path.extension().is_some_and(|e| e == "json" || e == "npz");
+        let orphan = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .is_some_and(|key| !alive.contains(key));
+        let stale = entry
+            .metadata()
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|at| at.elapsed().ok())
+            .is_some_and(|age| age >= grace);
+        if ours && orphan && stale && std::fs::remove_file(&path).is_ok() {
+            removed += 1;
+        }
+    }
+    removed
 }
 
 /// Una rejilla que no se adivina (la del tempo de un proyecto): vale aunque
@@ -284,6 +347,77 @@ fn merge(
     Ok(Value::Object(out))
 }
 
+/// El re-análisis de dentro (no sale en el menú ni lo acepta la API): rellenar
+/// con lo que dijo la red sobre la batería separada los huecos con música de
+/// la rejilla (`analysis::beatgrid::fill_with_drums`), y nada más. Es lo que
+/// guarda `improve` cuando la batería mejora el clic sola.
+const FILL_DRUMS: &str = "fill-drums";
+
+/// El re-análisis `edit` se hizo con la batería separada (y al volver a
+/// aplicarlo, hay que usarla otra vez): lo pidió así, o lo marcó al hacerse.
+fn edit_uses_drums(edit: &Value) -> bool {
+    matches!(
+        edit.get("mode").and_then(Value::as_str),
+        Some("drums" | FILL_DRUMS)
+    ) || edit.get("drums") == Some(&Value::Bool(true))
+}
+
+/// Si la rejilla guardada salió con la batería separada, por lo que se hizo.
+fn uses_drums(edits: &[Value]) -> bool {
+    edits.iter().any(edit_uses_drums)
+}
+
+/// Rellena los huecos con música de `base` con lo que dijo la red sobre la
+/// batería (`extra`). Si no mejora, `BeatsError::Value` con el porqué.
+fn fill_with_drums(base: &Value, raw: &Raw, extra: Option<&Raw>) -> Result<Value, BeatsError> {
+    let Some(drums) = extra else {
+        return Err(beats_err("la red aún no oyó la batería"));
+    };
+    let beats = floats(base.get("beats"))?;
+    let meter = base.get("meter").and_then(Value::as_i64).unwrap_or(4);
+    let bars: Vec<i64> = base
+        .get("bars")
+        .and_then(Value::as_array)
+        .map(|b| b.iter().filter_map(Value::as_i64).collect())
+        .unwrap_or_default();
+    let with = whole(raw, "auto", false, None, Some(drums))?.end.beats;
+    let seconds = raw.seconds;
+    let drums_logits = f64s(&drums.beat);
+    let fill = ab::fill_with_drums(&beats, &with, &drums_logits, seconds);
+    let end = grid::finish(&fill.beats, &f64s(&raw.down), Some(meter)).map_err(grid_error)?;
+    let verdict = ab::drums_verdict(
+        ab::Shape {
+            beats: &beats,
+            bars: &bars,
+            meter,
+        },
+        ab::Shape {
+            beats: &end.beats,
+            bars: &end.bars,
+            meter: end.meter,
+        },
+        &drums_logits,
+        seconds,
+    );
+    if !verdict.better {
+        return Err(BeatsError::Value(format!(
+            "la batería no mejora el clic: {}",
+            verdict.why
+        )));
+    }
+    let mut out = final_json(&end);
+    out.insert(
+        "report".into(),
+        json!({
+            "drums": "fill",
+            "filled": fill.regions.iter().map(|(a, b)| json!([a, b])).collect::<Vec<_>>(),
+            "bare_before": library::num::round_to(verdict.bare_before, 1),
+            "bare_after": library::num::round_to(verdict.bare_after, 1),
+        }),
+    );
+    Ok(Value::Object(out))
+}
+
 /// Un número que no es cero (lo que no está, o es cero, nada).
 fn nonzero(v: Option<&Value>) -> Option<f64> {
     v.and_then(Value::as_f64).filter(|x| *x != 0.0)
@@ -301,6 +435,9 @@ fn apply(
     extra: Option<&Raw>,
 ) -> Result<Value, BeatsError> {
     let mode_name = edit.get("mode").and_then(Value::as_str).unwrap_or("repair");
+    if mode_name == FILL_DRUMS {
+        return fill_with_drums(base, raw, extra);
+    }
     let mut drums_raw = None;
     if mode_name == "drums" {
         let Some(drums) = drums_of(app, path) else {
@@ -350,36 +487,85 @@ pub fn grid_of(app: &App, path: &Path) -> Result<Value, BeatsError> {
         return Err(beats_err("no encuentro el archivo"));
     }
     let saved = saved(app, path);
-    if let Some(s) = &saved
-        && (s.get("version").and_then(Value::as_i64) == Some(VERSION)
-            || s.get("exact").is_some_and(library::value::truthy))
-        && let Some(g) = s.get("grid").filter(|g| library::value::truthy(g))
-    {
+    if let Some(g) = saved.as_ref().and_then(valid_grid) {
         return Ok(g.clone());
     }
     let raw = match raw_of(app, path) {
         Some(r) => r,
         None => network(app, path)?,
     };
-    // con la batería separada, la red también sobre ella (si ya se pasó)
-    let extra = drums_of(app, path).and_then(|d| raw_of(app, &d));
-    let mut grid = grid_json(&whole(&raw, "auto", false, None, extra.as_ref())?);
-    // lo que se re-analizó a mano (de una versión anterior), otra vez encima
-    let edits = saved
+    // la de la canción sola: la batería separada solo entra por lo que se
+    // hizo con ella (abajo), no porque la red ya la oyera
+    let mut grid = grid_json(&whole(&raw, "auto", false, None, None)?);
+    let drums = drums_of(app, path).and_then(|d| raw_of(app, &d));
+    // lo que se re-analizó (de una versión anterior), otra vez encima
+    let mut edits = saved
         .as_ref()
         .and_then(|s| s.get("edits"))
         .filter(|e| e.is_array())
         .cloned()
         .unwrap_or_else(|| json!([]));
     for e in edits.as_array().into_iter().flatten() {
-        match apply(app, path, &grid, &raw, e, extra.as_ref()) {
+        let extra = edit_uses_drums(e).then_some(drums.as_ref()).flatten();
+        match apply(app, path, &grid, &raw, e, extra) {
             Ok(g) => grid = g,
             Err(BeatsError::Beats(_) | BeatsError::Value(_)) => {}
             Err(other) => return Err(other),
         }
     }
+    // la batería ya oída y nada tocado a mano: si cubre lo que el clic deja
+    // sin sonar, se usa (`improve`)
+    if edits.as_array().is_some_and(Vec::is_empty)
+        && drums.is_some()
+        && auto_drums_enabled(app)
+        && !fixed_by_hand(app, path, saved.as_ref())
+        && let Ok(better) = apply(app, path, &grid, &raw, &fill_edit(), drums.as_ref())
+    {
+        grid = better;
+        edits = json!([fill_edit()]);
+    }
     save(app, path, &grid, edits)?;
     Ok(grid)
+}
+
+/// El re-análisis que guarda la batería cuando mejora el clic sola.
+fn fill_edit() -> Value {
+    json!({"mode": FILL_DRUMS, "auto": true})
+}
+
+/// Si la batería separada mejora el clic sola (la prueba está en
+/// `analysis::beatgrid::drums_verdict`). Es lo que hace el programa tras
+/// separar una canción; `DANPLAY_CLICK_DRUMS=off` (en el archivo de ajustes o
+/// en el entorno) lo quita.
+fn auto_drums_enabled(app: &App) -> bool {
+    !matches!(
+        app.config().env("DANPLAY_CLICK_DRUMS", "on").as_str(),
+        "off" | "0" | "false" | "no"
+    )
+}
+
+/// Si el clic de esta canción es de quien toca y no se le cambia solo: un
+/// tempo fijo exacto (el de un proyecto), su clic propio, o ajustes que
+/// eligió sobre la rejilla (tempo, compás, doble o mitad, el «1» corrido).
+fn fixed_by_hand(app: &App, path: &Path, saved: Option<&Map<String, Value>>) -> bool {
+    if saved.is_some_and(|s| s.get("exact").is_some_and(library::value::truthy)) {
+        return true;
+    }
+    let p = path.to_string_lossy().into_owned();
+    let study = app
+        .db(|c| library::index::search::by_path(c, &p))
+        .ok()
+        .flatten()
+        .and_then(|brief| brief.get("id").and_then(Value::as_i64))
+        .and_then(|id| songs::by_id(app, id).ok().flatten())
+        .map(|song| songs::text(&song, "study"))
+        .and_then(|text| serde_json::from_str::<Value>(&text).ok());
+    let Some(metronome) = study.as_ref().and_then(|s| s.get("metronome")) else {
+        return false;
+    };
+    ["own", "bpm", "meter", "mult", "shift"]
+        .iter()
+        .any(|k| metronome.get(*k).is_some_and(library::value::truthy))
 }
 
 /// La rejilla otra vez, de otra manera, de toda la canción o de un tramo;
@@ -404,6 +590,13 @@ pub fn reanalyze(
         None => network(app, path)?,
     };
     let current = grid_of(app, path)?;
+    let before: Vec<Value> = saved(app, path)
+        .and_then(|mut s| s.remove("edits"))
+        .and_then(|e| match e {
+            Value::Array(v) => Some(v),
+            _ => None,
+        })
+        .unwrap_or_default();
     let mut edit = Map::new();
     edit.insert("mode".into(), Value::from(mode));
     if let (Some(s), Some(e)) = (start, end)
@@ -416,8 +609,16 @@ pub fn reanalyze(
         edit.insert("bpm".into(), Value::from(b));
     }
     let ranged = edit.contains_key("start");
+    // arreglar, tempo fijo y rellenar usan la batería si el clic que hay ya
+    // salió con ella; «solo la canción» y «como antes» nunca
+    let with_drums = matches!(mode, "repair" | "steady" | "fill") && uses_drums(&before);
+    if with_drums {
+        edit.insert("drums".into(), Value::Bool(true));
+    }
     let edit = Value::Object(edit);
-    let extra = drums_of(app, path).and_then(|d| raw_of(app, &d));
+    let extra = with_drums
+        .then(|| drums_of(app, path).and_then(|d| raw_of(app, &d)))
+        .flatten();
     let mut grid = apply(app, path, &current, &raw, &edit, extra.as_ref())?;
     let fixed = ab::changes(
         &floats(current.get("beats"))?,
@@ -432,9 +633,7 @@ pub fn reanalyze(
         report["fixed"] = Value::from(fixed);
     }
     let mut edits = Vec::new();
-    if ranged
-        && let Some(Value::Array(before)) = saved(app, path).and_then(|mut s| s.remove("edits"))
-    {
+    if ranged {
         edits = before;
     }
     edits.push(edit);
@@ -693,7 +892,7 @@ pub fn child_main(args: &[OsString]) -> i32 {
 /// se estorbarían.
 #[derive(Default)]
 struct Queue {
-    waiting: VecDeque<(String, App)>,
+    waiting: VecDeque<Waiting>,
     busy: Option<String>,
     failed: HashMap<String, Failed>,
     progress: HashMap<String, f64>,
@@ -702,6 +901,26 @@ struct Queue {
     /// tal cual, para mirarla
     #[cfg(test)]
     paused: bool,
+}
+
+/// Lo que espera en la cola: un archivo y qué se quiere de él.
+struct Waiting {
+    path: String,
+    app: App,
+    task: Task,
+}
+
+/// Lo que se le pide a la cola con un archivo.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum Task {
+    /// su rejilla (`grid_of`)
+    Grid,
+    /// solo que la red lo oiga (la batería separada de una canción): queda
+    /// lo que dijo, y la rejilla la saca quien lo pidió
+    Hear,
+    /// que la red oiga la batería separada y, con lo que oyó, ver si mejora
+    /// el clic de esa canción (`improve`)
+    Improve(PathBuf),
 }
 
 /// Un fallo del detector con un archivo: por qué, cuándo y cuántas veces.
@@ -742,48 +961,58 @@ fn failure_key(path: &Path) -> String {
 /// Por dónde va (0..1); 0 si espera en la cola; `None` si no está ni en la
 /// cola ni calculándose.
 pub fn progress(path: &Path) -> Option<f64> {
-    let key = path.to_string_lossy();
     let q = QUEUE.lock().unwrap_or_else(PoisonError::into_inner);
-    if q.busy.as_deref() == Some(key.as_ref()) {
-        return Some(q.progress.get(key.as_ref()).copied().unwrap_or(0.0));
-    }
-    q.waiting.iter().any(|(p, _)| *p == key).then_some(0.0)
+    progress_in(&q, &path.to_string_lossy())
 }
 
-/// La rejilla si ya está guardada; si no, `None` y queda en la cola (delante
-/// con `first`). `BeatsError` si aquí no se puede o si ya falló con este
-/// mismo archivo.
-pub fn request(app: &App, path: &Path, first: bool) -> Result<Option<Value>, BeatsError> {
-    if !path.is_file() {
-        return Err(beats_err("no encuentro el archivo"));
+/// `progress`, con el cerrojo de la cola ya cogido.
+fn progress_in(q: &Queue, key: &str) -> Option<f64> {
+    if q.busy.as_deref() == Some(key) {
+        return Some(q.progress.get(key).copied().unwrap_or(0.0));
     }
-    if cached(app, path) {
-        match grid_of(app, path) {
-            Ok(g) => return Ok(Some(g)),
-            Err(BeatsError::Beats(_)) => {}
-            Err(other) => return Err(other),
-        }
-    }
-    let reason = available(app);
-    if !reason.is_empty() {
-        return Err(beats_err(reason));
-    }
-    let key = path.to_string_lossy().into_owned();
-    let fkey = failure_key(path);
-    let mut q = QUEUE.lock().unwrap_or_else(PoisonError::into_inner);
-    if let Some(failed) = q.failed.get(&fkey)
-        && (failed.tries >= MAX_TRIES || failed.at.elapsed() < RETRY_AFTER)
-    {
-        return Err(beats_err(failed.why.clone()));
-    }
+    q.waiting.iter().any(|w| w.path == key).then_some(0.0)
+}
+
+/// El fallo recordado de ese archivo (`failure_key`), si aún no toca volver
+/// a intentarlo.
+fn remembered(q: &Queue, fkey: &str) -> Option<String> {
+    q.failed
+        .get(fkey)
+        .filter(|f| f.tries >= MAX_TRIES || f.at.elapsed() < RETRY_AFTER)
+        .map(|f| f.why.clone())
+}
+
+/// Deja el archivo en la cola y despierta al hilo; `false` si no cabe.
+///
+/// Con `first` (lo que hace falta ya) va delante y entra siempre: si la
+/// cola está llena, sale lo último, que es lo que más tardaría en hacer
+/// falta. Sin `first` va detrás, y si no cabe se dice. Lo que ya espera no
+/// se duplica ni pierde su sitio: solo `first` lo pasa delante.
+fn enqueue(q: &mut Queue, app: &App, key: String, task: Task, first: bool) -> bool {
+    let mut fits = true;
     if q.busy.as_deref() != Some(key.as_str()) {
-        q.waiting.retain(|(p, _)| *p != key);
+        let at = q.waiting.iter().position(|w| w.path == key);
+        let item = Waiting {
+            path: key,
+            app: app.clone(),
+            task,
+        };
         if first {
-            q.waiting.push_front((key, app.clone()));
-        } else {
-            q.waiting.push_back((key, app.clone()));
+            if let Some(i) = at {
+                q.waiting.remove(i);
+            }
+            q.waiting.push_front(item);
+            if q.waiting.len() > MAX_QUEUE
+                && let Some(last) = q.waiting.pop_back()
+            {
+                log::info!("la cola del clic está llena: sale {}", last.path);
+            }
+        } else if at.is_none() {
+            fits = q.waiting.len() < MAX_QUEUE;
+            if fits {
+                q.waiting.push_back(item);
+            }
         }
-        q.waiting.truncate(MAX_QUEUE);
     }
     if !q.worker {
         q.worker = true;
@@ -795,18 +1024,251 @@ pub fn request(app: &App, path: &Path, first: bool) -> Result<Option<Value>, Bea
         }
     }
     WAKE.notify_all();
-    Ok(None)
+    fits
+}
+
+/// Lo que da `peek`.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Peek {
+    /// la rejilla guardada
+    Ready(Value),
+    /// queda en la cola, y por dónde va (0..1)
+    Pending(f64),
+    /// aquí no se puede calcular, y por qué
+    Unavailable(String),
+}
+
+/// La rejilla si ya está guardada; si no, queda en la cola (delante con
+/// `first`) y dice por dónde va. `BeatsError` si ya falló con este archivo.
+///
+/// Es lo que se pregunta cada 700 ms mientras carga, así que lo hace todo de
+/// una vez: la clave del archivo, su rejilla guardada y si hay detector,
+/// UNA vez cada cosa (antes eran dos mirando si están ONNX, ffmpeg y el
+/// grafo, y dos leyendo el JSON).
+pub fn peek(app: &App, path: &Path, first: bool) -> Result<Peek, BeatsError> {
+    if !path.is_file() {
+        return Err(beats_err("no encuentro el archivo"));
+    }
+    let key = key_of(path).map_err(|e| BeatsError::Other(e.to_string()))?;
+    #[cfg(test)]
+    tests::READS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    let entry = lb::saved(&folder(app).join(format!("{key}.json")));
+    if let Some(grid) = entry.as_ref().and_then(valid_grid) {
+        return Ok(Peek::Ready(grid.clone()));
+    }
+    let reason = available(app);
+    if !reason.is_empty() {
+        return Ok(Peek::Unavailable(reason));
+    }
+    let text = path.to_string_lossy().into_owned();
+    let mut q = QUEUE.lock().unwrap_or_else(PoisonError::into_inner);
+    // lo recordado se busca por la clave del archivo (`failure_key`)
+    if let Some(why) = remembered(&q, &key) {
+        return Err(beats_err(why));
+    }
+    enqueue(&mut q, app, text.clone(), Task::Grid, first);
+    Ok(Peek::Pending(progress_in(&q, &text).unwrap_or(0.0)))
+}
+
+/// La rejilla si ya está guardada; si no, `None` y queda en la cola (delante
+/// con `first`). `BeatsError` si aquí no se puede o si ya falló con este
+/// mismo archivo.
+pub fn request(app: &App, path: &Path, first: bool) -> Result<Option<Value>, BeatsError> {
+    match peek(app, path, first)? {
+        Peek::Ready(grid) => Ok(Some(grid)),
+        Peek::Pending(_) => Ok(None),
+        Peek::Unavailable(reason) => Err(beats_err(reason)),
+    }
+}
+
+/// Deja la rejilla de un archivo en la cola (delante con `first`). `false`
+/// si no cabe (solo sin `first`); `BeatsError` si aquí no se puede o si ya
+/// falló con este mismo archivo.
+fn line_up(app: &App, path: &Path, first: bool) -> Result<bool, BeatsError> {
+    let reason = available(app);
+    if !reason.is_empty() {
+        return Err(beats_err(reason));
+    }
+    let key = path.to_string_lossy().into_owned();
+    let mut q = QUEUE.lock().unwrap_or_else(PoisonError::into_inner);
+    if let Some(why) = remembered(&q, &failure_key(path)) {
+        return Err(beats_err(why));
+    }
+    Ok(enqueue(&mut q, app, key, Task::Grid, first))
+}
+
+/// Lo que le falta a «con la batería separada» para aplicarse al momento:
+/// que la red oiga la batería (15-20 s la primera vez). `Ok(None)` si ya la
+/// oyó; si no, queda delante en la cola y sale por dónde va (0..1).
+///
+/// Antes la red se pasaba dentro de la petición de re-analizar: 15-20 s sin
+/// avance a la vista, y con la cola pasando otra a la vez.
+pub fn drums_pending(app: &App, path: &Path) -> Result<Option<f64>, BeatsError> {
+    let Some(drums) = drums_of(app, path) else {
+        return Err(beats_err("esta canción no tiene la batería separada"));
+    };
+    if raw_file(app, &drums).is_ok_and(|f| f.is_file()) {
+        return Ok(None);
+    }
+    let reason = available(app);
+    if !reason.is_empty() {
+        return Err(beats_err(reason));
+    }
+    let key = drums.to_string_lossy().into_owned();
+    let mut q = QUEUE.lock().unwrap_or_else(PoisonError::into_inner);
+    if let Some(why) = remembered(&q, &failure_key(&drums)) {
+        return Err(beats_err(why));
+    }
+    enqueue(&mut q, app, key.clone(), Task::Hear, true);
+    Ok(Some(progress_in(&q, &key).unwrap_or(0.0)))
+}
+
+/// La rejilla por la cola, esperándola: se pide delante de lo que haya y se
+/// espera hasta `limit`. `Ok(None)` si no llegó a tiempo (sigue en la cola);
+/// `BeatsError` como `request`. `tick` recibe por dónde va (0..1) mientras
+/// se espera.
+///
+/// Para quien necesita la rejilla dentro de un trabajo largo (la guía
+/// automática): con `grid_of` pasaba la red él mismo, a la vez que la cola
+/// con esa misma canción (dos detectores estorbándose y escribiendo el
+/// mismo archivo), y sin que nadie viera por dónde iba.
+pub fn wait_for(
+    app: &App,
+    path: &Path,
+    limit: Duration,
+    tick: &mut dyn FnMut(f64),
+) -> Result<Option<Value>, BeatsError> {
+    let until = Instant::now() + limit;
+    let key = path.to_string_lossy().into_owned();
+    loop {
+        // la guardada; si no, queda delante en la cola; si falló, por qué
+        if let Some(grid) = request(app, path, true)? {
+            return Ok(Some(grid));
+        }
+        // mientras esté en la cola o calculándose no se vuelve a pedir:
+        // pedir avisa a todos los que esperan, y dos esperando a la vez se
+        // despertarían el uno al otro sin parar
+        if Instant::now() >= until {
+            return Ok(None);
+        }
+        let mut q = QUEUE.lock().unwrap_or_else(PoisonError::into_inner);
+        while let Some(done) = progress_in(&q, &key) {
+            let left = until.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                return Ok(None);
+            }
+            tick(done);
+            q = WAKE
+                .wait_timeout(q, left.min(Duration::from_millis(250)))
+                .unwrap_or_else(PoisonError::into_inner)
+                .0;
+        }
+    }
 }
 
 /// Detrás en la cola, la de una canción que sonará después. `true` si ya
-/// estaba o queda en cola.
+/// está guardada o queda en cola; `false` si no se puede (no está el
+/// archivo, aquí no hay detector, ya falló con ella) o si la cola está
+/// llena.
+///
+/// Se pide para listas enteras: la que ya está guardada solo se mira (no
+/// se lee su rejilla).
 pub fn prepare(app: &App, path: &Path) -> bool {
-    request(app, path, false).is_ok()
+    path.is_file() && (cached(app, path) || line_up(app, path, false).unwrap_or(false))
+}
+
+/// Lo que hace el hilo con lo que sale de la cola.
+fn perform(app: &App, path: &Path, task: Task) -> Result<(), BeatsError> {
+    match task {
+        Task::Grid => grid_of(app, path).map(|_| ()),
+        // ya oída (se pidió dos veces): nada que hacer
+        Task::Hear | Task::Improve(_) if raw_file(app, path).is_ok_and(|f| f.is_file()) => {
+            match task {
+                Task::Improve(song) => improve(app, &song).map(|_| ()),
+                _ => Ok(()),
+            }
+        }
+        Task::Hear => network(app, path).map(|_| ()),
+        Task::Improve(song) => {
+            network(app, path)?;
+            improve(app, &song).map(|_| ())
+        }
+    }
+}
+
+/// Una separación acabó: si la canción tiene su batería, que la red la oiga
+/// en segundo plano (detrás de todo lo demás) y, con lo que oyó, se mira si
+/// mejora el clic de la canción (`improve`).
+pub fn after_separation(app: &App, cid: i64) {
+    // en las pruebas, apagado salvo que una lo pida: la cola del clic es de
+    // todo el proceso y una separación de otra prueba la ensuciaría
+    #[cfg(test)]
+    if !tests::hook_enabled() {
+        return;
+    }
+    if !auto_drums_enabled(app) {
+        return;
+    }
+    let Ok(Some(song)) = songs::by_id(app, cid) else {
+        return;
+    };
+    let path = PathBuf::from(songs::text(&song, "path"));
+    if !path.is_file() || !available(app).is_empty() {
+        return;
+    }
+    let Some(drums) = drums_of(app, &path) else {
+        return;
+    };
+    let mut q = QUEUE.lock().unwrap_or_else(PoisonError::into_inner);
+    if remembered(&q, &failure_key(&drums)).is_some() {
+        return;
+    }
+    let key = drums.to_string_lossy().into_owned();
+    enqueue(&mut q, app, key, Task::Improve(path), false);
+}
+
+/// Con la batería ya oída, ¿mejora el clic guardado de la canción? Se queda
+/// con la rejilla nueva SOLO si la prueba de `analysis::beatgrid` lo dice
+/// (rellenar con la batería los huecos con música, sin mover nada de lo que
+/// ya sonaba) y nadie tocó el clic: ni re-analizado a mano ni sus ajustes
+/// (`fixed_by_hand`). Se deshace con «Re-analizar» › «Solo la canción». Da si
+/// se cambió.
+fn improve(app: &App, song: &Path) -> Result<bool, BeatsError> {
+    // sin rejilla guardada aún, la sacará `grid_of` al abrir la canción, y
+    // ahí mismo mira esto
+    if !auto_drums_enabled(app) || !cached(app, song) {
+        return Ok(false);
+    }
+    let Some(entry) = saved(app, song) else {
+        return Ok(false);
+    };
+    let untouched = entry
+        .get("edits")
+        .and_then(Value::as_array)
+        .is_none_or(Vec::is_empty);
+    if !untouched || fixed_by_hand(app, song, Some(&entry)) {
+        return Ok(false);
+    }
+    let (Some(base), Some(raw), Some(drums)) = (
+        entry.get("grid").filter(|g| library::value::truthy(g)),
+        raw_of(app, song),
+        drums_of(app, song).and_then(|d| raw_of(app, &d)),
+    ) else {
+        return Ok(false);
+    };
+    match apply(app, song, base, &raw, &fill_edit(), Some(&drums)) {
+        Ok(better) => {
+            save(app, song, &better, json!([fill_edit()]))?;
+            Ok(true)
+        }
+        Err(BeatsError::Beats(_) | BeatsError::Value(_)) => Ok(false),
+        Err(other) => Err(other),
+    }
 }
 
 fn work() {
     loop {
-        let (path, app) = {
+        let Waiting { path, app, task } = {
             let mut q = QUEUE.lock().unwrap_or_else(PoisonError::into_inner);
             let next = loop {
                 if !held(&q)
@@ -820,13 +1282,14 @@ fn work() {
             // momento no estaba ni en la cola ni calculándose (`idle` decía
             // que ya no quedaba nada, `progress` que no se pidió, y pedirla
             // otra vez la volvía a poner en cola)
-            q.busy = Some(next.0.clone());
+            q.busy = Some(next.path.clone());
             next
         };
         let p = PathBuf::from(&path);
-        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| grid_of(&app, &p)));
+        let outcome =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| perform(&app, &p, task)));
         let failed = match outcome {
-            Ok(Ok(_)) => None,
+            Ok(Ok(())) => None,
             Ok(Err(BeatsError::Beats(m))) => Some(m),
             Ok(Err(e)) => {
                 log::warn!("el detector de pulso fallo con {path}: {e}");

@@ -10,7 +10,8 @@
 //! y se olvida.
 //!
 //! Los nombres: `scan`, `import`, `conversion`, `duplicates`, `yt-dlp`,
-//! `separation`, `mix`, `auto-cue`, `bundle`, `sequence`.
+//! `separation`, `mix`, `bundle`, `sequence`; y los que son de UNA canción
+//! (`start_keyed`), con su id detrás: `auto-cue-7`.
 //!
 //! ```ignore
 //! let (snap, already) = app.jobs.start("scan", "el escaneo fallo", move |p| {
@@ -98,6 +99,24 @@ pub struct Jobs {
     jobs: Mutex<Vec<(String, Slot)>>,
 }
 
+/// De los trabajos de una misma familia (`start_keyed`), cuántos terminados
+/// se recuerdan: lo justo para que quien pidió el suyo lo recoja (pregunta
+/// cada medio segundo). Sin tope, la guía de cada canción de una tarde
+/// viajaría entera en cada `/api/status` durante diez minutos.
+pub const KEPT_PER_FAMILY: usize = 4;
+
+/// El nombre del trabajo de UNA cosa: la familia y su id (`auto-cue-7`).
+pub fn keyed(family: &str, id: i64) -> String {
+    format!("{family}-{id}")
+}
+
+/// Si ese nombre es de la familia: `familia-<id>`.
+fn in_family(name: &str, family: &str) -> bool {
+    name.strip_prefix(family)
+        .and_then(|rest| rest.strip_prefix('-'))
+        .is_some_and(|id| id.parse::<i64>().is_ok())
+}
+
 /// Lo que recibe el trabajo para contar cómo va.
 #[derive(Debug, Clone)]
 pub struct Progress {
@@ -152,12 +171,24 @@ impl Jobs {
     }
 
     /// Una copia del trabajo (nunca el vivo, que otro hilo va cambiando).
+    ///
+    /// Con el nombre de una familia (`auto-cue`, que antes era un trabajo
+    /// solo para todas las canciones), el último que se arrancó de ella:
+    /// quien aún pregunte así sigue teniendo respuesta, y `name` le dice de
+    /// cuál es.
     pub fn snapshot(&self, name: &str) -> Option<Value> {
         let mut jobs = lock(&self.jobs);
         Self::expire(&mut jobs, now());
+        if let Some((_, slot)) = jobs.iter().find(|(n, _)| n == name) {
+            return Some(lock(slot).snapshot());
+        }
         jobs.iter()
-            .find(|(n, _)| n == name)
+            .filter(|(n, _)| in_family(n, name))
             .map(|(_, slot)| lock(slot).snapshot())
+            .max_by(|a, b| {
+                let at = |j: &Value| j["started"].as_f64().unwrap_or(0.0);
+                at(a).total_cmp(&at(b))
+            })
     }
 
     /// Todos, por nombre (lo que va en `/api/status`).
@@ -246,6 +277,44 @@ impl Jobs {
             job.ended = Some(now());
         }
         (first, false)
+    }
+
+    /// Como `start`, pero un trabajo por cosa (`familia-id`): el de una
+    /// canción no espera al de otra ni se confunde con él. Con un nombre
+    /// solo para todas, pedir la guía de una canción mientras se hacía la de
+    /// otra devolvía «ya está en marcha» con el trabajo de la otra, y su
+    /// resultado llegaba como si fuera el de esta.
+    ///
+    /// De los terminados de la familia se quedan los `KEPT_PER_FAMILY` más
+    /// recientes.
+    pub fn start_keyed<F>(&self, family: &str, id: i64, failure: &str, work: F) -> (Value, bool)
+    where
+        F: FnOnce(&Progress) -> Result<Value, JobError> + Send + 'static,
+    {
+        let name = keyed(family, id);
+        {
+            let mut jobs = lock(&self.jobs);
+            let mut ended: Vec<f64> = jobs
+                .iter()
+                .filter(|(n, _)| *n != name && in_family(n, family))
+                .filter_map(|(_, slot)| {
+                    let job = lock(slot);
+                    (!job.active).then(|| job.ended.unwrap_or(0.0))
+                })
+                .collect();
+            if ended.len() > KEPT_PER_FAMILY {
+                ended.sort_by(|a, b| b.total_cmp(a));
+                let oldest_kept = ended[KEPT_PER_FAMILY - 1];
+                jobs.retain(|(n, slot)| {
+                    if *n == name || !in_family(n, family) {
+                        return true;
+                    }
+                    let job = lock(slot);
+                    job.active || job.ended.unwrap_or(0.0) >= oldest_kept
+                });
+            }
+        }
+        self.start(&name, failure, work)
     }
 
     /// Espera a que termine (para las pruebas y la línea de órdenes).
@@ -398,6 +467,76 @@ mod tests {
             .map(|o| o.keys().collect())
             .unwrap_or_default();
         assert_eq!(names, ["a", "b", "c", "d"]);
+    }
+
+    #[test]
+    fn a_job_per_item_does_not_wait_for_nor_pass_for_another() {
+        // con un nombre para todas, pedir el de la canción 2 mientras corría
+        // el de la 1 devolvía el de la 1
+        let jobs = Jobs::new();
+        let (open, gate) = std::sync::mpsc::channel::<()>();
+        let (first, already) = jobs.start_keyed("guia", 1, "x", move |_| {
+            let _ = gate.recv_timeout(Duration::from_secs(5));
+            Ok(json!({"de": 1}))
+        });
+        assert!(!already);
+        assert_eq!(first["name"], "guia-1");
+        let (second, already) = jobs.start_keyed("guia", 2, "x", |_| Ok(json!({"de": 2})));
+        assert!(!already, "el de otra canción no es «el que ya está»");
+        assert_eq!(second["name"], "guia-2");
+        let two = jobs.wait("guia-2", Duration::from_secs(5)).expect("el 2");
+        assert_eq!(two["result"], json!({"de": 2}));
+        assert_eq!(jobs.snapshot("guia-1").expect("el 1")["active"], true);
+        // el mismo otra vez mientras corre: el que ya está
+        let (again, already) = jobs.start_keyed("guia", 1, "x", |_| panic!("no se arranca otro"));
+        assert!(already);
+        assert_eq!(again["started"], first["started"]);
+        open.send(()).expect("abrir");
+        let one = jobs.wait("guia-1", Duration::from_secs(5)).expect("el 1");
+        assert_eq!(one["result"], json!({"de": 1}));
+    }
+
+    #[test]
+    fn asking_by_the_family_gives_the_last_one_started() {
+        // quien aún pregunte por «auto-cue» a secas sigue teniendo respuesta
+        let jobs = Jobs::new();
+        assert_eq!(jobs.snapshot("guia"), None);
+        jobs.start_keyed("guia", 7, "x", |_| Ok(json!(7)));
+        jobs.wait("guia-7", Duration::from_secs(5));
+        std::thread::sleep(Duration::from_millis(5));
+        jobs.start_keyed("guia", -3, "x", |_| Ok(json!(-3)));
+        let last = jobs
+            .wait("guia", Duration::from_secs(5))
+            .expect("el último");
+        assert_eq!(
+            (&last["name"], &last["result"]),
+            (&json!("guia--3"), &json!(-3))
+        );
+        // otro trabajo cuyo nombre empieza igual no es de la familia
+        jobs.start("guia-rapida", "x", |_| Ok(json!("otra cosa")));
+        jobs.wait("guia-rapida", Duration::from_secs(5));
+        assert_eq!(jobs.snapshot("guia").expect("el último")["name"], "guia--3");
+    }
+
+    #[test]
+    fn only_a_few_finished_jobs_of_a_family_are_remembered() {
+        let jobs = Jobs::new();
+        jobs.start("scan", "x", |_| Ok(json!("otro")));
+        for id in 1..=(KEPT_PER_FAMILY as i64 + 3) {
+            jobs.start_keyed("guia", id, "x", move |_| Ok(json!(id)));
+            jobs.wait(&keyed("guia", id), Duration::from_secs(5));
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        let all = jobs.snapshot_all();
+        let family = all
+            .as_object()
+            .map(|o| o.keys().filter(|n| n.starts_with("guia-")).count())
+            .unwrap_or_default();
+        // los que había al arrancar el último (los más recientes) y él
+        assert_eq!(family, KEPT_PER_FAMILY + 1, "{all}");
+        assert!(all.get("guia-1").is_none() && all.get("scan").is_some());
+        let last = keyed("guia", KEPT_PER_FAMILY as i64 + 3);
+        assert_eq!(all[last.as_str()]["result"], KEPT_PER_FAMILY as i64 + 3);
     }
 
     #[test]

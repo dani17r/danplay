@@ -10,8 +10,11 @@ use serde_json::{Map, Value, json};
 use std::ffi::OsString;
 
 use library::value;
+use std::sync::PoisonError;
 use std::time::Duration;
 
+/// La familia de los trabajos de la guía automática: uno por canción
+/// (`auto-cue-<id>`, `Jobs::start_keyed`).
 pub const AUTO_JOB: &str = "auto-cue";
 
 fn expected(t: impl Into<String>) -> JobError {
@@ -78,6 +81,91 @@ fn median(mut v: Vec<f64>) -> f64 {
 
 type Levels = (Option<Vec<f64>>, Vec<(String, Vec<f64>)>);
 
+/// Cuántas pistas se decodifican a la vez: cada ffmpeg ya es corto, y con
+/// más de cuatro el disco y el procesador no dan más.
+const DECODE_AT_ONCE: usize = 4;
+
+/// Lo fuerte de una pista en cada unidad, recordado: la guía se repite (otra
+/// voz, otra vez, tras mover un compás) con las mismas pistas y los mismos
+/// compases, y decodificar todo de nuevo no cambia nada. La clave es la pista
+/// (ruta, tamaño y fecha) y las unidades (con lo que dan los compases, el
+/// resultado es el mismo número a número).
+static LEVELS: std::sync::LazyLock<std::sync::Mutex<Kept>> =
+    std::sync::LazyLock::new(Default::default);
+type Kept = Vec<(LevelKey, Vec<f64>)>;
+/// Cuántas se recuerdan (por pista y canción: unos pocos KB cada una).
+const LEVELS_KEPT: usize = 128;
+
+type LevelKey = (String, u64, i64, u64);
+
+/// La clave de una pista con unas unidades, o `None` si no se puede mirar.
+fn level_key(path: &str, units: &[(f64, f64)]) -> Option<LevelKey> {
+    use std::hash::{Hash, Hasher};
+    let (size, mtime) = crate::services::tags::stamp(std::path::Path::new(path))?;
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    for (a, b) in units {
+        a.to_bits().hash(&mut h);
+        b.to_bits().hash(&mut h);
+    }
+    Some((path.to_owned(), size, mtime as i64, h.finish()))
+}
+
+fn remembered(key: &LevelKey) -> Option<Vec<f64>> {
+    let kept = LEVELS.lock().unwrap_or_else(PoisonError::into_inner);
+    kept.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone())
+}
+
+fn remember(key: LevelKey, rms: &[f64]) {
+    let mut kept = LEVELS.lock().unwrap_or_else(PoisonError::into_inner);
+    kept.retain(|(k, _)| *k != key);
+    kept.push((key, rms.to_vec()));
+    let over = kept.len().saturating_sub(LEVELS_KEPT);
+    kept.drain(..over);
+}
+
+/// Lo fuerte que suena cada pista (`paths`) en cada unidad, en el mismo
+/// orden: lo recordado, y lo demás decodificado de a `DECODE_AT_ONCE`. `None`
+/// si alguna no se pudo leer.
+fn levels_of(app: &App, paths: &[String], units: &[(f64, f64)]) -> Option<Vec<Vec<f64>>> {
+    let keys: Vec<Option<LevelKey>> = paths.iter().map(|p| level_key(p, units)).collect();
+    let mut out: Vec<Option<Vec<f64>>> = keys
+        .iter()
+        .map(|k| k.as_ref().and_then(remembered))
+        .collect();
+    let missing: Vec<usize> = (0..paths.len()).filter(|i| out[*i].is_none()).collect();
+    for group in missing.chunks(DECODE_AT_ONCE) {
+        let done: Vec<Option<Vec<f64>>> = std::thread::scope(|scope| {
+            let jobs: Vec<_> = group
+                .iter()
+                .map(|&i| {
+                    let path = &paths[i];
+                    scope.spawn(move || {
+                        #[cfg(test)]
+                        DECODED
+                            .lock()
+                            .unwrap_or_else(PoisonError::into_inner)
+                            .push(path.clone());
+                        let Ok(x) = decode(app, path, st::STEM_RATE, st::MAX_SECONDS) else {
+                            log::warn!("no se pudo leer la pista {path}");
+                            return None;
+                        };
+                        Some(st::unit_rms(&x, st::STEM_RATE, units))
+                    })
+                })
+                .collect();
+            jobs.into_iter().map(|j| j.join().ok().flatten()).collect()
+        });
+        for (&i, rms) in group.iter().zip(done) {
+            let rms = rms?;
+            if let Some(key) = keys[i].clone() {
+                remember(key, &rms);
+            }
+            out[i] = Some(rms);
+        }
+    }
+    out.into_iter().collect()
+}
+
 /// Lo fuerte de la voz y de cada instrumento en cada unidad, si la canción
 /// tiene sus pistas separadas enteras.
 fn stem_levels(app: &App, song: &Dict, units: &[(f64, f64)]) -> Option<Levels> {
@@ -86,6 +174,7 @@ fn stem_levels(app: &App, song: &Dict, units: &[(f64, f64)]) -> Option<Levels> {
     }
     let data = stems::info(app, song).filter(|d| d.get("complete").is_some_and(value::truthy))?;
     let mut levels: Vec<(String, Vec<f64>)> = Vec::new();
+    let mut wanted: Vec<(String, String)> = Vec::new();
     for t in data.get("tracks").map(value::list_of).unwrap_or_default() {
         let source = t.get("source").map(value::str_of).unwrap_or_default();
         if !library::stems::SOURCES.iter().any(|(k, _, _)| *k == source)
@@ -93,12 +182,11 @@ fn stem_levels(app: &App, song: &Dict, units: &[(f64, f64)]) -> Option<Levels> {
         {
             continue;
         }
-        let path = t.get("path").map(value::str_of).unwrap_or_default();
-        let Ok(x) = decode(app, &path, st::STEM_RATE, st::MAX_SECONDS) else {
-            log::warn!("no se pudo leer la pista {path}");
-            return None;
-        };
-        let rms = st::unit_rms(&x, st::STEM_RATE, units);
+        wanted.push((source, t.get("path").map(value::str_of).unwrap_or_default()));
+    }
+    let paths: Vec<String> = wanted.iter().map(|(_, p)| p.clone()).collect();
+    let found = levels_of(app, &paths, units)?;
+    for ((source, _), rms) in wanted.into_iter().zip(found) {
         if let Some(slot) = levels.iter_mut().find(|(k, _)| *k == source) {
             slot.1 = rms;
         } else {
@@ -185,32 +273,61 @@ fn analyse(
     Ok(st::name_sections(&chunks, bar))
 }
 
-/// Los «1» de la rejilla del clic de la canción y lo que dura un pulso. La
-/// rejilla es la del análisis (la guardada o, si aún no hay, calculada
-/// ahora), no como se acentúe el clic en el estudio: con «sin acento»
-/// puesto, la interfaz mandaba uno de cada cuatro pulsos, empezara donde
-/// empezara, y las partes caían hasta tres pulsos fuera del «1».
-fn grid_bars(app: &App, song: &Dict) -> Option<(Vec<f64>, f64)> {
+/// Lo que la guía espera al clic de la canción si aún se está calculando
+/// (la red tarda 15-20 s con una canción normal, y puede haber otra
+/// delante). Pasado eso sigue sin él, y lo dice.
+pub const CLICK_WAIT: Duration = Duration::from_secs(180);
+
+/// Los «1» de la rejilla del clic de la canción y lo que dura un pulso, o
+/// por qué no los hay. La rejilla es la del análisis, no como se acentúe el
+/// clic en el estudio: con «sin acento» puesto, la interfaz mandaba uno de
+/// cada cuatro pulsos, empezara donde empezara, y las partes caían hasta
+/// tres pulsos fuera del «1».
+///
+/// Si aún no está, se espera a la cola del clic (`beats::wait_for`, como
+/// mucho `wait`) diciendo por dónde va. Sin compases la canción se parte en
+/// trozos de 2 s y las partes salen distintas, y peor.
+fn grid_bars(
+    app: &App,
+    song: &Dict,
+    wait: Duration,
+    p: &Progress,
+) -> Result<(Vec<f64>, f64), String> {
     let path = song.get("path").map(value::str_of).unwrap_or_default();
     let path = std::path::Path::new(&path);
     if cfg!(test) && !crate::services::beats::safe_in_tests(app, path) {
-        return None;
+        return Err("aquí no hay detector".into());
     }
-    let grid = crate::services::beats::grid_of(app, path).ok()?;
+    let waited = crate::services::beats::wait_for(app, path, wait, &mut |done| {
+        let percent = (done * 100.0).round().clamp(0.0, 100.0);
+        p.message(&format!("Esperando al clic… {percent} %"));
+    });
+    let grid = match waited {
+        Ok(Some(grid)) => grid,
+        Ok(None) => return Err("tarda demasiado".into()),
+        Err(e) => return Err(e.to_string()),
+    };
+    let few = || "el clic tiene muy pocos compases".to_owned();
     let beats: Vec<f64> = grid
-        .get("beats")?
-        .as_array()?
+        .get("beats")
+        .and_then(Value::as_array)
+        .ok_or_else(few)?
         .iter()
         .filter_map(Value::as_f64)
         .collect();
     let bars: Vec<f64> = grid
-        .get("bars")?
-        .as_array()?
+        .get("bars")
+        .and_then(Value::as_array)
+        .ok_or_else(few)?
         .iter()
         .filter_map(|i| i.as_u64().and_then(|i| beats.get(i as usize)).copied())
         .collect();
     let beat = median(beats.windows(2).map(|w| w[1] - w[0]).collect());
-    (bars.len() >= 8 && beat.is_finite() && beat > 0.0).then_some((bars, beat))
+    if bars.len() >= 8 && beat.is_finite() && beat > 0.0 {
+        Ok((bars, beat))
+    } else {
+        Err(few())
+    }
 }
 
 /// Las partes de una secuencia (los localizadores de su proyecto, en
@@ -262,6 +379,9 @@ pub struct AutoGuide {
     pub beat: Option<f64>,
     /// las partes que ya tienen nombre: (inicio, nombre)
     pub sections: Option<Vec<(f64, String)>>,
+    /// lo que se espera al clic si aún se calcula (segundos); sin él,
+    /// `CLICK_WAIT`
+    pub click_wait: Option<f64>,
 }
 
 /// La guía automática de una canción: sus partes y la guía hablada de cada
@@ -271,7 +391,8 @@ pub struct AutoGuide {
 /// De dónde salen las partes (`source`), de lo más fiable a lo menos: las
 /// que se dan hechas (`given`), las de una secuencia (`sequence`), las de la
 /// letra con tiempos (`lyrics`) y, si no hay nada de eso, las del sonido
-/// (`sound`).
+/// (`sound`). Con las dos últimas, `click` dice si se ajustaron a los
+/// compases del clic y, si no, `click_why` por qué no los había.
 pub fn auto_guide(
     app: &App,
     song: &Dict,
@@ -283,6 +404,8 @@ pub fn auto_guide(
         .and_then(value::float_of)
         .unwrap_or(0.0);
     let mut beat = req.beat;
+    // si las partes se ajustaron a los compases del clic (y si no, por qué)
+    let mut click: Option<(bool, String)> = None;
     let (found, source) = if let Some(sections) = req.sections.as_ref().filter(|s| !s.is_empty()) {
         if duration == 0.0 {
             let path = song.get("path").map(value::str_of).unwrap_or_default();
@@ -300,13 +423,21 @@ pub fn auto_guide(
         // los compases: los que mande la interfaz (el clic ajustado a mano)
         // o, lo normal, los de la rejilla del análisis
         let mut bars = req.bars.clone().filter(|b| b.len() >= 8);
+        let mut why = String::new();
         if bars.is_none() {
             p.message("Mirando el clic de la canción…");
-            if let Some((own, pulse)) = grid_bars(app, song) {
-                bars = Some(own);
-                beat = beat.or(Some(pulse));
+            let wait = req
+                .click_wait
+                .map_or(CLICK_WAIT, |s| Duration::from_secs_f64(s.max(0.0)));
+            match grid_bars(app, song, wait, p) {
+                Ok((own, pulse)) => {
+                    bars = Some(own);
+                    beat = beat.or(Some(pulse));
+                }
+                Err(e) => why = e,
             }
         }
+        click = Some((bars.is_some(), why));
         p.message("Buscando la letra…");
         match lyric_parts(app, song, bars.as_deref().unwrap_or(&[]), duration) {
             Some(parts) => (st::given(&parts, duration), "lyrics"),
@@ -355,9 +486,20 @@ pub fn auto_guide(
             })
         })
         .collect();
-    Ok(json!({
+    let mut out = json!({
         "sections": found.iter().map(section).collect::<Vec<_>>(),
         "cues": cues,
         "source": source,
-    }))
+    });
+    if let Some((with_click, why)) = click {
+        out["click"] = with_click.into();
+        if !with_click && !why.is_empty() {
+            out["click_why"] = why.into();
+        }
+    }
+    Ok(out)
 }
+
+/// Las pistas que se decodificaron, para las pruebas.
+#[cfg(test)]
+pub(crate) static DECODED: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());

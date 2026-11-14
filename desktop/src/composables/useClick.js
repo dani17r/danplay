@@ -53,8 +53,12 @@ function within(promise, ms) {
   })
   return Promise.race([promise, late]).finally(() => clearTimeout(timer))
 }
-/** Cuántas de las siguientes de la cola se dejan preparadas. */
-export const AHEAD = 3
+/**
+ * Cuántas de las siguientes de la lista se dejan preparadas: un repertorio o
+ * un disco enteros. Eran 3 (y la cola del núcleo, de 6): a la cuarta canción
+ * de un ensayo había que esperar otra vez los 15-20 s.
+ */
+export const AHEAD = 60
 
 function readPref(key, fallback) {
   try {
@@ -120,6 +124,11 @@ const error = ref('')
  * es un fallo. Antes no se decía, y el «1» a contrapié parecía cosa del clic.
  */
 const fallbackWhy = ref('')
+/**
+ * Re-analizando con la batería separada: lo que lleva la red con ella
+ * (0..1), o null si no se está en eso.
+ */
+const reanalyzing = ref(/** @type {number|null} */ (null))
 /** Cuándo se empezó a pedir la rejilla de la que suena. */
 let askedAt = 0
 
@@ -131,6 +140,8 @@ let settingsFor = /** @type {number|null} */ (null)
 let viewers = 0
 /** Tras qué canción se prepararon ya las siguientes (una vez por canción). */
 let aheadOf = /** @type {number|null} */ (null)
+/** Las que ya se dejaron pedidas al núcleo: por ellas no se vuelve a preguntar. */
+const prepared = new Set()
 let pollTimer = /** @type {ReturnType<typeof setTimeout>|null} */ (null)
 let started = false
 
@@ -204,6 +215,8 @@ async function settle(g, from) {
   loading.value = false
   progress.value = g ? 1 : 0
   if (!g && !error.value) error.value = 'no se encontró el pulso'
+  // la de esta ya está: no hay que dejarla preparada desde otra canción
+  if (g && forSong.id != null) prepared.add(forSong.id)
   await player().setMetronome(wanted.value ? { on: true } : {})
   if (wanted.value) prepareAhead()
 }
@@ -331,25 +344,67 @@ async function reload(fresh = null) {
   return true
 }
 
-/** Las siguientes de la cola, preparadas (sin aleatorio: ahí no se sabe cuál). */
+/**
+ * «Re-analizar el clic» de una canción. Con la batería separada, la red
+ * tiene que oírla antes (15-20 s la primera vez): antes se esperaba dentro
+ * de la petición, sin avance a la vista. Ahora el núcleo la pone en su cola
+ * y contesta por dónde va (`pending`); aquí se pregunta cada poco, se
+ * enseña (`reanalyzing`) y se devuelve la respuesta de verdad cuando llega.
+ * @param {number} id
+ * @param {{mode: string, start?: number, end?: number}} opts
+ */
+async function reanalyze(id, opts) {
+  if (opts.mode !== 'drums') return api.reanalyzeBeats(id, opts)
+  const since = Date.now()
+  try {
+    for (;;) {
+      const r = await api.reanalyzeBeats(id, { ...opts, wait: false })
+      if (!r?.pending) return r
+      // el mismo plazo que la carga del clic: el núcleo corta al detector
+      if (Date.now() - since > LOAD_LIMIT_MS) throw new Error('tarda demasiado')
+      reanalyzing.value = Math.max(reanalyzing.value ?? 0, Number(r.progress) || 0)
+      await new Promise((resolve) => setTimeout(resolve, POLL_MS))
+    }
+  } finally {
+    reanalyzing.value = null
+  }
+}
+
+/**
+ * La lista que suena, preparada: las de detrás de esta primero (son las que
+ * vienen) y después las del principio, hasta `AHEAD`, en una sola petición.
+ * El núcleo las deja en su cola (la que ya está guardada no cuesta nada) y
+ * dice cuáles no pudo (`left`): esas se piden otra vez más adelante.
+ *
+ * En aleatorio no se sabe cuál viene: una lista que cabe entera se prepara
+ * igual (vendrán todas); de una más larga no se prepara nada, que sería
+ * pasar la red por canciones al azar.
+ */
 function prepareAhead() {
   const p = player()
-  if (!auto.value || p.shuffle.value || aheadOf === forSong.id) return
+  if (!auto.value || aheadOf === forSong.id) return
   aheadOf = forSong.id
   const list = p.queue.value
   const at = p.state.index
   if (!Array.isArray(list) || at < 0) return
-  for (let k = 1; k <= AHEAD; k++) {
-    let i = at + k
-    if (i >= list.length) {
-      if (p.repeat.value !== 'list') break
-      i -= list.length
-    }
-    const next = list[i]
-    if (next?.id != null && next.id !== forSong.id) {
-      api.beatGridPrepare(next.id).catch(() => {})
-    }
+  if (p.shuffle.value && list.length > AHEAD + 1) return
+  /** @type {number[]} */
+  const ids = []
+  for (let k = 1; k < list.length && k <= AHEAD; k++) {
+    const id = list[(at + k) % list.length]?.id
+    if (id != null && id !== forSong.id && !prepared.has(id) && !ids.includes(id)) ids.push(id)
   }
+  if (!ids.length) return
+  for (const id of ids) prepared.add(id)
+  api
+    .beatGridPrepare(ids[0], ids.slice(1))
+    .then((r) => {
+      if (r?.queued === false) prepared.delete(ids[0])
+      for (const id of r?.left || []) prepared.delete(id)
+    })
+    .catch(() => {
+      for (const id of ids) prepared.delete(id)
+    })
 }
 
 /** Pedir o quitar el clic. En automático, mientras carga, no hace nada. */
@@ -517,7 +572,9 @@ export function useClick() {
     watchGrid,
     songSettings,
     /** la rejilla de la que suena, otra vez: se re-analizó y cambió */
-    reload
+    reload,
+    reanalyze,
+    reanalyzing
   }
 }
 
@@ -535,9 +592,11 @@ export function resetClick() {
   progress.value = 0
   error.value = ''
   fallbackWhy.value = ''
+  reanalyzing.value = null
   askedAt = 0
   forSong = { id: null, path: '' }
   settingsFor = null
   viewers = 0
   aheadOf = null
+  prepared.clear()
 }

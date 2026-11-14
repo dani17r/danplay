@@ -26,7 +26,8 @@ import {
   useClick,
   POLL_MS,
   LOAD_LIMIT_MS,
-  ANSWER_MS
+  ANSWER_MS,
+  AHEAD
 } from '../src/composables/useClick.js'
 import { ApiError } from '../src/api.js'
 import { song } from './support/backend.js'
@@ -178,7 +179,8 @@ describe('automatic click', () => {
     await click.toggle()
     await settle()
     expect(bridge().setMetronome).toHaveBeenLastCalledWith(expect.objectContaining({ on: true }))
-    expect(held.api.beatGridPrepare.mock.calls.map((c) => c[0])).toEqual([8, 9, 10])
+    // toda la lista de una vez: la siguiente, y con ella las demás
+    expect(held.api.beatGridPrepare.mock.calls).toEqual([[8, [9, 10, 11]]])
     vi.clearAllMocks()
     held.playback.emit({ ...other, path: '/musica/otra.mp3', index: 1 })
     await settle()
@@ -186,10 +188,45 @@ describe('automatic click', () => {
     expect(bridge().setMetronome).toHaveBeenCalledWith(expect.objectContaining({ meter: 3 }))
     expect(bridge().setBeatGrid).toHaveBeenCalledWith('/musica/otra.mp3', expect.anything())
     expect(bridge().setMetronome).toHaveBeenLastCalledWith(expect.objectContaining({ on: true }))
-    expect(held.api.beatGridPrepare.mock.calls.map((c) => c[0])).toEqual([9, 10, 11])
+    // ya estaban pedidas: no se pregunta otra vez por ellas
+    expect(held.api.beatGridPrepare).not.toHaveBeenCalled()
   })
 
-  it('on shuffle nothing is prepared: the next one is unknown', async () => {
+  it('a whole setlist is left prepared, and what could not be is asked for again', async () => {
+    // se preparaban las 3 siguientes: a la cuarta canción del ensayo había
+    // que esperar otra vez al clic
+    held.state.songs = Array.from({ length: 30 }, (_, i) => song(7 + i, { title: 'Canción ' + i }))
+    held.api.beatGridPrepare.mockImplementation(async () => ({ queued: true, left: [20] }))
+    const player = usePlayback()
+    await player.ready()
+    await player.setQueue(held.state.songs, 7)
+    held.playback.emit({ path: '/musica/mi-gozo.mp3' })
+    await settle()
+    await useClick().toggle()
+    await settle()
+    const rest = Array.from({ length: 28 }, (_, i) => 9 + i)
+    expect(held.api.beatGridPrepare.mock.calls).toEqual([[8, rest]])
+    // en la siguiente canción, solo la que el núcleo no pudo dejar
+    held.api.beatGridPrepare.mockClear()
+    held.playback.emit({ ...other, path: '/musica/otra.mp3', index: 1 })
+    await settle()
+    expect(held.api.beatGridPrepare.mock.calls).toEqual([[20, []]])
+  })
+
+  it('of a very long list, the next ones: not the whole library', async () => {
+    held.state.songs = Array.from({ length: 200 }, (_, i) => song(7 + i, { title: 'Canción ' + i }))
+    const player = usePlayback()
+    await player.ready()
+    await player.setQueue(held.state.songs, 7)
+    held.playback.emit({ path: '/musica/mi-gozo.mp3' })
+    await settle()
+    await useClick().toggle()
+    await settle()
+    const [first, others] = held.api.beatGridPrepare.mock.calls[0]
+    expect([first, ...others]).toEqual(Array.from({ length: AHEAD }, (_, i) => 8 + i))
+  })
+
+  it('on shuffle a short list is prepared whole, and of a long one nothing: the next is unknown', async () => {
     const player = usePlayback()
     await player.ready()
     await player.setQueue(held.state.songs, 7)
@@ -198,6 +235,16 @@ describe('automatic click', () => {
     await useClick().toggle()
     await settle()
     expect(bridge().setMetronome).toHaveBeenLastCalledWith(expect.objectContaining({ on: true }))
+    expect(held.api.beatGridPrepare.mock.calls).toEqual([[8, []]])
+    // una lista larga: no se pasa la red por canciones al azar
+    resetClick()
+    held.api.beatGridPrepare.mockClear()
+    held.state.songs = Array.from({ length: 200 }, (_, i) => song(7 + i, { title: 'Canción ' + i }))
+    await player.setQueue(held.state.songs, 7)
+    held.playback.emit({ path: '/musica/mi-gozo.mp3', shuffle: true })
+    await settle()
+    await useClick().toggle()
+    await settle()
     expect(held.api.beatGridPrepare).not.toHaveBeenCalled()
   })
 
@@ -339,6 +386,16 @@ describe('re-analysing the click', () => {
     expect(useClick().loading.value).toBe(false)
   })
 
+  it('«Solo con la canción» undoes what the separated drums added', async () => {
+    // al separar, DanPlay rellena solo los huecos sin clic con la batería: el
+    // menú tiene con qué quitarlo (modo «mix», sin esperar a la red)
+    held.api.reanalyzeBeats = vi.fn(async () => ({ ...FIXED, grid: FIXED, report: { fixed: 6 } }))
+    const w = await mountView()
+    await reanalyze(w, 'Solo con la canción')
+    expect(held.api.reanalyzeBeats).toHaveBeenCalledWith(7, { mode: 'mix' })
+    expect(lastGrid().bpm).toBe(120)
+  })
+
   it('without the grid in the answer, it is asked for again', async () => {
     held.api.reanalyzeBeats = vi.fn(async () => {
       held.state.beatGrid = { ...FIXED }
@@ -360,6 +417,45 @@ describe('re-analysing the click', () => {
     await reanalyze(w, 'Arreglar huecos y saltos')
     expect(bridge().setMetronome).toHaveBeenLastCalledWith(expect.objectContaining({ on: true }))
     for (const [sent] of bridge().setMetronome.mock.calls) expect(sent.on).not.toBe(false)
+  })
+
+  it('with the separated drums it does not wait inside the request: it asks, and shows how far', async () => {
+    // la red se pasaba por la batería dentro de la petición: 15-20 s sin
+    // avance a la vista
+    const answers = [
+      { pending: true, progress: 0 },
+      { pending: true, progress: 0.5 },
+      { ...FIXED, grid: FIXED, report: { fixed: 4 } }
+    ]
+    const shown = []
+    held.api.reanalyzeBeats = vi.fn(async () => {
+      shown.push(useClick().reanalyzing.value)
+      return answers.shift()
+    })
+    const w = await mountView()
+    vi.useFakeTimers()
+    try {
+      const { menu } = useContextMenu()
+      const button = w.findAll('button').find((b) => b.text().includes('Re-analizar'))
+      await button.trigger('click')
+      const done = menu.value.items.find((i) => i.label === 'Con la batería separada').action()
+      await vi.advanceTimersByTimeAsync(0)
+      expect(w.text()).toContain('oyendo la batería separada… 0 %')
+      await vi.advanceTimersByTimeAsync(POLL_MS)
+      expect(w.text()).toContain('oyendo la batería separada… 50 %')
+      expect(w.find('.tl-click-load').exists()).toBe(true)
+      await vi.advanceTimersByTimeAsync(POLL_MS)
+      await done
+    } finally {
+      vi.useRealTimers()
+    }
+    await settle()
+    expect(held.api.reanalyzeBeats).toHaveBeenCalledTimes(3)
+    expect(held.api.reanalyzeBeats).toHaveBeenCalledWith(7, { mode: 'drums', wait: false })
+    expect(shown).toEqual([null, 0, 0.5])
+    expect(lastGrid().bpm).toBe(120)
+    expect(useClick().reanalyzing.value).toBe(null)
+    expect(w.text()).not.toContain('oyendo la batería')
   })
 
   it('with a hand-adjusted click, that one keeps playing', async () => {

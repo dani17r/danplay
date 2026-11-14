@@ -384,6 +384,85 @@ describe('the automatic cue', () => {
     expect(body.cueLanes[0]).toMatchObject({ name: 'Partes', auto: true })
   })
 
+  it('asks for the job of this song, and a result of another song is not placed', async () => {
+    // el trabajo se llamaba igual para todas: las partes de otra canción
+    // podían llegar como si fueran de esta
+    const { useNotices } = await import('../src/composables/useNotices.js')
+    prepare()
+    localStorage.setItem('danplay.cues.voice', JSON.stringify('st-F1'))
+    held.api.runJob.mockImplementation(async (start) => {
+      await start()
+      return { ...result, song: 99 }
+    })
+    const w = await mountView()
+    await w.find('.study-auto-guide').trigger('click')
+    await flushPromises()
+    expect(held.api.runJob.mock.calls.at(-1)[1]).toBe('auto-cue-7')
+    expect(w.findAll('.tl-guide-clip')).toHaveLength(0)
+    expect(useNotices().notices.value.at(-1).message).toContain('la guía de otra canción')
+    // la suya sí
+    held.api.runJob.mockImplementation(async (start) => {
+      await start()
+      return { ...result, song: 7 }
+    })
+    await w.find('.study-auto-guide').trigger('click')
+    await flushPromises()
+    expect(w.findAll('.tl-guide-clip')).toHaveLength(2)
+  })
+
+  it('says it is waiting for the click, and when the guide came out without it', async () => {
+    // pulsada antes de que cargue el clic, la guía salía a trozos de 2 s sin
+    // que nada lo dijera
+    const { useNotices } = await import('../src/composables/useNotices.js')
+    prepare()
+    localStorage.setItem('danplay.cues.voice', JSON.stringify('st-F1'))
+    let finish
+    held.api.runJob.mockImplementation(async (start, _name, options) => {
+      await start()
+      options?.onProgress?.({ active: true, message: 'Esperando al clic… 40 %' })
+      options?.onProgress?.({ active: true, message: 'Esperando al clic… 60 %' })
+      await new Promise((r) => (finish = r))
+      return { ...result, source: 'sound', click: false, click_why: 'tarda demasiado' }
+    })
+    const w = await mountView()
+    await w.find('.study-auto-guide').trigger('click')
+    await flushPromises()
+    const said = () => useNotices().notices.value.map((n) => n.message)
+    expect(said().filter((m) => m.includes('Esperando al clic'))).toHaveLength(1)
+    expect(w.find('.study-auto-guide').attributes('title')).toBe('Esperando al clic… 60 %')
+    finish()
+    await flushPromises()
+    expect(said().at(-1)).toContain('Sin el clic de la canción (tarda demasiado)')
+    expect(w.find('.study-auto-guide').attributes('title')).not.toContain('Esperando')
+  })
+
+  it('with a hand-set tempo, the guide gets the bars of the click that sounds', async () => {
+    // el clic a mano es el que suena: la guía partía la canción por la
+    // rejilla detectada, que es justo la que se corrigió
+    prepare()
+    localStorage.setItem('danplay.cues.voice', JSON.stringify('st-F1'))
+    const w = await mountView()
+    await held.playback.bridge.setMetronome({ bpm: 60 })
+    await flushPromises()
+    await w.find('.study-auto-guide').trigger('click')
+    await flushPromises()
+    const body = held.api.autoCues.mock.calls.at(-1)[1]
+    // 60 bpm en 4/4: un compás cada 4 s, desde el primer «1» de la canción
+    expect(body.beat).toBe(1)
+    expect(body.bars.slice(0, 3)).toEqual([
+      expect.any(Number),
+      expect.any(Number),
+      expect.any(Number)
+    ])
+    expect(body.bars[1] - body.bars[0]).toBeCloseTo(4, 3)
+    // siguiendo la canción otra vez, no manda nada: lo saca el núcleo
+    await held.playback.bridge.setMetronome({ bpm: null })
+    await flushPromises()
+    await w.find('.study-auto-guide').trigger('click')
+    await flushPromises()
+    expect(held.api.autoCues.mock.calls.at(-1)[1]).toEqual({ voice: 'st-F1' })
+  })
+
   it('the bars come from the core, not from how the click is accented', async () => {
     // con «sin acento» no se ve ningún «1»: se mandaba uno de cada cuatro
     // pulsos, empezara donde empezara, y las partes caían fuera de su sitio

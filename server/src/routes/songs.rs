@@ -172,30 +172,59 @@ fn song_beats(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let app = ctx.app;
     let c = resolved_file(app, cid, "archivo no encontrado")?;
     let path = path_of(&c);
+    if !wait {
+        // lo que se pregunta cada 700 ms mientras carga: todo de una vez
+        return match beats::peek(app, &path, true).map_err(beats_error)? {
+            beats::Peek::Ready(grid) => Ok(grid.into()),
+            beats::Peek::Pending(done) => {
+                Ok(Response::json(202, &json!({"pending": true, "progress": done})).into())
+            }
+            beats::Peek::Unavailable(reason) => Err(ApiError::http(503, reason)),
+        };
+    }
     let reason = beats::available(app);
     if !reason.is_empty() && !beats::cached(app, &path) {
         return Err(ApiError::http(503, reason));
     }
-    if wait {
-        let grid = beats::grid_of(app, &path).map_err(beats_error)?;
-        return Ok(grid.into());
-    }
-    if let Some(grid) = beats::request(app, &path, true).map_err(beats_error)? {
-        return Ok(grid.into());
-    }
-    let done = beats::progress(&path).unwrap_or(0.0);
-    Ok(Response::json(202, &json!({"pending": true, "progress": done})).into())
+    let grid = beats::grid_of(app, &path).map_err(beats_error)?;
+    Ok(grid.into())
 }
+
+/// Las que caben en una petición de preparar el clic (una lista entera).
+const MAX_PREPARED: usize = 500;
 
 /// Deja calculándose, detrás, la rejilla de una canción que vendrá después.
+/// Con `ids`, también las de esas (una lista o un disco enteros, en su
+/// orden): `left` son las que no se pudieron dejar (no están, aquí no hay
+/// detector, ya fallaron o no caben en la cola).
 fn song_beats_prepare(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let cid = ctx.path().int("cid").required();
-    ctx.check()?;
+    let mut b = ctx.opt_body()?;
+    let ids = b
+        .as_mut()
+        .map(|b| b.int_list("ids").max_items(MAX_PREPARED).or(Vec::new()));
+    ctx.done_with(b)?;
     let c = resolved_file(ctx.app, cid, "archivo no encontrado")?;
-    Ok(json!({"queued": beats::prepare(ctx.app, &path_of(&c))}).into())
+    let queued = beats::prepare(ctx.app, &path_of(&c));
+    let Some(ids) = ids else {
+        return Ok(json!({"queued": queued}).into());
+    };
+    let left: Vec<i64> = ids
+        .into_iter()
+        .filter(|id| {
+            !matches!(
+                songs::resolve(ctx.app, *id),
+                Ok(Some(c)) if songs::exists(&c) && beats::prepare(ctx.app, &path_of(&c))
+            )
+        })
+        .collect();
+    Ok(json!({"queued": queued, "left": left}).into())
 }
 
-/// «Re-analizar el clic», de toda la canción o de un tramo.
+/// «Re-analizar el clic», de toda la canción o de un tramo. Con
+/// `wait=false`, lo que tarda (pasar la red por la batería separada) no se
+/// espera dentro de la petición: va por la cola, y mientras tanto contesta
+/// 202 con por dónde va; se vuelve a pedir hasta que sale la rejilla.
 fn song_beats_reanalyze(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let cid = ctx.path().int("cid").required();
     let mut b = ctx.body()?;
@@ -203,6 +232,7 @@ fn song_beats_reanalyze(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let start = b.float("start").ge(0).opt();
     let end = b.float("end").gt(0).opt();
     let bpm = b.float("bpm").ge(20).le(300).opt();
+    let wait = b.bool("wait").or(true);
     ctx.done(b)?;
     let c = resolved_file(ctx.app, cid, "archivo no encontrado")?;
     if let (Some(s), Some(e)) = (start, end)
@@ -213,8 +243,14 @@ fn song_beats_reanalyze(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
             "un tramo necesita su principio y su final",
         ));
     }
-    let grid =
-        beats::reanalyze(ctx.app, &path_of(&c), &mode, start, end, bpm).map_err(beats_error)?;
+    let path = path_of(&c);
+    if !wait
+        && mode == "drums"
+        && let Some(done) = beats::drums_pending(ctx.app, &path).map_err(beats_error)?
+    {
+        return Ok(Response::json(202, &json!({"pending": true, "progress": done})).into());
+    }
+    let grid = beats::reanalyze(ctx.app, &path, &mode, start, end, bpm).map_err(beats_error)?;
     let report = grid
         .get("report")
         .filter(|r| value::truthy(r))

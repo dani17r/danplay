@@ -28,9 +28,24 @@ pub(crate) fn set_graph(path: &Path) {
     *GRAPH.lock().unwrap_or_else(PoisonError::into_inner) = Some(path.to_path_buf());
 }
 
+/// Cuántas veces se miró si hay detector y cuántas se leyó la rejilla
+/// guardada (`beats::available`, `saved`, `cached`).
+pub(super) static AVAILABLE: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+pub(super) static READS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// Si la prueba que corre quiere que acabar de separar una canción deje la
+/// batería oyéndose (`after_separation`).
+static HOOK: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub(super) fn hook_enabled() -> bool {
+    HOOK.load(std::sync::atomic::Ordering::SeqCst)
+}
+
 /// La cola vacía, sin fallos apuntados, sin detector ni grafo de prueba y
 /// con el hilo andando.
 fn reset() {
+    HOOK.store(false, std::sync::atomic::Ordering::SeqCst);
     {
         let mut q = QUEUE.lock().unwrap_or_else(PoisonError::into_inner);
         q.waiting.clear();
@@ -62,10 +77,10 @@ impl Drop for Serial {
 
 /// El hilo de la cola, parado mientras viva: lo que se pide se queda en la
 /// cola, tal cual.
-struct Paused;
+pub(crate) struct Paused;
 
 impl Paused {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         QUEUE.lock().unwrap_or_else(PoisonError::into_inner).paused = true;
         Self
     }
@@ -81,7 +96,7 @@ impl Drop for Paused {
 /// Lo que hay en la cola, en orden.
 fn waiting() -> Vec<String> {
     let q = QUEUE.lock().unwrap_or_else(PoisonError::into_inner);
-    q.waiting.iter().map(|(p, _)| p.clone()).collect()
+    q.waiting.iter().map(|w| w.path.clone()).collect()
 }
 
 // ---------------------------------------------------------------- el detector
@@ -108,11 +123,20 @@ fn heard(path: &Path, late: f64) {
     analysis::pulse::raw::save(path, &beat, &down, &low, 100.0, seconds).expect("crudo");
 }
 
+/// Lo que oiría la red sobre una batería que no toca: ni un pulso.
+fn mute(path: &Path) {
+    let (fps, seconds) = (50.0, 30.0);
+    let frames = (seconds * fps) as usize;
+    let quiet = vec![-6.0f64; frames];
+    let low = vec![0.0; (seconds * 100.0) as usize];
+    analysis::pulse::raw::save(path, &quiet, &quiet, &low, 100.0, seconds).expect("crudo");
+}
+
 /// El detector de mentira: apunta cada canción con que se le llama, dice su
 /// avance antes de la respuesta, falla con las «sin-pulso.mp3» y, con las
 /// demás, deja lo que oiría la red (en la batería, 4 ms después). Con su
 /// grafo de mentira.
-struct Detector {
+pub(crate) struct Detector {
     calls: PathBuf,
     dir: PathBuf,
     _serial: Serial,
@@ -120,13 +144,15 @@ struct Detector {
 
 impl Detector {
     /// `None` si aquí no hay ffmpeg (sin él no hay clic: `available`).
-    fn start(app: &App) -> Option<Self> {
+    pub(crate) fn start(app: &App) -> Option<Self> {
         let serial = serial();
         app.tool("ffmpeg")?;
         let dir = crate::tests::scratch("detector");
         let (steady, late) = (dir.join("oido.npz"), dir.join("oido-tarde.npz"));
+        let silent = dir.join("oido-mudo.npz");
         heard(&steady, 0.0);
         heard(&late, 0.004);
+        mute(&silent);
         let calls = dir.join("llamadas.txt");
         let script = dir.join("detector.sh");
         let q = |p: &Path| format!("'{}'", p.display());
@@ -138,12 +164,14 @@ impl Detector {
                  echo '{{\"progress\": 0.5}}'\n\
                  case \"$path\" in\n\
                  *sin-pulso.mp3) echo '{{\"error\": \"la cancion no tiene pulso claro\"}}'; exit 1 ;;\n\
+                 *muda*) cp {silent} \"$4\" ;;\n\
                  *bateria*) cp {late} \"$4\" ;;\n\
                  *) cp {steady} \"$4\" ;;\n\
                  esac\n\
                  echo '{{\"ok\": true}}'\n",
                 calls = q(&calls),
                 late = q(&late),
+                silent = q(&silent),
                 steady = q(&steady),
             ),
         )
@@ -160,7 +188,7 @@ impl Detector {
     }
 
     /// Las canciones con que se le llamó, en orden.
-    fn calls(&self) -> Vec<String> {
+    pub(crate) fn calls(&self) -> Vec<String> {
         std::fs::read_to_string(&self.calls)
             .map(|t| t.lines().map(str::to_owned).collect())
             .unwrap_or_default()
@@ -282,7 +310,7 @@ fn the_progress_lines_are_not_taken_for_the_answer() {
         assert_eq!(request(&app, &other, true).expect("pedir"), None);
         let q = QUEUE.lock().unwrap_or_else(PoisonError::into_inner);
         assert!(q.progress.is_empty());
-        assert!(q.waiting.iter().any(|(p, _)| *p == text_of(&other)));
+        assert!(q.waiting.iter().any(|w| w.path == text_of(&other)));
     }
     assert!(idle(Duration::from_secs(30)));
     assert_eq!(progress(&other), None);
@@ -334,6 +362,96 @@ fn what_is_needed_now_goes_before_what_comes_later() {
     }
     assert!(idle(Duration::from_secs(30)));
     assert_eq!(d.calls(), [&now, &later, &after].map(|p| text_of(p)));
+}
+
+#[test]
+fn a_whole_setlist_fits_in_the_queue_and_what_does_not_fit_is_said() {
+    // la cola era de 6: de un repertorio de 40 se preparaban 6 y las demás
+    // se tiraban contestando que quedaban en cola
+    let app = crate::tests::app();
+    let Some(d) = Detector::start(&app) else {
+        return;
+    };
+    let _paused = Paused::new();
+    let list: Vec<PathBuf> = (0..40)
+        .map(|i| d.file(&format!("lista-{i:02}.mp3"), format!("{i}").as_bytes()))
+        .collect();
+    assert!(list.iter().all(|song| prepare(&app, song)));
+    assert_eq!(
+        waiting(),
+        list.iter().map(|p| text_of(p)).collect::<Vec<_>>()
+    );
+    // la que suena va delante, y no echa a ninguna
+    let now = d.file("ahora.mp3", b"a");
+    assert_eq!(request(&app, &now, true).expect("pedir"), None);
+    assert_eq!(waiting().len(), 41);
+    assert_eq!(waiting()[0], text_of(&now));
+    // prepararla otra vez no le quita el sitio a la que ya espera
+    assert!(prepare(&app, &now) && prepare(&app, &list[3]));
+    assert_eq!(waiting()[0], text_of(&now));
+    assert_eq!(waiting()[4], text_of(&list[3]));
+    // se salta a otra de la lista: pasa delante, sin duplicarse
+    assert_eq!(request(&app, &list[30], true).expect("pedir"), None);
+    assert_eq!(waiting()[..2], [text_of(&list[30]), text_of(&now)]);
+    assert_eq!(waiting().len(), 41);
+    // llena, lo de después no entra y se dice; lo de ahora entra siempre
+    let extra: Vec<bool> = (0..MAX_QUEUE)
+        .map(|i| prepare(&app, &d.file(&format!("mas-{i}.mp3"), b"m")))
+        .collect();
+    assert_eq!(waiting().len(), MAX_QUEUE);
+    assert_eq!(extra.iter().filter(|fit| **fit).count(), MAX_QUEUE - 41);
+    assert_eq!(extra.last(), Some(&false), "no cabe, y no dice que sí");
+    let urgent = d.file("urgente.mp3", b"u");
+    assert_eq!(request(&app, &urgent, true).expect("pedir"), None);
+    assert_eq!(waiting().len(), MAX_QUEUE);
+    assert_eq!(waiting()[0], text_of(&urgent));
+    // (la prueba no pasa el detector por quinientas canciones)
+    QUEUE
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .waiting
+        .clear();
+}
+
+#[test]
+fn the_api_prepares_a_whole_list_at_once() {
+    let Some(app) = api_library() else {
+        return;
+    };
+    let Some(d) = Detector::start(&app) else {
+        return;
+    };
+    let ids = first_ids(&app, 3);
+    let path_of = |id: i64| {
+        let row = crate::services::songs::by_id(&app, id)
+            .expect("base")
+            .expect("canción");
+        crate::services::songs::text(&row, "path")
+    };
+    {
+        let _paused = Paused::new();
+        let (st, v) = call(
+            &app,
+            "POST",
+            &format!("/api/song/{}/beats/prepare", ids[0]),
+            Some(json!({"ids": [ids[1], ids[2], 999_999, ids[1]]})),
+        );
+        // la que no está no se puede dejar preparada, y se dice
+        assert_eq!((st, v), (200, json!({"queued": true, "left": [999_999]})));
+        assert_eq!(waiting(), [ids[0], ids[1], ids[2]].map(path_of));
+    }
+    assert!(idle(Duration::from_secs(30)));
+    assert_eq!(d.calls().len(), 3);
+    // ya guardadas: no hay nada que hacer, y nada queda fuera
+    let (st, v) = call(
+        &app,
+        "POST",
+        &format!("/api/song/{}/beats/prepare", ids[0]),
+        Some(json!({"ids": [ids[1], ids[2]]})),
+    );
+    assert_eq!((st, v), (200, json!({"queued": true, "left": []})));
+    assert!(waiting().is_empty());
+    assert_eq!(d.calls().len(), 3);
 }
 
 #[test]
@@ -517,6 +635,148 @@ fn the_api_without_waiting_and_preparing_the_next() {
 }
 
 #[test]
+fn asking_how_the_grid_goes_looks_once_for_the_detector_and_once_at_the_file() {
+    // Mientras carga, la interfaz pregunta cada 700 ms: cada pregunta miraba
+    // dos veces si están ONNX, ffmpeg y el grafo (o leía dos veces el JSON
+    // guardado) y hacía la clave del archivo otra vez.
+    use std::sync::atomic::Ordering::SeqCst;
+    let Some(app) = api_library() else {
+        return;
+    };
+    let Some(_d) = Detector::start(&app) else {
+        return;
+    };
+    let ids = first_ids(&app, 1);
+    let url = format!("/api/song/{}/beats?wait=false", ids[0]);
+    let looks = || (AVAILABLE.load(SeqCst), READS.load(SeqCst));
+    let ask = |url: &str| {
+        let before = looks();
+        let (st, v) = call(&app, "GET", url, None);
+        let after = looks();
+        ((st, v), (after.0 - before.0, after.1 - before.1))
+    };
+    {
+        // sin guardar: queda en la cola y dice por dónde va
+        let _paused = Paused::new();
+        for _ in 0..3 {
+            let ((st, v), used) = ask(&url);
+            assert_eq!((st, &v["pending"]), (202, &json!(true)), "{v}");
+            assert_eq!(used, (1, 1), "una vez el detector y una el archivo");
+        }
+    }
+    assert!(idle(Duration::from_secs(30)));
+    // ya guardada: sale de lo guardado, sin mirar el detector siquiera
+    let ((st, v), used) = ask(&url);
+    assert_eq!((st, &v["meter"]), (200, &json!(4)), "{v}");
+    assert_eq!(used, (0, 1));
+}
+
+/// Un archivo en la carpeta del pulso con esa clave (`.json` o `.npz`), de
+/// hace `days` días.
+fn old_entry(app: &App, name: &str, days: u64) -> PathBuf {
+    let dir = app.config().data_dir.join("beats");
+    std::fs::create_dir_all(&dir).expect("carpeta");
+    let file = dir.join(name);
+    std::fs::write(&file, b"x").expect("archivo");
+    let at = std::time::SystemTime::now() - Duration::from_secs(days * 86_400);
+    std::fs::File::options()
+        .write(true)
+        .open(&file)
+        .and_then(|f| f.set_times(std::fs::FileTimes::new().set_modified(at)))
+        .expect("fecha");
+    file
+}
+
+#[test]
+fn what_was_heard_of_files_that_are_gone_is_cleaned_up_after_a_while() {
+    // la carpeta del pulso no se limpiaba nunca: análisis de baterías sin su
+    // rejilla, de canciones que ya no existen o cambiadas por fuera
+    let app = crate::tests::app();
+    let Some(d) = Detector::start(&app) else {
+        return;
+    };
+    let song = d.file("viva.mp3", b"viva");
+    let drums = d.file("bateria.flac", b"bateria");
+    let (song_key, drums_key) = (
+        key_of(&song).expect("clave"),
+        key_of(&drums).expect("clave"),
+    );
+    let known = [text_of(&song), text_of(&drums)];
+    // lo que está vivo, aunque tenga años (una batería solo tiene su .npz)
+    let alive: Vec<PathBuf> = [
+        format!("{song_key}.json"),
+        format!("{song_key}.npz"),
+        format!("{drums_key}.npz"),
+    ]
+    .iter()
+    .map(|n| old_entry(&app, n, 400))
+    .collect();
+    // lo de una canción que ya no está: se va, con su rejilla y lo que oyó la red
+    let gone: Vec<PathBuf> = ["a".repeat(40) + ".json", "a".repeat(40) + ".npz"]
+        .iter()
+        .map(|n| old_entry(&app, n, 45))
+        .collect();
+    // una que no se ve desde hace poco (el disco sin enchufar): se espera
+    let recent = old_entry(&app, &("b".repeat(40) + ".npz"), 3);
+    // lo que no es de aquí no se toca
+    let other = old_entry(&app, "LEEME.txt", 400);
+    assert_eq!(prune(&app, &known), 2);
+    assert!(alive.iter().all(|f| f.is_file()), "lo vivo se queda");
+    assert!(
+        gone.iter().all(|f| !f.exists()),
+        "lo de lo que ya no está, fuera"
+    );
+    assert!(recent.is_file(), "lo reciente espera");
+    assert!(other.is_file(), "lo que no es del pulso, tal cual");
+    // sin saber qué archivos hay (una biblioteca sin montar), nada se borra
+    let lost = old_entry(&app, &("c".repeat(40) + ".json"), 400);
+    assert_eq!(prune(&app, &[]), 0);
+    assert_eq!(prune(&app, &["/no/esta.mp3".to_owned()]), 0);
+    assert!(lost.is_file());
+    // y un archivo que cambió por fuera (otra fecha o tamaño) deja huérfana
+    // la clave de antes
+    std::fs::write(&song, b"cambiada por fuera").expect("cambiar");
+    let (c, _) = read_cache_or_new(&app, &song_key);
+    assert_eq!(
+        prune(&app, &known),
+        3,
+        "la vieja de la canción cambiada y la perdida"
+    );
+    assert!(!c.exists());
+}
+
+/// Lo guardado con esa clave (la ruta, y si hay algo dentro).
+fn read_cache_or_new(app: &App, key: &str) -> (PathBuf, bool) {
+    let c = app
+        .config()
+        .data_dir
+        .join("beats")
+        .join(format!("{key}.json"));
+    (c.clone(), c.is_file())
+}
+
+#[test]
+fn a_scan_cleans_the_pulse_folder_too() {
+    let Some(app) = api_library() else {
+        return;
+    };
+    let Some(d) = Detector::start(&app) else {
+        return;
+    };
+    let id = first_ids(&app, 1)[0];
+    let row = crate::services::songs::by_id(&app, id)
+        .expect("base")
+        .expect("canción");
+    let song = PathBuf::from(crate::services::songs::text(&row, "path"));
+    grid_of(&app, &song).expect("rejilla");
+    let orphan = old_entry(&app, &("d".repeat(40) + ".npz"), 60);
+    crate::services::library::scan(&app, &mut |_, _| {}).expect("escaneo");
+    assert!(!orphan.exists(), "el escaneo limpia lo huérfano");
+    assert!(cached(&app, &song), "y deja lo que sirve");
+    assert_eq!(d.calls().len(), 1);
+}
+
+#[test]
 fn the_graph_travels_with_the_app() {
     let _serial = serial();
     let app = crate::tests::app();
@@ -648,6 +908,272 @@ fn the_whole_song_with_the_separated_drums() {
     let bpm = g["bpm"].as_f64().expect("tempo");
     assert!((bpm - 120.0).abs() <= 0.1, "{bpm}");
     beats_failure(reanalyze(&app, &song, "magia", None, None, None), "no sé");
+}
+
+/// La canción de la biblioteca con ese id, y su batería separada puesta
+/// aquí (un archivo de mentira con ese nombre, en su carpeta de pistas).
+fn with_drums(app: &App, id: i64, file: &str) -> (PathBuf, PathBuf) {
+    let row = crate::services::songs::by_id(app, id)
+        .expect("base")
+        .expect("canción");
+    let song = PathBuf::from(crate::services::songs::text(&row, "path"));
+    let name = format!("Prueba {id}");
+    let folder = app.config().library.join("Separadas").join(&name);
+    std::fs::create_dir_all(&folder).expect("carpeta");
+    let drums = folder.join(file);
+    std::fs::write(&drums, b"d").expect("batería");
+    let manifest = json!({"tracks": [{"source": "drums", "file": file}]});
+    std::fs::write(library::stems::manifest_path(&folder), manifest.to_string())
+        .expect("manifiesto");
+    let stems = json!({"folder": format!("Separadas/{name}")}).to_string();
+    crate::services::songs::update_one(app, id, "stems", Value::from(stems)).expect("pistas");
+    (song, drums)
+}
+
+#[test]
+fn the_separated_drums_are_heard_through_the_queue_with_progress() {
+    // «Con la batería separada» pasaba la red por la batería dentro de la
+    // petición: 15-20 s sin avance a la vista. Sin esperar (`wait=false`) va
+    // por la cola, delante, y la petición dice por dónde va hasta que sale.
+    let Some(app) = api_library() else {
+        return;
+    };
+    let Some(d) = Detector::start(&app) else {
+        return;
+    };
+    let ids = first_ids(&app, 2);
+    let (song, drums) = with_drums(&app, ids[0], "bateria.flac");
+    grid_of(&app, &song).expect("rejilla");
+    let url = format!("/api/song/{}/beats/reanalyze", ids[0]);
+    let body = json!({"mode": "drums", "wait": false});
+    {
+        let _paused = Paused::new();
+        for _ in 0..2 {
+            let (st, v) = call(&app, "POST", &url, Some(body.clone()));
+            assert_eq!(
+                (st, &v),
+                (202, &json!({"pending": true, "progress": 0.0})),
+                "{v}"
+            );
+        }
+        assert_eq!(
+            waiting(),
+            [text_of(&drums)],
+            "pedirla dos veces no la duplica"
+        );
+        assert_eq!(d.calls(), [text_of(&song)], "la petición no pasa la red");
+    }
+    assert!(idle(Duration::from_secs(30)));
+    assert_eq!(d.calls(), [text_of(&song), text_of(&drums)]);
+    // de la batería se guarda lo que oyó la red, no una rejilla suya
+    assert!(raw_file(&app, &drums).expect("clave").is_file());
+    assert!(!cached(&app, &drums));
+    let (st, v) = call(&app, "POST", &url, Some(body));
+    assert_eq!(st, 200, "{v}");
+    let bpm = v["grid"]["bpm"].as_f64().expect("tempo");
+    assert!((bpm - 120.0).abs() <= 0.1, "{bpm}");
+    assert_eq!(d.calls().len(), 2, "ya oída: no se pasa otra vez");
+    // si la red no puede con la batería, se dice (y no se queda preguntando)
+    let (_, bad) = with_drums(&app, ids[1], "sin-pulso.mp3");
+    let url = format!("/api/song/{}/beats/reanalyze", ids[1]);
+    let body = json!({"mode": "drums", "wait": false});
+    assert_eq!(call(&app, "POST", &url, Some(body.clone())).0, 202);
+    assert!(idle(Duration::from_secs(30)));
+    let (st, v) = call(&app, "POST", &url, Some(body));
+    assert_eq!(st, 422, "{v}");
+    assert!(
+        v["detail"]
+            .as_str()
+            .is_some_and(|m| m.contains("no tiene pulso")),
+        "{v}"
+    );
+    assert_eq!(d.calls().last(), Some(&text_of(&bad)));
+}
+
+// ---------------------------------------------------------------- la batería, sola
+
+/// El clic guardado de la canción con un hueco sin clic entre `from` y `to`
+/// segundos (los «1» donde caían). Los pulsos que había, antes.
+fn leave_hole(app: &App, song: &Path, from: f64, to: f64) -> Vec<f64> {
+    let good = beats_of(&api(&grid_of(app, song).expect("rejilla")));
+    let (c, mut saved) = read_cache(app, song);
+    let downs: Vec<f64> = saved["grid"]["bars"]
+        .as_array()
+        .expect("compases")
+        .iter()
+        .map(|i| good[i.as_u64().expect("índice") as usize])
+        .collect();
+    let holed: Vec<f64> = good
+        .iter()
+        .copied()
+        .filter(|b| !(from < *b && *b < to))
+        .collect();
+    let bars: Vec<usize> = (0..holed.len())
+        .filter(|i| downs.iter().any(|d| (d - holed[*i]).abs() < 1e-9))
+        .collect();
+    saved["grid"]["beats"] = json!(holed);
+    saved["grid"]["bars"] = json!(bars);
+    std::fs::write(&c, saved.to_string()).expect("guardar");
+    good
+}
+
+/// Lo guardado de la canción: sus pulsos y lo que se le hizo.
+fn kept(app: &App, song: &Path) -> (Vec<f64>, Value) {
+    let (_, v) = read_cache(app, song);
+    (beats_of(&v["grid"]), v["edits"].clone())
+}
+
+/// Como si una separación acabara de terminar y se esperara a la cola.
+fn separated(app: &App, id: i64) {
+    HOOK.store(true, std::sync::atomic::Ordering::SeqCst);
+    after_separation(app, id);
+    assert!(idle(Duration::from_secs(30)));
+}
+
+fn fill_mark() -> Value {
+    json!([{"mode": "fill-drums", "auto": true}])
+}
+
+#[test]
+fn when_a_separation_ends_the_drums_fill_what_the_click_left_without_sound() {
+    // Con la batería ya separada, la red la oye en segundo plano y, si el
+    // clic tiene 16 s sin sonar con la batería tocando (y los dos lados
+    // casan), se rellenan. Lo que ya sonaba, igual.
+    let Some(app) = api_library() else {
+        return;
+    };
+    let Some(d) = Detector::start(&app) else {
+        return;
+    };
+    let id = first_ids(&app, 1)[0];
+    let (song, drums) = with_drums(&app, id, "bateria.flac");
+    let good = leave_hole(&app, &song, 8.0, 24.0);
+    let holed = kept(&app, &song).0;
+    assert!(holed.len() < good.len() - 20);
+    separated(&app, id);
+    assert_eq!(d.calls(), [text_of(&song), text_of(&drums)]);
+    let (beats, edits) = kept(&app, &song);
+    // la batería de las pruebas oye 4 ms tarde: lo añadido, a eso de lo que
+    // sonaba; lo de antes, exacto
+    assert!(
+        close(&beats, &good, 0.01),
+        "{} de {}",
+        beats.len(),
+        good.len()
+    );
+    assert!(
+        holed.iter().all(|b| beats.contains(b)),
+        "lo que ya sonaba, tal cual"
+    );
+    assert_eq!(edits, fill_mark());
+    // y lo dice la rejilla que sale
+    let grid = api(&grid_of(&app, &song).expect("rejilla"));
+    assert_eq!(grid["report"]["drums"], "fill", "{grid}");
+    assert!(
+        grid["report"]["bare_before"]
+            .as_f64()
+            .is_some_and(|b| b >= 15.0)
+    );
+    // se deshace con «Re-analizar»: solo la canción, y no vuelve sola
+    let g = api(&reanalyze(&app, &song, "mix", None, None, None).expect("sin batería"));
+    assert!(g["report"].get("drums").is_none(), "{g}");
+    assert_eq!(kept(&app, &song).1, json!([{"mode": "mix"}]));
+    assert!(
+        !improve(&app, &song).expect("mirar"),
+        "rehecha a mano: no se toca"
+    );
+    // ni al cambiar la forma de sacarla
+    let (c, mut saved) = read_cache(&app, &song);
+    saved["version"] = json!(VERSION - 1);
+    std::fs::write(&c, saved.to_string()).expect("guardar");
+    grid_of(&app, &song).expect("rejilla");
+    assert_eq!(kept(&app, &song).1, json!([{"mode": "mix"}]));
+    assert_eq!(d.calls().len(), 2, "sin pasar la red otra vez");
+}
+
+#[test]
+fn the_drums_do_not_change_the_click_when_they_do_not_improve_it() {
+    let Some(app) = api_library() else {
+        return;
+    };
+    let Some(d) = Detector::start(&app) else {
+        return;
+    };
+    let ids = first_ids(&app, 2);
+    // 1. la batería no toca en el hueco: es un corte, no un clic que falta
+    let (muted, _) = with_drums(&app, ids[0], "bateria-muda.flac");
+    leave_hole(&app, &muted, 8.0, 24.0);
+    let before = kept(&app, &muted);
+    separated(&app, ids[0]);
+    assert!(d.calls().iter().any(|c| c.ends_with("bateria-muda.flac")));
+    assert_eq!(kept(&app, &muted), before, "no se toca");
+    assert_eq!(before.1, json!([]));
+    // 2. nada que cubrir: el clic ya sonaba entero
+    let (whole, _) = with_drums(&app, ids[1], "bateria.flac");
+    grid_of(&app, &whole).expect("rejilla");
+    let before = kept(&app, &whole);
+    separated(&app, ids[1]);
+    assert_eq!(kept(&app, &whole), before);
+    // lo oído queda guardado: la próxima vez no se vuelve a pasar la red
+    assert!(
+        raw_file(&app, &drums_of(&app, &whole).expect("batería"))
+            .expect("clave")
+            .is_file()
+    );
+}
+
+#[test]
+fn a_click_fixed_by_hand_is_never_changed_by_the_drums() {
+    let Some(app) = api_library() else {
+        return;
+    };
+    let Some(d) = Detector::start(&app) else {
+        return;
+    };
+    let ids = first_ids(&app, 3);
+    let study = |id: i64, metronome: Value| {
+        let text = json!({"metronome": metronome}).to_string();
+        crate::services::songs::update_one(&app, id, "study", Value::from(text)).expect("estudio");
+    };
+    // sus ajustes sobre la rejilla (el «1» corrido), o su clic propio
+    let (shifted, _) = with_drums(&app, ids[0], "bateria.flac");
+    leave_hole(&app, &shifted, 8.0, 24.0);
+    study(ids[0], json!({"shift": 1}));
+    let (own, _) = with_drums(&app, ids[1], "bateria.flac");
+    leave_hole(&app, &own, 8.0, 24.0);
+    study(
+        ids[1],
+        json!({"own": {"beats": [1.0, 2.0], "bars": [0], "meter": 4}}),
+    );
+    // un re-análisis que pidió (aunque sea de otro tramo), o un tempo exacto
+    let (asked, _) = with_drums(&app, ids[2], "bateria.flac");
+    leave_hole(&app, &asked, 8.0, 24.0);
+    let (c, mut saved) = read_cache(&app, &asked);
+    saved["edits"] = json!([{"mode": "repair", "start": 26.0, "end": 28.0}]);
+    std::fs::write(&c, saved.to_string()).expect("guardar");
+    let before: Vec<_> = [&shifted, &own, &asked]
+        .iter()
+        .map(|p| kept(&app, p))
+        .collect();
+    for id in ids {
+        separated(&app, id);
+    }
+    assert_eq!(d.calls().len(), 3 + 3, "la red oyó las tres baterías");
+    let after: Vec<_> = [&shifted, &own, &asked]
+        .iter()
+        .map(|p| kept(&app, p))
+        .collect();
+    assert_eq!(after, before);
+    // un tempo exacto (el de un proyecto)
+    let grid = api(&grid_of(&app, &asked).expect("rejilla"));
+    save_exact(&app, &asked, &grid).expect("exacta");
+    leave_hole(&app, &asked, 8.0, 24.0);
+    let (c, mut saved) = read_cache(&app, &asked);
+    saved["edits"] = json!([]);
+    std::fs::write(&c, saved.to_string()).expect("guardar");
+    let before = kept(&app, &asked);
+    assert!(!improve(&app, &asked).expect("mirar"));
+    assert_eq!(kept(&app, &asked), before);
 }
 
 #[test]
