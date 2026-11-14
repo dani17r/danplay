@@ -18,6 +18,22 @@ export const WAVE_MIN = 80
 export const LANE_MIN = 20
 export const LANE_MAX = 60
 
+/**
+ * Por debajo de este alto de ventana (px) el panel de estudio aprieta sus
+ * espacios. Desde 800 las tarjetas del tono y del clic caben enteras con los
+ * de siempre; por debajo, no: a 1366×768 (un portátil sin escalar) el panel
+ * mide 536 px, el cuerpo se quedaba en 238 y ellas piden 266 (a 700 faltan 44).
+ * No se achica el texto, solo lo que hay entre las cosas (`.study.tight`, en
+ * study.css): el relleno y las separaciones del panel y de las tarjetas.
+ */
+export const TIGHT_BELOW = 800
+
+/**
+ * Si con ese alto de ventana el panel va con los espacios apretados.
+ * @param {number} windowHeight  el alto de la ventana, en px (0: sin medir)
+ */
+export const isTight = (windowHeight) => windowHeight > 0 && windowHeight < TIGHT_BELOW
+
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v))
 
 /**

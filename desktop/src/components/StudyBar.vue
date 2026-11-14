@@ -29,7 +29,13 @@ import { api, app as tauriApp, errorMessage, pickAudio, pickSavePath, JOBS } fro
 import { notify } from '../composables/useNotices.js'
 import { ask } from '../composables/useDialog.js'
 import { usePlayback, MAX_VOLUME } from '../composables/usePlayback.js'
-import { LANE_MIN, laneHeight as fittedLane, waveRoom as roomFor } from '../utils/studyFit.js'
+import {
+  LANE_MIN,
+  isTight,
+  laneHeight as fittedLane,
+  waveRoom as roomFor
+} from '../utils/studyFit.js'
+import { useViewport } from '../composables/useViewport.js'
 import { useSeparation } from '../composables/useSeparation.js'
 import { useClick } from '../composables/useClick.js'
 import { useRouting } from '../composables/useRouting.js'
@@ -112,6 +118,8 @@ const clickMode = click.mode
 const clickWanted = click.wanted
 // por dónde suena cada cosa
 const routing = useRouting()
+/** El alto de la ventana: con poco, el panel aprieta sus espacios (`isTight`). */
+const { height: windowHeight } = useViewport()
 // cómo se pinta la onda (de quien toca, no de cada canción)
 const { waveStyle } = usePreferences()
 /** El submenú «Estilo de la onda». */
@@ -2332,7 +2340,10 @@ defineExpose({ close: hide, hide, exit })
       'with-lanes': lanes.length,
       'many-lanes': lanes.length > MANY_LANES,
       big,
-      desk: !isMobileApp
+      desk: !isMobileApp,
+      // en una ventana baja, los espacios más apretados para que las
+      // tarjetas quepan (el texto no cambia): ver `isTight`
+      tight: !isMobileApp && !big && isTight(windowHeight)
     }"
     role="region"
     aria-label="Modo estudio"

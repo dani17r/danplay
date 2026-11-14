@@ -1242,6 +1242,19 @@ guardando el ancho a su `<col>`; van a ancho 0. Probado en el motor de verdad
 (WebKitGTK sin ventana) a diez tamaños, con un título de 130 caracteres,
 buscando lo que se pisa o se sale.
 
+**El modo estudio en una ventana baja.** El panel de estudio mide, en una
+ventana ancha, lo que dice `study.css` (588 px si deja 100 de lista encima) y
+`studyFit.js` reparte ese alto entre la onda, los carriles y el cuerpo con las
+tarjetas del tono y del clic. Esas piden 266 px; medido en Chrome, desde 800 px
+de alto de ventana las tienen, y por debajo no (a 1366×768 el cuerpo se
+quedaba en 238, a 700 faltaban 44). Con menos de 800 (`isTight`) el panel
+lleva la clase `tight`, que aprieta solo los espacios (el relleno y las
+separaciones del panel, de las columnas y de las tarjetas: 6/8 de relleno,
+separaciones de 5 y 3 px) y ni un texto más pequeño: las tarjetas caben
+enteras a 1366×768 y a 1366×700, y la onda gana 16 px a 768. De 800 para
+arriba, también a 1536×864, no cambia nada. «Grande» no la lleva: ya tiene todo
+el alto.
+
 **Las formas** (`shape.rs`, en el menú Vista, en el botón de la barra o en
 «⋯»): normal (como estaba), pantalla completa (F11), maximizada, media
 pantalla izquierda o derecha, columna (estrecha y alta, a la derecha),

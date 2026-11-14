@@ -1826,6 +1826,25 @@
 .study .btn.mini.icon-btn.warn {
   color: var(--amber);
 }
+/* En una ventana baja (menos de 800 px: `TIGHT_BELOW`, en studyFit.js) los
+   espacios van más apretados, y solo ellos: ni una letra más pequeña. A
+   1366×768 el panel mide 536 px y las tarjetas del tono y del clic piden 266
+   con el cuerpo a 238; aquí se les devuelven 17 px al panel (relleno y
+   separaciones) y 28 a la columna del clic (sus siete separaciones de fila, el
+   relleno de la tarjeta y el hueco bajo el título), y la onda no baja de 80. */
+@media (min-width: 701px) {
+  .study.desk.tight {
+    padding: 6px 18px 8px;
+    gap: 5px;
+  }
+  .study.tight .study-col {
+    gap: 5px;
+  }
+  .study.tight .study-block {
+    gap: 3px;
+    padding: 5px 9px;
+  }
+}
 .study-head .btn.mini,
 .study-bar .btn.mini,
 .cue-card .btn.mini {
