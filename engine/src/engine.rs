@@ -80,7 +80,6 @@ pub struct Loaded {
 
 struct Song {
     id: String,
-    frames: u64,
     orders: Sender<Order>,
     sent: AtomicU64,
     /// A donde se pidio saltar la ultima vez (muestra), para decirlo
@@ -93,8 +92,23 @@ struct Song {
 }
 
 impl Song {
+    /// Muestras por canal que dura, por lo que se sabe ahora: lo que decia
+    /// el archivo al cargarla, o lo que dura de verdad en cuanto se llega al
+    /// final de lo decodificado (0: no se sabe).
+    fn frames(&self) -> u64 {
+        self.shared.len.load(Ordering::Acquire)
+    }
+
+    /// `frame` sin pasarse del final, si se sabe.
+    fn bounded(&self, frame: u64) -> u64 {
+        match self.frames() {
+            0 => frame,
+            known => frame.min(known),
+        }
+    }
+
     fn seek_to(&self, frame: u64) {
-        let frame = frame.min(self.frames);
+        let frame = self.bounded(frame);
         self.asked.store(frame, Ordering::Release);
         let n = self.sent.fetch_add(1, Ordering::AcqRel) + 1;
         self.asked_order.store(n, Ordering::Release);
@@ -328,7 +342,7 @@ impl Engine {
         fade: f32,
     ) -> Loaded {
         let (song, ring) = spawn_song(id, parts, declared, 0);
-        let frames = song.frames;
+        let frames = song.frames();
         let c = &deck.controls;
         c.playing.store(false, Ordering::Release);
         c.ended.store(false, Ordering::Release);
@@ -401,7 +415,7 @@ impl Engine {
         }
         let loaded = Loaded {
             id: id.to_string(),
-            duration: song.frames as f64 / f64::from(RATE),
+            duration: song.frames() as f64 / f64::from(RATE),
             parts: names,
         };
         deck.controls.handed_over.store(false, Ordering::Release);
@@ -430,16 +444,15 @@ impl Engine {
         let playing = deck.controls.playing.load(Ordering::Acquire);
         let taken = song.shared.consumed_frame.load(Ordering::Acquire);
         if !playing {
-            return Some(
-                deck.controls
-                    .audible
-                    .load(Ordering::Acquire)
-                    .min(song.frames),
-            );
+            return Some(song.bounded(deck.controls.audible.load(Ordering::Acquire)));
         }
         let ahead = (0.35 * f64::from(RATE)) as u64;
         let (segments, end) = lock(&self.session).segments.clone();
-        Some(feeder::advance(&segments, end, taken, ahead, song.frames))
+        let len = match song.frames() {
+            0 => u64::MAX,
+            known => known,
+        };
+        Some(feeder::advance(&segments, end, taken, ahead, len))
     }
 
     /// El otro plato, fuera (un fundido a medias se corta: entra otra).
@@ -680,6 +693,7 @@ impl Engine {
         };
         let rate = f64::from(RATE);
         let shared = &song.shared;
+        let frames = song.frames();
         // un salto que aun no suena: se dice donde va a sonar
         let unread =
             shared.orders_done.load(Ordering::Acquire) < song.asked_order.load(Ordering::Acquire);
@@ -696,8 +710,8 @@ impl Engine {
         State {
             loaded: Some(song.id.clone()),
             playing: c.playing.load(Ordering::Acquire),
-            position: frame.min(song.frames) as f64 / rate,
-            duration: song.frames as f64 / rate,
+            position: song.bounded(frame) as f64 / rate,
+            duration: frames as f64 / rate,
             ended: c.ended.load(Ordering::Acquire),
             segments_done: shared.segments_done.load(Ordering::Acquire),
             counting: c.counting.load(Ordering::Acquire),
@@ -737,11 +751,21 @@ fn open_parts(files: &[PartFile]) -> Result<(Vec<Part>, Vec<String>), String> {
 /// Pone a andar el hilo que decodifica una cancion desde `from` y devuelve
 /// lo que la sigue por fuera y los anillos para el render.
 fn spawn_song(id: &str, parts: Vec<Part>, declared: f64, from: u64) -> (Song, Ring) {
-    let frames = parts
-        .iter()
-        .filter_map(Part::frames)
-        .max()
-        .unwrap_or((declared * f64::from(RATE)) as u64);
+    // lo que dura, para empezar: lo que dicen los archivos; si no, lo que
+    // dice quien carga (la PC la mide con ffmpeg); y a falta de las dos, la
+    // cuenta aproximada de un mp3 sin cabecera. Es solo un punto de partida:
+    // el final lo decide lo decodificado (`feeder::Feeder::fill`)
+    let longest = |estimated: bool| {
+        parts
+            .iter()
+            .filter(|p| p.estimated() == estimated)
+            .filter_map(Part::frames)
+            .max()
+    };
+    let frames = longest(false)
+        .or_else(|| (declared > 0.0).then(|| (declared * f64::from(RATE)) as u64))
+        .or_else(|| longest(true))
+        .unwrap_or(0);
     let shared = Arc::new(feeder::Shared::default());
     let n_parts = parts.len();
     let feeder = Feeder::new(parts, frames, Arc::clone(&shared));
@@ -765,7 +789,6 @@ fn spawn_song(id: &str, parts: Vec<Part>, declared: f64, from: u64) -> (Song, Ri
     };
     let song = Song {
         id: id.to_string(),
-        frames,
         orders,
         sent: AtomicU64::new(0),
         asked: AtomicU64::new(0),
@@ -1001,6 +1024,39 @@ mod tests {
         let s = wait_for(&e, |s| s.ended);
         assert!(s.ended && s.segments_done && !s.playing, "{s:?}");
         assert!((s.position - 0.9).abs() < 0.05, "{s:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_song_lasts_what_its_audio_lasts_and_the_duration_is_corrected() {
+        // un mp3 sin cabecera: dice durar 2,3 s (una cuenta por el tamaño),
+        // dura 3,03. Se oye hasta el final y la duracion que se dice, tambien
+        use crate::testing::{encoded, scratch, without_ffmpeg};
+        let dir = scratch("duracion");
+        let args = ["-c:a", "libmp3lame", "-q:a", "4", "-write_xing", "0"];
+        let Some(path) = encoded(&dir, "sin.mp3", &args) else {
+            let _ = std::fs::remove_dir_all(&dir);
+            return without_ffmpeg("la duracion de un mp3 sin cabecera");
+        };
+        let part = PartFile {
+            source: "mp3".into(),
+            name: "MP3".into(),
+            path,
+        };
+        let e = Engine::offline(44_100);
+        let loaded = e.load_files("sin-cabecera", &[part], 0.0).expect("carga");
+        assert!(loaded.duration < 2.5, "al cargar: {}", loaded.duration);
+        settle();
+        e.play();
+        let s = wait_for(&e, |s| s.ended);
+        assert!(s.ended && !s.playing && !s.failed, "{s:?}");
+        let real = 133_632.0 / 44_100.0;
+        assert!(
+            (s.duration - real).abs() < 0.01,
+            "al acabar: {}",
+            s.duration
+        );
+        assert!((s.position - real).abs() < 0.05, "{s:?}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

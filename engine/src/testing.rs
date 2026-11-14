@@ -99,3 +99,33 @@ pub fn ffmpeg_pcm(path: &Path) -> Option<Vec<f32>> {
             .collect(),
     )
 }
+
+/// Los golpes del archivo de `pulses_signal`.
+pub const LONG_MARKS: [usize; 4] = [4_410, 30_123, 70_500, 120_001];
+
+/// Tres segundos en estereo (los dos canales iguales): un tono suave de
+/// 220 Hz y un destello de 3 kHz de 1,5 ms en cada marca de `LONG_MARKS`. El
+/// ultimo cae a los 2,72 s, bien dentro del ultimo segundo.
+pub fn pulses_signal() -> Vec<f32> {
+    let tau = 2.0 * std::f32::consts::PI;
+    let mut mono: Vec<f32> = (0..132_300)
+        .map(|i| 0.1 * (tau * 220.0 * i as f32 / 44_100.0).sin())
+        .collect();
+    for m in LONG_MARKS {
+        for k in 0..66 {
+            mono[m + k] += 0.8 * (tau * 3_000.0 * k as f32 / 44_100.0).sin();
+        }
+    }
+    mono.iter().flat_map(|&v| [v, v]).collect()
+}
+
+/// `pulses_signal` pasado por `ffmpeg` con esos argumentos de codificacion, en
+/// `dir/name`. `None` sin ffmpeg (o si no sabe hacer ese formato).
+pub fn encoded(dir: &Path, name: &str, args: &[&str]) -> Option<PathBuf> {
+    let (src, out) = (dir.join("pulses.wav"), dir.join(name));
+    std::fs::write(&src, &wav(2, 44_100, &pulses_signal())[..]).ok()?;
+    let mut all = vec!["-i", src.to_str()?];
+    all.extend_from_slice(args);
+    all.push(out.to_str()?);
+    ffmpeg(&all).then_some(out)
+}

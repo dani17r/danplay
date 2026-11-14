@@ -77,11 +77,17 @@ pub struct Shared {
     /// La cancion se corto antes de tiempo: su archivo dejo de poder leerse
     /// (esta cortado o dañado, o hace *panic* al decodificarse).
     pub failed: AtomicBool,
+    /// Muestras por canal que dura la cancion, por lo que se sabe: lo que
+    /// decia el archivo al cargarla (0: no lo decia) y, en cuanto se llega
+    /// al final de lo decodificado, lo que dura de verdad.
+    pub len: AtomicU64,
 }
 
 pub struct Feeder {
     parts: Vec<Part>,
-    /// Muestras por canal que dura la cancion.
+    /// Muestras por canal que dura la cancion, por lo que dice el archivo
+    /// (`u64::MAX`: no lo dice). Vale para acotar los saltos y los tramos;
+    /// el final lo decide lo decodificado (`fill`), que lo corrige.
     len: u64,
     /// La siguiente muestra que se escribe.
     pos: u64,
@@ -103,11 +109,13 @@ pub struct Feeder {
 }
 
 impl Feeder {
+    /// `len`: lo que dice durar, en muestras por canal (0: no se sabe).
     pub fn new(parts: Vec<Part>, len: u64, shared: Arc<Shared>) -> Feeder {
         let generation = shared.generation.load(Ordering::Acquire);
+        shared.len.store(len, Ordering::Release);
         Feeder {
             parts,
-            len,
+            len: if len == 0 { u64::MAX } else { len },
             pos: 0,
             contiguous_from: 0,
             generation,
@@ -227,7 +235,9 @@ impl Feeder {
         // fuera de ellos, seguido hasta donde empieza el proximo, que entra
         // sin saltar
         let mut seam = None;
-        let mut limit = self.len;
+        // sin tramo por delante, hasta donde haya audio: el final lo dice lo
+        // decodificado, no lo que el archivo dice durar
+        let mut limit = u64::MAX;
         if !self.segments.is_empty() {
             if let Some((_, b)) = self.segment_at(self.pos) {
                 seam = Some(b);
@@ -236,17 +246,19 @@ impl Feeder {
                 limit = a;
             }
         }
-        let limit = limit.min(self.len);
-        let mut frames = (limit.saturating_sub(self.pos) as usize).min(BLOCK);
+        let asked = limit.saturating_sub(self.pos).min(BLOCK as u64) as usize;
         block.generation = self.generation;
         block.start = self.pos;
         block.last = false;
-        let data = &mut block.data[..frames * n_parts * 2];
+        let data = &mut block.data[..asked * n_parts * 2];
         data.fill(0.0);
-        // hasta donde llega la parte que deja de poder leerse, si alguna
+        // hasta donde llega la parte que deja de poder leerse, si alguna; y
+        // la que mas da
         let mut broken: Option<usize> = None;
+        let mut longest = 0;
         for (p, part) in self.parts.iter_mut().enumerate() {
-            let got = part.read(&mut self.scratch[..frames * 2]);
+            let got = part.read(&mut self.scratch[..asked * 2]);
+            longest = longest.max(got);
             if part.failed() {
                 broken = Some(broken.map_or(got, |b| b.min(got)));
             }
@@ -261,9 +273,16 @@ impl Feeder {
                 data[at + 1] = frame[1];
             }
         }
-        if let Some(cut) = broken {
-            frames = cut;
-        }
+        // el final de verdad: a ninguna parte le queda nada. Antes mandaba
+        // lo que el archivo decia durar: si decia de mas, silencio hasta ahi
+        // antes de la siguiente; si decia de menos (un mp3 sin cabecera), el
+        // final se cortaba
+        let over = (asked > 0 && longest == 0) || self.parts.iter().all(Part::done);
+        let frames = match broken {
+            Some(cut) => cut,
+            None if over => longest,
+            None => asked,
+        };
         block.frames = frames;
         let data = &mut block.data[..frames * n_parts * 2];
         // las costuras: baja al acercarse al final de un tramo que salta (o
@@ -298,6 +317,14 @@ impl Feeder {
             self.finish(block, false);
             return;
         }
+        if over {
+            // lo que dura de verdad; un tramo que pasaba de ahi acaba ahi
+            self.learn(self.pos);
+            seam = seam.map(|_| self.pos);
+        } else if self.len != u64::MAX && self.pos > self.len {
+            // dura mas de lo que decia: se va diciendo segun se decodifica
+            self.learn(self.pos);
+        }
         if let Some(b) = seam.filter(|&b| self.pos >= b) {
             if self.stops_at(b) {
                 self.finish(block, true);
@@ -307,8 +334,10 @@ impl Feeder {
             if next != b {
                 self.jump(next);
                 self.landed = Some(next);
+                return;
             }
-        } else if self.pos >= self.len {
+        }
+        if over {
             // repitiendose, la cancion no se acaba: al final, al primero;
             // parandose, se para igual (y vuelve al primero quien lo vea)
             match (self.segments.first(), self.end) {
@@ -320,6 +349,18 @@ impl Feeder {
                 _ => self.finish(block, false),
             }
         }
+    }
+
+    /// La cancion dura `len` (se acaba de ver: ahi se acabo lo decodificado,
+    /// o ya se ha pasado de lo que decia durar). Los tramos que pasaban del
+    /// final se quedan en el, y los que empezaban despues, fuera.
+    fn learn(&mut self, len: u64) {
+        self.len = len;
+        self.shared.len.store(len, Ordering::Release);
+        self.segments.retain_mut(|s| {
+            s.1 = s.1.min(len);
+            s.1 > s.0
+        });
     }
 
     /// Llena el bloque, y si al decodificar algo hace *panic* (un archivo
@@ -537,6 +578,70 @@ mod tests {
         assert!(!f.ended() && !f.shared.failed.load(Ordering::Acquire));
         f.fill(&mut b);
         assert_eq!((b.start, b.frames), (40_000, BLOCK));
+    }
+
+    /// Lo que suena de un mp3 sin cabecera (que no sabe cuanto dura) cuando
+    /// el alimentador cree que dura `len`: el canal izquierdo, y donde acabo.
+    fn headerless_through_a_feeder(len: Option<u64>) -> Option<(Vec<f32>, Feeder, u64)> {
+        use crate::testing::{encoded, scratch};
+        let dir = scratch("feeder-sin-cabecera");
+        let args = ["-c:a", "libmp3lame", "-q:a", "4", "-write_xing", "0"];
+        let file = encoded(&dir, "sin.mp3", &args);
+        let part = file.and_then(|f| Part::open_file(&f, 44_100, u64::MAX).ok());
+        let _ = std::fs::remove_dir_all(&dir);
+        let part = part?;
+        let len = len.unwrap_or_else(|| part.frames().unwrap_or(0));
+        let mut f = Feeder::new(vec![part], len, Arc::new(Shared::default()));
+        let said = f.shared.len.load(Ordering::Acquire);
+        let mut b = Block::new(1);
+        let mut left = Vec::new();
+        while !f.ended() && left.len() < 1_000_000 {
+            f.fill(&mut b);
+            left.extend((0..b.frames).map(|i| b.data[i * 2]));
+        }
+        Some((left, f, said))
+    }
+
+    #[test]
+    fn the_end_is_where_the_audio_ends_and_not_where_the_file_says() {
+        use crate::testing::LONG_MARKS;
+        // a) el archivo dice durar menos de lo que dura (la cuenta de un mp3
+        // sin cabecera): el final se cortaba ahi, y se perdia el ultimo golpe
+        let Some((short, f, said)) = headerless_through_a_feeder(None) else {
+            return crate::testing::without_ffmpeg("un mp3 sin cabecera");
+        };
+        assert!(said > 0 && said < 110_000, "decia durar {said}");
+        assert_eq!(short.len(), 133_632, "suena hasta la ultima muestra");
+        let last = LONG_MARKS[3] + 1_138;
+        let loud = short[last - 100..last + 200]
+            .iter()
+            .fold(0f32, |m, v| m.max(v.abs()));
+        assert!(loud > 0.3, "el ultimo golpe suena: {loud}");
+        // ...y la duracion se corrige, para quien la pregunte
+        assert_eq!(f.shared.len.load(Ordering::Acquire), 133_632);
+        // b) dice durar mas: no hay silencio de relleno hasta ahi
+        let (long, f, _) = headerless_through_a_feeder(Some(600_000)).expect("mp3");
+        assert_eq!(long.len(), 133_632, "acaba cuando acaba el audio");
+        assert_eq!(f.shared.len.load(Ordering::Acquire), 133_632);
+    }
+
+    #[test]
+    fn a_seek_in_a_song_of_unknown_length_is_not_cut() {
+        // sin saber cuanto dura (0), un salto lejos no se queda en el principio
+        let (bytes, _) = fixture("ogg");
+        let part = Part::open(bytes, "ogg").expect("ogg");
+        let mut f = Feeder::new(vec![part], 0, Arc::new(Shared::default()));
+        f.seek(60_000);
+        let mut b = Block::new(1);
+        f.fill(&mut b);
+        assert_eq!((b.start, b.frames), (60_000, BLOCK));
+        let mut total = 60_000 + BLOCK as u64;
+        while !f.ended() {
+            f.fill(&mut b);
+            total += b.frames as u64;
+        }
+        assert_eq!(total, 88_200);
+        assert_eq!(f.shared.len.load(Ordering::Acquire), 88_200);
     }
 
     #[test]

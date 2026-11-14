@@ -146,6 +146,13 @@ impl Part {
         })
     }
 
+    /// Lo que dice durar no es un dato del archivo sino una cuenta
+    /// aproximada (un mp3 sin cabecera): puede acabar antes o despues, y
+    /// donde acaba de verdad solo se sabe al llegar.
+    pub fn estimated(&self) -> bool {
+        self.inner.estimated
+    }
+
     /// Ya no queda nada por leer.
     pub fn done(&self) -> bool {
         match &self.conv {
@@ -223,6 +230,7 @@ struct Decoded {
     track_id: u32,
     rate: u32,
     frames: Option<u64>,
+    estimated: bool,
     /// Lo decodificado que aun no se ha leido, intercalado en estereo.
     fifo: VecDeque<f32>,
     /// La primera muestra que se quiere: lo de antes se tira. Tras un salto,
@@ -252,7 +260,14 @@ struct Decoded {
 
 impl Decoded {
     fn open(media: Media, ext: &str) -> Result<Decoded, String> {
-        let (format, decoder, track_id, rate, frames) = open_reader(&media, ext)?;
+        let Opened {
+            format,
+            decoder,
+            track_id,
+            rate,
+            frames,
+            estimated,
+        } = open_reader(&media, ext)?;
         Ok(Decoded {
             media,
             ext: ext.to_string(),
@@ -261,6 +276,7 @@ impl Decoded {
             track_id,
             rate,
             frames,
+            estimated,
             fifo: VecDeque::new(),
             want: 0,
             next: 0,
@@ -288,9 +304,9 @@ impl Decoded {
         self.lost = None;
         if frame == 0 {
             // desde el principio, lo mas seguro: abrirla otra vez
-            if let Ok((format, decoder, ..)) = open_reader(&self.media, &self.ext) {
-                self.format = format;
-                self.decoder = decoder;
+            if let Ok(again) = open_reader(&self.media, &self.ext) {
+                self.format = again.format;
+                self.decoder = again.decoder;
                 return;
             }
         }
@@ -304,9 +320,9 @@ impl Decoded {
                 // no se pudo saltar (mas alla del final, o un contenedor que
                 // no sabe): desde el principio, tirando lo de antes
                 match open_reader(&self.media, &self.ext) {
-                    Ok((format, decoder, ..)) => {
-                        self.format = format;
-                        self.decoder = decoder;
+                    Ok(again) => {
+                        self.format = again.format;
+                        self.decoder = again.decoder;
                     }
                     Err(_) => {
                         self.eof = true;
@@ -507,15 +523,20 @@ fn downmix(channels: &Channels) -> Vec<[f32; 2]> {
     out
 }
 
-type Reader = (
-    Box<dyn FormatReader>,
-    Box<dyn AudioDecoder>,
-    u32,
-    u32,
-    Option<u64>,
-);
+/// Un archivo abierto: su contenedor, su decodificador y lo que se sabe de
+/// su pista de audio.
+struct Opened {
+    format: Box<dyn FormatReader>,
+    decoder: Box<dyn AudioDecoder>,
+    track_id: u32,
+    rate: u32,
+    /// Muestras por canal que dice durar (nada, si no lo dice).
+    frames: Option<u64>,
+    /// Esa duracion es una cuenta aproximada, no un dato del archivo.
+    estimated: bool,
+}
 
-fn open_reader(media: &Media, ext: &str) -> Result<Reader, String> {
+fn open_reader(media: &Media, ext: &str) -> Result<Opened, String> {
     let mss = match media {
         Media::Bytes(bytes) => MediaSourceStream::new(
             Box::new(Cursor::new(Arc::clone(bytes))),
@@ -546,23 +567,43 @@ fn open_reader(media: &Media, ext: &str) -> Result<Reader, String> {
         .default_track(TrackType::Audio)
         .ok_or_else(|| "sin pista de audio".to_string())?;
     let track_id = track.id;
-    let frames = track.num_frames;
+    // un MP4 en fragmentos dice que dura 0: es que no lo dice
+    let frames = track.num_frames.filter(|&f| f > 0);
     let params = track
         .codec_params
         .as_ref()
         .and_then(|p| p.audio())
         .ok_or_else(|| "sin pista de audio".to_string())?;
     let rate = params.sample_rate.unwrap_or(44_100);
+    // un mp3 sin cabecera (Xing, Info) no dice cuanto dura ni cuanto
+    // retraso lleva: symphonia lo calcula por el tamaño y la tasa de bits
+    // del principio, y si la tasa es variable se queda corto o se pasa
+    let estimated = matches!(format.format_info().short_name, "mp1" | "mp2" | "mp3")
+        && track.delay.is_none()
+        && track.padding.is_none();
+    // ...y con esa cuenta recorta el final de lo que decodifica (medido: un
+    // mp3 de 3,03 s se quedaba en 2,32). Sin cabecera no hay nada de verdad
+    // que recortar: se le pide entero
+    let options = AudioDecoderOptions::default().gapless(!estimated);
     let decoder = symphonia::default::get_codecs()
-        .make_audio_decoder(params, &AudioDecoderOptions::default())
+        .make_audio_decoder(params, &options)
         .map_err(|e| format!("códec no soportado: {e}"))?;
-    Ok((format, decoder, track_id, rate, frames))
+    Ok(Opened {
+        format,
+        decoder,
+        track_id,
+        rate,
+        frames,
+        estimated,
+    })
 }
 
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use crate::testing::{ffmpeg, ffmpeg_pcm, fixture, scratch, wav, without_ffmpeg};
+    use crate::testing::{
+        LONG_MARKS, encoded, ffmpeg, ffmpeg_pcm, fixture, scratch, wav, without_ffmpeg,
+    };
 
     fn all(part: &mut Part) -> Vec<f32> {
         let mut out = Vec::new();
@@ -933,6 +974,41 @@ pub(crate) mod tests {
         assert!(last - first < 4_608, "difieren de {first} a {last}");
         // y dentro, silencio
         assert!(pcm[first * 2..=last * 2].iter().all(|v| *v == 0.0));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_mp3_without_a_header_plays_to_its_real_end() {
+        // sin Xing ni Info, symphonia no sabe cuanto dura: lo calcula por el
+        // tamaño del archivo y recortaba de lo que sale lo que pasaba de esa
+        // cuenta (medido: de 3,03 s se quedaba en 2,32, y el ultimo golpe se
+        // perdia)
+        let dir = scratch("mp3-sin-cabecera");
+        let args = ["-c:a", "libmp3lame", "-q:a", "4", "-write_xing", "0"];
+        let Some(file) = encoded(&dir, "sin.mp3", &args) else {
+            let _ = std::fs::remove_dir_all(&dir);
+            return without_ffmpeg("un mp3 sin cabecera");
+        };
+        let mut part = Part::open_file(&file, 44_100, u64::MAX).expect("mp3");
+        assert!(part.estimated(), "su duracion es una cuenta");
+        let ours = all(&mut part);
+        let theirs = ffmpeg_pcm(&file).expect("ffmpeg lo decodifica");
+        // lo mismo que oye el nucleo: hasta la ultima muestra, y cada golpe
+        // en su sitio
+        assert_eq!(ours.len(), theirs.len(), "dura lo mismo que con ffmpeg");
+        for m in LONG_MARKS {
+            let (a, b) = (pulse_near(&ours, m + 1_138), pulse_near(&theirs, m + 1_138));
+            assert!(a.abs_diff(b) <= 2, "golpe en {a} y con ffmpeg en {b}");
+            assert!(a.abs_diff(m) < 1_200, "golpe en {a}, se escribio en {m}");
+        }
+        // y uno con cabecera sigue sin considerarse una cuenta
+        let args = ["-c:a", "libmp3lame", "-q:a", "4"];
+        let file = encoded(&dir, "con.mp3", &args).expect("mp3");
+        assert!(
+            !Part::open_file(&file, 44_100, u64::MAX)
+                .expect("mp3")
+                .estimated()
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
