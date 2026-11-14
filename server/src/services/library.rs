@@ -12,6 +12,10 @@ use std::path::{Path, PathBuf};
 /// Cuánto se guarda una canción apartada esperando a que su archivo vuelva.
 pub const MISSING_DAYS: f64 = 30.0;
 
+/// Cada cuánto, como mucho, se poda aunque el escaneo no encuentre nada
+/// (ver `scan`).
+const PRUNE_EVERY: std::time::Duration = std::time::Duration::from_secs(6 * 3600);
+
 /// El mismo archivo en otro sitio: su clic sigue valiendo (sin esto se volvía
 /// a calcular, 15-20 s por canción, al mover la carpeta).
 pub fn carry_grid(app: &App, old: &Dict, new_path: &str) {
@@ -173,13 +177,34 @@ pub fn scan(app: &App, progress: &mut dyn FnMut(usize, usize)) -> Result<Value, 
     let wf = waveforms(app);
     let gone_os: Vec<std::ffi::OsString> = r.gone.iter().map(std::ffi::OsString::from).collect();
     library::waveform::forget(&wf, &gone_os, &mut warnings);
-    let known_os: Vec<std::ffi::OsString> = known.iter().map(std::ffi::OsString::from).collect();
-    library::waveform::prune(&wf, &known_os);
     let cv = covers(app);
     let gone_pb: Vec<PathBuf> = r.gone.iter().map(PathBuf::from).collect();
     library::thumbnails::forget(&cv, &gone_pb, &mut warnings);
-    let known_pb: Vec<PathBuf> = known.iter().map(PathBuf::from).collect();
-    library::thumbnails::prune(&cv, &known_pb, &mut warnings);
+    // Podar es abrir cada onda y listar cada miniatura de la biblioteca
+    // entera: con 20.000 canciones, decenas de miles de archivos en cada
+    // escaneo, cada diez minutos, para no encontrar nada. Solo se poda si el
+    // escaneo encontró algo (canciones nuevas, que vuelven, que se van o que
+    // cambiaron), si cambió el número de archivos que se conocen (pistas
+    // separadas) o hace horas que no se poda.
+    let moved = r.added_count + r.back + r.removed + r.updated > 0 || !r.gone.is_empty();
+    let prune_due = {
+        let last = app
+            .last_prune
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        moved || last.is_none_or(|(at, n)| n != known.len() || at.elapsed() > PRUNE_EVERY)
+    };
+    if prune_due {
+        let known_os: Vec<std::ffi::OsString> =
+            known.iter().map(std::ffi::OsString::from).collect();
+        library::waveform::prune(&wf, &known_os);
+        let known_pb: Vec<PathBuf> = known.iter().map(PathBuf::from).collect();
+        library::thumbnails::prune(&cv, &known_pb, &mut warnings);
+        *app.last_prune
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) =
+            Some((std::time::Instant::now(), known.len()));
+    }
     crate::services::ai::log_warnings("danplay.library", warnings);
     let restored = restore_playlists(app, &r.playlists_found)?;
     if !r.study_found.is_empty() {
@@ -343,6 +368,81 @@ mod tests {
         );
         assert!(s == 200 || s == 409, "{s} {v}");
         run_job(app, "/api/scan", "scan", None);
+    }
+
+    /// Un escaneo que no encuentra nada no poda las cachés (abrir cada onda
+    /// y listar cada miniatura de la biblioteca, cada diez minutos, para
+    /// nada); en cuanto algo cambia, o pasan horas, sí.
+    #[test]
+    fn a_quiet_scan_does_not_prune_the_caches() {
+        let Some((app, files)) = crate::testkit::scanned_library() else {
+            return;
+        };
+        let folder = app.config().data_dir.join("covers");
+        std::fs::create_dir_all(&folder).expect("carpeta");
+        let orphan = folder.join(format!("{}.jpg", "a".repeat(40)));
+        // el primer escaneo (el de `scanned_library`) podó y lo apuntó
+        assert!(app.last_prune.lock().expect("cerrojo").is_some());
+        // sin cambios, no: el huérfano se queda
+        std::fs::write(&orphan, b"viejo").expect("huérfano");
+        let r = super::scan(&app, &mut |_, _| {}).expect("escaneo");
+        assert_eq!(r["changed"], false);
+        assert!(orphan.exists(), "podó sin que hubiera cambiado nada");
+        // con una canción que se va, sí
+        std::fs::remove_file(&files["gozo"]).expect("borrar");
+        super::scan(&app, &mut |_, _| {}).expect("escaneo");
+        assert!(!orphan.exists(), "no podó al irse una canción");
+        // y pasadas horas, también
+        std::fs::write(&orphan, b"viejo").expect("huérfano");
+        *app.last_prune.lock().expect("cerrojo") =
+            Some((std::time::Instant::now() - super::PRUNE_EVERY * 2, 2));
+        super::scan(&app, &mut |_, _| {}).expect("escaneo");
+        assert!(!orphan.exists(), "no podó pasadas horas");
+    }
+
+    /// Lo que cuesta podar las cachés con una biblioteca grande: una onda
+    /// (JSON) y tres miniaturas por canción (con `--ignored --nocapture`). Es lo
+    /// que un escaneo sin cambios hacía cada diez minutos.
+    #[test]
+    #[ignore = "mide tiempos: solo, con --ignored --nocapture"]
+    fn pruning_the_caches_of_a_big_library_costs_this_much() {
+        let n: usize = std::env::var("DANPLAY_BENCH_SONGS")
+            .ok()
+            .and_then(|n| n.parse().ok())
+            .unwrap_or(20_000);
+        let app = crate::tests::app();
+        let (waves, covers) = (super::waveforms(&app), super::covers(&app));
+        let paths: Vec<String> = (0..n)
+            .map(|i| format!("/musica/Artistas/Uno/{i}.mp3"))
+            .collect();
+        for (i, p) in paths.iter().enumerate() {
+            std::fs::write(
+                waves.join(format!("{i:040x}.json")),
+                format!(
+                    r#"{{"path":"{p}","mtime":1.0,"peaks":[0.1,0.2,0.3,0.4],"rms":[0.1,0.1]}}"#
+                ),
+            )
+            .expect("onda");
+            let key = library::thumbnails::key(Path::new(p));
+            for size in [96, 192, 320] {
+                std::fs::write(covers.join(format!("{key}_{size}_0123456789.jpg")), b"x")
+                    .expect("miniatura");
+            }
+        }
+        let known_os: Vec<std::ffi::OsString> =
+            paths.iter().map(std::ffi::OsString::from).collect();
+        let known_pb: Vec<std::path::PathBuf> =
+            paths.iter().map(std::path::PathBuf::from).collect();
+        let start = std::time::Instant::now();
+        library::waveform::prune(&waves, &known_os);
+        let waves_took = start.elapsed();
+        let start = std::time::Instant::now();
+        library::thumbnails::prune(&covers, &known_pb, &mut library::warnings::Warnings::new());
+        println!(
+            "podar con {n} canciones ({n} ondas y {} miniaturas): ondas {waves_took:?}, miniaturas {:?}; un escaneo sin cambios ya no lo hace",
+            3 * n,
+            start.elapsed()
+        );
     }
 
     /// El caso real: un flac (o un ogg, o un opus) con su modo estudio, se
