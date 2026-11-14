@@ -417,9 +417,10 @@ cuenta, la velocidad sin cambiar el tono, el tono, los tramos que se
 repiten, la letra y los acordes. La app del celular **no separa ni ordena
 nada**: trae lo que ya hiciste en la PC.
 
-1. En DanPlay de la PC, en el menú de las pistas de una canción (el «⋯» del
-   estudio, o el clic derecho sobre ella), **Convertir a DanPista**. Con varias
-   elegidas, se llevan todas: un repertorio para la banda.
+1. En DanPlay de la PC, en el estudio de la canción, **Exportar…** (el «⋯» de
+   la cabecera) y, en la ventana, **Para el celular**. Con varias canciones
+   elegidas en la lista, el clic derecho ofrece **Preparar N para el
+   celular** y se llevan todas: un repertorio para la banda.
 2. Queda un archivo `.danpista` por canción en `Celular/`, junto a
    `Separadas/` (entre 20 y 50 MB). La carpeta se abre sola.
 3. Mándalo al teléfono como quieras: WhatsApp, Drive, un cable.
