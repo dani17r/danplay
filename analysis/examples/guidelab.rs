@@ -548,6 +548,7 @@ fn from_sidecar(dir: &Path, side: &Value, song: &mut Song) {
                 .flatten()
                 .filter_map(|l| l.as_str().map(str::to_owned))
                 .collect(),
+            chords: Vec::new(),
         })
         .collect();
     song.lyrics = match side["lrc"].as_str() {

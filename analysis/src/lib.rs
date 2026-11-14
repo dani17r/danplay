@@ -13,6 +13,8 @@
 //!   con tiempos;
 //! - `cues`: el sonido de las guías habladas (recortarlas, su volumen, el
 //!   WAV, su onda y el editor);
+//! - `key`: el tono por señal de una canción con cifrado: cuántos semitonos
+//!   va la grabación por encima de sus acordes;
 //! - `weights`: leer los pesos de un checkpoint de PyTorch sin PyTorch ni
 //!   ejecutar nada de lo que traiga;
 //! - `pulse`: el pulso y el «1» con Beat This! (espectrograma, la red en
@@ -38,6 +40,7 @@ pub mod arrangement;
 pub mod beatgrid;
 pub mod click;
 pub mod cues;
+pub mod key;
 pub mod mega;
 pub mod mix;
 pub mod onnx;

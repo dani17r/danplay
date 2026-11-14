@@ -80,6 +80,21 @@ const SUNG: [&str; 4] = ["Estrofa", "Pre coro", "Coro", "Puente"];
 pub struct SheetPart {
     pub name: String,
     pub lines: Vec<String>,
+    /// Los acordes escritos encima de cada verso (`chords[i]` va con
+    /// `lines[i]`; puede venir corto o vacío). Solo hacen falta para
+    /// `chord_spans` (el tono por señal, `key`).
+    pub chords: Vec<Vec<String>>,
+}
+
+/// Un verso cantado que está en el cifrado: cuándo se canta y cuál es.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LineAt {
+    pub start: f64,
+    /// Cuándo se canta el siguiente verso (o lo que tarda uno).
+    pub end: f64,
+    /// La parte del cifrado y el verso en ella (el índice en `lines`).
+    pub part: usize,
+    pub line: usize,
 }
 
 /// Lo que sale de casar el cifrado con la letra.
@@ -95,6 +110,9 @@ pub struct Aligned {
     /// Los versos del cifrado, y cuántos de ellos se cantan.
     pub written: usize,
     pub heard: usize,
+    /// Cada verso cantado que está en el cifrado, en orden: con él se sabe
+    /// cuándo suena cada verso del cifrado (`chord_spans`).
+    pub lines: Vec<LineAt>,
 }
 
 impl Aligned {
@@ -286,6 +304,9 @@ fn labels(sheet: &[SheetPart], texts: &[Vec<String>]) -> Vec<String> {
 struct Row {
     part: usize,
     line: usize,
+    /// Su índice en `SheetPart::lines` (`line` cuenta solo los que tienen
+    /// palabras).
+    original: usize,
     of: usize,
     words: Vec<String>,
 }
@@ -447,27 +468,36 @@ pub fn align(
     duration: f64,
     bars: &[f64],
 ) -> Aligned {
-    let part_lines: Vec<Vec<Vec<String>>> = sheet
+    // de cada parte, los versos con palabras (con su índice de antes)
+    let part_lines: Vec<Vec<(usize, Vec<String>)>> = sheet
         .iter()
         .map(|p| {
             p.lines
                 .iter()
                 .map(|l| words(l))
-                .filter(|w| !w.is_empty())
+                .enumerate()
+                .filter(|(_, w)| !w.is_empty())
                 .collect()
         })
         .collect();
-    let texts: Vec<Vec<String>> = part_lines.iter().map(|l| l.concat()).collect();
+    let texts: Vec<Vec<String>> = part_lines
+        .iter()
+        .map(|l| l.iter().flat_map(|(_, w)| w.clone()).collect())
+        .collect();
     let rows: Vec<Row> = part_lines
         .iter()
         .enumerate()
         .flat_map(|(part, lines)| {
-            lines.iter().enumerate().map(move |(line, w)| Row {
-                part,
-                line,
-                of: lines.len(),
-                words: w.clone(),
-            })
+            lines
+                .iter()
+                .enumerate()
+                .map(move |(line, (original, w))| Row {
+                    part,
+                    line,
+                    original: *original,
+                    of: lines.len(),
+                    words: w.clone(),
+                })
         })
         .collect();
     let keyed: Vec<(f64, Vec<String>)> = lyrics.iter().map(|(at, t)| (*at, words(t))).collect();
@@ -592,7 +622,43 @@ pub fn align(
         0.0 // un cifrado sin los nombres de sus partes no dice nada
     };
     out.parts = parts;
+    out.lines = found
+        .iter()
+        .enumerate()
+        .filter_map(|(i, f)| {
+            let row = &rows[matched(f)?];
+            let start = sung[i].0;
+            let end = match sung.get(i + 1) {
+                Some(next) if !gap_before[i + 1] => next.0,
+                _ => start + typical,
+            };
+            Some(LineAt {
+                start,
+                end,
+                part: row.part,
+                line: row.original,
+            })
+        })
+        .collect();
     out
+}
+
+/// Los versos del cifrado puestos en el tiempo, con los acordes que el
+/// cifrado escribe encima de cada uno: lo que `key::fit` compara con lo que
+/// suena. Los versos sin acordes escritos no salen.
+pub fn chord_spans(sheet: &[SheetPart], aligned: &Aligned) -> Vec<crate::key::Span> {
+    aligned
+        .lines
+        .iter()
+        .filter_map(|l| {
+            let chords = sheet.get(l.part)?.chords.get(l.line)?;
+            (!chords.is_empty()).then(|| crate::key::Span {
+                start: l.start,
+                end: l.end,
+                chords: chords.clone(),
+            })
+        })
+        .collect()
 }
 
 #[cfg(test)]

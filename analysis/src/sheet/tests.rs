@@ -26,6 +26,7 @@ fn written(name: &str, lines: &[&str]) -> SheetPart {
     SheetPart {
         name: name.to_owned(),
         lines: lines.iter().map(|l| (*l).to_owned()).collect(),
+        ..SheetPart::default()
     }
 }
 
@@ -447,4 +448,52 @@ fn two_lines_are_alike_by_the_words_they_share_in_order() {
     // palabras cortas, ni una letra de diferencia
     assert!(same_word("cielo", "cielos") && same_word("aleluia", "aleluya"));
     assert!(!same_word("amor", "amar") && !same_word("santo", "santidad"));
+}
+
+#[test]
+fn the_chords_of_each_line_go_where_the_line_is_sung() {
+    // un cifrado con acordes encima de cada verso (menos del segundo del
+    // coro, que no los trae), y una letra que repite el coro
+    let with_chords = |part: SheetPart, chords: &[&[&str]]| SheetPart {
+        chords: chords
+            .iter()
+            .map(|c| c.iter().map(|x| (*x).to_owned()).collect())
+            .collect(),
+        ..part
+    };
+    let sheet = [
+        with_chords(
+            written("Verso", VERSE_1),
+            &[&["G", "D"], &["Em", "C"], &["G"], &["D", "Em"]],
+        ),
+        with_chords(
+            written("Coro", CHORUS),
+            &[&["C", "G"], &[], &["Am", "F"], &["C"]],
+        ),
+    ];
+    let lyrics = sung(&[(10.0, VERSE_1), (26.0, CHORUS), (42.0, CHORUS)], 4.0);
+    let got = align(&sheet, &lyrics, 60.0, &[]);
+    assert_eq!(got.lines.len(), 12, "{:?}", got.lines);
+    assert_eq!(
+        got.lines[0],
+        LineAt {
+            start: 10.0,
+            end: 14.0,
+            part: 0,
+            line: 0
+        }
+    );
+    let spans = chord_spans(&sheet, &got);
+    // los versos sin acordes escritos no salen: 4 del verso y 3 de cada coro
+    assert_eq!(spans.len(), 10);
+    assert_eq!(
+        (spans[0].start, spans[0].end, spans[0].chords.clone()),
+        (10.0, 14.0, vec!["G".to_owned(), "D".to_owned()])
+    );
+    // el segundo verso del coro (sin acordes) no está; el tercero, sí
+    let at: Vec<f64> = spans.iter().map(|s| s.start).collect();
+    assert_eq!(
+        at,
+        [10.0, 14.0, 18.0, 22.0, 26.0, 34.0, 38.0, 42.0, 50.0, 54.0]
+    );
 }
