@@ -180,6 +180,11 @@ struct Engine<'a> {
     upcoming: Option<Next>,
     /// Desde cuándo se mira el motor casi seguido (ver `pace`).
     close_since: Option<Instant>,
+    /// Se abrió una canción con el clic puesto siguiendo a la canción y su
+    /// rejilla aún no ha llegado: el clic calla hasta que la interfaz diga
+    /// algo (`Command::Metronome`). La que había era de la anterior; sin esto
+    /// sonaba a 100 bpm los instantes que tardaba en llegar.
+    click_hold: bool,
     /// Ya se aviso de que esta cancion se acaba (`Event::Ending`).
     ending_sent: bool,
     was_finished: bool,
@@ -224,6 +229,7 @@ pub(super) fn run(
         outgoing: None,
         upcoming: None,
         close_since: None,
+        click_hold: false,
         ending_sent: false,
         was_finished: false,
         rewound: false,
@@ -377,6 +383,7 @@ impl Engine<'_> {
             Command::Metronome { settings, grid } => {
                 let path = self.carry.path.clone();
                 self.carry.metro.set(settings, grid, &path);
+                self.click_hold = false; // la interfaz ya decidió para esta canción
                 self.audio.set_count_in(u32::from(self.carry.metro.settings.count_in));
                 self.send_click();
             }
@@ -634,6 +641,8 @@ impl Engine<'_> {
         self.apply_mix();
         let path = self.carry.path.clone();
         self.carry.metro.rebuild(&path);
+        let metro = &self.carry.metro;
+        self.click_hold = metro.settings.on && metro.settings.bpm.is_none() && metro.effective.is_none();
         self.audio.set_segments(&self.carry.loops, self.carry.loop_end);
         self.send_click();
         self.send_cues();
@@ -919,7 +928,10 @@ impl Engine<'_> {
     }
 
     fn send_click(&self) {
-        let plan = click_plan(&self.carry.metro, self.carry.duration.max(1.0));
+        let mut plan = click_plan(&self.carry.metro, self.carry.duration.max(1.0));
+        if self.click_hold {
+            plan.on = false; // (los golpes se planean igual: la cuenta los usa)
+        }
         self.audio.set_click(plan);
     }
 

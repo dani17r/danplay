@@ -781,6 +781,16 @@ fn measured() -> (Handle, Receiver<Event>, Card) {
 /// Un tono de `seconds` en un WAV (16 bits, 44,1 kHz) que solo suena por un
 /// lado.
 fn tone(name: &str, seconds: f64, right: bool) -> String {
+    wav(name, seconds, 0.5, right)
+}
+
+/// Dos segundos de nada: lo que se oiga encima es lo que se le ponga.
+fn silence(name: &str, seconds: f64) -> String {
+    wav(name, seconds, 0.0, false)
+}
+
+/// El WAV de `tone` y `silence`.
+fn wav(name: &str, seconds: f64, amplitude: f64, right: bool) -> String {
     use std::hash::{Hash, Hasher};
     // un tono distinto por prueba: la cache guarda lo convertido por su
     // audio, y dos pruebas con el mismo se pisarian el FLAC
@@ -791,7 +801,7 @@ fn tone(name: &str, seconds: f64, right: bool) -> String {
     let mut data = Vec::with_capacity(frames * 4);
     for i in 0..frames {
         let phase = 2.0 * std::f64::consts::PI * freq * i as f64 / RATE as f64;
-        let value = (0.5 * phase.sin() * f64::from(i16::MAX)) as i16;
+        let value = (amplitude * phase.sin() * f64::from(i16::MAX)) as i16;
         let (l, r) = if right { (0, value) } else { (value, 0) };
         data.extend_from_slice(&l.to_le_bytes());
         data.extend_from_slice(&r.to_le_bytes());
@@ -1214,6 +1224,124 @@ fn with_a_crossfade_the_announced_next_song_is_ready_when_it_is_time() {
     );
     forget_prepared(&second);
     for file in [first, second] {
+        let _ = std::fs::remove_file(file);
+    }
+}
+
+// ------------------------------------------- el clic al cambiar de canción
+
+impl Card {
+    /// Cuantas muestras (por canal) se han oído hasta ahora.
+    fn heard_frames(&self) -> usize {
+        self.heard.lock().unwrap().len() / 2
+    }
+
+    /// Lo más alto que se oyó desde la muestra `from`.
+    fn peak_since(&self, from: usize) -> f32 {
+        let heard = self.heard.lock().unwrap();
+        heard[(from * 2).min(heard.len())..]
+            .iter()
+            .fold(0.0, |peak, v| peak.max(v.abs()))
+    }
+}
+
+/// Una rejilla de pulsos lejos (a partir del segundo 100): la canción tiene
+/// la suya y no suena clic durante la prueba.
+fn far_grid() -> Arc<crate::beats::BeatGrid> {
+    Arc::new(crate::beats::BeatGrid {
+        bpm: 120.0,
+        meter: 4,
+        beats: (0..40).map(|i| 100.0 + 0.5 * f64::from(i)).collect(),
+        first_downbeat: 0,
+        phase3: 0,
+        phase4: 0,
+        confidence: 0.9,
+        bars: Vec::new(),
+        closed: true,
+    })
+}
+
+fn click_on(bpm: Option<f32>, grid: Option<(String, Arc<crate::beats::BeatGrid>)>) -> Command {
+    Command::Metronome {
+        settings: MetronomeSettings {
+            on: true,
+            bpm,
+            volume: 1.0,
+            ..Default::default()
+        },
+        grid,
+    }
+}
+
+/// Con el clic puesto siguiendo a la canción (automático), al pasar a otra
+/// cuya rejilla aún no ha llegado no suena nada: sonaba a 100 bpm, y ese
+/// primer golpe suelto se oía en cada canción hasta que la interfaz, al ver
+/// la nueva, quitaba el clic. Lo que decide esa interfaz (`Metronome`) manda;
+/// y si no hay pulso que encontrar, el clic libre vuelve.
+#[test]
+fn the_click_does_not_play_at_the_default_tempo_before_the_new_songs_grid_arrives() {
+    let (m, rx, card) = measured();
+    let _ = rx;
+    let (a, b) = (silence("clic-a", 8.0), silence("clic-b", 8.0));
+    m.send(Command::Play {
+        path: a.clone(),
+        duration: 8.0,
+    })
+    .unwrap();
+    until(&m, |s| s.playing);
+    m.send(click_on(None, Some((a.clone(), far_grid())))).unwrap();
+    wait_ms(300);
+    let mark = card.heard_frames();
+    m.send(Command::Play {
+        path: b.clone(),
+        duration: 8.0,
+    })
+    .unwrap();
+    until(&m, |s| s.path == b && s.playing);
+    // el golpe suelto caía en el segundo 0 de la nueva, y el siguiente en el 0,6
+    wait_ms(900);
+    let stray = card.peak_since(mark);
+    assert!(stray < 0.01, "sono un clic suelto al empezar la nueva: pico {stray:.3}");
+    // la interfaz no encontro pulso: el clic libre, como siempre
+    let mark = card.heard_frames();
+    m.send(click_on(None, None)).unwrap();
+    wait_ms(1300);
+    let free = card.peak_since(mark);
+    assert!(free > 0.05, "el clic libre no volvio: pico {free:.3}");
+    for file in [a, b] {
+        let _ = std::fs::remove_file(file);
+    }
+}
+
+/// Con un tempo a mano el clic no espera a ninguna rejilla: sigue sonando al
+/// pasar de canción.
+#[test]
+fn a_click_at_a_tempo_set_by_hand_keeps_playing_across_songs() {
+    let (m, rx, card) = measured();
+    let _ = rx;
+    let (a, b) = (silence("mano-a", 8.0), silence("mano-b", 8.0));
+    m.send(click_on(Some(120.0), None)).unwrap();
+    m.send(Command::Play {
+        path: a.clone(),
+        duration: 8.0,
+    })
+    .unwrap();
+    until(&m, |s| s.playing);
+    wait_ms(300);
+    let mark = card.heard_frames();
+    m.send(Command::Play {
+        path: b.clone(),
+        duration: 8.0,
+    })
+    .unwrap();
+    until(&m, |s| s.path == b && s.playing);
+    wait_ms(700);
+    let clicked = card.peak_since(mark);
+    assert!(
+        clicked > 0.05,
+        "el clic a mano se callo al cambiar de cancion: pico {clicked:.3}"
+    );
+    for file in [a, b] {
         let _ = std::fs::remove_file(file);
     }
 }
