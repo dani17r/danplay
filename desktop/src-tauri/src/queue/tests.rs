@@ -4,7 +4,9 @@ use super::logic::{after_end, compose, random_other, reconcile, step_index, with
 use super::model::{Command, Inner, Repeat, Track};
 use super::resolve::path_of;
 use super::session::{Session, write_atomically};
-use super::worker::{advance, advance_within, apply, cross_next, follow_current, prune, start};
+use super::worker::{
+    advance, advance_within, advanced, announce, apply, cross_next, follow_current, next_up, prune, start,
+};
 use crate::core::{self, Address};
 use crate::player;
 use std::collections::HashMap;
@@ -532,4 +534,132 @@ fn a_moved_current_song_takes_its_new_path() {
     inner.current_path.clone_from(&new_place);
     follow_current(&mut inner, &player);
     assert_eq!(inner.current_path, new_place);
+}
+
+// ------------------------------------------- la siguiente, decidida de antemano
+
+/// Una cola con sus rutas conocidas (la actual y la siguiente existen).
+fn located(ids: &[i64], name: &str) -> Inner {
+    let items = ids
+        .iter()
+        .map(|&id| with_path(id, &a_real_file(&format!("dp_queue_{name}_{id}.mp3"))))
+        .collect();
+    inner_with(items, 0)
+}
+
+/// Con aleatorio, la que se anuncia al reproductor es la que luego suena: se
+/// decide una vez por cada forma de la cola, no cada vez que se pregunta.
+#[test]
+fn the_next_song_is_decided_once_per_shape_of_the_queue() {
+    let mut inner = located(&[1, 2, 3, 4, 5, 6], "shuffled");
+    inner.shuffle = true;
+    let first = next_up(&mut inner);
+    assert!(first.is_some_and(|i| i != 0));
+    for _ in 0..50 {
+        assert_eq!(next_up(&mut inner), first, "con aleatorio cambiaba de idea");
+    }
+    // y si la cola cambia de forma (otra posicion), se decide otra vez
+    inner.index = 3;
+    let again = next_up(&mut inner);
+    assert!(again.is_some_and(|i| i != 3));
+}
+
+#[test]
+fn the_next_song_is_announced_once_and_again_when_the_queue_changes() {
+    let (player, _events) = silent_player();
+    let mut inner = located(&[1, 2, 3], "announce");
+    announce(&mut inner, &player);
+    assert_eq!(inner.tickets, 1, "se le dijo cual viene");
+    assert_eq!(inner.planned.as_ref().and_then(|p| p.index), Some(1));
+    // sin cambios, no se repite
+    announce(&mut inner, &player);
+    announce(&mut inner, &player);
+    assert_eq!(inner.tickets, 1);
+    // otra posicion: otra anunciada
+    inner.index = 1;
+    announce(&mut inner, &player);
+    assert_eq!(inner.tickets, 2);
+    assert_eq!(inner.planned.as_ref().and_then(|p| p.index), Some(2));
+    // el final de la cola: ninguna (el reproductor olvida la de antes)
+    inner.index = 2;
+    inner.repeat = Repeat::Queue;
+    announce(&mut inner, &player);
+    assert_eq!(inner.planned.as_ref().and_then(|p| p.index), None);
+    assert!(inner.planned.as_ref().is_some_and(|p| p.told && p.announced.is_none()));
+}
+
+/// Una que no se sabe donde esta (sin ruta) no se anuncia: se resolvera
+/// cuando le toque, preguntando al nucleo, como siempre.
+#[test]
+fn a_song_whose_place_is_unknown_is_not_announced() {
+    let (player, _events) = silent_player();
+    let mut inner = inner_with(vec![track(1), track(2)], 0);
+    announce(&mut inner, &player);
+    assert_eq!(inner.tickets, 0);
+    assert!(inner.planned.as_ref().is_some_and(|p| p.told && p.announced.is_none()));
+}
+
+/// La que entro sola, al acabar la anunciada: la cola pasa a ella y vuelve a
+/// anunciar la siguiente.
+#[test]
+fn what_came_in_by_itself_becomes_the_current_song() {
+    let (player, _events) = silent_player();
+    let mut inner = located(&[1, 2, 3], "advanced");
+    inner.current_path = inner.items[0].path.clone().unwrap();
+    announce(&mut inner, &player);
+    let (ticket, path) = inner
+        .planned
+        .as_ref()
+        .and_then(|p| p.announced.clone())
+        .expect("anunciada");
+    let from = inner.current_path.clone();
+    advanced(&mut inner, ticket, &from, &player, &nowhere());
+    assert_eq!(inner.index, 1);
+    assert_eq!(inner.current_path, path);
+    assert_eq!(inner.history.last(), Some(&0), "«anterior» vuelve a la que acabo");
+    // anuncia la siguiente de la nueva
+    announce(&mut inner, &player);
+    assert_eq!(inner.tickets, 2);
+    assert_eq!(inner.planned.as_ref().and_then(|p| p.index), Some(2));
+}
+
+/// Si entre tanto se pulso otra cosa, la que entro ya no es la que toca: no
+/// se mueve nada (la orden nueva va de camino).
+#[test]
+fn what_came_in_after_the_queue_changed_its_mind_is_ignored() {
+    let (player, _events) = silent_player();
+    let mut inner = located(&[1, 2, 3], "ignored");
+    inner.current_path = inner.items[0].path.clone().unwrap();
+    announce(&mut inner, &player);
+    let old = inner.planned.as_ref().and_then(|p| p.announced.clone()).unwrap();
+    // «siguiente» a mano: la 3 (por ejemplo) pasa a ser la actual
+    inner.index = 2;
+    inner.current_path = inner.items[2].path.clone().unwrap();
+    announce(&mut inner, &player);
+    advanced(
+        &mut inner,
+        old.0,
+        &a_real_file("dp_queue_ignored_1.mp3"),
+        &player,
+        &nowhere(),
+    );
+    assert_eq!(inner.index, 2, "se movio con un aviso que ya no valia");
+}
+
+/// Con «repetir esta» la anunciada es ella misma: entra sola, y la cola sigue
+/// donde estaba.
+#[test]
+fn repeating_one_song_announces_the_same_one() {
+    let (player, _events) = silent_player();
+    let mut inner = located(&[1, 2], "repeat_one");
+    inner.repeat = Repeat::One;
+    inner.current_path = inner.items[0].path.clone().unwrap();
+    announce(&mut inner, &player);
+    assert_eq!(inner.planned.as_ref().and_then(|p| p.index), Some(0));
+    let (ticket, _) = inner.planned.as_ref().and_then(|p| p.announced.clone()).unwrap();
+    let from = inner.current_path.clone();
+    advanced(&mut inner, ticket, &from, &player, &nowhere());
+    assert_eq!(inner.index, 0);
+    announce(&mut inner, &player);
+    assert_eq!(inner.tickets, 2, "tras entrar, se anuncia otra vez");
 }
