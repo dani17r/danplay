@@ -848,7 +848,15 @@ fn spawn_song(id: &str, parts: Vec<Part>, declared: f64, from: u64) -> (Song, Ri
         .unwrap_or(0);
     let shared = Arc::new(feeder::Shared::default());
     let n_parts = parts.len();
-    let feeder = Feeder::new(parts, frames, Arc::clone(&shared));
+    let mut feeder = Feeder::new(parts, frames, Arc::clone(&shared));
+    // ya colocado donde empieza, antes de poner a andar el hilo: pidiendoselo
+    // despues por la orden de salto, si el hilo llegaba antes decodificaba
+    // unos bloques «de antes del salto» (de la generacion 0), el render los
+    // tomaba por buenos y, al llegar el salto, volvia a empezar la cancion
+    // unos milisegundos despues de darle a sonar (visto en las pruebas con el
+    // equipo cargado: toda la cancion corrida entre 681 y 1122 muestras)
+    feeder.seek(from);
+    let at = if frames == 0 { from } else { from.min(frames) };
     let (mut free_tx, free_rx) = rtrb::RingBuffer::<Box<Block>>::new(POOL);
     let (full_tx, full_rx) = rtrb::RingBuffer::<Box<Block>>::new(POOL);
     for _ in 0..POOL {
@@ -871,14 +879,12 @@ fn spawn_song(id: &str, parts: Vec<Part>, declared: f64, from: u64) -> (Song, Ri
         id: id.to_string(),
         orders,
         sent: AtomicU64::new(0),
-        asked: AtomicU64::new(0),
+        asked: AtomicU64::new(at),
         asked_order: AtomicU64::new(0),
         shared,
         gains,
         thread,
     };
-    // que empiece a decodificar desde ahi
-    song.seek_to(from);
     (song, ring)
 }
 
@@ -1105,6 +1111,42 @@ mod tests {
         assert!(s.ended && s.segments_done && !s.playing, "{s:?}");
         assert!((s.position - 0.9).abs() < 0.05, "{s:?}");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_song_that_has_just_been_loaded_only_ever_decodes_blocks_of_the_good_generation() {
+        // la orden de salto al principio llegaba al hilo que decodifica por el
+        // canal, y si el hilo salia antes decodificaba bloques de la
+        // generacion anterior: el render los tomaba por buenos y la cancion
+        // volvia a empezar al llegar el salto. Muchas veces, a ver si
+        // alguna se adelanta
+        let (bytes, _) = fixture("ogg");
+        for from in [0u64, 10_000] {
+            for _ in 0..200 {
+                let part = Part::open(Arc::clone(&bytes), "ogg").expect("ogg");
+                let (song, mut ring) = spawn_song("prueba", vec![part], 2.0, from);
+                // nada mas volver, sin esperar al hilo: el salto ya esta puesto
+                assert_eq!(ring.shared.generation.load(Ordering::Acquire), 1);
+                assert_eq!(ring.shared.target.load(Ordering::Acquire), from);
+                // da tiempo a que el hilo llene
+                let limit = Instant::now() + Duration::from_secs(2);
+                while ring.full.slots() < 4 && Instant::now() < limit {
+                    std::thread::yield_now();
+                }
+                let good = ring.shared.generation.load(Ordering::Acquire);
+                assert_eq!(good, 1, "el salto inicial ya esta puesto");
+                let blocks = ring.full.slots();
+                let chunk = ring.full.read_chunk(blocks).expect("bloques");
+                let (a, b) = chunk.as_slices();
+                assert!(
+                    a.iter().chain(b).all(|blk| blk.generation == good),
+                    "bloques de otra generacion tras cargar"
+                );
+                assert_eq!(a[0].start, from);
+                drop(chunk);
+                song.close();
+            }
+        }
     }
 
     #[test]
