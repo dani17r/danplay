@@ -1699,6 +1699,11 @@ un buzón sin candados para las órdenes: el hilo de audio nunca espera.
   muestra, antes del estirador de tiempo: no hay salto ni eco.
 - **El clic y las guías habladas** se renderizan en tiempo de canción, sin
   estirar: caen en el pulso también a 0,7× y en la vuelta de un tramo.
+  Al abrir una canción con el clic puesto siguiendo a la canción (sin tempo a
+  mano) y sin la rejilla de esa, el clic **calla hasta que la interfaz diga
+  algo** (`Command::Metronome`, que manda siempre al cambiar de canción): la
+  rejilla que había era de la anterior, y sin ella el clic va libre a 100 bpm,
+  lo que se oía como un golpe suelto al empezar cada canción.
 
 ## El hilo de audio no se rinde
 
