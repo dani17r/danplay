@@ -5,7 +5,7 @@ use crate::error::ApiError;
 use crate::http::Response;
 use crate::router::{Ctx, Reply, Route};
 use crate::services::{beats, enrich, media, songs, stems};
-use crate::validate::{self, Fields, Float, Int, Kind, List};
+use crate::validate::{self, Fields, Float, Int, Kind, List, Num};
 use library::index::Dict;
 use library::value;
 use serde_json::{Map, Value, json};
@@ -234,10 +234,86 @@ fn song_beats_prepare(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     Ok(json!({"queued": queued, "left": left}).into())
 }
 
+/// Lo más que dura una canción para un clic propio (s): 27 horas es más de lo
+/// que cabe en un archivo, y deja fuera lo que no es un tiempo.
+const MAX_SECONDS: i64 = 100_000;
+/// Cuántos pulsos y «1» caben en un clic propio (lo mismo que guarda el
+/// estudio) y cuántos tramos tocados.
+const MAX_OWN_BEATS: usize = 8000;
+const MAX_TOUCHED: usize = 512;
+
+/// El clic propio que llega con «Re-analizar» (`own`): sus pulsos, sus «1»,
+/// su compás y los tramos que cambió a mano (`touched`, de a dos números:
+/// desde y hasta). Sin `touched` (un clic propio de antes), ninguno.
+fn reanalyze_own(f: &mut Fields) -> beats::Own {
+    let second = Float::between(Some(Num::from(0)), Some(Num::from(MAX_SECONDS)));
+    let beats = f
+        .field(
+            "beats",
+            Capped {
+                item: second,
+                max: MAX_OWN_BEATS,
+            },
+        )
+        .or(Vec::new());
+    let bars = f
+        .field(
+            "bars",
+            Capped {
+                item: Int::between(Some(Num::from(0)), Some(Num::from(MAX_OWN_BEATS))),
+                max: MAX_OWN_BEATS,
+            },
+        )
+        .or(Vec::new());
+    let meter = f.int("meter").ge(1).le(16).or(4);
+    let pairs = f
+        .field(
+            "touched",
+            Capped {
+                item: List::of(second),
+                max: MAX_TOUCHED,
+            },
+        )
+        .or(Vec::new());
+    let mut touched = Vec::new();
+    for (i, p) in pairs.iter().enumerate() {
+        match p[..] {
+            [from, to] if to > from => touched.push((from, to)),
+            _ => {
+                let input = f
+                    .raw()
+                    .get("touched")
+                    .and_then(|t| t.get(i))
+                    .cloned()
+                    .unwrap_or(Value::Null);
+                f.push_error(
+                    "value_error",
+                    Some("touched"),
+                    "cada tramo son dos tiempos, desde y hasta, con el hasta mayor",
+                    &input,
+                    None,
+                );
+            }
+        }
+    }
+    beats::Own {
+        beats,
+        bars,
+        meter,
+        touched,
+    }
+}
+
 /// «Re-analizar el clic», de toda la canción o de un tramo. Con
 /// `wait=false`, lo que tarda (pasar la red por la batería separada) no se
 /// espera dentro de la petición: va por la cola, y mientras tanto contesta
 /// 202 con por dónde va; se vuelve a pedir hasta que sale la rejilla.
+///
+/// Con `own` (el clic que puso a mano quien toca, con los tramos que tocó)
+/// la respuesta trae también `own`: el clic propio puesto al día, con la
+/// rejilla nueva en todas partes menos dentro de esos tramos. `grid` es
+/// siempre la automática nueva, y nada de esto escribe el estudio ni el clic
+/// propio: lo guarda quien lo pidió.
 fn song_beats_reanalyze(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let cid = ctx.path().int("cid").required();
     let mut b = ctx.body()?;
@@ -246,6 +322,11 @@ fn song_beats_reanalyze(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let end = b.float("end").gt(0).opt();
     let bpm = b.float("bpm").ge(20).le(300).opt();
     let wait = b.bool("wait").or(true);
+    let own = b.object("own", false).map(|mut o| {
+        let own = reanalyze_own(&mut o);
+        b.absorb(o);
+        own
+    });
     ctx.done(b)?;
     let c = resolved_file(ctx.app, cid, "archivo no encontrado")?;
     if let (Some(s), Some(e)) = (start, end)
@@ -263,13 +344,18 @@ fn song_beats_reanalyze(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     {
         return Ok(Response::json(202, &json!({"pending": true, "progress": done})).into());
     }
-    let grid = beats::reanalyze(ctx.app, &path, &mode, start, end, bpm).map_err(beats_error)?;
+    let (grid, own) = beats::reanalyze_with(ctx.app, &path, &mode, start, end, bpm, own.as_ref())
+        .map_err(beats_error)?;
     let report = grid
         .get("report")
         .filter(|r| value::truthy(r))
         .cloned()
         .unwrap_or_else(|| json!({}));
-    Ok(merged(grid.clone(), vec![("grid", grid), ("report", report)]).into())
+    let mut extra = vec![("grid", grid.clone()), ("report", report)];
+    if let Some(own) = own {
+        extra.push(("own", own));
+    }
+    Ok(merged(grid, extra).into())
 }
 
 // ---------------------------------------------------------------- la onda

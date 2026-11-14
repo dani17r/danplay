@@ -1088,7 +1088,11 @@ fn when_a_separation_ends_the_drums_fill_what_the_click_left_without_sound() {
     // se deshace con «Re-analizar»: solo la canción, y no vuelve sola
     let g = api(&reanalyze(&app, &song, "mix", None, None, None).expect("sin batería"));
     assert!(g["report"].get("drums").is_none(), "{g}");
-    assert_eq!(kept(&app, &song).1, json!([{"mode": "mix"}]));
+    // (y que se afinó con el audio, para que al rehacerla salga igual)
+    assert_eq!(
+        kept(&app, &song).1,
+        json!([{"mode": "mix", "refine": true}])
+    );
     assert!(
         !improve(&app, &song).expect("mirar"),
         "rehecha a mano: no se toca"
@@ -1098,7 +1102,10 @@ fn when_a_separation_ends_the_drums_fill_what_the_click_left_without_sound() {
     saved["version"] = json!(VERSION - 1);
     std::fs::write(&c, saved.to_string()).expect("guardar");
     grid_of(&app, &song).expect("rejilla");
-    assert_eq!(kept(&app, &song).1, json!([{"mode": "mix"}]));
+    assert_eq!(
+        kept(&app, &song).1,
+        json!([{"mode": "mix", "refine": true}])
+    );
     assert_eq!(d.calls().len(), 2, "sin pasar la red otra vez");
 }
 
@@ -1239,4 +1246,451 @@ fn the_finished_grid_says_where_the_one_falls_in_a_two_and_a_six() {
     assert_eq!(out["phase2"], 1);
     assert_eq!(out["phase6"], 4);
     assert_eq!(out["meter"], 6);
+}
+
+// ---------------------------------------------------------------- afinar con el audio
+
+/// Un WAV (16 bits, mono, 22.050 Hz) de `seconds` con una caja (ruido que
+/// decae en 20 ms) en cada instante de `times`: el audio de una canción en la
+/// que se OYE dónde golpea la batería.
+fn drum_wav(times: &[f64], seconds: f64) -> Vec<u8> {
+    let rate = 22_050u32;
+    let mut x = vec![0f32; (seconds * f64::from(rate)) as usize];
+    let mut seed = 777u32;
+    for t in times {
+        let at = (t * f64::from(rate)).round() as usize;
+        for k in 0..2000 {
+            seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            let r = f64::from(seed) / 2_147_483_648.0 - 1.0;
+            if let Some(s) = x.get_mut(at + k) {
+                *s += (0.6 * r * (-(k as f64) / (f64::from(rate) * 0.02)).exp()) as f32;
+            }
+        }
+    }
+    let data: Vec<u8> = x
+        .iter()
+        .flat_map(|s| ((s.clamp(-1.0, 1.0) * 32_767.0) as i16).to_le_bytes())
+        .collect();
+    let mut wav = Vec::new();
+    wav.extend_from_slice(b"RIFF");
+    wav.extend_from_slice(&(36 + data.len() as u32).to_le_bytes());
+    wav.extend_from_slice(b"WAVEfmt ");
+    wav.extend_from_slice(&16u32.to_le_bytes());
+    wav.extend_from_slice(&1u16.to_le_bytes()); // PCM
+    wav.extend_from_slice(&1u16.to_le_bytes()); // mono
+    wav.extend_from_slice(&rate.to_le_bytes());
+    wav.extend_from_slice(&(rate * 2).to_le_bytes());
+    wav.extend_from_slice(&2u16.to_le_bytes());
+    wav.extend_from_slice(&16u16.to_le_bytes());
+    wav.extend_from_slice(b"data");
+    wav.extend_from_slice(&(data.len() as u32).to_le_bytes());
+    wav.extend_from_slice(&data);
+    wav
+}
+
+/// Los golpes que oiría quien escucha la canción del detector de mentira (un
+/// pulso cada medio segundo desde 0,5 s), `late` segundos después.
+fn drum_hits(late: f64) -> Vec<f64> {
+    (0..59).map(|k| 0.5 + 0.5 * f64::from(k) + late).collect()
+}
+
+fn offset_ms(g: &Value, which: &str) -> f64 {
+    g["report"]["fit"][which]["offset_ms"]
+        .as_f64()
+        .unwrap_or(f64::NAN)
+}
+
+#[test]
+fn re_analysing_pushes_the_click_onto_the_hits_the_audio_shows() {
+    // la rejilla que sale de lo que dijo la red cae 30 ms ANTES de los
+    // golpes de la batería: «Arreglar» solo re-decodificaba lo mismo y no
+    // cambiaba nada (`fixed: 0`); ahora mira el audio y lo corre
+    let app = crate::tests::app();
+    let Some(d) = Detector::start(&app) else {
+        return;
+    };
+    let song = d.file("cancion.wav", &drum_wav(&drum_hits(0.030), 30.0));
+    let before = beats_of(&api(&grid_of(&app, &song).expect("rejilla")));
+    let g = api(&reanalyze(&app, &song, "repair", None, None, None).expect("re-analizar"));
+    let moved: Vec<f64> = before.iter().map(|b| b + 0.030).collect();
+    assert!(close(&beats_of(&g), &moved, 0.004), "{g}");
+    // lo que se midió: antes 30 ms por delante de los golpes, ahora encima
+    assert!((offset_ms(&g, "before") - 30.0).abs() <= 3.0, "{g}");
+    assert!(offset_ms(&g, "after").abs() <= 3.0, "{g}");
+    assert!(g["report"]["fit"]["before"]["supported"].as_f64() > Some(0.9));
+    assert_eq!(g["report"]["evidence"], "mix");
+    assert!(g["report"]["fixed"].as_u64() >= Some(1), "{g}");
+    assert!(g["report"]["snapped"].as_u64() >= Some(50), "{g}");
+    assert!((g["report"]["shift_ms"].as_f64().unwrap_or(0.0) - 30.0).abs() <= 4.0);
+    // se queda guardado, y con lo que se hizo: al cambiar la versión, sale igual
+    let (c, mut saved) = read_cache(&app, &song);
+    assert_eq!(saved["edits"][0]["refine"], true);
+    saved["version"] = json!(2);
+    std::fs::write(&c, saved.to_string()).expect("guardar");
+    let again = api(&grid_of(&app, &song).expect("rejilla"));
+    assert!(close(&beats_of(&again), &beats_of(&g), 0.0005), "{again}");
+    // un archivo que ffmpeg no lee: sin evidencia, nada que afinar ni que
+    // contar; y lo guardado no promete lo que no pasó
+    let unreadable = d.file("ilegible.mp3", b"x");
+    let g = api(&reanalyze(&app, &unreadable, "repair", None, None, None).expect("re-analizar"));
+    assert!(
+        g["report"]["fit"].is_null() && g["report"]["weak"].is_null(),
+        "{g}"
+    );
+    let (_, saved) = read_cache(&app, &unreadable);
+    assert_eq!(saved["edits"], json!([{"mode": "repair"}]));
+    // «como antes de 1.28» no afina nunca, ni con audio
+    let plain = beats_of(&api(&reanalyze(
+        &app,
+        &unreadable,
+        "follow",
+        None,
+        None,
+        None,
+    )
+    .expect("como antes")));
+    let loud = d.file("otra.wav", &drum_wav(&drum_hits(0.030), 30.0));
+    let g = api(&reanalyze(&app, &loud, "follow", None, None, None).expect("como antes"));
+    assert!(g["report"]["fit"].is_null(), "{g}");
+    assert!(
+        close(&beats_of(&g), &plain, 1e-9),
+        "con audio, igual que sin él"
+    );
+}
+
+#[test]
+fn only_a_stretch_is_refined_when_a_stretch_is_asked() {
+    let app = crate::tests::app();
+    let Some(d) = Detector::start(&app) else {
+        return;
+    };
+    let song = d.file("cancion.wav", &drum_wav(&drum_hits(0.030), 30.0));
+    let before = beats_of(&api(&grid_of(&app, &song).expect("rejilla")));
+    let g = api(&reanalyze(&app, &song, "repair", Some(10.0), Some(18.0), None).expect("tramo"));
+    let after = beats_of(&g);
+    let near = |t: f64| {
+        after
+            .iter()
+            .map(|a| (a - t).abs())
+            .fold(f64::INFINITY, f64::min)
+    };
+    for b in before.iter().filter(|b| **b < 9.0 || **b > 19.0) {
+        assert!(near(*b) < 1e-6, "fuera del tramo no se toca ({b})");
+    }
+    assert!(
+        (near(13.0 + 0.030) - 0.0).abs() < 0.004,
+        "dentro, 30 ms más tarde"
+    );
+    assert!(near(13.0) > 0.025);
+    // el informe es del tramo
+    assert!((offset_ms(&g, "before") - 30.0).abs() <= 3.0, "{g}");
+    assert!(offset_ms(&g, "after").abs() <= 3.0, "{g}");
+}
+
+/// El cuerpo de un re-análisis con clic propio.
+fn with_own(own: Value) -> Value {
+    json!({"mode": "repair", "own": own})
+}
+
+#[test]
+fn the_hand_made_click_keeps_what_was_touched_and_follows_the_new_analysis_elsewhere() {
+    let Some(app) = api_library() else {
+        return;
+    };
+    let Some(d) = Detector::start(&app) else {
+        return;
+    };
+    let id = first_ids(&app, 1)[0];
+    let row = crate::services::songs::by_id(&app, id)
+        .expect("base")
+        .expect("canción");
+    let song = PathBuf::from(crate::services::songs::text(&row, "path"));
+    std::fs::write(&song, drum_wav(&drum_hits(0.030), 30.0)).expect("audio");
+    let url = format!("/api/song/{id}/beats/reanalyze");
+    let plain = beats_of(&api(&grid_of(&app, &song).expect("rejilla")));
+    // lo que puso a mano: la rejilla de antes, con un tramo (10 a 14 s) movido
+    // a su gusto, y el resto como estaba cuando la copió
+    let mine: Vec<f64> = plain
+        .iter()
+        .map(|b| {
+            if (10.0..=14.0).contains(b) {
+                b + 0.1
+            } else {
+                (b - 0.02).max(0.0)
+            }
+        })
+        .collect();
+    let (st, v) = call(
+        &app,
+        "POST",
+        &url,
+        Some(with_own(
+            json!({"beats": mine, "bars": [0, 4, 8], "meter": 4, "touched": [[9.9, 14.2]]}),
+        )),
+    );
+    assert_eq!(st, 200, "{v}");
+    // `grid` es la automática nueva, sin un solo pulso suyo
+    let auto = beats_of(&v["grid"]);
+    assert!(close(
+        &auto,
+        &plain.iter().map(|b| b + 0.030).collect::<Vec<_>>(),
+        0.004
+    ));
+    // `own`: lo nuevo fuera del tramo, lo suyo dentro
+    let own = beats_of(&v["own"]);
+    for b in &own {
+        let inside = (9.9..=14.2).contains(b);
+        let ours = mine.iter().any(|m| (m - b).abs() < 1e-3);
+        let new = auto.iter().any(|a| (a - b).abs() < 1e-3);
+        assert!(if inside { ours } else { new }, "{b} (dentro: {inside})");
+    }
+    assert!(
+        own.iter().any(|b| (b - 10.1).abs() < 0.05),
+        "sus pulsos del tramo siguen"
+    );
+    assert!(
+        !own.iter()
+            .any(|b| mine.iter().any(|m| (m - b).abs() < 1e-3) && *b < 9.0),
+        "lo viejo de fuera, no"
+    );
+    assert_eq!(v["own"]["report"]["kept"], json!([[9.9, 14.2]]));
+    assert!(
+        v["own"]["bars"].as_array().is_some_and(|b| !b.is_empty()),
+        "{v}"
+    );
+    assert_eq!(v["own"]["meter"], 4);
+    // lo guardado de la canción es la automática: nada de lo suyo
+    let (_, saved) = read_cache(&app, &song);
+    assert_eq!(beats_of(&saved["grid"]), auto);
+    assert_eq!(d.calls().len(), 1);
+}
+
+#[test]
+fn a_hand_made_click_without_touched_stretches_is_just_the_new_analysis() {
+    // un clic propio de antes (sin `touched`): no se sabe qué tocó, no se conserva nada
+    let Some(app) = api_library() else {
+        return;
+    };
+    let Some(_d) = Detector::start(&app) else {
+        return;
+    };
+    let id = first_ids(&app, 1)[0];
+    let url = format!("/api/song/{id}/beats/reanalyze");
+    let (st, v) = call(
+        &app,
+        "POST",
+        &url,
+        Some(with_own(
+            json!({"beats": [1.0, 1.4, 1.9, 2.5, 3.0], "meter": 4}),
+        )),
+    );
+    assert_eq!(st, 200, "{v}");
+    assert_eq!(v["own"]["beats"], v["grid"]["beats"]);
+    assert_eq!(v["own"]["report"]["kept"], json!([]));
+    // y sin `own`, la respuesta es la de siempre
+    let (_, plain) = call(&app, "POST", &url, Some(json!({"mode": "repair"})));
+    assert!(plain.get("own").is_none(), "{plain}");
+    // los tramos que se pisan cuentan como uno
+    let (_, v) = call(
+        &app,
+        "POST",
+        &url,
+        Some(with_own(
+            json!({"beats": [10.0, 10.3, 10.9, 11.2], "meter": 4,
+            "touched": [[9.5, 11.5], [11.0, 12.0]]}),
+        )),
+    );
+    assert_eq!(v["own"]["report"]["kept"], json!([[9.5, 12.0]]), "{v}");
+}
+
+#[test]
+fn a_hand_made_click_that_makes_no_sense_is_refused() {
+    let Some(app) = api_library() else {
+        return;
+    };
+    let Some(_d) = Detector::start(&app) else {
+        return;
+    };
+    let id = first_ids(&app, 1)[0];
+    let url = format!("/api/song/{id}/beats/reanalyze");
+    let refused = |own: Value| call(&app, "POST", &url, Some(with_own(own))).0;
+    assert_eq!(
+        refused(json!({"beats": ["nan"], "meter": 4})),
+        422,
+        "no es un tiempo"
+    );
+    assert_eq!(refused(json!({"beats": ["inf"]})), 422);
+    assert_eq!(
+        refused(json!({"beats": [-1.0, 2.0]})),
+        422,
+        "antes de empezar"
+    );
+    assert_eq!(refused(json!({"beats": [1e9]})), 422, "más que una canción");
+    assert_eq!(refused(json!({"beats": [1.0], "meter": 0})), 422);
+    assert_eq!(refused(json!({"beats": [1.0], "bars": [-3]})), 422);
+    assert_eq!(
+        refused(json!({"beats": [1.0], "touched": [[5.0, 3.0]]})),
+        422,
+        "al revés"
+    );
+    assert_eq!(
+        refused(json!({"beats": [1.0], "touched": [[5.0]]})),
+        422,
+        "falta el hasta"
+    );
+    assert_eq!(
+        refused(json!({"beats": [1.0], "touched": [[1.0, 2.0, 3.0]]})),
+        422
+    );
+    assert_eq!(
+        refused(json!({"beats": [1.0], "touched": [["nan", 3.0]]})),
+        422
+    );
+    let many: Vec<f64> = (0..8001).map(f64::from).collect();
+    assert_eq!(
+        refused(json!({"beats": many})),
+        422,
+        "más pulsos de los que caben"
+    );
+    let tramos: Vec<Value> = (0..513)
+        .map(|i| json!([f64::from(i), f64::from(i) + 0.5]))
+        .collect();
+    assert_eq!(refused(json!({"beats": [1.0], "touched": tramos})), 422);
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &url,
+            Some(json!({"mode": "repair", "own": [1, 2]}))
+        )
+        .0,
+        422,
+        "own no es un objeto"
+    );
+    // y lo que sí vale, sí
+    assert_eq!(
+        refused(json!({"beats": [1.0, 1.5], "bars": [0], "meter": 3, "touched": [[0.5, 2.0]]})),
+        200
+    );
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            &url,
+            Some(json!({"mode": "repair", "own": null}))
+        )
+        .0,
+        200
+    );
+}
+
+// ---------------------------------------------------------------- el banco, con archivos de verdad
+
+/// Un banco de desarrollo, no una prueba de la CI: «Re-analizar» (de verdad,
+/// por `reanalyze_with`) y el clic propio con las canciones y lo que oyó la
+/// red de una carpeta. De solo lectura: lo que hace falta se copia a la
+/// carpeta temporal de la prueba.
+///
+/// ```text
+/// DANPLAY_CLICK_BENCH=carpeta cargo test --release -p danplay-server \
+///     real_click_bench -- --ignored --nocapture
+/// ```
+///
+/// `carpeta/<id>/cancion.mp3|flac` y `cancion.npz` (lo que oyó la red);
+/// opcional `propio.json` (`{"beats": [...]}`, el clic propio de la
+/// canción). Una línea de JSON por canción: el ajuste del clic antes y
+/// después de «Arreglar», y con clic propio, qué tramos se dieron por
+/// tocados (donde no cae en ningún pulso de la rejilla automática de antes)
+/// y lo que queda de lo suyo al ponerlo al día.
+#[test]
+#[ignore = "banco con archivos de verdad: DANPLAY_CLICK_BENCH"]
+fn real_click_bench() {
+    let Some(root) = std::env::var_os("DANPLAY_CLICK_BENCH").map(PathBuf::from) else {
+        return;
+    };
+    let app = crate::tests::app();
+    let mut dirs: Vec<PathBuf> = std::fs::read_dir(&root)
+        .expect("carpeta")
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .filter(|p| p.is_dir())
+        .collect();
+    dirs.sort();
+    for dir in dirs {
+        let id = dir.file_name().map(|s| s.to_string_lossy().into_owned());
+        let audio = ["mp3", "flac", "wav", "m4a"]
+            .iter()
+            .map(|e| dir.join(format!("cancion.{e}")))
+            .find(|p| p.is_file());
+        let (Some(id), Some(audio)) = (id, audio) else {
+            continue;
+        };
+        let song = app.config().data_dir.join(format!(
+            "banco-{id}.{}",
+            audio.extension().expect("extensión").to_string_lossy()
+        ));
+        std::fs::copy(&audio, &song).expect("copiar");
+        let raw = raw_file(&app, &song).expect("clave");
+        std::fs::create_dir_all(raw.parent().expect("carpeta")).expect("carpeta");
+        std::fs::copy(dir.join("cancion.npz"), &raw).expect("lo que oyó la red");
+        let started = std::time::Instant::now();
+        let auto = beats_of(&api(&grid_of(&app, &song).expect("rejilla")));
+        let own = std::fs::read_to_string(dir.join("propio.json"))
+            .ok()
+            .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+            .map(|v| beats_of(v.get("grid").unwrap_or(&v)));
+        // lo tocado, a falta de la interfaz: lo que no cae en un pulso de la
+        // automática de antes (a 40 ms), con un margen, y los cercanos juntos
+        let touched: Vec<(f64, f64)> = own
+            .as_ref()
+            .map(|own| {
+                let mut out: Vec<(f64, f64)> = Vec::new();
+                for b in own
+                    .iter()
+                    .filter(|b| auto.iter().all(|a| (a - **b).abs() > 0.04))
+                {
+                    match out.last_mut() {
+                        Some(last) if *b - 0.5 <= last.1 => last.1 = *b + 0.5,
+                        _ => out.push((*b - 0.5, *b + 0.5)),
+                    }
+                }
+                out
+            })
+            .unwrap_or_default();
+        let own_req = own.as_ref().map(|beats| Own {
+            beats: beats.clone(),
+            bars: Vec::new(),
+            meter: 4,
+            touched: touched.clone(),
+        });
+        let (grid, merged) =
+            reanalyze_with(&app, &song, "repair", None, None, None, own_req.as_ref())
+                .expect("re-analizar");
+        let report = &grid["report"];
+        let mut line = json!({
+            "id": id,
+            "fit": report["fit"],
+            "evidence": report["evidence"],
+            "fixed": report["fixed"],
+            "weak_spans": report["weak"].as_array().map(Vec::len),
+            "mended": report["mended"],
+            "ms": started.elapsed().as_millis(),
+        });
+        if let (Some(own), Some(merged)) = (own, merged) {
+            let new = beats_of(&grid);
+            let mine = beats_of(&merged);
+            let theirs = |b: &f64| own.iter().any(|o| (o - b).abs() < 1e-3);
+            let ours = |b: &f64| new.iter().any(|o| (o - b).abs() < 1e-3);
+            line["own"] = json!({
+                "beats": own.len(),
+                "touched": touched.len(),
+                "touched_s": touched.iter().map(|(a, b)| b - a).sum::<f64>(),
+                "merged_beats": mine.len(),
+                "from_hand": mine.iter().filter(|b| theirs(b)).count(),
+                "from_analysis": mine.iter().filter(|b| ours(b) && !theirs(b)).count(),
+                "kept": merged["report"]["kept"],
+            });
+        }
+        println!("{line}");
+    }
 }
