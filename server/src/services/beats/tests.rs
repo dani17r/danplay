@@ -337,6 +337,96 @@ fn what_is_needed_now_goes_before_what_comes_later() {
 }
 
 #[test]
+fn a_whole_setlist_fits_in_the_queue_and_what_does_not_fit_is_said() {
+    // la cola era de 6: de un repertorio de 40 se preparaban 6 y las demás
+    // se tiraban contestando que quedaban en cola
+    let app = crate::tests::app();
+    let Some(d) = Detector::start(&app) else {
+        return;
+    };
+    let _paused = Paused::new();
+    let list: Vec<PathBuf> = (0..40)
+        .map(|i| d.file(&format!("lista-{i:02}.mp3"), format!("{i}").as_bytes()))
+        .collect();
+    assert!(list.iter().all(|song| prepare(&app, song)));
+    assert_eq!(
+        waiting(),
+        list.iter().map(|p| text_of(p)).collect::<Vec<_>>()
+    );
+    // la que suena va delante, y no echa a ninguna
+    let now = d.file("ahora.mp3", b"a");
+    assert_eq!(request(&app, &now, true).expect("pedir"), None);
+    assert_eq!(waiting().len(), 41);
+    assert_eq!(waiting()[0], text_of(&now));
+    // prepararla otra vez no le quita el sitio a la que ya espera
+    assert!(prepare(&app, &now) && prepare(&app, &list[3]));
+    assert_eq!(waiting()[0], text_of(&now));
+    assert_eq!(waiting()[4], text_of(&list[3]));
+    // se salta a otra de la lista: pasa delante, sin duplicarse
+    assert_eq!(request(&app, &list[30], true).expect("pedir"), None);
+    assert_eq!(waiting()[..2], [text_of(&list[30]), text_of(&now)]);
+    assert_eq!(waiting().len(), 41);
+    // llena, lo de después no entra y se dice; lo de ahora entra siempre
+    let extra: Vec<bool> = (0..MAX_QUEUE)
+        .map(|i| prepare(&app, &d.file(&format!("mas-{i}.mp3"), b"m")))
+        .collect();
+    assert_eq!(waiting().len(), MAX_QUEUE);
+    assert_eq!(extra.iter().filter(|fit| **fit).count(), MAX_QUEUE - 41);
+    assert_eq!(extra.last(), Some(&false), "no cabe, y no dice que sí");
+    let urgent = d.file("urgente.mp3", b"u");
+    assert_eq!(request(&app, &urgent, true).expect("pedir"), None);
+    assert_eq!(waiting().len(), MAX_QUEUE);
+    assert_eq!(waiting()[0], text_of(&urgent));
+    // (la prueba no pasa el detector por quinientas canciones)
+    QUEUE
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .waiting
+        .clear();
+}
+
+#[test]
+fn the_api_prepares_a_whole_list_at_once() {
+    let Some(app) = api_library() else {
+        return;
+    };
+    let Some(d) = Detector::start(&app) else {
+        return;
+    };
+    let ids = first_ids(&app, 3);
+    let path_of = |id: i64| {
+        let row = crate::services::songs::by_id(&app, id)
+            .expect("base")
+            .expect("canción");
+        crate::services::songs::text(&row, "path")
+    };
+    {
+        let _paused = Paused::new();
+        let (st, v) = call(
+            &app,
+            "POST",
+            &format!("/api/song/{}/beats/prepare", ids[0]),
+            Some(json!({"ids": [ids[1], ids[2], 999_999, ids[1]]})),
+        );
+        // la que no está no se puede dejar preparada, y se dice
+        assert_eq!((st, v), (200, json!({"queued": true, "left": [999_999]})));
+        assert_eq!(waiting(), [ids[0], ids[1], ids[2]].map(path_of));
+    }
+    assert!(idle(Duration::from_secs(30)));
+    assert_eq!(d.calls().len(), 3);
+    // ya guardadas: no hay nada que hacer, y nada queda fuera
+    let (st, v) = call(
+        &app,
+        "POST",
+        &format!("/api/song/{}/beats/prepare", ids[0]),
+        Some(json!({"ids": [ids[1], ids[2]]})),
+    );
+    assert_eq!((st, v), (200, json!({"queued": true, "left": []})));
+    assert!(waiting().is_empty());
+    assert_eq!(d.calls().len(), 3);
+}
+
+#[test]
 fn a_failure_is_remembered_until_the_file_changes() {
     let app = crate::tests::app();
     let Some(d) = Detector::start(&app) else {

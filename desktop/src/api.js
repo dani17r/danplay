@@ -1197,8 +1197,15 @@ export const api = {
   beatGrid: (id) => GET(`/song/${id}/beats`),
   /** sin esperar: la rejilla, o `{pending, progress}` mientras se calcula */
   beatGridNow: (id) => GET(`/song/${id}/beats?wait=false`),
-  /** deja calculándose la de una canción que vendrá después */
-  beatGridPrepare: (id) => POST(`/song/${id}/beats/prepare`),
+  /**
+   * deja calculándose la de una canción que vendrá después; con `ids`,
+   * también las de esas (una lista entera, en su orden): `left` son las que
+   * no se pudieron dejar
+   * @param {number} id @param {number[]} [ids]
+   * @returns {Promise<{queued: boolean, left?: number[]}>}
+   */
+  beatGridPrepare: (id, ids) =>
+    POST(`/song/${id}/beats/prepare`, ids?.length ? { ids } : undefined),
   /**
    * Vuelve a analizar el clic: de toda la canción o de un tramo, arreglando
    * los huecos y los saltos de fase ('repair'), a tempo fijo ('steady'),

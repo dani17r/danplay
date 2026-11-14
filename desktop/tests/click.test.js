@@ -26,7 +26,8 @@ import {
   useClick,
   POLL_MS,
   LOAD_LIMIT_MS,
-  ANSWER_MS
+  ANSWER_MS,
+  AHEAD
 } from '../src/composables/useClick.js'
 import { ApiError } from '../src/api.js'
 import { song } from './support/backend.js'
@@ -178,7 +179,8 @@ describe('automatic click', () => {
     await click.toggle()
     await settle()
     expect(bridge().setMetronome).toHaveBeenLastCalledWith(expect.objectContaining({ on: true }))
-    expect(held.api.beatGridPrepare.mock.calls.map((c) => c[0])).toEqual([8, 9, 10])
+    // toda la lista de una vez: la siguiente, y con ella las demás
+    expect(held.api.beatGridPrepare.mock.calls).toEqual([[8, [9, 10, 11]]])
     vi.clearAllMocks()
     held.playback.emit({ ...other, path: '/musica/otra.mp3', index: 1 })
     await settle()
@@ -186,10 +188,45 @@ describe('automatic click', () => {
     expect(bridge().setMetronome).toHaveBeenCalledWith(expect.objectContaining({ meter: 3 }))
     expect(bridge().setBeatGrid).toHaveBeenCalledWith('/musica/otra.mp3', expect.anything())
     expect(bridge().setMetronome).toHaveBeenLastCalledWith(expect.objectContaining({ on: true }))
-    expect(held.api.beatGridPrepare.mock.calls.map((c) => c[0])).toEqual([9, 10, 11])
+    // ya estaban pedidas: no se pregunta otra vez por ellas
+    expect(held.api.beatGridPrepare).not.toHaveBeenCalled()
   })
 
-  it('on shuffle nothing is prepared: the next one is unknown', async () => {
+  it('a whole setlist is left prepared, and what could not be is asked for again', async () => {
+    // se preparaban las 3 siguientes: a la cuarta canción del ensayo había
+    // que esperar otra vez al clic
+    held.state.songs = Array.from({ length: 30 }, (_, i) => song(7 + i, { title: 'Canción ' + i }))
+    held.api.beatGridPrepare.mockImplementation(async () => ({ queued: true, left: [20] }))
+    const player = usePlayback()
+    await player.ready()
+    await player.setQueue(held.state.songs, 7)
+    held.playback.emit({ path: '/musica/mi-gozo.mp3' })
+    await settle()
+    await useClick().toggle()
+    await settle()
+    const rest = Array.from({ length: 28 }, (_, i) => 9 + i)
+    expect(held.api.beatGridPrepare.mock.calls).toEqual([[8, rest]])
+    // en la siguiente canción, solo la que el núcleo no pudo dejar
+    held.api.beatGridPrepare.mockClear()
+    held.playback.emit({ ...other, path: '/musica/otra.mp3', index: 1 })
+    await settle()
+    expect(held.api.beatGridPrepare.mock.calls).toEqual([[20, []]])
+  })
+
+  it('of a very long list, the next ones: not the whole library', async () => {
+    held.state.songs = Array.from({ length: 200 }, (_, i) => song(7 + i, { title: 'Canción ' + i }))
+    const player = usePlayback()
+    await player.ready()
+    await player.setQueue(held.state.songs, 7)
+    held.playback.emit({ path: '/musica/mi-gozo.mp3' })
+    await settle()
+    await useClick().toggle()
+    await settle()
+    const [first, others] = held.api.beatGridPrepare.mock.calls[0]
+    expect([first, ...others]).toEqual(Array.from({ length: AHEAD }, (_, i) => 8 + i))
+  })
+
+  it('on shuffle a short list is prepared whole, and of a long one nothing: the next is unknown', async () => {
     const player = usePlayback()
     await player.ready()
     await player.setQueue(held.state.songs, 7)
@@ -198,6 +235,16 @@ describe('automatic click', () => {
     await useClick().toggle()
     await settle()
     expect(bridge().setMetronome).toHaveBeenLastCalledWith(expect.objectContaining({ on: true }))
+    expect(held.api.beatGridPrepare.mock.calls).toEqual([[8, []]])
+    // una lista larga: no se pasa la red por canciones al azar
+    resetClick()
+    held.api.beatGridPrepare.mockClear()
+    held.state.songs = Array.from({ length: 200 }, (_, i) => song(7 + i, { title: 'Canción ' + i }))
+    await player.setQueue(held.state.songs, 7)
+    held.playback.emit({ path: '/musica/mi-gozo.mp3', shuffle: true })
+    await settle()
+    await useClick().toggle()
+    await settle()
     expect(held.api.beatGridPrepare).not.toHaveBeenCalled()
   })
 

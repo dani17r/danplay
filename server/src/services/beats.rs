@@ -35,8 +35,11 @@ use std::time::{Duration, Instant};
 pub const VERSION: i64 = 4;
 /// Lo que puede tardar el detector con una canción.
 pub const TIMEOUT: Duration = Duration::from_secs(600);
-/// La cola es corta: lo que se queda fuera se pedirá cuando toque.
-pub const MAX_QUEUE: usize = 6;
+/// Lo que cabe en la cola: un repertorio o un disco enteros, con holgura
+/// (cada entrada es una ruta). Eran 6, y lo que no cabía se tiraba diciendo
+/// que quedaba en cola. Lo que no cabe ahora se dice (`prepare` contesta que
+/// no), y lo que hace falta ya entra siempre.
+pub const MAX_QUEUE: usize = 512;
 /// Las opciones de «Re-analizar el clic».
 pub const REANALYZE_MODES: [&str; 5] = ["repair", "steady", "fill", "drums", "follow"];
 
@@ -780,22 +783,37 @@ fn remembered(q: &Queue, fkey: &str) -> Option<String> {
         .map(|f| f.why.clone())
 }
 
-/// Deja el archivo en la cola (delante con `first`) y despierta al hilo. Lo
-/// que ya espera no se duplica: con `first`, pasa delante.
-fn enqueue(q: &mut Queue, app: &App, key: String, task: Task, first: bool) {
+/// Deja el archivo en la cola y despierta al hilo; `false` si no cabe.
+///
+/// Con `first` (lo que hace falta ya) va delante y entra siempre: si la
+/// cola está llena, sale lo último, que es lo que más tardaría en hacer
+/// falta. Sin `first` va detrás, y si no cabe se dice. Lo que ya espera no
+/// se duplica ni pierde su sitio: solo `first` lo pasa delante.
+fn enqueue(q: &mut Queue, app: &App, key: String, task: Task, first: bool) -> bool {
+    let mut fits = true;
     if q.busy.as_deref() != Some(key.as_str()) {
-        q.waiting.retain(|w| w.path != key);
+        let at = q.waiting.iter().position(|w| w.path == key);
         let item = Waiting {
             path: key,
             app: app.clone(),
             task,
         };
         if first {
+            if let Some(i) = at {
+                q.waiting.remove(i);
+            }
             q.waiting.push_front(item);
-        } else {
-            q.waiting.push_back(item);
+            if q.waiting.len() > MAX_QUEUE
+                && let Some(last) = q.waiting.pop_back()
+            {
+                log::info!("la cola del clic está llena: sale {}", last.path);
+            }
+        } else if at.is_none() {
+            fits = q.waiting.len() < MAX_QUEUE;
+            if fits {
+                q.waiting.push_back(item);
+            }
         }
-        q.waiting.truncate(MAX_QUEUE);
     }
     if !q.worker {
         q.worker = true;
@@ -807,6 +825,7 @@ fn enqueue(q: &mut Queue, app: &App, key: String, task: Task, first: bool) {
         }
     }
     WAKE.notify_all();
+    fits
 }
 
 /// La rejilla si ya está guardada; si no, `None` y queda en la cola (delante
@@ -823,6 +842,13 @@ pub fn request(app: &App, path: &Path, first: bool) -> Result<Option<Value>, Bea
             Err(other) => return Err(other),
         }
     }
+    line_up(app, path, first).map(|_| None)
+}
+
+/// Deja la rejilla de un archivo en la cola (delante con `first`). `false`
+/// si no cabe (solo sin `first`); `BeatsError` si aquí no se puede o si ya
+/// falló con este mismo archivo.
+fn line_up(app: &App, path: &Path, first: bool) -> Result<bool, BeatsError> {
     let reason = available(app);
     if !reason.is_empty() {
         return Err(beats_err(reason));
@@ -832,8 +858,7 @@ pub fn request(app: &App, path: &Path, first: bool) -> Result<Option<Value>, Bea
     if let Some(why) = remembered(&q, &failure_key(path)) {
         return Err(beats_err(why));
     }
-    enqueue(&mut q, app, key, Task::Grid, first);
-    Ok(None)
+    Ok(enqueue(&mut q, app, key, Task::Grid, first))
 }
 
 /// Lo que le falta a «con la batería separada» para aplicarse al momento:
@@ -906,9 +931,14 @@ pub fn wait_for(
 }
 
 /// Detrás en la cola, la de una canción que sonará después. `true` si ya
-/// estaba o queda en cola.
+/// está guardada o queda en cola; `false` si no se puede (no está el
+/// archivo, aquí no hay detector, ya falló con ella) o si la cola está
+/// llena.
+///
+/// Se pide para listas enteras: la que ya está guardada solo se mira (no
+/// se lee su rejilla).
 pub fn prepare(app: &App, path: &Path) -> bool {
-    request(app, path, false).is_ok()
+    path.is_file() && (cached(app, path) || line_up(app, path, false).unwrap_or(false))
 }
 
 /// Lo que hace el hilo con lo que sale de la cola.

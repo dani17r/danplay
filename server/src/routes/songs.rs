@@ -187,12 +187,35 @@ fn song_beats(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     Ok(Response::json(202, &json!({"pending": true, "progress": done})).into())
 }
 
+/// Las que caben en una petición de preparar el clic (una lista entera).
+const MAX_PREPARED: usize = 500;
+
 /// Deja calculándose, detrás, la rejilla de una canción que vendrá después.
+/// Con `ids`, también las de esas (una lista o un disco enteros, en su
+/// orden): `left` son las que no se pudieron dejar (no están, aquí no hay
+/// detector, ya fallaron o no caben en la cola).
 fn song_beats_prepare(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let cid = ctx.path().int("cid").required();
-    ctx.check()?;
+    let mut b = ctx.opt_body()?;
+    let ids = b
+        .as_mut()
+        .map(|b| b.int_list("ids").max_items(MAX_PREPARED).or(Vec::new()));
+    ctx.done_with(b)?;
     let c = resolved_file(ctx.app, cid, "archivo no encontrado")?;
-    Ok(json!({"queued": beats::prepare(ctx.app, &path_of(&c))}).into())
+    let queued = beats::prepare(ctx.app, &path_of(&c));
+    let Some(ids) = ids else {
+        return Ok(json!({"queued": queued}).into());
+    };
+    let left: Vec<i64> = ids
+        .into_iter()
+        .filter(|id| {
+            !matches!(
+                songs::resolve(ctx.app, *id),
+                Ok(Some(c)) if songs::exists(&c) && beats::prepare(ctx.app, &path_of(&c))
+            )
+        })
+        .collect();
+    Ok(json!({"queued": queued, "left": left}).into())
 }
 
 /// «Re-analizar el clic», de toda la canción o de un tramo. Con
