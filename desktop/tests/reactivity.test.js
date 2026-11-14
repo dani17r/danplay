@@ -115,6 +115,44 @@ describe('startup without folders', () => {
   })
 })
 
+// Al arrancar iban en fila el estado, la Entrada y el estado otra vez: tres
+// idas y vueltas al núcleo antes de pedir la primera canción.
+describe('startup with a library', () => {
+  it('asks for the list after a single round trip to the core, without waiting for the inbox', async () => {
+    state.status.configured = true
+    state.songs = [song(1), song(2)]
+    // la Entrada tarda lo que tarde: la lista no la espera
+    let release
+    const gate = new Promise((r) => (release = r))
+    const inbox = api.inbox.getMockImplementation()
+    api.inbox.mockImplementation(async () => {
+      await gate
+      return { ...(await inbox()), total: 5 }
+    })
+    try {
+      const w = await mountView()
+      expect(api.search).toHaveBeenCalled()
+      expect(w.text()).toContain(song(2).title)
+      // lo que tuvo que contestar el núcleo antes de pedírsela: el estado, una vez
+      const asked = api.search.mock.invocationCallOrder[0]
+      const before = (fn) => fn.mock.invocationCallOrder.filter((n) => n < asked).length
+      expect(before(api.status)).toBe(1)
+      // (la Entrada y los repertorios ya estaban pedidos, a la vez)
+      expect(before(api.inbox)).toBe(1)
+      expect(before(api.playlists)).toBe(1)
+      // y cuando la Entrada contesta, se cuenta lo que espera en ella
+      release()
+      await flushPromises()
+      await flushPromises()
+      const inboxLink = w.findAll('.sidebar button').find((x) => x.text().includes('Entrada'))
+      expect(inboxLink.find('.count').text()).toBe('5')
+    } finally {
+      release()
+      api.inbox.mockImplementation(inbox)
+    }
+  })
+})
+
 describe('the core arrives late', () => {
   it('the library fills itself when the core starts', async () => {
     // Abrir DanPlay con una cancion desde el explorador es cuando mas tarda

@@ -997,8 +997,9 @@ onMounted(async () => {
     coreWasReady = !!e?.ready
   })
   try {
-    await loadStatus()
-    await Promise.all([configured.value ? load() : Promise.resolve(), playlistActions.load()])
+    // a la vez todo lo que no depende de otra cosa: la lista solo espera al
+    // estado (`useLibrary.start`), y los repertorios, a nada
+    await Promise.all([library.start(), playlistActions.load()])
   } catch {
     /* el núcleo aún no contesta: el aviso de arriba lo carga todo al llegar */
   }
