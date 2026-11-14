@@ -1,6 +1,6 @@
 //! Buscar en el índice: texto completo (FTS5), filtros, orden, y las filas
 //! ligeras que dan las listas de la API.
-use super::{Dict, fetch_all, fetch_one, song_columns};
+use super::{Dict, collate, fetch_all, fetch_one, song_columns};
 use crate::value;
 use rusqlite::Connection;
 use rusqlite::types::Value as Sql;
@@ -68,6 +68,10 @@ fn lookup(table: &[(&'static str, &'static str)], key: &str) -> Option<&'static 
 ///   invertir el orden esos veinte volverían arriba.
 /// - Al final se desempata siempre por artista y título, para que dos temas
 ///   con el mismo bpm no se intercambien de sitio entre una consulta y otra.
+///
+/// Los textos se ordenan como en castellano y sin mirar mayúsculas ni tildes
+/// (`collate`): antes iban en binario, y «Álvaro» salía después de la Z,
+/// mientras la lista agrupada de la interfaz sí lo ponía con las A.
 pub fn order_by(sort: &str, desc: bool) -> String {
     let (_, column, kind) = SORT_FIELDS
         .iter()
@@ -79,7 +83,13 @@ pub fn order_by(sort: &str, desc: bool) -> String {
         format!("{column} IS NULL OR {column}=0")
     };
     let direction = if desc { "DESC" } else { "ASC" };
-    format!("({empty}), {column} {direction}, c.artist, c.title")
+    let collation = collate::NAME;
+    let by = if *kind == "text" {
+        format!("{column} COLLATE {collation} {direction}")
+    } else {
+        format!("{column} {direction}")
+    };
+    format!("({empty}), {by}, c.artist COLLATE {collation}, c.title COLLATE {collation}")
 }
 
 /// Por qué campos se puede ordenar. Lo usa la interfaz para no inventarse.
@@ -409,4 +419,156 @@ pub fn facets(conn: &Connection) -> rusqlite::Result<Dict> {
     d.insert("folders".into(), top("folder")?);
     d.insert("keys".into(), top("key")?);
     Ok(d)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::testkit::Scratch;
+
+    fn index(dir: &Scratch) -> Connection {
+        crate::index::schema::connect(&dir.join("indice.db")).expect("índice")
+    }
+
+    fn add(conn: &Connection, n: usize, artist: &str, title: &str) {
+        conn.execute(
+            "INSERT INTO songs (path, file, artist, title, stars) VALUES (?, ?, ?, ?, ?)",
+            rusqlite::params![
+                format!("/m/{n}.mp3"),
+                format!("{n}.mp3"),
+                artist,
+                title,
+                (n % 6) as i64
+            ],
+        )
+        .expect("canción");
+    }
+
+    fn artists(conn: &Connection, sort: &str, desc: bool) -> Vec<String> {
+        search(conn, &Search::default(), sort, 100, 0, desc, true)
+            .expect("lista")
+            .iter()
+            .map(|r| crate::index::get_str(r, "artist").to_owned())
+            .collect()
+    }
+
+    /// La lista sin agrupar ordena como la agrupada («Álvaro» con las A, la ñ
+    /// después de la n, sin mirar mayúsculas), y los vacíos siempre al final.
+    #[test]
+    fn the_list_sorts_like_spanish_and_keeps_the_empty_ones_last() {
+        let dir = Scratch::new("orden-espanol");
+        let conn = index(&dir);
+        for (i, a) in [
+            "Zeta", "Álvaro", "", "barak", "Ñandú", "Nube", "Oso", "Abel", "ángel", "Bruno",
+        ]
+        .iter()
+        .enumerate()
+        {
+            add(&conn, i, a, "Tema");
+        }
+        assert_eq!(
+            artists(&conn, "artist", false),
+            [
+                "Abel", "Álvaro", "ángel", "barak", "Bruno", "Nube", "Ñandú", "Oso", "Zeta", ""
+            ]
+        );
+        // al invertirlo, igual pero al revés, y el vacío sigue al final
+        let mut reversed = artists(&conn, "artist", true);
+        assert_eq!(reversed.pop().as_deref(), Some(""));
+        reversed.reverse();
+        assert_eq!(
+            reversed,
+            [
+                "Abel", "Álvaro", "ángel", "barak", "Bruno", "Nube", "Ñandú", "Oso", "Zeta"
+            ]
+        );
+        // por título, igual
+        for (i, t) in ["Él", "dos", "Álbum", "zeta"].iter().enumerate() {
+            add(&conn, 100 + i, "Mismo", t);
+        }
+        let titles: Vec<String> = search(
+            &conn,
+            &Search {
+                query: "artista:Mismo".into(),
+                ..Search::default()
+            },
+            "title",
+            100,
+            0,
+            false,
+            true,
+        )
+        .expect("lista")
+        .iter()
+        .map(|r| crate::index::get_str(r, "title").to_owned())
+        .collect();
+        assert_eq!(titles, ["Álbum", "dos", "Él", "zeta"]);
+    }
+
+    /// Cuánto cuesta la consulta de la lista con una biblioteca grande y el
+    /// orden en castellano, frente al binario de antes (con `--nocapture`).
+    #[test]
+    #[ignore = "mide tiempos: solo, con --ignored --nocapture"]
+    fn sorting_a_big_library_in_spanish_costs_little() {
+        let n: usize = std::env::var("DANPLAY_BENCH_SONGS")
+            .ok()
+            .and_then(|n| n.parse().ok())
+            .unwrap_or(20_000);
+        let dir = Scratch::new("orden-grande");
+        let conn = index(&dir);
+        let names = [
+            "Álvaro",
+            "Barak",
+            "Ñandú",
+            "New Wine",
+            "Hillsong",
+            "Miel San Marcos",
+            "Ángel",
+            "Marcos Witt",
+            "Jesús Adrián Romero",
+            "Un Corazón",
+            "Elevation",
+            "Bethel",
+        ];
+        crate::index::begin(&conn).expect("begin");
+        for i in 0..n {
+            add(
+                &conn,
+                i,
+                &format!("{} {}", names[i % names.len()], i / names.len()),
+                &format!("Canción número {}", (i * 7919) % n),
+            );
+        }
+        conn.execute_batch("COMMIT").expect("commit");
+        let time = |label: &str, sql: String| {
+            let mut stmt = conn.prepare(&sql).expect("consulta");
+            let start = std::time::Instant::now();
+            let runs = 5;
+            for _ in 0..runs {
+                let mut rows = stmt.query([]).expect("filas");
+                while rows.next().expect("fila").is_some() {}
+            }
+            println!(
+                "{label}: {:?} por consulta ({n} canciones)",
+                start.elapsed() / runs
+            );
+        };
+        let cols = light_columns(&conn, "c").expect("columnas");
+        for (page, offset) in [("primera página", 0), ("página 25", 10_000)] {
+            time(
+                &format!("orden binario de antes, {page}"),
+                format!(
+                    "SELECT {cols} FROM songs c ORDER BY (c.artist=''), c.artist ASC, c.artist, c.title LIMIT 400 OFFSET {offset}"
+                ),
+            );
+            time(
+                &format!("orden en castellano, {page}"),
+                format!(
+                    "SELECT {cols} FROM songs c ORDER BY {} LIMIT 400 OFFSET {offset}",
+                    order_by("artist", false)
+                ),
+            );
+        }
+        time("contar", "SELECT COUNT(*) FROM songs c".into());
+    }
 }

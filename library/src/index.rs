@@ -9,11 +9,13 @@
 //!
 //!   carpetas    las carpetas gestionadas, las exclusiones y qué audio hay dentro
 //!   canciones   una canción: leerla, cambiarla, dónde está, su modo estudio
+//!   orden       el orden de los textos de la lista (como en castellano)
 //!   busqueda    buscar, filtrar, ordenar; las filas ligeras de las listas
 //!   escaneo     poner el índice al día con el disco
 //!   esquema     las tablas y sus migraciones
 //!   historial   el historial de descargas y lo que gasta la IA
 //!   ordenar     «Transformar»: cada canción en su sitio y con su nombre
+pub mod collate;
 pub mod folders;
 pub mod history;
 pub mod scan;
@@ -46,6 +48,9 @@ pub fn open(path: &Path) -> rusqlite::Result<Connection> {
             | OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )?;
     conn.set_prepared_statement_cache_capacity(CACHED_STATEMENTS);
+    // el orden de los textos de la lista, como el de la lista agrupada de la
+    // interfaz: sin tildes ni mayúsculas, y la ñ tras la n (ver `collate`)
+    conn.create_collation(collate::NAME, collate::compare)?;
     // Si otra conexión está escribiendo (el escaneo, por ejemplo), se espera
     // hasta cinco segundos en vez de fallar al instante con «database is
     // locked»: puntuar una canción mientras se escanea tiene que funcionar.
