@@ -235,6 +235,14 @@ método que la interfaz llame y la prueba no haya programado falla diciendo
 cuál es. Cinco fallos de la interfaz eran nombres que dejaron de existir al
 pasar el código a inglés y que nadie comparó con el núcleo.
 
+El de la reproducción (`createPlaybackDouble`) cuenta las cosas en el orden de
+Rust: la canción (`track`, de la cola) y la ruta de su archivo (`path`, del
+audio) **nunca llegan en el mismo estado**, así que un parche que cambia de
+canción y de ruta sale en dos. Y su motor descarta, como el de verdad, las
+guías y las pistas que se le mandan con la ruta de otra canción (`engine` dice
+qué aceptó). `holdPaths()` y `releasePaths()` retienen y entregan la ruta para
+probar el orden en que la interfaz carga antes de que llegue.
+
 ### El banco de pruebas contra un modelo de verdad
 
 Las pruebas de arriba usan un modelo falso: comprueban la mecánica del

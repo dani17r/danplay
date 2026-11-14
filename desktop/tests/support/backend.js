@@ -1066,11 +1066,67 @@ export function createPlaybackDouble() {
     const snapshot = JSON.parse(JSON.stringify(state))
     for (const fn of listeners) fn(snapshot)
   }
-  /** Simula lo que Rust contaría. Las pruebas lo llaman para mover el estado. */
+  /** Cada `reset` corta lo que quedara por entregar de antes. */
+  let generation = 0
+  /**
+   * Lo que tiene el motor (en Rust, `carry`), que no es lo que ve la interfaz:
+   * su ruta cambia en cuanto se elige la canción (el estado que la publica
+   * llega después), y las guías y las pistas que se le mandan con la ruta de
+   * otra canción las descarta. `cues` y `stems` son lo último que aceptó.
+   * @type {{path: string, cues: null | {song: string, cues: any[], volume: number}, stems: null | {song: string, tracks: any[]|null}}}
+   */
+  const engine = { path: '', cues: null, stems: null }
+  /**
+   * Las rutas que aún no se han entregado, si una prueba las retiene
+   * (`holdPaths`): en Rust la ruta llega cuando el reproductor abre el
+   * archivo, y puede tardar más que lo que tarda la interfaz en cargar el
+   * estudio de la canción nueva.
+   */
+  let holdingPaths = false
+  /** @type {Array<() => void>} */
+  let heldPaths = []
+  /**
+   * Simula lo que Rust contaría. Las pruebas lo llaman para mover el estado.
+   *
+   * Rust NUNCA cuenta la canción y su ruta a la vez: `track` es de la cola
+   * (suena en cuanto la cola la elige) y `path` es del audio (llega cuando el
+   * reproductor abre el archivo, un instante después). Entre los dos estados,
+   * la interfaz ve la canción nueva con la ruta de la anterior, y todo lo que
+   * mande con esa ruta el motor lo descarta (E1 del plan). Antes el doble
+   * entregaba las dos cosas juntas y las pruebas no podían verlo: un parche
+   * que cambia de canción y de ruta sale ahora en dos estados, la canción
+   * primero, y la ruta en otro que llega justo detrás (una tarea más tarde,
+   * para que los vigilantes de Vue vean el primero por separado).
+   */
   const emit = (patch) => {
+    if ('path' in patch) {
+      // otra canción en el motor: lo suyo era de la anterior (como en Rust)
+      if (patch.path !== engine.path) {
+        engine.cues = null
+        engine.stems = null
+      }
+      engine.path = patch.path
+    }
+    const newSong = !!patch.track && patch.track.id !== state.track?.id
+    if (newSong && 'path' in patch && patch.path !== state.path) {
+      const { path, ...song } = patch
+      Object.assign(state, song)
+      push()
+      const mine = generation
+      const arrive = () => {
+        if (mine !== generation) return
+        Object.assign(state, { path })
+        push()
+      }
+      if (holdingPaths) heldPaths.push(arrive)
+      else queueMicrotask(arrive)
+      return
+    }
     Object.assign(state, patch)
     push()
   }
+  /** El archivo que abre el audio para una canción de la cola (lo que Rust cuenta en `path`). */
+  const pathOf = (track) => track?.path || (track ? `/musica/cancion-${track.id}.mp3` : '')
 
   const blank = { ...state }
   const bridge = {
@@ -1083,6 +1139,8 @@ export function createPlaybackDouble() {
       emit({
         revision: state.revision + 1,
         track: list[index] || null,
+        // el archivo de la canción nueva llega aparte (ver `emit`)
+        ...(list[index] ? { path: pathOf(list[index]) } : {}),
         index: list.length ? index : -1,
         length: list.length,
         playing: !!list.length,
@@ -1116,12 +1174,17 @@ export function createPlaybackDouble() {
     setRouting: vi.fn(async () => {}),
     setOutput: vi.fn(async () => {}),
     outputDevices: vi.fn(async () => []),
-    setCues: vi.fn(async () => {}),
+    // como Rust: las voces eran para la cancion que suena; si ya es otra, nada
+    setCues: vi.fn(async (song, cues, volume) => {
+      if (song !== engine.path) return
+      engine.cues = { song, cues, volume }
+    }),
     setPitch: vi.fn(async (semitones) => emit({ pitch: semitones })),
     setCrossfade: vi.fn(async () => {}),
     // como Rust: las pistas eran para la cancion que suena; si ya es otra, nada
     setStems: vi.fn(async (song, tracks) => {
-      if (song !== state.path) return
+      if (song !== engine.path) return
+      engine.stems = { song, tracks }
       emit({ stems: !!tracks?.length })
     }),
     // como Rust: el tempo es el puesto a mano o el de la rejilla, y el doble
@@ -1188,6 +1251,7 @@ export function createPlaybackDouble() {
     emit({
       revision: state.revision + 1,
       track: list[0] || null,
+      ...(list[0] ? { path: pathOf(list[0]) } : {}),
       index: list.length ? 0 : -1,
       length: list.length,
       playing: !!list.length,
@@ -1199,12 +1263,28 @@ export function createPlaybackDouble() {
     })
   }
 
+  /** Retiene las rutas de las canciones nuevas hasta `releasePaths` (la canción sí se cuenta ya). */
+  const holdPaths = () => {
+    holdingPaths = true
+  }
+  /** Entrega las rutas retenidas, en orden. */
+  const releasePaths = () => {
+    holdingPaths = false
+    const arrivals = heldPaths
+    heldPaths = []
+    for (const arrive of arrivals) arrive()
+  }
+
   /** Vuelve a empezar: sin oyentes y sin nada sonando. */
   function reset() {
+    generation++
+    holdingPaths = false
+    heldPaths = []
+    Object.assign(engine, { path: '', cues: null, stems: null })
     listeners.clear()
     Object.assign(state, blank)
     items = []
     origin = null
   }
-  return { bridge, emit, state, reset, replaceQueueFromRust }
+  return { bridge, emit, state, engine, reset, replaceQueueFromRust, holdPaths, releasePaths }
 }
