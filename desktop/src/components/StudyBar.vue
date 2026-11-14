@@ -2351,6 +2351,7 @@ defineExpose({ close: hide, hide, exit })
            otro, como una secuencia, en estéreo o en mono -->
       <button
         class="btn mini study-head-icon study-outputs"
+        :class="{ warn: routing.short.value }"
         type="button"
         aria-label="Salidas"
         @click="outputsOpen = true"
@@ -2462,9 +2463,14 @@ defineExpose({ close: hide, hide, exit })
         <span class="study-head-sep" aria-hidden="true"></span>
         <button
           class="btn mini icon-btn study-outputs"
+          :class="{ warn: routing.short.value }"
           type="button"
           aria-label="Salidas"
-          title="Salidas: por dónde suena la música, cada pista, el clic y las guías (izquierda, derecha, una interfaz…)"
+          :title="
+            routing.short.value
+              ? 'Salidas: a esta salida le faltan canales para su reparto y suena todo junto'
+              : 'Salidas: por dónde suena la música, cada pista, el clic y las guías (izquierda, derecha, una interfaz…)'
+          "
           @click="outputsOpen = true"
         >
           <Icon n="outputs" :t="14" />

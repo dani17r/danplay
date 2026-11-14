@@ -1899,7 +1899,10 @@ describe('the outputs', () => {
     })
     expect(held.playback.bridge.setOutput).toHaveBeenLastCalledWith({ device: null, channels: 2 })
     // y se recuerda
-    expect(JSON.parse(localStorage.getItem('danplay.outputs')).preset).toBe('click-left')
+    // (el reparto es de cada salida: este, de la del sistema)
+    expect(JSON.parse(localStorage.getItem('danplay.outputs')).byDevice[''].preset).toBe(
+      'click-left'
+    )
     presets[2].click()
     await flushPromises()
     expect(held.playback.bridge.setOutput).toHaveBeenLastCalledWith({ device: null, channels: 4 })
@@ -1924,7 +1927,7 @@ describe('the outputs', () => {
       { left: 0, right: 1 }
     ])
     expect(songHead.find('.chan-mode').text()).toBe('Mono')
-    expect(JSON.parse(localStorage.getItem('danplay.outputs')).mono.song).toBe(true)
+    expect(JSON.parse(localStorage.getItem('danplay.outputs')).byDevice[''].mono.song).toBe(true)
 
     // la canción solo por la derecha: por un canal va en mono, sin elegir
     await button('Izquierda').trigger('click')

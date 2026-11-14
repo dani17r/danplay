@@ -1679,11 +1679,39 @@ dos canales de la salida o uno en mono) y cada parte, el clic y las guías van
 a uno; un limitador por pareja de canales evita que se sature. Con tres
 maneras de siempre (todo junto; clic y guías a la izquierda y música a la
 derecha, en mono; clic y guías por 1-2 y música por 3-4 con una interfaz) y
-«a medida». Se cambia en directo, sin cortar, y se recuerda por salida de
-audio. Las pistas con papel (el «Click Track» y la «Guide» de una secuencia)
-van con el clic salvo que se diga otra cosa. La descripción que manda la
-interfaz y cómo se convierte vive en el motor (`engine/src/spec.rs`): la misma
-en la PC y en el celular.
+«a medida». Se cambia en directo, sin cortar. Las pistas con papel (el
+«Click Track» y la «Guide» de una secuencia) van con el clic salvo que se
+diga otra cosa. La descripción que manda la interfaz y cómo se convierte vive
+en el motor (`engine/src/spec.rs`): la misma en la PC y en el celular.
+
+**Un reparto por salida, y manda la que suena.** Hasta la 1.41 se guardaba
+uno para todas (`danplay.outputs`: `{device, preset, custom, mono}`), y lo de
+la interfaz de la iglesia se aplicaba a los cascos de casa: con la música por
+3-4 en una salida de dos canales, el motor tira lo que va a un canal que no
+existe y la música no sonaba; solo lo decía el cajón. Ahora se guarda
+`{device, byDevice}`: la salida elegida y el reparto de cada una por su id
+(`''`, la del sistema); el de antes se queda con la que estaba elegida. Una
+salida sin reparto guardado suena «todo junto». De cuál es el reparto lo
+decide la salida que **suena**: si la elegida no está (o la usa otro
+programa) y Rust abre la del sistema (`output.fallback`), el reparto —el que
+se ve y el que se cambia— es el de la del sistema. Y si a la que suena le
+faltan canales para el suyo (`output.channels` menor que lo pedido), al motor
+se le manda «todo junto», se avisa una vez con un aviso flotante (esté donde
+esté quien toca), el botón de «Salidas» del estudio se pone en ámbar y el
+cajón lo explica; el reparto guardado no se toca, y vuelve solo cuando la
+salida tenga los canales. A Rust se le siguen pidiendo los canales del
+reparto guardado (`set_output`), así la salida no se reabre al ir y venir.
+
+Lo que se sabe de la salida llega tarde, y `useRouting` lo tiene en cuenta:
+antes del primer play no hay salida abierta (se mira la lista de salidas del
+equipo, si hay una elegida, para saber ya si está); recién pedida otra salida
+u otros canales, el estado que hay es todavía el de la de antes (se espera
+segundo y medio antes de fiarse); y tras un rato en pausa Rust la suelta
+(`output: null`) y se recuerda lo último visto, que si no el reparto iría y
+vendría con cada pausa larga. Queda un instante, al abrirse la salida por
+primera vez con menos canales de los pedidos, en que suena el reparto guardado
+hasta que llega el estado (un tick): quitarlo del todo pediría que el motor
+doblara él mismo a 1-2 lo que va a un canal que no tiene.
 
 Cada cosa puede ir en **estéreo o en mono**: un destino de dos canales con
 `mono` junta los dos lados y saca lo mismo por los dos (`Target::joins`); por

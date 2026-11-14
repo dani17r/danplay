@@ -1825,6 +1825,11 @@
 .study .btn.mini.icon-btn.on {
   color: var(--accent);
 }
+/* «Salidas» cuando a la salida le faltan canales y suena todo junto: se ve
+   sin abrir el cajón (el borde y el fondo los pone `.btn.warn`) */
+.study .btn.mini.icon-btn.warn {
+  color: var(--amber);
+}
 .study-head .btn.mini,
 .study-bar .btn.mini,
 .cue-card .btn.mini {
