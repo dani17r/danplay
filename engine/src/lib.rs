@@ -36,6 +36,8 @@ pub mod engine;
 #[cfg(feature = "engine")]
 pub mod feeder;
 #[cfg(feature = "engine")]
+mod mp4;
+#[cfg(feature = "engine")]
 pub mod output;
 #[cfg(feature = "engine")]
 pub mod preview;

@@ -231,6 +231,10 @@ struct Decoded {
     rate: u32,
     frames: Option<u64>,
     estimated: bool,
+    /// Lo que se salta del principio de lo que decodifica el contenedor
+    /// (ver `Opened::delay`): la muestra 0 de la parte es la `delay` del
+    /// archivo.
+    delay: u64,
     /// Lo decodificado que aun no se ha leido, intercalado en estereo.
     fifo: VecDeque<f32>,
     /// La primera muestra que se quiere: lo de antes se tira. Tras un salto,
@@ -267,6 +271,7 @@ impl Decoded {
             rate,
             frames,
             estimated,
+            delay,
         } = open_reader(&media, ext)?;
         Ok(Decoded {
             media,
@@ -277,6 +282,7 @@ impl Decoded {
             rate,
             frames,
             estimated,
+            delay,
             fifo: VecDeque::new(),
             want: 0,
             next: 0,
@@ -311,7 +317,7 @@ impl Decoded {
             }
         }
         let to = SeekTo::Timestamp {
-            ts: Timestamp::new(frame.saturating_sub(PREROLL) as i64),
+            ts: Timestamp::new((frame + self.delay).saturating_sub(PREROLL) as i64),
             track_id: self.track_id,
         };
         match self.format.seek(SeekMode::Accurate, to) {
@@ -381,7 +387,7 @@ impl Decoded {
         };
         // lo que sale empieza en la marca del paquete, mas lo que el
         // decodificador recorta del principio (el retraso del codificador)
-        let start = packet.pts.get() + packet.trim_start.get() as i64;
+        let start = packet.pts.get() + packet.trim_start.get() as i64 - self.delay as i64;
         let audio = match self.decoder.decode(&packet) {
             Ok(audio) => audio,
             Err(e) => {
@@ -531,6 +537,9 @@ struct Opened {
     frames: Option<u64>,
     /// Esa duracion es una cuenta aproximada, no un dato del archivo.
     estimated: bool,
+    /// Muestras del archivo (a su tasa) que se saltan al principio: el
+    /// retraso del codificador que dice la lista de ediciones de un MP4.
+    delay: u64,
 }
 
 fn open_reader(media: &Media, ext: &str) -> Result<Opened, String> {
@@ -572,6 +581,16 @@ fn open_reader(media: &Media, ext: &str) -> Result<Opened, String> {
         .and_then(|p| p.audio())
         .ok_or_else(|| "sin pista de audio".to_string())?;
     let rate = params.sample_rate.unwrap_or(44_100);
+    // un MP4 (AAC, ALAC) dice donde empieza de verdad en su lista de
+    // ediciones; symphonia no la entrega, y el AAC salia 1024 muestras tarde
+    // (2112 si lo hizo iTunes). Se decide por lo que es y no por como se
+    // llama: hay mp3 que en realidad son MP4. Los demas formatos ya
+    // recortan su retraso por si solos
+    let delay = if format.format_info().short_name == "isomp4" && track.delay.is_none() {
+        read_priming(media, track_id, rate)
+    } else {
+        0
+    };
     // un mp3 sin cabecera (Xing, Info) no dice cuanto dura ni cuanto
     // retraso lleva: symphonia lo calcula por el tamaño y la tasa de bits
     // del principio, y si la tasa es variable se queda corto o se pasa
@@ -590,9 +609,21 @@ fn open_reader(media: &Media, ext: &str) -> Result<Opened, String> {
         decoder,
         track_id,
         rate,
-        frames,
+        frames: frames.map(|f| f.saturating_sub(delay)),
         estimated,
+        delay,
     })
+}
+
+/// El retraso de un MP4 segun su lista de ediciones (0 si no la tiene).
+fn read_priming(media: &Media, track_id: u32, rate: u32) -> u64 {
+    let found = match media {
+        Media::Bytes(bytes) => crate::mp4::priming(&mut Cursor::new(&bytes[..]), track_id, rate),
+        Media::File(path) => std::fs::File::open(path)
+            .ok()
+            .and_then(|mut f| crate::mp4::priming(&mut f, track_id, rate)),
+    };
+    found.unwrap_or(0)
 }
 
 #[cfg(test)]
@@ -1007,6 +1038,174 @@ pub(crate) mod tests {
                 .expect("mp3")
                 .estimated()
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Donde caen los golpes de `LONG_MARKS` en un estereo (el centro de la
+    /// energia del destello, que empieza 33 muestras antes).
+    fn long_hits(pcm: &[f32]) -> Vec<usize> {
+        LONG_MARKS
+            .iter()
+            .map(|&m| pulse_near(pcm, m + 33))
+            .collect()
+    }
+
+    /// Lo mayor que difieren dos estereos de la misma longitud.
+    fn worst(a: &[f32], b: &[f32]) -> f32 {
+        a.iter()
+            .zip(b)
+            .map(|(x, y)| (x - y).abs())
+            .fold(0f32, f32::max)
+    }
+
+    #[test]
+    fn an_aac_m4a_starts_on_the_exact_sample_like_ffmpeg_decodes_it() {
+        // symphonia deja el retraso del codificador (1024 muestras: 23 ms, el
+        // clic iria corrido) y la lista de ediciones del archivo dice que se
+        // salte. Comparado con lo que decodifica ffmpeg, que es lo que ve el
+        // nucleo: la misma longitud, cada golpe en su muestra y las mismas
+        // muestras
+        let dir = scratch("aac");
+        let Some(file) = encoded(&dir, "a.m4a", &["-c:a", "aac", "-b:a", "192k"]) else {
+            let _ = std::fs::remove_dir_all(&dir);
+            return without_ffmpeg("un M4A de AAC");
+        };
+        let mut part = Part::open_file(&file, 44_100, u64::MAX).expect("m4a");
+        let ours = all(&mut part);
+        let theirs = ffmpeg_pcm(&file).expect("ffmpeg lo decodifica");
+        assert_eq!(ours.len(), theirs.len(), "dura lo mismo que con ffmpeg");
+        let (a, b) = (long_hits(&ours), long_hits(&theirs));
+        println!("AAC: golpes {a:?}, con ffmpeg {b:?}; se escribieron en {LONG_MARKS:?}");
+        for ((&m, &x), &y) in LONG_MARKS.iter().zip(&a).zip(&b) {
+            assert!(x.abs_diff(y) <= 1, "golpe en {x} y con ffmpeg en {y}");
+            assert!(x.abs_diff(m + 33) <= 8, "golpe en {x}, se escribio en {m}");
+        }
+        let diff = worst(&ours, &theirs);
+        println!("AAC: lo mas que difiere de ffmpeg, muestra a muestra: {diff:.5}");
+        assert!(diff < 0.02, "{diff}");
+        // del disco por trozos (lo que hace con un archivo grande), igual
+        let mut from_disk = Part::open_file(&file, 44_100, 0).expect("m4a");
+        assert_eq!(all(&mut from_disk), ours);
+        // y un salto cae en su sitio, tambien en lo que va antes de lo ya
+        // decodificado
+        for at in [0u64, 1, 4_095, 30_000, 61_234, 70_000] {
+            part.seek(at);
+            let mut buf = vec![0f32; 4_000];
+            let n = part.read(&mut buf);
+            let from = at as usize * 2;
+            let expected = &ours[from..(from + n * 2).min(ours.len())];
+            let diff = worst(expected, &buf[..expected.len()]);
+            assert!(diff < 1e-3, "salto a {at}, diferencia {diff}");
+        }
+        // con otro retraso en la lista (2112, el de iTunes), lo mismo: se
+        // salta lo que diga, y sigue coincidiendo con ffmpeg
+        let mut bytes = std::fs::read(&file).expect("m4a");
+        let elst = bytes
+            .windows(4)
+            .position(|w| w == b"elst")
+            .expect("lista de ediciones");
+        // tipo, version y banderas, cuantas, y de la primera: duracion y desde donde
+        let media_time = elst + 4 + 4 + 4 + 4;
+        assert_eq!(bytes[elst + 4], 0, "version 0");
+        assert_eq!(bytes[media_time..media_time + 4], 1_024u32.to_be_bytes());
+        bytes[media_time..media_time + 4].copy_from_slice(&2_112u32.to_be_bytes());
+        let itunes = dir.join("itunes.m4a");
+        std::fs::write(&itunes, &bytes).expect("m4a");
+        let ours = all(&mut Part::open_file(&itunes, 44_100, u64::MAX).expect("m4a"));
+        let theirs = ffmpeg_pcm(&itunes).expect("ffmpeg lo decodifica");
+        assert_eq!(ours.len(), theirs.len(), "dura lo mismo que con ffmpeg");
+        let moved = long_hits(&ours);
+        for (x, y) in moved.iter().zip(long_hits(&theirs)) {
+            assert!(x.abs_diff(y) <= 1, "golpe en {x} y con ffmpeg en {y}");
+        }
+        // y es lo que se dijo: 1088 muestras mas pronto que con 1024
+        assert!((moved[1] + 1_088).abs_diff(a[1]) <= 1, "{moved:?} y {a:?}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_alac_m4a_is_exact_and_identical_to_ffmpeg() {
+        // sin perdida: cada muestra es la que se escribio
+        let dir = scratch("alac");
+        let Some(file) = encoded(&dir, "a.m4a", &["-c:a", "alac"]) else {
+            let _ = std::fs::remove_dir_all(&dir);
+            return without_ffmpeg("un M4A de ALAC");
+        };
+        let ours = all(&mut Part::open_file(&file, 44_100, u64::MAX).expect("m4a"));
+        let theirs = ffmpeg_pcm(&file).expect("ffmpeg lo decodifica");
+        assert_eq!(ours.len(), theirs.len());
+        let diff = worst(&ours, &theirs);
+        println!("ALAC: lo mas que difiere de ffmpeg: {diff:.7}");
+        assert!(diff < 1e-6, "{diff}");
+        for (&m, x) in LONG_MARKS.iter().zip(long_hits(&ours)) {
+            assert!(x.abs_diff(m + 33) <= 2, "golpe en {x}, se escribio en {m}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_mp4_called_mp3_is_read_by_what_it_is() {
+        // 18 de los 319 .mp3 de esta biblioteca son en realidad MP4: se
+        // decide por el contenido, no por la extension
+        let dir = scratch("mp4-mp3");
+        let Some(file) = encoded(&dir, "a.m4a", &["-c:a", "aac", "-b:a", "192k"]) else {
+            let _ = std::fs::remove_dir_all(&dir);
+            return without_ffmpeg("un MP4 con nombre de mp3");
+        };
+        let fake = dir.join("falso.mp3");
+        std::fs::copy(&file, &fake).expect("copia");
+        let real = all(&mut Part::open_file(&file, 44_100, u64::MAX).expect("m4a"));
+        let mut part = Part::open_file(&fake, 44_100, u64::MAX).expect("el MP4 con nombre de mp3");
+        let ours = all(&mut part);
+        assert_eq!(ours, real, "suena igual que con su nombre de verdad");
+        let theirs = ffmpeg_pcm(&fake).expect("ffmpeg lo decodifica");
+        for (x, y) in long_hits(&ours).into_iter().zip(long_hits(&theirs)) {
+            assert!(x.abs_diff(y) <= 1, "golpe en {x} y con ffmpeg en {y}");
+        }
+        // en memoria (el celular), con la extension que sea
+        let bytes: Arc<[u8]> = Arc::from(std::fs::read(&fake).expect("bytes"));
+        assert_eq!(all(&mut Part::open(bytes, "mp3").expect("mp3")), real);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_aac_at_48k_keeps_its_hits_when_it_is_converted() {
+        let dir = scratch("aac48");
+        let args = ["-c:a", "aac", "-b:a", "192k", "-ar", "48000"];
+        let Some(file) = encoded(&dir, "a.m4a", &args) else {
+            let _ = std::fs::remove_dir_all(&dir);
+            return without_ffmpeg("un M4A de AAC a 48 kHz");
+        };
+        let mut part = Part::open_file(&file, 44_100, u64::MAX).expect("m4a");
+        assert_eq!(part.source_rate(), 48_000);
+        let hits = long_hits(&all(&mut part));
+        println!("AAC a 48 kHz, convertido a 44,1: golpes {hits:?}");
+        for (&m, x) in LONG_MARKS.iter().zip(hits) {
+            assert!(x.abs_diff(m + 33) <= 10, "golpe en {x}, se escribio en {m}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_aac_it_cannot_decode_fails_to_open_so_the_app_can_convert_it() {
+        // HE-AAC (con SBR) y los AAC de mas de dos canales no los decodifica
+        // symphonia: tienen que fallar al abrir, para que quien llama los
+        // pase por ffmpeg, y no sonar mal
+        let dir = scratch("aac51");
+        let six: Vec<f32> = (0..44_100 * 2)
+            .flat_map(|i| [0.1 * ((i / 40 % 2) as f32 - 0.5); 6])
+            .collect();
+        let src = dir.join("six.wav");
+        std::fs::write(&src, &wav(6, 44_100, &six)[..]).expect("wav");
+        let out = dir.join("six.m4a");
+        let args = ["-i", src.to_str().expect("ruta"), "-c:a", "aac"];
+        if !ffmpeg(&[&args[..], &[out.to_str().expect("ruta")]].concat()) {
+            let _ = std::fs::remove_dir_all(&dir);
+            return without_ffmpeg("un M4A de AAC 5.1");
+        }
+        let opened = Part::open_file(&out, 44_100, u64::MAX);
+        assert!(opened.is_err(), "no deberia abrirse");
+        println!("AAC 5.1: {}", opened.err().unwrap_or_default());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
