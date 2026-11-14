@@ -293,6 +293,58 @@ describe('the study bar', () => {
     w.unmount()
   })
 
+  it('snapped to the beats, the segment reaches Rust and is saved on the beat to the millisecond', async () => {
+    vi.useFakeTimers()
+    // 130 bpm desde 0,137 s: ningún pulso cae en una centésima
+    const beats = Array.from({ length: 430 }, (_, i) => 0.137 + (i * 60) / 130)
+    held.playback.bridge.analyzeBeats.mockImplementationOnce(async (path) => {
+      held.playback.emit({
+        metronome: { ...base.metronome, has_grid: true, bpm: 130, meter: 4, confidence: 0.8 }
+      })
+      return {
+        bpm: 130,
+        meter: 4,
+        beats,
+        first_downbeat: 0,
+        phase3: 0,
+        phase4: 0,
+        confidence: 0.8,
+        path
+      }
+    })
+    held.state.songs = [
+      song(7, { title: 'Mi Gozo', study: JSON.stringify({ loop: [50.1, 99.9] }) })
+    ]
+    held.playback.emit({ playing: false })
+    const w = await mountView()
+    await vi.advanceTimersByTimeAsync(50)
+    const { menu } = useContextMenu()
+    await w.find('.tl-loop-menu').trigger('click')
+    await menu.value.items.find((i) => i.label === 'Ajustar a los pulsos').action()
+    await flushPromises()
+    const offBeat = (t) => Math.min(...beats.map((x) => Math.abs(x - t)))
+    const [a, b] = held.playback.bridge.setLoop.mock.calls.at(-1)
+    // redondeando a la centésima, el principio quedaba a 3,2 ms de su pulso (y el final a 0,7)
+    expect(offBeat(a)).toBeLessThanOrEqual(0.0005 + 1e-9)
+    expect(offBeat(b)).toBeLessThanOrEqual(0.0005 + 1e-9)
+    // lo que se ve no cambia: minutos y segundos (los pulsos, en 49,983 y 99,829)
+    expect(w.text()).toContain('0:49 – 1:39')
+    // y así se manda a guardar
+    await vi.advanceTimersByTimeAsync(700)
+    expect(held.api.setStudy).toHaveBeenLastCalledWith(7, { loop: [a, b] })
+    // mover un borde con el ratón no saca al otro de su pulso
+    withWidth(w)
+    const box = w.find('.tl-box').element
+    await pointer(box, 'pointerdown', (b / 200) * 400 + 1)
+    await pointer(window, 'pointermove', 300)
+    await pointer(window, 'pointerup', 300)
+    const [a2, b2] = held.playback.bridge.setLoop.mock.calls.at(-1)
+    expect(b2).toBe(150)
+    expect(a2).toBe(a)
+    vi.useRealTimers()
+    w.unmount()
+  })
+
   it('one edge cannot cross the other', async () => {
     held.state.songs = [song(7, { title: 'Mi Gozo', study: JSON.stringify({ loop: [50, 100] }) })]
     const w = await mountView()

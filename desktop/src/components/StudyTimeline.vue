@@ -801,7 +801,7 @@ function onUp(e) {
     const a = Math.min(d.from, d.a)
     const b = Math.max(d.from, d.a)
     if (b - a < MIN_LOOP) return // demasiado corto para ser un bucle
-    const fresh = [round2(a), round2(b)]
+    const fresh = [round3(a), round3(b)]
     if (props.multi && list.length) {
       emit('update:loops', cleanSegments([...list, fresh]), { mode: 'add' })
     } else {
@@ -809,7 +809,9 @@ function onUp(e) {
     }
     return
   }
-  list[d.index] = [round2(d.a), round2(d.b)]
+  // al milisegundo: el borde que no se movió se queda donde estaba (ajustado
+  // a su pulso, por ejemplo), no en la centésima de al lado
+  list[d.index] = [round3(d.a), round3(d.b)]
   emit('update:loops', cleanSegments(list), { mode: 'edit', index: d.index })
 }
 function stopDrag() {
