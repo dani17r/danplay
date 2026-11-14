@@ -191,10 +191,22 @@ sin pasar por el JS. En el modo navegador, el `<audio>` lee
 
 El motor lee con symphonia MP3, Vorbis, FLAC, WAV y AIFF, y todos empiezan en
 la muestra exacta: es lo que hace falta para que el clic caiga donde lo
-calculó el núcleo. Opus, WMA y compañía no los lee, y el AAC (M4A) lo lee
-1024 muestras tarde. Esos se pasan a FLAC con **ffmpeg** una vez, a la caché
-(`player/formats.rs`, con tope de 3 GB), y suena el FLAC: la primera vez tarda
-un par de segundos; las demás, nada.
+calculó el núcleo. Opus, WMA y compañía no los lee. Esos se pasan a FLAC con
+**ffmpeg** una vez, a la caché (`player/formats.rs`, con tope de 3 GB), y
+suena el FLAC: la primera vez tarda un par de segundos; las demás, nada.
+
+**M4A, AAC y ALAC.** El AAC de un MP4 sale de symphonia con el retraso del
+codificador por delante (1024 muestras en ffmpeg, 2112 en iTunes: 23 ms, el
+clic iría corrido). El archivo dice cuánto en su lista de ediciones
+(`moov/trak/edts/elst`), que symphonia lee y tira; `engine/src/mp4.rs` la
+lee y el decodificador se salta esas muestras. Medido contra lo que
+decodifica ffmpeg del mismo archivo: las mismas muestras (0,00002 de
+diferencia) y la misma longitud, también con 2112 en la lista, a 48 kHz
+convertido y por disco; ALAC no lleva retraso y ya era exacto. Sin lista de
+ediciones no se salta nada, como hace ffmpeg. Se decide por el contenido: un
+«.mp3» que es un MP4 suena igual. Lo que symphonia **no** decodifica
+(HE-AAC con SBR, AAC de más de dos canales, Opus) falla al abrir
+(`Part::open_file` devuelve error): quien llame lo pasa por ffmpeg como siempre.
 
 ## Lo descargado se llama como en YouTube
 
@@ -1863,6 +1875,11 @@ iría). Con una canción de 4:54 y cinco partes: FLAC 86 MB, MP3 a 256 kbps
 cinco). Opus queda fuera porque symphonia no lo decodifica. Si el ffmpeg de la
 PC no sabe hacer Vorbis, van en MP3.
 
+(El AAC llegaba 1024 muestras tarde cuando se midió esto; ahora el motor las
+salta con la lista de ediciones del MP4, ver «Los formatos que el
+decodificador no conoce». Vorbis sigue siendo lo que va en el `.danpista`
+por lo que pesa y lo que tarda en decodificarse.)
+
 **Las partes, por su nombre y su papel (1.41).** Dentro del ZIP cada parte
 se llama con letras sin tilde, números, espacios, «-» y «_», hasta 60, y
 sin repetirse (`library::bundle::inside_name`): antes iba el nombre de la
@@ -1916,6 +1933,22 @@ un sitio queda arreglado en el otro. Es Rust puro, salvo el estirador:
   todo salía 1024 muestras corrido. Y se salta 4096 muestras antes de lo
   pedido: un MP3 que empezaba justo ahí salía con diferencias de 0,76 en las
   primeras muestras (su reserva de bits está en los cuadros de antes).
+- **Archivos dañados.** Un paquete que no se decodifica no adelanta lo de
+  después: cada paquete se coloca por su marca de tiempo también cuando va
+  seguido, y lo que falta (un paquete que falla, o los que el contenedor se
+  salta por dañados) va en silencio. Un error del contenedor a media
+  canción no se toma por el final: la parte dice que falló
+  (`Part::failed`) y el que decodifica acaba la canción ahí y lo avisa por
+  `failed`. Un archivo al que le falta menos de un segundo al final (un WAV
+  con la cuenta mal) sigue siendo un final sin aviso.
+- **Más de dos canales** (un FLAC 5.1): se bajan a estéreo con los
+  coeficientes de ffmpeg (frontales tal cual, central y atrás a -3 dB, graves
+  fuera, todo dividido por lo que suma un lado: sin recortar).
+- **El final lo decide el audio**, no lo que el archivo diga durar (un mp3
+  sin cabecera dice una cuenta aproximada por el tamaño): el alimentador
+  acaba cuando a ninguna parte le queda audio y corrige la duración
+  (`Shared::len`, la que enseña `State::duration`). Sin cabecera, symphonia no
+  recorta (`Part::estimated`).
 - **Alimentar** (`feeder.rs`): un hilo decodifica todas las partes a la par
   en bloques de 1024 muestras, 1,5 s por delante. Los bloques van y vuelven
   por dos anillos sin candados: el hilo de audio no pide memoria ni espera. Un
@@ -1937,7 +1970,33 @@ un sitio queda arreglado en el otro. Es Rust puro, salvo el estirador:
   tramos), así que el golpe cae en su pulso a 0,7× y en la vuelta del tramo;
   las pruebas lo miden contra el golpe de la música (a 1×, a 0,8×, a 48 kHz,
   en un tramo). La cuenta, la envolvente de 3 ms al pausar o saltar y un
+  las pruebas lo miden contra el golpe de la música (a 1×, a 0,8×, a 48 kHz,
+  en un tramo). La cuenta, la envolvente de 3 ms al pausar o saltar y un
   limitador cierran el camino.
+
+  Lo que se mide (y se arregló) del estirador: es un filtro con retraso
+  (unos 150 ms entre lo que toma y lo que suena, 90 de ellos de salida), y
+  eso importa en cuatro sitios. Al **acabar**, el render seguía dándole
+  silencio hasta que sale todo lo que tenía dentro; antes paraba al tomar lo
+  último y esos 150 ms no sonaban. En la **cuenta**, la canción se le da 90 ms
+  antes para que su primera muestra caiga en el pulso (entraba 90 ms tarde a
+  cualquier velocidad que no fuera 1× o con tono). Al **relevar** a una salida
+  propia, todos los buses tienen su estirador a la par (en frío, lo primero que
+  entraba no salía). Y los **formantes**: con `Engine::set_formants(true)` el
+  tono se cambia sin mover las resonancias de una voz (apagado por defecto;
+  medido con una voz de mentira, +4 semitonos llevan 570/1464/2638 Hz a
+  711/1841/3327 sin la opción y a 560/1518/2638 con ella; cuesta un 10-15 %
+  más de estirador solo cuando el tono se mueve).
+
+  **El metrónomo solo** (`Engine::set_free_click`): un clic al tempo que se
+  diga, sin canción ni rejilla. Suena con la canción parada (ninguna cargada,
+  o cargada y en pausa), por el bus del clic, y se calla en cuanto la canción
+  echa a andar; mientras está encendido, `release_output` no suelta la
+  salida. **Los golpes del clic** acaban con una salida de 5 ms: el cencerro,
+  las claves y el charles se cortaban a cero con la energía a -27 dB del pico.
+  Y lo que la app ve: `State::underruns` (las veces que el audio no llegó a
+  tiempo, por canción) y `State::cue_problems` (las guías cuyo archivo no se
+  pudo leer, con el porqué).
 - **Salir** (`output.rs`): cpal (AAudio en Android, CoreAudio en iOS). Se
   pide 44,1 kHz: AAudio la acepta y convierte el sistema (el emulador va a
   48 kHz); si una salida no la acepta, convierte el motor (`resample.rs`,
