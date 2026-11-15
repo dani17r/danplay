@@ -1185,6 +1185,55 @@ los lados (`beatgrid::stitch`), con el «1» y el compás sacados otra vez
 (`finish`). `grid` es siempre la automática nueva, sin un pulso suyo, y el
 servidor no escribe el estudio ni el clic propio: lo guarda quien lo pide.
 
+### Ajustar el clic manual de muchos pulsos a la vez (la parte de la interfaz)
+
+La lógica es pura y no sabe de la pantalla (`utils/beatEdit.js`: mover,
+estirar, repartir, escribir un tempo en un tramo, doblar, mitad, el «1» cada
+N, quitar, volver al automático; `utils/beatAlign.js`: pegar el clic a los
+golpes del audio y buscar el tempo; `utils/beatHistory.js`: deshacer y
+rehacer). `composables/useBeatEdit.js` la une con el estudio, y las tres
+cosas que se ven son `BeatTools.vue` (las herramientas bajo la onda, solo en
+el escritorio y solo ajustando pulsos), `BeatAlign.vue` («Tempo y onda») y
+las teclas.
+
+- **Un solo camino para escribir el clic manual**: `commitOwn(next, label)`.
+  Apunta cómo estaba (`BeatHistory.record`, con el `touched` incluido; `null`
+  es «aún no tenía manual»), lo deja en `study.metronome.own` con las zonas
+  tocadas (`touchedByEdit` contra lo que se veía), lo guarda y se lo da al
+  motor (`click.applyOwn`, que se repite si cambia mientras tanto: mantener
+  una flecha son muchos cambios y solo hace falta que llegue el último). Por
+  ahí van los arrastres de la onda (`update:grid` con una etiqueta),
+  cada herramienta, «Aplicar» del panel, «Re-analizar» en Manual y «Borrar el
+  manual». Deshacer hasta «sin manual» devuelve el automático **con su
+  doble/mitad y su «1» corrido**, que el primer cambio le había quitado.
+- **La selección** (índices de pulsos) es de `useBeatEdit`; la línea de tiempo
+  la pinta y la cambia con `update:selection`. Al cambiar el número de pulsos
+  sigue elegido lo que sigue existiendo (por su tiempo). Las herramientas
+  actúan sobre lo elegido o, sin nada elegido, sobre los pulsos del tramo A-B.
+- **Teclas** (oídas en la fase de captura de `window`, para ganarle al
+  reproductor): Ctrl+Z deshace; Ctrl+Mayús+Z y Ctrl+Y rehacen; con pulsos
+  elegidos, las flechas los corren 5 ms (Mayús 1, Ctrl 25; cambios seguidos
+  = un paso), Supr los quita, Ctrl+A los elige todos y Esc cierra el panel o,
+  si no, suelta la selección. No actúan con el foco en un campo de texto, con
+  un diálogo abierto ni con el estudio oculto.
+- **«Tempo y onda»**: `planAlign(own, tramo, {tempo, fit}, golpes)` calcula
+  el resultado sin tocar nada (el tempo con `setTempoSpan` y la fase o la
+  recta con `alignBeats`, que se niega si menos de la mitad de los pulsos
+  cae sobre un golpe) y `describePlan` lo cuenta. Todo es una prueba hasta
+  «Aplicar»: se ve en la onda (`preview`) y, si se quiere, suena en el motor
+  sin guardarse (`hearOwn`, con 200 ms de espera); mientras suena, la onda
+  sigue enseñando lo guardado (`viewGrid`). Toda salida (cancelar, Esc,
+  cerrar, dejar de ajustar, cambiar de canción, desmontar, deshacer) pasa por
+  `endPreview`, que devuelve el motor a lo guardado.
+- **Los golpes** (`GET /api/song/{id}/beats/hits`, `mix` o `drums`) se piden
+  una vez por canción y fuente, solo cuando hacen falta (se ven, hay imán o
+  el panel está abierto). El automático de fondo (`GET …/beats?wait=false`)
+  se pide una vez por canción, para «Volver al automático» y «Ver el
+  automático».
+- **Al ajustar pulsos, el estudio sube a todo el alto** (`.study.editing-beats`,
+  `styles/beat-tools.css`, que va con el estudio y no con `index.css`) y, si
+  aun así no cabe todo, se desplaza.
+
 ## Separar en pistas
 
 Una canción se separa en sus instrumentos —batería, voces, bajo, guitarra,

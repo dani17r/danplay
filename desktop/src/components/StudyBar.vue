@@ -25,6 +25,8 @@ import { ref, computed, watch, onMounted, onUnmounted, shallowRef } from 'vue'
 // su CSS viene con él: es una isla y no se carga al arrancar (islands.js). Antes
 // que lo demás, como iba antes que el de driver.js (useStudyTour.js)
 import '../styles/study.css'
+// y el de ajustar los pulsos de muchos en muchos, que es parte del estudio
+import '../styles/beat-tools.css'
 import { api, app as tauriApp, errorMessage, pickAudio, pickSavePath, JOBS } from '../api.js'
 import { notify } from '../composables/useNotices.js'
 import { ask } from '../composables/useDialog.js'
@@ -47,6 +49,7 @@ import { takeToPhone } from '../composables/usePhone.js'
 import { isMobileApp } from '../platform.js'
 import { stemPlan, mixFileName } from '../utils/stems.js'
 import { useHotkeys } from '../composables/useHotkeys.js'
+import { useBeatEdit } from '../composables/useBeatEdit.js'
 import { formatTime } from '../utils/format.js'
 import { transposeKey, toneWords, semitoneWords } from '../utils/theory.js'
 import {
@@ -55,10 +58,8 @@ import {
   parseBpm,
   multFactor,
   clickTimes,
-  gridToOwn,
   cleanOwn,
   ownTouched,
-  touchedByEdit,
   beatChanges,
   windowsText,
   nearestBeat,
@@ -77,6 +78,7 @@ import Icon from './Icon.vue'
 import TextField from './ui/TextField.vue'
 import SliderField from './ui/SliderField.vue'
 import StudyTimeline from './StudyTimeline.vue'
+import BeatTools from './BeatTools.vue'
 import StudyOutputs from './StudyOutputs.vue'
 import StudyCue from './StudyCue.vue'
 import StudyExport from './StudyExport.vue'
@@ -493,7 +495,7 @@ watch(playing, (now, before) => {
  */
 const waveHelp = computed(() => {
   if (editingBeats.value) {
-    return 'Ajustando tu clic: arrastra un pulso para moverlo · doble clic añade uno · clic derecho lo quita o lo hace el «1» · Ctrl + rueda acerca'
+    return 'Ajustando tu clic: clic en un pulso lo elige (Ctrl suma, Mayús elige hasta ahí) · arrastra sobre la franja de arriba para elegir una zona · arrastrar un pulso elegido los lleva todos · doble clic añade uno · clic derecho lo quita o lo hace el «1» · flechas: 5 ms · Ctrl + Z deshace · Ctrl + rueda acerca'
   }
   const pick = multi.value
     ? 'Arrastra para añadir tramos (suenan seguidos, saltándose lo de en medio) · clic sobre uno para quitarlo'
@@ -1040,38 +1042,35 @@ watch(clickMode, (m) => {
   if (m !== 'own') editingBeats.value = false
 })
 /**
- * Los pulsos que se ajustaron en la onda: pasan a ser el clic manual de la
- * canción (se guarda con ella) y suenan ya. Con ellos se guardan las zonas
- * que tocó: lo que cambió respecto a lo que se veía (sus pulsos de antes o,
- * la primera vez, el automático), para que un re-análisis las respete y
- * rehaga el resto.
- * @param {import('../api.js').BeatGrid} edited
+ * Todo lo que cambia el clic manual pasa por `useBeatEdit` (`commitOwn`): lo
+ * apunta para deshacer, lo guarda con la canción y lo pone en el motor. Con
+ * lo guardado van las zonas que tocó a mano (lo que cambió respecto a lo que
+ * se veía), para que un re-análisis las respete y rehaga el resto.
  */
-async function onOwnGrid(edited) {
-  const id = loadedFor.value
-  if (!id) return
-  const before = soundingGrid.value
-  const prev = study.value.metronome?.own
-  const saved = ownTouched(prev)
-  // un clic de antes de que se guardaran las zonas sigue sin ellas: el núcleo
-  // las deduce de lo que se diferencia de la rejilla (con esto que mueve ahora)
-  const legacy = !!prev?.beats?.length && saved === null
-  const touched = legacy
-    ? undefined
-    : before
-      ? touchedByEdit(before, edited, saved ?? [])
-      : (saved ?? [])
-  const own = gridToOwn(edited, touched)
-  study.value.metronome = { ...(study.value.metronome || {}), own, shift: 0, mult: 0 }
-  delete study.value.metronome.shift
-  delete study.value.metronome.mult
-  scheduleSave()
-  await flushSave()
-  // Lo ajustado ya lleva el doble, la mitad y el «1» corrido que se veían:
-  // a Rust también hay que quitárselos, o los aplica otra vez encima (el
-  // clic al cuádruple, o el «1» corrido dos veces, con la onda bien pintada).
-  await player.setMetronome({ mult: 0, shift: 0 })
-  await click.applyOwn(id, own)
+const edit = useBeatEdit({
+  songId: loadedFor,
+  study,
+  grid: soundingGrid,
+  duration,
+  editing: editingBeats,
+  visible: () => props.visible,
+  click,
+  player,
+  scheduleSave,
+  flushSave,
+  hasDrums: () => !!stems.value?.tracks?.some((t) => t.source === 'drums' && t.exists !== false),
+  hear: hearSpan
+})
+/** Lo que se ajustó en la onda (la rejilla entera): un arrastre, un pulso nuevo, el menú de un pulso. */
+const onOwnGrid = (edited, label) => edit.onTimelineGrid(edited, label)
+/**
+ * Poner un tramo de pulsos en bucle y que suene, con el clic puesto: para
+ * oír lo que se acaba de ajustar.
+ */
+async function hearSpan(a, b) {
+  await onLoops([[a, b]], { mode: 'select' })
+  if (!clickWanted.value) await click.toggle()
+  await playNow(0)
 }
 /** Borrar el clic manual de esta canción (queda el automático). */
 async function resetOwn() {
@@ -1081,17 +1080,12 @@ async function resetOwn() {
     kind: 'confirm',
     title: 'Borrar tu clic manual de esta canción',
     message:
-      'Se olvidan los pulsos que moviste a mano en esta canción y queda solo el automático. No se puede deshacer.',
+      'Se olvidan los pulsos que moviste a mano en esta canción y queda solo el automático. Ctrl+Z lo recupera mientras no cambies de canción.',
     okLabel: 'Borrarlo',
     danger: true
   })
   if (!ok) return
-  const m = { ...(study.value.metronome || {}) }
-  delete m.own
-  study.value.metronome = m
-  scheduleSave()
-  await flushSave()
-  await click.applyOwn(id, null)
+  await edit.commitOwn(null, 'borrar el manual')
 }
 async function startEditing() {
   if (clickMode.value !== 'own') await click.setMode('own')
@@ -1099,7 +1093,7 @@ async function startEditing() {
   if (editingBeats.value) {
     timeline.value?.zoomToBeats?.()
     notify(
-      'Acerca la onda con la rueda del ratón: arrastra un pulso para moverlo, doble clic para añadir uno, clic derecho para quitarlo o hacerlo el «1». Lo que muevas queda en Manual',
+      'Acerca la onda con la rueda del ratón: clic en un pulso lo elige, arrastra uno para moverlo, doble clic para añadir, clic derecho para quitar o hacer el «1». Ctrl+Z deshace. Lo que muevas queda en Manual',
       'info',
       8
     )
@@ -1292,12 +1286,17 @@ async function reanalyze(ev) {
           merged.meter === mine?.meter &&
           ownTouched(own) !== null
         if (!same) {
-          await saveOwnOf(id, merged)
-          if (loadedFor.value === id) await click.applyOwn(id, merged)
+          // en esta canción, por el camino de siempre (se puede deshacer); si ya
+          // se pasó a otra (la batería tarda), se le escribe solo esto
+          if (loadedFor.value === id) await edit.commitOwn(merged, 'Re-analizar', { final: true })
+          else await saveOwnOf(id, merged)
         }
       }
       // el automático nuevo, al motor y a la onda (si es el que suena)
-      if (loadedFor.value === id) await click.reload(r?.grid || null)
+      if (loadedFor.value === id) {
+        edit.forgetAuto()
+        await click.reload(r?.grid || null)
+      }
       const note = reanalysisNote({
         fixed: r?.report?.fixed || 0,
         weak: loadedFor.value === id ? click.weak.value.regions : weak,
@@ -2635,6 +2634,8 @@ defineExpose({ close: hide, hide, exit })
       'with-lanes': lanes.length,
       'many-lanes': lanes.length > MANY_LANES,
       big,
+      // ajustando los pulsos: todo el alto, y con sitio para sus herramientas
+      'editing-beats': editingBeats && !isMobileApp,
       desk: !isMobileApp,
       // en una ventana baja, los espacios más apretados para que las
       // tarjetas quepan (el texto no cambia): ver `isTight`
@@ -3167,9 +3168,16 @@ defineExpose({ close: hide, hide, exit })
       :markers="study.markers"
       :cues="study.cues"
       :selected="selected"
-      :grid="soundingGrid"
+      :grid="edit.viewGrid"
       :weak="weakRegions"
       :edit-beats="editingBeats"
+      :selection="edit.selection"
+      :preview="edit.preview"
+      :ghost-beats="edit.ghostBeats"
+      :hits="edit.showHits || edit.snapHits ? edit.hits : []"
+      :hits-ref="edit.hitsRef"
+      :show-hits="edit.showHits"
+      :snap-hits="edit.snapHits"
       :show-mix="showMix"
       :show-routes="showRoutes"
       :click-lane="
@@ -3202,10 +3210,18 @@ defineExpose({ close: hide, hide, exit })
       @update:multi="(v) => (multi = v)"
       @update:loops="onLoops"
       @update:grid="onOwnGrid"
+      @update:selection="edit.setSelection"
       @seek="jump"
       @marker="(m) => selectMarker(m, { jump: !guarded })"
       @cue="(c) => (isMobileApp ? goToCue(c) : editCue(c))"
       @options="showOptions"
+    />
+    <!-- ajustando los pulsos: sus herramientas, y «Tempo y onda» debajo -->
+    <BeatTools
+      v-if="editingBeats && !isMobileApp"
+      :edit="edit"
+      :position="position"
+      :has-loop="hasLoop"
     />
     <p v-if="isMobileApp" class="study-hint">
       <!-- en el celular se toca, no hay ratón ni teclas -->
