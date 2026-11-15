@@ -1239,8 +1239,14 @@ las teclas.
   un diálogo abierto ni con el estudio oculto.
 - **«Tempo y onda»**: `planAlign(own, tramo, {tempo, fit}, golpes)` calcula
   el resultado sin tocar nada (el tempo con `setTempoSpan` y la fase o la
-  recta con `alignBeats`, que se niega si menos de la mitad de los pulsos
-  cae sobre un golpe) y `describePlan` lo cuenta. Todo es una prueba hasta
+  recta con `alignBeats`, que solo mueve donde mejora: se niega si menos de
+  la mitad de los pulsos cae sobre un golpe y no es claramente mejor que lo
+  que hay (`no pega`: un tramo a medio tiempo solo apoya la mitad de un
+  peine, y pasar del 50 % al 64 % sí se aplica) o si lo dejaría peor
+  (`empeora`: 3 puntos menos de apoyo, o más dispersión sin apoyo nuevo);
+  «Buscar» es `estimateTempo`, que con el tempo que ya tiene el clic
+  (`around`) solo mira ±12 % alrededor y ofrece el doble y la mitad como
+  `alternatives`, con su apoyo, sin elegirlos) y `describePlan` lo cuenta. Todo es una prueba hasta
   «Aplicar»: se ve en la onda (`preview`) y, si se quiere, suena en el motor
   sin guardarse (`hearOwn`, con 200 ms de espera); mientras suena, la onda
   sigue enseñando lo guardado (`viewGrid`). Toda salida (cancelar, Esc,
