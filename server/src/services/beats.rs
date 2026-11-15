@@ -399,8 +399,9 @@ const HITS_FLOOR: f64 = 0.6;
 /// decenas de KB): ajustar el clic de una canción pide los mismos una y otra
 /// vez, y oírla cuesta unos segundos.
 const HITS_KEPT: usize = 8;
-static HITS: LazyLock<Mutex<VecDeque<(String, Arc<Value>)>>> =
-    LazyLock::new(|| Mutex::new(VecDeque::new()));
+/// Los golpes ya oídos, del más viejo al más nuevo: (clave, respuesta).
+type HitsKept = VecDeque<(String, Arc<Value>)>;
+static HITS: LazyLock<Mutex<HitsKept>> = LazyLock::new(|| Mutex::new(VecDeque::new()));
 
 /// Dónde golpea de verdad el audio de una canción, para ajustar el clic a mano
 /// contra ello: `{source, step, seconds, ref, hits: [[segundo, fuerza], …]}`.
