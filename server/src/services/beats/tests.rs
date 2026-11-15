@@ -1457,6 +1457,23 @@ fn the_api_gives_the_hits_and_refuses_what_it_does_not_know() {
     assert_eq!(st, 404);
 }
 
+/// Los golpes de un audio de verdad, a un archivo, para probar las
+/// herramientas de ajuste a mano con lo que suena de una canción
+/// (`DANPLAY_HITS_IN` el audio, `DANPLAY_HITS_OUT` el JSON que se escribe).
+#[test]
+#[ignore = "audio de verdad: DANPLAY_HITS_IN y DANPLAY_HITS_OUT"]
+fn real_hits_dump() {
+    let (Some(audio), Some(out)) = (
+        std::env::var_os("DANPLAY_HITS_IN").map(PathBuf::from),
+        std::env::var_os("DANPLAY_HITS_OUT").map(PathBuf::from),
+    ) else {
+        return;
+    };
+    let app = crate::tests::app();
+    let h = hits(&app, &audio, "mix").expect("golpes");
+    std::fs::write(out, h.to_string()).expect("escribir");
+}
+
 /// El cuerpo de un re-análisis con clic propio.
 fn with_own(own: Value) -> Value {
     json!({"mode": "repair", "own": own})

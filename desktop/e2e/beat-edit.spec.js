@@ -7,7 +7,7 @@
 // camino entero funcione en Chrome: la selección, el panel, el guardado con la
 // canción y las teclas.
 import { test, expect } from '@playwright/test'
-import { core, reset, rows, openApp, songsByTitle } from './helpers.js'
+import { core, reset, rows, openApp, songsByTitle, withFilePath } from './helpers.js'
 
 test.use({ viewport: { width: 1536, height: 864 } })
 
@@ -21,24 +21,6 @@ const OWN = {
   bars: Array.from({ length: 9 }, (_, i) => i * 4),
   meter: 4,
   touched: []
-}
-
-/**
- * El reproductor del navegador no sabe la ruta del archivo (la sabe Rust), y
- * sin ella el clic no carga su rejilla ni se puede ajustar. Se le da una
- * al servirlo, solo para esta prueba: lo demás es el código de verdad.
- */
-async function withFilePath(page) {
-  await page.route(/\/src\/composables\/usePlayback\.js/, async (route) => {
-    const res = await route.fetch()
-    const body = await res.text()
-    const from = 's.track = { ...item }'
-    if (!body.includes(from)) throw new Error('el reproductor web cambió: ajusta esta prueba')
-    await route.fulfill({
-      response: res,
-      body: body.replace(from, `${from}; s.path = '/e2e/' + item.id`)
-    })
-  })
 }
 
 const ownOf = async (request, id) => {

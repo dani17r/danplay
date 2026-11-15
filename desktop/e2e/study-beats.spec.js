@@ -4,7 +4,7 @@
 // ellos no cambia) y los demás se quedan donde estaban. La ventana es la de
 // quien lo usa: 1536 x 864 a 125 %.
 import { test, expect } from '@playwright/test'
-import { core, reset, rows, titleTexts, openApp, songsByTitle } from './helpers.js'
+import { core, reset, rows, titleTexts, openApp, songsByTitle, withFilePath } from './helpers.js'
 
 test.use({ viewport: { width: 1536, height: 864 }, deviceScaleFactor: 1.25 })
 
@@ -25,6 +25,7 @@ test('box-selecting a few beats and dragging one moves the whole group, keeping 
   // el clic manual de la canción (20 s): un pulso cada 0,5 s, desde el 0,5
   const beats = Array.from({ length: 38 }, (_, i) => 0.5 + 0.5 * i)
   const bars = Array.from({ length: 10 }, (_, k) => k * 4)
+  await withFilePath(page)
   await page.addInitScript(() => {
     // en «Manual», que es donde se ajustan los pulsos
     localStorage.setItem('danplay.click.mode', '"own"')
@@ -43,16 +44,6 @@ test('box-selecting a few beats and dragging one moves the whole group, keeping 
     await page.locator('.player .pl-study').click()
     const study = page.getByRole('region', { name: 'Modo estudio' })
     const edit = study.locator('.study-edit-beats')
-    // La rejilla del clic solo la carga la app de escritorio: el reproductor
-    // del navegador no dice la ruta del archivo (`state.path`) y sin ella el
-    // botón se queda apagado. En cuanto el navegador la cargue, esto corre.
-    const ready = await expect(edit)
-      .toBeEnabled({ timeout: 8000 })
-      .then(
-        () => true,
-        () => false
-      )
-    test.skip(!ready, 'sin rejilla del clic en el navegador (ver el comentario de arriba)')
     await edit.click()
     const beat = (i) => study.locator(`.tl-beat[data-i="${i}"]`)
     await expect(beat(9)).toBeVisible()

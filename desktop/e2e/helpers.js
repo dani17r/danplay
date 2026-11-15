@@ -111,3 +111,21 @@ export async function openApp(page) {
 export async function go(page, name) {
   await page.locator('.sidebar .nav-link', { hasText: name }).first().click()
 }
+
+/**
+ * El reproductor del navegador no sabe la ruta del archivo (la sabe Rust), y
+ * sin ella el clic no carga su rejilla ni se pueden ajustar sus pulsos. Se le
+ * da una al servirlo, solo para la prueba: lo demás es el código de verdad.
+ */
+export async function withFilePath(page) {
+  await page.route(/\/src\/composables\/usePlayback\.js/, async (route) => {
+    const res = await route.fetch()
+    const body = await res.text()
+    const from = 's.track = { ...item }'
+    if (!body.includes(from)) throw new Error('el reproductor web cambió: ajusta esta prueba')
+    await route.fulfill({
+      response: res,
+      body: body.replace(from, `${from}; s.path = '/e2e/' + item.id`)
+    })
+  })
+}
