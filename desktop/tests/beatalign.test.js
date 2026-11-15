@@ -34,6 +34,14 @@ function hitsAt(times, { shift = 0, jitter = 0, seed = 1, strength = 4 } = {}) {
   ])
 }
 
+/** Golpes al azar (ruido), `perSecond` por segundo, de fuerza media: la música es así de densa. */
+function noise(from, to, perSecond, seed) {
+  const rand = seeded(seed)
+  const n = Math.round((to - from) * perSecond)
+  return Array.from({ length: n }, () => [round3(from + rand() * (to - from)), 1.5 + rand() * 2.5])
+}
+const merged = (...lists) => lists.flat().sort((a, b) => a[0] - b[0])
+
 /** Congela todo: si una función toca lo que recibe, revienta (los módulos son estrictos). */
 function frozen(value) {
   if (value && typeof value === 'object') {
@@ -91,7 +99,9 @@ describe('how well the click falls on the audio (fitReport)', () => {
       n: 0,
       supported: 0,
       offsetMs: 0,
-      spreadMs: 0
+      spreadMs: 0,
+      chance: 0,
+      excess: 0
     })
   })
 
@@ -101,7 +111,9 @@ describe('how well the click falls on the audio (fitReport)', () => {
       n: 40,
       supported: 0,
       offsetMs: 0,
-      spreadMs: 0
+      spreadMs: 0,
+      chance: 0,
+      excess: 0
     })
     expect(fitReport(beats, [], [5, 29]).supported).toBe(0)
   })
@@ -386,12 +398,20 @@ describe('following the hits beat by beat (how: follow)', () => {
     expect(changes.at(-1), 'almost a shift').toBeLessThan(changes[0] / 10)
   })
 
-  it('a very rigid follow cannot track a tempo change, and says "no pega" instead of making it worse', () => {
+  it('a very rigid follow cannot track a tempo change: it never makes it worse, and asked for more it says "no pega"', () => {
     const hits = hitsAt(truth, { jitter: 2, seed: 5 })
     const res = alignBeats({ beats: wrong }, span, hits, { how: 'follow', rigidity: 1 })
-    expect(res.applied).toBe(false)
-    expect(res.report.reason).toBe('no pega')
-    expect(res.beats).toEqual(wrong)
+    // sigue sin pegar mejor que antes (sobre un 46 % pegado de golpes limpios)
+    expect(res.report.candidate.excess).toBeLessThan(res.report.before.excess + 0.12)
+    expect(rms(res.beats, truth)).toBeGreaterThan(rms(wrong, truth) - 1)
+    const strict = alignBeats({ beats: wrong }, span, hits, {
+      how: 'follow',
+      rigidity: 1,
+      minExcess: 0.6
+    })
+    expect(strict.applied).toBe(false)
+    expect(strict.report.reason).toBe('no pega')
+    expect(strict.beats).toEqual(wrong)
   })
 
   it('a beat with no hits near keeps its interval with the one before: it does not jump back', () => {
@@ -430,6 +450,209 @@ describe('following the hits beat by beat (how: follow)', () => {
     for (let k = 1; k < res.beats.length; k++) {
       expect(res.beats[k] - res.beats[k - 1]).toBeGreaterThanOrEqual(MIN_GAP - 1e-9)
     }
+  })
+})
+
+// ------------------------------------- lo que pega de más sobre el azar
+
+describe('what fits above chance (chance and excess)', () => {
+  const dense = noise(5, 75, 12, 3) // 12 golpes por segundo, sin ninguna relación con nada
+
+  it('a comb at any tempo already fits about half of the beats by chance, and excess says so', () => {
+    for (const bpm of [97, 111, 133, 150]) {
+      const beats = comb(10, bpm, Math.floor(bpm))
+      const rep = fitReport(frozen(beats), frozen(dense), [10, 69])
+      expect(rep.supported, `${bpm} bpm`).toBeGreaterThan(0.3)
+      expect(rep.supported, `${bpm} bpm`).toBeLessThan(0.65)
+      expect(Math.abs(rep.supported - rep.chance), `${bpm} bpm`).toBeLessThan(0.12)
+      expect(rep.excess, `${bpm} bpm`).toBeLessThan(0.3)
+      expect(rep.excess, `${bpm} bpm`).toBeGreaterThanOrEqual(0)
+    }
+    // a veces apoya menos que el azar: ni así sale negativo
+    const below = [89, 101, 123, 141, 157, 171].map(
+      (bpm) => fitReport(comb(10, bpm, Math.floor(bpm)), dense, [10, 69]).excess
+    )
+    expect(Math.min(...below)).toBe(0)
+  })
+
+  it('the true comb in the same dense hits is far above chance', () => {
+    const beats = comb(10, 100, 100)
+    const hits = merged(hitsAt(beats, { jitter: 3 }), dense)
+    const rep = fitReport(beats, hits, [10, 69])
+    expect(rep.supported).toBeGreaterThanOrEqual(0.95)
+    expect(rep.chance).toBeGreaterThan(0.35)
+    expect(rep.chance).toBeLessThan(0.6)
+    expect(rep.excess).toBeGreaterThan(0.85)
+  })
+
+  it('excess is (supported − chance) / (1 − chance), from 0 to 1, with chance capped at 0.9', () => {
+    const beats = comb(10, 100, 40)
+    // golpes limpios solo en los pulsos: el azar es 0 y lo que pega, todo de más
+    const clean = fitReport(beats, hitsAt(beats, { jitter: 2 }), [10, 33])
+    expect(clean.chance).toBe(0)
+    expect(clean.excess).toBe(clean.supported)
+    // un golpe cada 10 ms: todo pega, y el azar también; no sale NaN ni más de 1
+    const wall = Array.from({ length: 4000 }, (_, k) => [round3(5 + k * 0.01), 4])
+    const rep = fitReport(beats, wall, [10, 33])
+    expect(rep.supported).toBe(1)
+    expect(rep.chance).toBe(1)
+    expect(rep.excess).toBe(0)
+    // sin golpes, todo cero
+    expect(fitReport(beats, [], [10, 33])).toMatchObject({ chance: 0, excess: 0 })
+  })
+
+  it('the golpes on the half beat do not count as chance (the shifts keep clear of 0 and 1/2)', () => {
+    // negras y corcheas: con un corrimiento de media negra el azar saldría 1
+    const beats = comb(10, 100, 40)
+    const eighths = merged(
+      hitsAt(beats, { jitter: 2 }),
+      hitsAt(
+        beats.map((t) => t + 0.3),
+        { jitter: 2, seed: 5 }
+      )
+    )
+    const rep = fitReport(beats, eighths, [10, 33])
+    expect(rep.supported).toBe(1)
+    expect(rep.chance).toBeLessThan(0.1)
+    expect(rep.excess).toBeGreaterThan(0.9)
+  })
+
+  it('is deterministic and does not touch what it receives', () => {
+    const beats = comb(10, 111, 100)
+    const a = fitReport(frozen(beats), frozen(dense), [10, 69])
+    expect(fitReport(beats, dense, [10, 69])).toEqual(a)
+  })
+
+  it('the reports of alignBeats carry chance and excess (before, after and candidate)', () => {
+    const beats = comb(10, 100, 60)
+    const hits = merged(hitsAt(beats, { shift: 35, jitter: 3 }), dense)
+    const res = alignBeats({ beats }, spanOf(beats), hits, { how: 'phase' })
+    for (const key of ['before', 'after', 'candidate']) {
+      expect(res.report[key].chance, key).toBeGreaterThan(0.3)
+      expect(res.report[key].excess, key).toBeGreaterThanOrEqual(0)
+    }
+    expect(res.applied).toBe(true)
+    expect(res.report.after.excess).toBeGreaterThan(0.85)
+    expect(res.report.before.excess).toBeLessThan(res.report.after.excess)
+  })
+
+  it('"no pega": a fit that only reaches the chance level is refused, even above half of the beats', () => {
+    // golpes al azar y densos: el mejor corrimiento los pega más de la mitad, pero no más que el azar
+    const beats = comb(10, 100, 100)
+    for (const how of ['phase', 'line', 'follow']) {
+      const res = alignBeats(frozen({ beats }), [9.9, 69], frozen(dense), { how })
+      expect(res.applied, how).toBe(false)
+      expect(res.report.reason, how).toBe('no pega')
+      expect(res.beats).toEqual(beats)
+    }
+    const phase = alignBeats({ beats }, [9.9, 69], dense, { how: 'phase' })
+    expect(phase.report.candidate.supported, 'it would have passed the old 0.5').toBeGreaterThan(
+      0.5
+    )
+    expect(phase.report.candidate.excess).toBeLessThan(0.3)
+    // y aunque gane 0,12 sobre lo que había (ajustar elige la mejor de 101 posiciones),
+    // sin llegar a tres cuartas partes del mínimo no cuenta como «claramente mejor»
+    expect(phase.report.candidate.excess - phase.report.before.excess).toBeGreaterThan(0.12)
+    // quien lo quiera igual, lo pide
+    expect(alignBeats({ beats }, [9.9, 69], dense, { how: 'phase', minExcess: 0 }).applied).toBe(
+      true
+    )
+    expect(alignBeats({ beats }, [9.9, 69], dense, { how: 'phase', force: true }).applied).toBe(
+      true
+    )
+  })
+
+  it('«empeora» compares what fits above chance: a line that loses 2 points of support and gains 4 of chance is refused', () => {
+    // 60 pulsos a unos 120 bpm con un golpe real cada uno (algo descuadrados) entre 12 golpes
+    // por segundo de ruido; la mejor recta apoya casi lo mismo (-2 puntos), pero el azar
+    // sobre ella sube del 43 al 47 %, y sobre el azar pega 6 puntos menos
+    const rand = seeded(1)
+    const period = 60 / (90 + rand() * 60)
+    const beats = Array.from({ length: 60 }, (_, k) => round3(10 + k * period))
+    const real = beats.map((_, k) => [
+      round3(
+        10 +
+          k * period * (1 + 0.004 * (rand() - 0.3)) +
+          (rand() - 0.5) * 0.01 +
+          0.02 * (rand() < 0.5 ? 1 : -1) * rand()
+      ),
+      4
+    ])
+    const noisy = Array.from({ length: Math.round(12 * period * 60) }, () => [
+      round3(8 + rand() * (period * 60 + 4)),
+      2 + rand() * 2
+    ])
+    const hits = merged(real, noisy)
+    const res = alignBeats({ beats }, [9.9, 10 + period * 60], hits, { how: 'line' })
+    const { before, candidate } = res.report
+    expect(
+      candidate.supported - before.supported,
+      'raw support loses less than 3 points'
+    ).toBeGreaterThan(-0.03)
+    expect(candidate.excess - before.excess, 'but above chance it loses more').toBeLessThan(-0.03)
+    expect(res.applied).toBe(false)
+    expect(res.report.reason).toBe('empeora')
+    expect(res.beats).toEqual(beats)
+  })
+
+  it('a minimum of excess can be asked, and minSupport still holds when it is given', () => {
+    const beats = comb(10, 100, 40)
+    const odd = beats.filter((_, k) => k % 2 === 0)
+    const hits = hitsAt(odd, { shift: 12, jitter: 2 })
+    // la mitad de los pulsos con golpe y nada de azar: excess 0,5
+    const res = alignBeats({ beats }, spanOf(beats), hits, { how: 'phase' })
+    expect(res.applied).toBe(true)
+    expect(res.report.after.excess).toBeCloseTo(0.5, 2)
+    expect(
+      alignBeats({ beats }, spanOf(beats), hits, { how: 'phase', minExcess: 0.6 }).applied
+    ).toBe(false)
+    const needs = alignBeats({ beats }, spanOf(beats), hits, { how: 'phase', minSupport: 0.6 })
+    expect(needs.applied).toBe(false)
+    expect(needs.report.reason).toBe('no pega')
+  })
+
+  describe('estimateTempo', () => {
+    it('says how far above chance the comb is: nearly 1 for the true tempo, little for noise', () => {
+      const beats = comb(10, 100, 100)
+      const hits = merged(hitsAt(beats, { jitter: 3 }), dense)
+      const est = estimateTempo(hits, [10, 69], { around: 100 })
+      expect(est.bpm).toBeGreaterThan(99.8)
+      expect(est.bpm).toBeLessThan(100.2)
+      expect(est.excess).toBeGreaterThan(0.85)
+      expect(est.chance).toBeGreaterThan(0.3)
+      expect(est.support).toBeGreaterThan(0.95)
+      for (const a of est.alternatives) {
+        expect(a.chance, `×${a.ratio}`).toBeGreaterThanOrEqual(0)
+        expect(a.excess, `×${a.ratio}`).toBeGreaterThanOrEqual(0)
+      }
+      // solo ruido: algo se encuentra, pero no es nada (menos de 0,4)
+      for (const around of [0, 76, 100]) {
+        const none = estimateTempo(dense, [10, 69], { around })
+        expect(none.excess, `around ${around}`).toBeLessThan(0.4)
+      }
+    })
+
+    it('decides the octave by what fits above chance, not by the raw support', () => {
+      // un golpe fuerte cada segundo (60 bpm) entre muchísimo ruido (32 por segundo):
+      // el peine de 120 apoya el 88 % (el azar de 80 más la mitad que le toca) pero
+      // casi todo es azar; el de 60 apoya el 100 %
+      const hits = merged(
+        hitsAt(comb(10, 60, 70), { jitter: 2, seed: 2, strength: 6 }),
+        noise(5, 80, 32, 7)
+      )
+      const free = estimateTempo(hits, [10, 78])
+      expect(free.bpm).toBeGreaterThan(59.8)
+      expect(free.bpm).toBeLessThan(60.2)
+      const double = free.alternatives.find((a) => a.ratio === 2)
+      expect(double.support).toBeGreaterThan(0.8)
+      expect(double.excess).toBeLessThan(0.6 * free.excess)
+      // con el tempo que ya tenía el clic, no salta: 120 con su azar, y el 60 como alternativa
+      const near = estimateTempo(hits, [10, 78], { around: 120 })
+      expect(near.bpm).toBeGreaterThan(119.8)
+      expect(near.bpm).toBeLessThan(120.2)
+      expect(near.excess).toBeLessThan(0.6)
+      expect(near.alternatives.find((a) => a.ratio === 0.5).excess).toBeGreaterThan(0.9)
+    })
   })
 })
 
@@ -553,6 +776,16 @@ describe('on the real hits of a live song (Sal 22 Te Amo, 120 bpm with a half-ti
   const sources = { batería: unflat(sal22.drums), mezcla: unflat(sal22.mix) }
   const own = { beats: sal22.beats }
 
+  it('«empeora» is measured on what fits above chance: a click that fits at 93 % is not made worse by «sigue la onda»', () => {
+    // sobre la batería de 100 a 160 s «sigue la onda» baja el apoyo unos 4 puntos y, sobre
+    // el azar (el 45 %), unos 7: se queda como está
+    const r = alignBeats(own, [100, 160], sources.batería, { how: 'follow' })
+    expect(r.report.candidate.excess).toBeLessThan(r.report.before.excess - 0.03)
+    expect(r.applied).toBe(false)
+    expect(r.report.reason).toBe('empeora')
+    expect(r.beats).toEqual(sal22.beats)
+  })
+
   it('the click already fits a clear section: line is refused, phase and follow are not worse', () => {
     for (const [name, hits] of Object.entries(sources)) {
       const line = alignBeats(frozen({ beats: sal22.beats }), [100, 160], hits, { how: 'line' })
@@ -578,16 +811,22 @@ describe('on the real hits of a live song (Sal 22 Te Amo, 120 bpm with a half-ti
     const hits = sources.batería
     const before = fitReport(sal22.beats, hits, [241, 270])
     expect(before.supported).toBeLessThan(0.55)
+    expect(before.excess, 'the click hardly fits above chance').toBeLessThan(0.3)
     for (const how of ['phase', 'line']) {
-      const r = alignBeats(own, [241, 270], hits, { how, minSupport: 0.7 })
+      const r = alignBeats(own, [241, 270], hits, { how })
       expect(r.applied, how).toBe(true)
       expect(r.report.after.supported - r.report.before.supported, how).toBeGreaterThanOrEqual(0.12)
+      expect(r.report.after.excess - r.report.before.excess, how).toBeGreaterThanOrEqual(0.12)
       expect(r.report.moved).toBeGreaterThan(0)
     }
-    // y no se pide más de lo que hay: con 0,9 de mínimo y sin mejora clara no se mueve
-    const strict = alignBeats(own, [241, 270], sources.mezcla, { how: 'phase', minSupport: 0.9 })
+    // quien pide un mínimo de pulsos con golpe lo tiene: con 0,7 y un 64 % no se mueve
+    const strict = alignBeats(own, [241, 270], hits, { how: 'phase', minSupport: 0.7 })
     expect(strict.applied).toBe(false)
     expect(strict.report.reason).toBe('no pega')
+    // y la mezcla de ahí sube de poco: tampoco se acepta pidiendo un 0,6 sobre el azar
+    const mix = alignBeats(own, [241, 270], sources.mezcla, { how: 'phase', minExcess: 0.6 })
+    expect(mix.applied).toBe(false)
+    expect(mix.report.reason).toBe('no pega')
   })
 
   it('a shift that only moves a mix that was already good is refused', () => {
@@ -598,6 +837,107 @@ describe('on the real hits of a live song (Sal 22 Te Amo, 120 bpm with a half-ti
     }
     // con la batería, que está clara, el ajuste de fase sí se aplica
     expect(alignBeats(own, [270, 340], sources.batería, { how: 'phase' }).applied).toBe(true)
+  })
+
+  describe('chance and excess on real music, which is dense in hits', () => {
+    // una congruencial fija, la misma muestra siempre
+    const lcg = (seed) => () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32
+    const quantile = (list, q) => [...list].sort((a, b) => a - b)[Math.floor(q * (list.length - 1))]
+
+    it('a comb at a random tempo and phase fits half of the beats by chance: supported alone cannot tell', () => {
+      for (const [name, hits] of Object.entries(sources)) {
+        for (const span of [
+          [100, 160],
+          [270, 340]
+        ]) {
+          const rand = lcg(11)
+          const supported = []
+          const excess = []
+          for (let k = 0; k < 200; k++) {
+            const period = 60 / (60 + rand() * 120)
+            const beats = []
+            for (let t = span[0] + rand() * period; t < span[1]; t += period) beats.push(t)
+            const rep = fitReport(beats, hits, span)
+            supported.push(rep.supported)
+            excess.push(rep.excess)
+          }
+          const label = `${name} ${span}`
+          // el apoyo a secas ronda el 40-60 %: el 0,5 de antes era el azar
+          expect(quantile(supported, 0.5), label).toBeGreaterThan(0.35)
+          expect(quantile(supported, 0.5), label).toBeLessThan(0.65)
+          expect(quantile(supported, 0.9), label).toBeGreaterThan(0.44)
+          // lo que pega de más sobre el azar, casi nada (y nunca fuera de 0..1)
+          expect(Math.min(...excess), label).toBeGreaterThanOrEqual(0)
+          expect(Math.max(...excess), label).toBeLessThanOrEqual(1)
+          expect(quantile(excess, 0.5), label).toBeLessThan(0.2)
+          expect(quantile(excess, 0.9), label).toBeLessThan(0.45)
+        }
+      }
+    })
+
+    it('the real click is far above that', () => {
+      const excess = (hits, span) => fitReport(sal22.beats, hits, span).excess
+      expect(excess(sources.batería, [100, 160])).toBeGreaterThanOrEqual(0.8)
+      expect(excess(sources.batería, [270, 340])).toBeGreaterThanOrEqual(0.9)
+      expect(excess(sources.mezcla, [270, 340])).toBeGreaterThanOrEqual(0.85)
+      // la mezcla de 100 a 160 s es más borrosa (76 % de pulsos con golpe, con un 35 % de azar)
+      expect(excess(sources.mezcla, [100, 160])).toBeGreaterThanOrEqual(0.55)
+      // y el tramo a medio tiempo, con el clic a 120, apenas se distingue del azar
+      expect(excess(sources.batería, [241, 270])).toBeLessThan(0.3)
+    })
+
+    it('the 60 bpm comb of the half-time stretch is far above chance', () => {
+      const est = estimateTempo(sources.batería, [241, 270], { around: 120 })
+      const half = est.alternatives.find((a) => a.ratio === 0.5)
+      expect(half.excess).toBeGreaterThanOrEqual(0.85)
+      expect(half.bpm).toBeGreaterThan(59.7)
+      expect(half.bpm).toBeLessThan(60.3)
+      // y el 120 que tiene el clic, bastante menos
+      expect(est.excess).toBeLessThan(half.excess)
+    })
+
+    it('a tempo typed far from the music (76) does not get a confident comb', () => {
+      const est = estimateTempo(sources.batería, [241, 270], { around: 76 })
+      // lo mejor que hay cerca de 76 es un armónico de las corcheas (80 = 120 · 2/3): pega
+      // el 64 % de los pulsos, pero el azar ya pega el 41 %. (Está en el borde del 0,4 con el que
+      // la interfaz decide que «ahí no hay nada»: un pulso más o menos lo cruza.)
+      expect(est.excess).toBeLessThan(0.5)
+      expect(est.support).toBeGreaterThan(0.55)
+      // frente al 0,94 del tempo verdadero (60) que sí hay
+      const truth = estimateTempo(sources.batería, [241, 270], { around: 60 })
+      expect(truth.excess).toBeGreaterThan(0.85)
+      expect(est.excess).toBeLessThan(0.55 * truth.excess)
+      // y la búsqueda sin pista encuentra lo que hay
+      expect(estimateTempo(sources.batería, [241, 270]).excess).toBeGreaterThan(0.85)
+    })
+
+    it('the double of 120 (239.9, the hi-hat eighths) is not offered as a tempo to count', () => {
+      for (const hits of Object.values(sources)) {
+        const est = estimateTempo(hits, [270, 340], { around: 120 })
+        expect(est.alternatives.map((a) => a.ratio)).toEqual([0.5])
+        // pero el peine de 240 existe de verdad: pega tanto como el del pulso
+        const open = estimateTempo(hits, [270, 340], { around: 120, tactus: [60, 250] })
+        const double = open.alternatives.find((a) => a.ratio === 2)
+        expect(double.bpm).toBeGreaterThan(239)
+        expect(double.excess).toBeGreaterThan(0.8)
+      }
+    })
+
+    it('fitting random combs to the real hits rarely gets accepted, whatever the how', () => {
+      for (const how of ['phase', 'line', 'follow']) {
+        const rand = lcg(5)
+        let accepted = 0
+        const tries = 60
+        for (let k = 0; k < tries; k++) {
+          const period = 60 / (60 + rand() * 120)
+          const beats = []
+          for (let t = 100 + rand() * period; t < 160; t += period) beats.push(round3(t))
+          if (alignBeats({ beats }, [100, 160], sources.batería, { how }).applied) accepted++
+        }
+        // (con el tempo cerca de un armónico del 120 sí pega de verdad: unos pocos)
+        expect(accepted / tries, how).toBeLessThan(0.15)
+      }
+    })
   })
 
   it('estimateTempo keeps the 120 the click has, from the drums and from the mix', () => {
@@ -704,16 +1044,16 @@ describe('estimating the tempo of a stretch from the hits', () => {
   })
 
   it('alternatives: the double and the half, each searched near its octave', () => {
-    const est = estimateTempo(hitsAt(comb(10.3, 100, 40), { jitter: 2, seed: 4 }), [10, 33], {
-      around: 100
+    const est = estimateTempo(hitsAt(comb(10.3, 90, 40), { jitter: 2, seed: 4 }), [10, 33], {
+      around: 90
     })
     expect(est.alternatives.map((a) => a.ratio)).toEqual([2, 0.5])
     const [double, half] = est.alternatives
-    expect(double.bpm).toBeGreaterThan(199)
-    expect(double.bpm).toBeLessThan(201)
+    expect(double.bpm).toBeGreaterThan(179)
+    expect(double.bpm).toBeLessThan(181)
     expect(double.support, 'only the beats are hit: half of the double').toBeCloseTo(0.5, 1)
-    expect(half.bpm).toBeGreaterThan(49.5)
-    expect(half.bpm).toBeLessThan(50.5)
+    expect(half.bpm).toBeGreaterThan(44.5)
+    expect(half.bpm).toBeLessThan(45.5)
     expect(half.support).toBeGreaterThan(0.95)
     // la mitad que se sale de `min..max` no se ofrece (30 bpm con el mínimo en 40)
     const slow = hitsAt(comb(10.3, 60, 30), { jitter: 2, seed: 4 })
@@ -723,6 +1063,16 @@ describe('estimating the tempo of a stretch from the hits', () => {
     expect(
       estimateTempo(slow, [10, 38], { around: 60, min: 25 }).alternatives.map((a) => a.ratio)
     ).toEqual([2, 0.5])
+  })
+
+  it('the double is only offered while it is still a tempo to count in (up to 180 bpm)', () => {
+    // 100 bpm: el doble (200) sería la corchea, aunque el charles la apoye igual
+    const hits = hitsAt(comb(10.3, 100, 40), { jitter: 2, seed: 4 })
+    const est = estimateTempo(hits, [10, 33], { around: 100 })
+    expect(est.alternatives.map((a) => a.ratio)).toEqual([0.5])
+    // pero con otro techo sí
+    const open = estimateTempo(hits, [10, 33], { around: 100, tactus: [60, 240] })
+    expect(open.alternatives.map((a) => a.ratio)).toEqual([2, 0.5])
   })
 
   describe('a live drum groove: strong kick and snare on beats 1 and 3, weak hi-hat in between', () => {

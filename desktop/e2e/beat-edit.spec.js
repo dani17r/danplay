@@ -152,17 +152,17 @@ test('on real hits «Buscar en la onda» finds the tempo near the typed one and 
     const field = panel.getByLabel('Tempo del tramo, en pulsos por minuto')
     await field.fill('118')
     await panel.getByRole('button', { name: /Buscar en la onda/ }).click()
-    // cerca de lo escrito, ~120, con su fase; el 60 y (en este pasaje, con el charles) el 240
-    // se ofrecen porque pegan casi tanto, pero no se eligen solos
+    // cerca de lo escrito, ~120, con su fase; el 60 se ofrece porque pega sobre el azar casi
+    // tanto, pero no se elige solo. El 240 del charles de las corcheas pega igual de bien, pero
+    // ya no es un tempo para contar (pasa de 180 bpm) y no se ofrece
     await expect(panel.locator('.ba-found')).toContainText(/pegan \d+ de \d+/)
     await expect(field).toHaveValue(/^1(19|20),?\d?$/)
     const chips = panel.locator('.ba-chip')
-    await expect(chips).toHaveCount(2)
-    await expect(chips.nth(0)).toHaveText(/^×2 · 239,8 bpm · pegan \d+ %$/)
-    await expect(chips.nth(1)).toHaveText(/^÷2 · 60 bpm · pegan \d+ %$/)
+    await expect(chips).toHaveCount(1)
+    await expect(chips.nth(0)).toHaveText(/^÷2 · 60 bpm · pegan \d+ %$/)
     await page.screenshot({ path: testInfo.outputPath('tempo-y-onda-golpes-1536x864.png') })
     // con el chip, ese tempo y su fase en el campo
-    await chips.nth(1).click()
+    await chips.nth(0).click()
     await expect(field).toHaveValue(/^60,?\d?$/)
     await expect(panel.locator('.ba-chip').first()).toHaveText(/^×2 · 119,9/)
   } finally {

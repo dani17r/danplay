@@ -16,7 +16,12 @@
 import { MIN_GAP } from './beatEdit.js'
 
 /** @typedef {[number, number]} Hit  [segundos, fuerza > 0] */
-/** @typedef {{n: number, supported: number, offsetMs: number, spreadMs: number}} Fit */
+/**
+ * @typedef {{
+ *   n: number, supported: number, offsetMs: number, spreadMs: number,
+ *   chance: number, excess: number
+ * }} Fit
+ */
 /** @typedef {{t: number[], w: number[]}} Prepared */
 
 /** Hasta dónde se va a buscar el golpe de un pulso, en segundos. */
@@ -28,12 +33,22 @@ const WEAK = 0.15
 /** Lo que se mira más allá del tramo, para tomar la medida de la fuerza. */
 const MARGIN = 1
 const MIN_GAP_MS = Math.round(MIN_GAP * 1000)
-/** Cuánto apoyo se puede perder sin que se diga que «empeora» (3 puntos). */
-const WORSE_SUPPORT = 0.03
-/** Dentro de esto (2 puntos) el apoyo cuenta como el mismo. */
-const TIE_SUPPORT = 0.02
-/** Cuánto apoyo hay que ganar para aceptar un resultado por debajo de `minSupport`. */
-const BETTER_SUPPORT = 0.12
+/** Cuánto `excess` se puede perder sin que se diga que «empeora» (3 puntos). */
+const WORSE_EXCESS = 0.03
+/** Dentro de esto (2 puntos) el `excess` cuenta como el mismo. */
+const TIE_EXCESS = 0.02
+/** Cuánto `excess` hay que ganar para aceptar un resultado por debajo de `minExcess`. */
+const BETTER_EXCESS = 0.12
+/** Lo que tiene que pegar de más sobre el azar un resultado para aceptarlo. */
+const MIN_EXCESS = 0.4
+/**
+ * Y lo que, como mínimo (esta fracción de `minExcess`), ha de pegar el que se
+ * acepta por ser «claramente mejor». Ajustar a la onda elige la mejor de
+ * muchas posiciones, y eso solo ya sube el `excess` de un peine al azar de
+ * 0,1 a 0,3: sin este suelo, entre un 3 y un 18 % de los peines al azar de
+ * Sal 22 se aceptaban por ganar 12 puntos; con él, casi ninguno.
+ */
+const BETTER_FLOOR = 0.75
 /** La dispersión es «peor» si pasa de `antes · 1,3 + 3 ms`. */
 const SPREAD_SLACK = 1.3
 const SPREAD_PAD = 3
@@ -139,14 +154,37 @@ function hitFor(prep, x, reach) {
   return best
 }
 
+/** ¿Hay un golpe a menos de 25 ms de `x`? */
+function hasHitNear(prep, x) {
+  const j = lowerBound(prep.t, x - SUPPORT_WINDOW)
+  return j < prep.t.length && prep.t[j] <= x + SUPPORT_WINDOW
+}
+
+/**
+ * Los corrimientos con que se mide lo que pegaría un peine «al azar», como
+ * fracciones del intervalo entre pulsos: lejos de la fase de verdad (0) y de
+ * la mitad del intervalo (0,5), que es donde pega el doble.
+ */
+const NULL_SHIFTS = [0.13, 0.29, 0.41, 0.59, 0.71, 0.87]
+/** Con más de esto de azar no se mide nada: no se divide por casi cero. */
+const CHANCE_CAP = 0.9
+
 /**
  * Qué tal caen unos pulsos sobre los golpes.
+ *
+ * `chance` es cuánto pegarían estos mismos pulsos corridos a sitios que no
+ * son suyos (la mediana de `supported` con seis corrimientos fijos, en
+ * fracciones del intervalo): la música de verdad está llena de golpes
+ * (11–15 por segundo), y un peine a un tempo cualquiera ya cae sobre uno de
+ * cada dos. Como el corrimiento conserva la estructura de los golpes (la
+ * rejilla del charles, las corcheas), es una vara de medir mejor que una
+ * probabilidad. `excess` es lo que pega de más sobre el azar, de 0 a 1.
  * @param {number[]} times @param {Prepared} prep @param {number} reach
  * @returns {Fit}
  */
 function measure(times, prep, reach) {
   const n = times.length
-  if (!n) return { n: 0, supported: 0, offsetMs: 0, spreadMs: 0 }
+  if (!n) return { n: 0, supported: 0, offsetMs: 0, spreadMs: 0, chance: 0, excess: 0 }
   const window = Math.max(reach, SUPPORT_WINDOW)
   let withHit = 0
   /** @type {number[]} */
@@ -166,7 +204,23 @@ function measure(times, prep, reach) {
   }
   const offsetMs = median(offsets)
   const spreadMs = offsets.length ? 1.4826 * median(offsets.map((o) => Math.abs(o - offsetMs))) : 0
-  return { n, supported: withHit / n, offsetMs, spreadMs }
+  const supported = withHit / n
+
+  let chance = 0
+  if (prep.t.length) {
+    const gaps = []
+    for (let k = 1; k < n; k++) gaps.push(times[k] - times[k - 1])
+    const interval = median(gaps) || 0.5
+    chance = median(
+      NULL_SHIFTS.map((f) => {
+        let hit = 0
+        for (const b of times) if (hasHitNear(prep, b + f * interval)) hit++
+        return hit / n
+      })
+    )
+  }
+  const excess = clamp((supported - chance) / (1 - Math.min(chance, CHANCE_CAP)), 0, 1)
+  return { n, supported, offsetMs, spreadMs, chance, excess }
 }
 
 // ------------------------------------------------------------------ el informe
@@ -179,7 +233,11 @@ function measure(times, prep, reach) {
  *     tarde), igual que `offset_ms` del servidor.
  *   · `spreadMs`: cuánto se dispersan esos desfases (1,4826 × la desviación
  *     absoluta mediana).
- * Sin golpes cerca, `offsetMs`, `spreadMs` y `supported` valen 0.
+ *   · `chance`: cuánto pegarían esos mismos pulsos corridos a sitios que no
+ *     son suyos (ver `measure`), y `excess` lo que pegan de más sobre eso,
+ *     `(supported − chance) / (1 − chance)` entre 0 y 1: la medida de si de
+ *     verdad pegan o es la música, que está llena de golpes.
+ * Sin golpes cerca, todo vale 0.
  * @param {ReadonlyArray<number>} beats @param {ReadonlyArray<Hit>} hits
  * @param {[number, number]} span @param {{reach?: number}} [opts]
  * @returns {Fit}
@@ -412,7 +470,7 @@ function followFit(times, prep, reach, rigidity) {
 /**
  * @typedef {{
  *   how?: 'phase'|'follow'|'line', reach?: number, rigidity?: number,
- *   lead?: number, minSupport?: number, force?: boolean
+ *   lead?: number, minExcess?: number, minSupport?: number, force?: boolean
  * }} AlignOpts
  */
 
@@ -452,16 +510,21 @@ function fitBetween(want, was, before, after) {
  * tramo: el clic por delante del golpe.
  *
  * SOLO donde mejora, y sin `force` no se mueve nada (`applied: false`) si:
- *   · `reason: 'empeora'`: el resultado tiene 3 puntos menos de pulsos con
- *     golpe a 25 ms que lo de ahora, o una dispersión de más de `antes · 1,3 +
- *     3 ms` sin ganar apoyo (más de 2 puntos);
- *   · `reason: 'no pega'`: menos de `minSupport` de los pulsos tendría golpe
- *     y tampoco es claramente mejor (12 puntos más de apoyo, sin más
- *     dispersión): un tramo a medio tiempo solo apoya la mitad de un peine,
- *     y pasar del 50 % al 64 % sí se aplica;
+ *   · `reason: 'empeora'`: el resultado pega 3 puntos menos de `excess` que
+ *     lo de ahora, o tiene una dispersión de más de `antes · 1,3 + 3 ms` sin
+ *     ganar `excess` (más de 2 puntos);
+ *   · `reason: 'no pega'`: pega menos de `minExcess` (0,4) por encima del
+ *     azar y tampoco es claramente mejor (12 puntos más de `excess`, sin más
+ *     dispersión y con al menos las tres cuartas partes de `minExcess`: un
+ *     tramo a medio tiempo solo apoya la mitad de un peine, y pasar de nada a
+ *     algo claro sí se aplica, pero ajustar elige la mejor de muchas
+ *     posiciones y eso sube el azar por sí solo). Quien pase `minSupport`
+ *     pide además que caiga sobre un golpe al menos esa fracción de pulsos;
  *   · `reason: 'sin golpes'`: el tramo no tiene ninguno que valga;
  *   · `reason: 'sin pulsos'`: no tiene pulsos (y `'no cabe'`: no hay sitio a
  *     20 ms de los vecinos de fuera).
+ * `excess` (ver `fitReport`) es lo que pega de más sobre el azar: la música
+ * está llena de golpes y un peine cualquiera ya cae sobre la mitad.
  * El `lead` no entra en esas cuentas.
  *
  * `report.after` son los pulsos como quedan (si no se movió nada, como
@@ -478,7 +541,12 @@ function fitBetween(want, was, before, after) {
  * }}
  */
 export function alignBeats(own, [t0, t1], hits, opts = {}) {
-  const { how = 'phase', rigidity = 0.5, lead = 0, minSupport = 0.5, force = false } = opts
+  const { how = 'phase', rigidity = 0.5, lead = 0, force = false } = opts
+  const minExcess = Number.isFinite(opts.minExcess)
+    ? /** @type {number} */ (opts.minExcess)
+    : MIN_EXCESS
+  // `minSupport` ya no manda, pero quien lo pide a mano lo sigue teniendo
+  const minSupport = Number.isFinite(opts.minSupport) ? /** @type {number} */ (opts.minSupport) : 0
   const reach = Math.max(
     0.001,
     Number.isFinite(opts.reach) ? /** @type {number} */ (opts.reach) : REACH_DEFAULT
@@ -519,17 +587,21 @@ export function alignBeats(own, [t0, t1], hits, opts = {}) {
   candidate = candidate.map(round3)
   const wouldBe = measure(candidate, prep, reach)
   if (!force) {
-    const gain = wouldBe.supported - before.supported
+    const gain = wouldBe.excess - before.excess
     // un resultado que deja las cosas peor que como están no se aplica, aunque
-    // todavía «pegue» (un 72 % es mucho, pero el 93 % de antes era mejor)
+    // todavía «pegue» (el 93 % de antes era mejor que un 72 %)
     const lessSpread = wouldBe.spreadMs > before.spreadMs * SPREAD_SLACK + SPREAD_PAD
-    if (gain < -WORSE_SUPPORT - 1e-9 || (lessSpread && gain <= TIE_SUPPORT + 1e-9)) {
+    if (gain < -WORSE_EXCESS - 1e-9 || (lessSpread && gain <= TIE_EXCESS + 1e-9)) {
       return untouched('empeora', wouldBe)
     }
-    // y uno que pega poco se acepta si es claramente mejor que lo que hay:
-    // un tramo a medio tiempo solo apoya la mitad de los pulsos de un peine
-    const better = gain >= BETTER_SUPPORT - 1e-9 && !lessSpread
-    if (wouldBe.supported < minSupport - 1e-9 && !better) return untouched('no pega', wouldBe)
+    // y uno que pega poco sobre el azar se acepta si es claramente mejor que
+    // lo que hay: un tramo a medio tiempo solo apoya la mitad de los pulsos
+    const better =
+      gain >= BETTER_EXCESS - 1e-9 &&
+      !lessSpread &&
+      wouldBe.excess >= BETTER_FLOOR * minExcess - 1e-9
+    const weak = wouldBe.excess < minExcess - 1e-9 && !better
+    if (weak || wouldBe.supported < minSupport - 1e-9) return untouched('no pega', wouldBe)
   }
 
   const leadMs = Number.isFinite(lead) ? lead : 0
@@ -566,7 +638,7 @@ export function alignBeats(own, [t0, t1], hits, opts = {}) {
 
 /** Cuánto se mira alrededor del tempo que se espera (±12 %). */
 const WINDOW_DEFAULT = 0.12
-/** Qué fracción del mejor apoyo debe tener un tempo más rápido de la misma familia. */
+/** Qué fracción del mejor `excess` debe tener un tempo más rápido de la misma familia. */
 const FAMILY_KEEP = 0.85
 /**
  * Donde se busca el pulso «de contar» cuando no se sabe el tempo: de 60 a 180
@@ -619,8 +691,9 @@ function foldHits(ts, ws, t0, p) {
 /**
  * Las búsquedas de tempo sobre los golpes de un tramo.
  * @param {number[]} ts @param {number[]} ws @param {number} t0 @param {number} t1
+ * @param {Prepared} prep  los mismos golpes con su margen, para medir cada peine
  */
-function tempoSearch(ts, ws, t0, t1) {
+function tempoSearch(ts, ws, t0, t1, prep) {
   const length = t1 - t0
 
   /** Lo que vale un tempo: el peine que más pega, por punto del peine. */
@@ -671,9 +744,10 @@ function tempoSearch(ts, ws, t0, t1) {
 
   /**
    * Un peine ya hallado, en limpio: la fase afinada con el centro de los
-   * golpes que caen junto a él y cuántos de sus puntos tienen un golpe cerca.
+   * golpes que caen junto a él y cómo cae sobre los golpes (`support`, y
+   * `chance` y `excess` como en `fitReport`: sus puntos son los pulsos).
    * @param {{bpm: number, phase: number}} best
-   * @returns {{bpm: number, support: number, phase: number}}
+   * @returns {{bpm: number, support: number, phase: number, chance: number, excess: number}}
    */
   const finish = (best) => {
     const p = 60 / best.bpm
@@ -687,17 +761,15 @@ function tempoSearch(ts, ws, t0, t1) {
       }
     }
     const phase = (((best.phase + (weight ? sum / weight : 0)) % p) + p) % p
-    let points = 0
-    let hit = 0
-    for (let c = t0 + phase; c <= t1 + 1e-9; c += p) {
-      points++
-      const j = lowerBound(ts, c - SUPPORT_WINDOW)
-      if (j < ts.length && ts[j] <= c + SUPPORT_WINDOW) hit++
-    }
+    const points = []
+    for (let c = t0 + phase; c <= t1 + 1e-9; c += p) points.push(c)
+    const fit = measure(points, prep, REACH_DEFAULT)
     return {
       bpm: Math.round(best.bpm * 100) / 100,
-      support: points ? hit / points : 0,
-      phase: round3(t0 + phase)
+      support: fit.supported,
+      phase: round3(t0 + phase),
+      chance: fit.chance,
+      excess: fit.excess
     }
   }
 
@@ -718,17 +790,23 @@ function tempoSearch(ts, ws, t0, t1) {
  * salta nunca a otro octavo. Sin `around`, se busca entre `min` y `max` y el
  * octavo se decide por el nivel métrico: se toma el mejor peine entre 60 y 180
  * bpm (`tactus`: el pulso de contar), y de su familia (el doble y la mitad,
- * también dentro de `tactus`) gana el MÁS RÁPIDO cuyo apoyo llegue al 85 % del
- * mejor apoyo (un peine de la mitad es un subconjunto del entero: con un 120
- * verdadero, el 60 empata; con un 60 verdadero, el 120 solo apoya la mitad y
+ * también dentro de `tactus`) gana el MÁS RÁPIDO cuyo `excess` llegue al 85 %
+ * del mejor (un peine de la mitad es un subconjunto del entero: con un 120
+ * verdadero, el 60 empata; con un 60 verdadero, el 120 solo pega la mitad y
  * pierde).
  *
  * `alternatives` ofrece, sin elegirlos, el mejor peine alrededor del doble
  * (`ratio: 2`) y de la mitad (`ratio: 0.5`) del tempo devuelto, buscado igual
- * (±`window`) y con su apoyo de verdad; los que caen fuera de `min..max` no
- * salen.
+ * (±`window`) y con lo que pega de verdad; los que caen fuera de `min..max` no
+ * salen, ni un doble por encima del techo de `tactus` (180 bpm: una
+ * subdivisión, no un tempo de contar).
  *
  *   · `support`: la fracción de puntos del peine con un golpe a 25 ms.
+ *   · `chance` y `excess`: cuánto pegaría ese mismo peine corrido a sitios que
+ *     no son suyos y cuánto pega de más (como en `fitReport`). La música está
+ *     llena de golpes y un peine a un tempo cualquiera ya apoya la mitad:
+ *     `excess` bajo (menos de 0,4) es que ahí no hay nada que encontrar, por
+ *     alto que salga `support`.
  *   · `phase`: el primer punto del peine desde `t0` (segundos), por si se
  *     quiere usar de `anchor` en `setTempoSpan`.
  * null con menos de 4 golpes que valgan, o si el tramo no da para 4 pulsos al
@@ -736,8 +814,10 @@ function tempoSearch(ts, ws, t0, t1) {
  * @param {ReadonlyArray<Hit>} hits @param {[number, number]} span
  * @param {{around?: number, min?: number, max?: number, window?: number, tactus?: [number, number]}} [opts]
  * @returns {{
- *   bpm: number, support: number, phase: number,
- *   alternatives: Array<{bpm: number, support: number, phase: number, ratio: number}>
+ *   bpm: number, support: number, phase: number, chance: number, excess: number,
+ *   alternatives: Array<{
+ *     bpm: number, support: number, phase: number, chance: number, excess: number, ratio: number
+ *   }>
  * }|null}
  */
 export function estimateTempo(
@@ -753,7 +833,7 @@ export function estimateTempo(
   const ts = prep.t.slice(from, to)
   const ws = prep.w.slice(from, to)
   if (ts.length < 4) return null
-  const search = tempoSearch(ts, ws, t0, t1)
+  const search = tempoSearch(ts, ws, t0, t1, prep)
   const side = clamp(Number.isFinite(window) ? window : WINDOW_DEFAULT, 0.01, 0.5)
 
   /** El mejor peine alrededor de `centre` (±window), dentro de `min..max`. */
@@ -774,23 +854,29 @@ export function estimateTempo(
     const [from, to] = lo < hi ? [lo, hi] : [min, max]
     const top = search.band(from, to, 6)
     if (!top) return null
-    // la familia de octavos del mejor, cada uno con el apoyo de su mejor peine
+    // la familia de octavos del mejor, cada uno con lo que pega su mejor peine
+    // por encima del azar (el apoyo a secas no distingue: el charles de las
+    // corcheas apoya el peine del doble tanto como el de la negra)
     const family = [search.finish(top)]
     for (const k of [-2, -1, 1, 2]) {
       const centre = top.bpm * 2 ** k
       const other = centre >= from * 0.98 && centre <= to * 1.02 ? near(centre) : null
       if (other) family.push(other)
     }
-    const bestSupport = Math.max(...family.map((c) => c.support))
+    const bestExcess = Math.max(...family.map((c) => c.excess))
     chosen = family
-      .filter((c) => c.support >= FAMILY_KEEP * bestSupport)
+      .filter((c) => c.excess >= FAMILY_KEEP * bestExcess)
       .sort((a, b) => b.bpm - a.bpm)[0]
   }
   if (!chosen) return null
 
+  // el doble solo se ofrece si sigue siendo un tempo de contar: por encima de
+  // 180 es la corchea (el charles la apoya tanto como al pulso, y `excess` no
+  // sabe que es una subdivisión)
   const alternatives = []
   for (const ratio of [2, 0.5]) {
-    const other = near(chosen.bpm * ratio)
+    const centre = chosen.bpm * ratio
+    const other = centre <= tactus[1] * 1.02 ? near(centre) : null
     if (other) alternatives.push({ ...other, ratio })
   }
   return { ...chosen, alternatives }

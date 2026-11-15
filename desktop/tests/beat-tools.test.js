@@ -28,6 +28,7 @@ import {
   planAlign,
   describePlan,
   findTempo,
+  NOTHING_EXCESS,
   tempoChoices,
   ratioLabel,
   timeText,
@@ -828,6 +829,31 @@ describe('the Tempo y onda panel', () => {
     expect(w.find('.ba-suggest').exists()).toBe(false)
   })
 
+  it('dense hits with no tempo in them are «nothing there», however much a comb of them fits by chance', async () => {
+    // 12 golpes por segundo al azar: cualquier peine cae sobre la mitad de los pulsos
+    // (la semilla es una de las que, además, no dan nada buscando sin pista: en un tramo de
+    // 14 s, el mejor de cientos de tempos sale a veces por encima del azar sin ser nada)
+    let seed = 11
+    const rand = () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32
+    const dense = Array.from({ length: 12 * 20 }, () => [round3(4 + rand() * 20), 3 + rand() * 2])
+    dense.sort((a, b) => a[0] - b[0])
+    hitsOf(dense)
+    const near = findTempo(held.state.hits.mix.hits, [6, 20.5], 100)
+    expect(near.support, 'a comb at any tempo fits about half').toBeGreaterThan(0.4)
+    expect(near.excess).toBeLessThan(NOTHING_EXCESS)
+    const w = await mountView()
+    await startEditing(w)
+    await openPanel(w)
+    await setTempo(w, 100)
+    await buttonOf(w, 'Buscar en la onda').trigger('click')
+    await settle()
+    expect(text(w, '.ba-found')).toBe('Sin golpes claros en este tramo')
+    expect(w.find('.ba-suggest').exists(), 'no blind search is offered either').toBe(false)
+    expect(w.find('.ba-chips').exists()).toBe(false)
+    // el campo sigue como lo escribió
+    expect(w.find('.ba-tempo .study-bpm-input input').element.value).toBe('100')
+  })
+
   it('a hand-typed tempo with no hits near it (but some far away) is not hidden: the blind search is offered with its support', async () => {
     // golpes a 120 bpm; escribe 100
     const at120 = []
@@ -932,8 +958,11 @@ describe('the Tempo y onda panel', () => {
       await buttonOf(w, 'Tempo fijo').trigger('click')
       await settle()
       expect(result(w)).toMatch(
-        /^Empeoraría: pegan \d+ de \d+ pulsos y pasarían a \d+; se queda como está \(puedes forzar el ajuste\)$/
+        /^Empeoraría: pegan \d+ de \d+ pulsos y pasarían a \d+, y al azar pegarían unos \d+; se queda como está \(puedes forzar el ajuste\)$/
       )
+      // en música de verdad el azar es la mitad de los pulsos: se dice
+      const [, chanceCount] = result(w).match(/al azar pegarían unos (\d+)/)
+      expect(Number(chanceCount)).toBeGreaterThan(40)
       expect(buttonOf(w, 'Aplicar').attributes('disabled')).toBeDefined()
       // con «Forzar el ajuste» se hace igual
       await w.find('.ba-fit .check-field input').setValue(true)
@@ -966,7 +995,7 @@ describe('the Tempo y onda panel', () => {
     await setTempo(w, 76)
     await fitHow(w, 'phase')
     expect(result(w)).toMatch(
-      /^Pega: 19 de 19 pulsos \(100 %\) · el clic iba 30 ms antes → (a tiempo|1 ms (tarde|antes)) · dispersión/
+      /^Pega: 19 de 19 pulsos \(al azar pegarían unos \d+\) · el clic iba 30 ms antes → (a tiempo|1 ms (tarde|antes)) · dispersión/
     )
     await buttonOf(w, 'Aplicar').trigger('click')
     await settle()
@@ -986,7 +1015,7 @@ describe('the Tempo y onda panel', () => {
     await setTempo(w, 76)
     await fitHow(w, 'phase')
     expect(result(w)).toMatch(
-      /^No pega con la onda en este tramo \(0 de 19 pulsos\): se queda con el tempo exacto, sin ajustar/
+      /^No pega con la onda en este tramo: 0 de 19 pulsos, y al azar pegarían unos \d+; se queda con el tempo exacto, sin ajustar/
     )
     await buttonOf(w, 'Aplicar').trigger('click')
     await settle()
@@ -1227,7 +1256,9 @@ describe('planAlign', () => {
     r.own.beats.slice(10, 25).forEach((t, k) => expect(t).toBeCloseTo(6 + (k * 60) / 76, 3))
     const said = describePlan(r)
     expect(said.kind).toBe('warn')
-    expect(said.text).toMatch(/^No pega con la onda en este tramo \(\d+ de \d+ pulsos\)/)
+    expect(said.text).toMatch(
+      /^No pega con la onda en este tramo: \d+ de \d+ pulsos, y al azar pegarían unos \d+; se queda con el tempo exacto, sin ajustar$/
+    )
     // con «Forzar», se ajusta aunque no pegue
     const forced = planAlign(
       own,
@@ -1252,6 +1283,8 @@ describe('planAlign', () => {
     const near = findTempo(hits(0.011), [6, 20.5], 120)
     expect(Math.abs(near.bpm - 76)).toBeGreaterThan(5)
     expect(near.support).toBeLessThan(0.5)
+    // lo que pega sobre el azar, que es lo que decide si hay algo: nada
+    expect(near.excess).toBeLessThan(NOTHING_EXCESS)
     // sin pista sí lo encuentra, y su doble (que solo apoya la mitad) no se elige
     const blind = findTempo(hits(0.011), [6, 20.5])
     expect(blind.bpm).toBeGreaterThan(75.8)
@@ -1280,29 +1313,70 @@ describe('planAlign', () => {
     expect(tempoChoices(null)).toEqual([])
   })
 
-  it('«empeora», «no cabe» and the spread have their own words', () => {
-    const fit = (supported, spreadMs = 0, offsetMs = 0) => ({ supported, spreadMs, offsetMs })
+  it('«empeora», «no cabe» and the spread have their own words, and say what chance would give', () => {
+    const fit = (supported, spreadMs = 0, offsetMs = 0, chance = 0) => ({
+      supported,
+      spreadMs,
+      offsetMs,
+      chance
+    })
     const base = {
       how: 'line',
       setTempo: false,
       n: 40,
       spreadReliable: true,
-      before: fit(0.93),
-      after: fit(0.93),
-      candidate: fit(0.72)
+      before: fit(0.93, 0, 0, 0.45),
+      after: fit(0.93, 0, 0, 0.45),
+      candidate: fit(0.72, 0, 0, 0.58)
     }
     expect(describePlan({ ...base, refused: 'empeora' }).text).toBe(
-      'Empeoraría: pegan 37 de 40 pulsos y pasarían a 29; se queda como está (puedes forzar el ajuste)'
+      'Empeoraría: pegan 37 de 40 pulsos y pasarían a 29, y al azar pegarían unos 23; se queda como está (puedes forzar el ajuste)'
     )
     expect(describePlan({ ...base, setTempo: true, refused: 'empeora' }).text).toBe(
-      'Empeoraría: pegan 37 de 40 pulsos y pasarían a 29; se queda con el tempo exacto, sin ajustar (puedes forzar el ajuste)'
+      'Empeoraría: pegan 37 de 40 pulsos y pasarían a 29, y al azar pegarían unos 23; se queda con el tempo exacto, sin ajustar (puedes forzar el ajuste)'
+    )
+    expect(
+      describePlan({ ...base, refused: 'no pega', candidate: fit(0.275, 0, 0, 0.225) }).text
+    ).toBe(
+      'No pega con la onda en este tramo: 11 de 40 pulsos, y al azar pegarían unos 9; se queda como está, sin ajustar'
+    )
+    expect(
+      describePlan({
+        ...base,
+        setTempo: true,
+        refused: 'no pega',
+        candidate: fit(0.275, 0, 0, 0.225)
+      }).text
+    ).toBe(
+      'No pega con la onda en este tramo: 11 de 40 pulsos, y al azar pegarían unos 9; se queda con el tempo exacto, sin ajustar'
     )
     expect(describePlan({ ...base, refused: 'no cabe' }).text).toBe(
       'No cabe entre los pulsos de los lados'
     )
-    const ok = { ...base, refused: '', before: fit(0.5, 9, -14), after: fit(0.9, 3, -1) }
+    const ok = { ...base, refused: '', before: fit(0.5, 9, -14), after: fit(0.775, 3, -1, 0.525) }
+    expect(describePlan(ok).text).toContain('Pega: 31 de 40 pulsos (al azar pegarían unos 21) · ')
     expect(describePlan(ok).text).toContain('dispersión 9 → 3 ms')
     expect(describePlan({ ...ok, spreadReliable: false }).text).not.toContain('dispersión')
+  })
+
+  it('the chips only offer what fits above chance as much as the main one, not what has more raw support', () => {
+    const found = {
+      bpm: 120,
+      support: 0.9,
+      excess: 0.9,
+      alternatives: [
+        // el 240 de las corcheas: apoya casi todo, pero sobre el azar es mucho menos
+        { bpm: 240, ratio: 2, support: 0.97, excess: 0.5 },
+        { bpm: 60, ratio: 0.5, support: 0.7, excess: 0.8 }
+      ]
+    }
+    expect(tempoChoices(found).map((c) => c.bpm)).toEqual([120, 60])
+    // justo en el 85 % entra; por debajo no
+    const edge = { ...found, alternatives: [{ bpm: 60, ratio: 0.5, excess: 0.765 }] }
+    expect(tempoChoices(edge)).toHaveLength(2)
+    expect(
+      tempoChoices({ ...found, alternatives: [{ bpm: 60, ratio: 0.5, excess: 0.76 }] })
+    ).toHaveLength(1)
   })
 
   it('planAlign carries `spreadReliable` from the alignment: false with follow, true otherwise', () => {

@@ -230,6 +230,9 @@ export function describePlan(plan, { loading = false, error = '' } = {}) {
     return { text: 'Elige un tempo o cómo ajustarlo a la onda para ver el resultado', kind: 'info' }
   }
   const count = (fit) => Math.round((fit?.supported || 0) * plan.n)
+  // lo que pegarían esos pulsos corridos a sitios que no son suyos: con tanto golpe
+  // como hay en la música, un peine cualquiera ya cae sobre la mitad
+  const byChance = (fit) => Math.round((fit?.chance || 0) * plan.n)
   if (plan.how !== 'none' && loading) {
     return { text: 'Oyendo la canción…', kind: 'info' }
   }
@@ -255,7 +258,7 @@ export function describePlan(plan, { loading = false, error = '' } = {}) {
     return {
       text:
         `Empeoraría: pegan ${count(plan.before)} de ${plan.n} pulsos y pasarían a ` +
-        `${count(plan.candidate)}; ` +
+        `${count(plan.candidate)}, y al azar pegarían unos ${byChance(plan.candidate)}; ` +
         (plan.setTempo ? 'se queda con el tempo exacto, sin ajustar' : 'se queda como está') +
         ' (puedes forzar el ajuste)',
       kind: 'warn'
@@ -265,7 +268,8 @@ export function describePlan(plan, { loading = false, error = '' } = {}) {
     const c = count(plan.candidate)
     return {
       text:
-        `No pega con la onda en este tramo (${c} de ${plan.n} pulsos): ` +
+        `No pega con la onda en este tramo: ${c} de ${plan.n} pulsos, ` +
+        `y al azar pegarían unos ${byChance(plan.candidate)}; ` +
         (plan.setTempo
           ? 'se queda con el tempo exacto, sin ajustar'
           : 'se queda como está, sin ajustar'),
@@ -278,10 +282,9 @@ export function describePlan(plan, { loading = false, error = '' } = {}) {
       ? { text: 'Sin golpes que comparar: se pone el tempo exacto', kind: 'info' }
       : { text: 'Sin golpes claros en este tramo', kind: 'warn' }
   }
-  const pct = Math.round((after.supported || 0) * 100)
   return {
     text:
-      `Pega: ${count(after)} de ${plan.n} pulsos (${pct} %)` +
+      `Pega: ${count(after)} de ${plan.n} pulsos (al azar pegarían unos ${byChance(after)})` +
       ` · el clic iba ${lagText(before.offsetMs)} → ${lagText(after.offsetMs)}` +
       (plan.spreadReliable
         ? ` · dispersión ${Math.round(before.spreadMs)} → ${Math.round(after.spreadMs)} ms`
@@ -316,17 +319,20 @@ export function findTempo(hits, span, around = 0) {
   return { ...counted(r), alternatives: (r.alternatives || []).map(counted) }
 }
 
-/** Una alternativa solo merece enseñarse si pega casi tanto como lo elegido. */
+/** Menos de esto de `excess` (lo que pega de más sobre el azar) es que ahí no hay nada. */
+export const NOTHING_EXCESS = 0.4
+/** Una alternativa solo merece enseñarse si pega casi tanto sobre el azar como lo elegido. */
 export const ALTERNATIVE_KEEP = 0.85
 /**
- * Lo que se ofrece tras buscar: el elegido y sus alternativas que pegan al
- * menos el 85 % de lo elegido, para saltar de uno a otro.
+ * Lo que se ofrece tras buscar: el elegido y sus alternativas que pegan sobre
+ * el azar al menos el 85 % de lo que pega lo elegido, para saltar de uno a
+ * otro. (El apoyo a secas no vale: un peine al azar ya apoya la mitad.)
  * @param {ReturnType<typeof findTempo>} found
  */
 export function tempoChoices(found) {
   if (!found) return []
   const keep = (found.alternatives || []).filter(
-    (a) => a.support >= ALTERNATIVE_KEEP * found.support - 1e-9
+    (a) => a.excess >= ALTERNATIVE_KEEP * found.excess - 1e-9
   )
   return [found, ...keep]
 }

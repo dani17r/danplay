@@ -24,6 +24,7 @@ import {
   bpmText,
   describePlan,
   findTempo,
+  NOTHING_EXCESS,
   planAlign,
   ratioLabel,
   tempoChoices,
@@ -97,8 +98,6 @@ const phaseMs = ref(0)
 const found = ref(null)
 /** Si cerca de lo escrito no hay golpes: lo que salió buscando sin pista, para ofrecerlo. */
 const suggestion = ref(null)
-/** Menos de esto de los puntos del peine con golpe es que ahí no hay nada que encontrar. */
-const CLEAR = 0.5
 const round2 = (v) => Math.round(v * 100) / 100
 /** «+12 ms», «−3 ms», «0 ms» */
 const signed = (v) => `${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(v)} ms`
@@ -146,13 +145,15 @@ async function search() {
   // lo que se escribió es lo que se espera: lo que se quiere es su tempo exacto y su fase
   const typed = tempoMode.value === 'set' && bpm.value > 0 ? bpm.value : nowBpm.value
   const near = findTempo(edit.hits, s, typed)
-  if (near && (near.support >= CLEAR || !(typed > 0))) {
+  // «hay algo» es que el peine pegue sobre el azar, no que apoye la mitad: con tanto
+  // golpe como hay en la música, un peine cualquiera ya cae sobre uno de cada dos
+  if (near && near.excess >= NOTHING_EXCESS) {
     take(near)
     found.value = { main: near, picked: near }
     return
   }
   const free = typed > 0 ? findTempo(edit.hits, s, 0) : null
-  if (!free) {
+  if (!free || free.excess < NOTHING_EXCESS) {
     found.value = { none: true }
     return
   }

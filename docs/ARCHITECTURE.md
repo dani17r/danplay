@@ -1252,14 +1252,15 @@ las teclas.
   un diálogo abierto ni con el estudio oculto.
 - **«Tempo y onda»**: `planAlign(own, tramo, {tempo, fit}, golpes)` calcula
   el resultado sin tocar nada (el tempo con `setTempoSpan` y la fase o la
-  recta con `alignBeats`, que solo mueve donde mejora: se niega si menos de
-  la mitad de los pulsos cae sobre un golpe y no es claramente mejor que lo
-  que hay (`no pega`: un tramo a medio tiempo solo apoya la mitad de un
-  peine, y pasar del 50 % al 64 % sí se aplica) o si lo dejaría peor
-  (`empeora`: 3 puntos menos de apoyo, o más dispersión sin apoyo nuevo);
-  «Buscar» es `estimateTempo`, que con el tempo que ya tiene el clic
-  (`around`) solo mira ±12 % alrededor y ofrece el doble y la mitad como
-  `alternatives`, con su apoyo, sin elegirlos) y `describePlan` lo cuenta. Todo es una prueba hasta
+  recta con `alignBeats`, que solo mueve donde mejora: mide lo que pega
+  SOBRE EL AZAR (`excess`, ver abajo), se niega si pega menos de 0,4 y no es
+  claramente mejor que lo que hay (`no pega`: un tramo a medio tiempo solo
+  apoya la mitad de un peine, y pasar de nada a algo claro sí se aplica) o si
+  lo dejaría peor (`empeora`: 3 puntos menos de `excess`, o más dispersión sin
+  ganar `excess`); «Buscar» es `estimateTempo`, que con el tempo que ya tiene
+  el clic (`around`) solo mira ±12 % alrededor y ofrece el doble y la mitad
+  como `alternatives`, con su `excess`, sin elegirlos) y `describePlan` lo
+  cuenta. Todo es una prueba hasta
   «Aplicar»: se ve en la onda (`preview`) y, si se quiere, suena en el motor
   sin guardarse (`hearOwn`, con 200 ms de espera); mientras suena, la onda
   sigue enseñando lo guardado (`viewGrid`). Toda salida (cancelar, Esc,
@@ -1271,10 +1272,24 @@ las teclas.
   en el campo el tempo y su fase (`anchor`). El doble y la mitad que pegan al
   menos el 85 % de lo encontrado salen como fichas («÷2 · 60 bpm · pegan
   97 %») que ponen ese tempo y su fase; no se eligen solos. Si cerca de lo
-  escrito pega menos de la mitad, se busca también sin pista y se ofrece en una
-  línea con «Usar este»; si tampoco hay nada, «Sin golpes claros en este tramo».
+  escrito `excess` es menor de 0,4 (`NOTHING_EXCESS`), se busca también sin
+  pista y se ofrece en una línea con «Usar este» (solo si ahí `excess` llega a
+  0,4); si tampoco hay nada, «Sin golpes claros en este tramo».
   `planAlign` pasa `report.spreadReliable` (falso con «Sigue la onda»: no se
   enseña la dispersión) y `describePlan` da su frase a «empeora» y a «no cabe».
+  **Lo que pega no se mide a secas**: la música real tiene 11–15 golpes por
+  segundo, y un peine a un tempo y una fase cualesquiera ya cae sobre uno de
+  cada dos pulsos (en Sal 22: mediana 42–58 %, hasta el 73 %), mientras que el
+  clic de verdad llega al 93–97 %. `fitReport` devuelve además `chance` (lo
+  que pegarían esos mismos pulsos corridos 0,13, 0,29, 0,41, 0,59, 0,71 y 0,87
+  intervalos: la mediana, que conserva la estructura de los golpes) y `excess`
+  `= (supported − chance) / (1 − chance)`, de 0 a 1. Las frases lo dicen («Pega:
+  30 de 39 pulsos (al azar pegarían unos 21)»); las fichas del doble y la mitad
+  solo salen si su `excess` llega al 85 % del de lo encontrado, y el doble de
+  un tempo por encima de 180 bpm (la corchea) no se ofrece. Cuidado: el mejor
+  de cientos de tempos sobre ruido denso sale con `excess` por encima de 0,4 en
+  tramos cortos (14 s: más de la mitad de las veces); `points` (los puntos del
+  peine) dice cuánto fiarse.
 - **Los golpes** (`GET /api/song/{id}/beats/hits`, `mix` o `drums`) se piden
   una vez por canción y fuente, solo cuando hacen falta (se ven, hay imán o
   el panel está abierto). El automático de fondo (`GET …/beats?wait=false`)
