@@ -3,6 +3,55 @@
 Lo que cambia en cada versión que se entrega. El detalle de por qué está
 hecho así, en [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
+## 1.44.0 — sin publicar
+
+La 1.43.0 mejoró el desfase de casi toda «Sal 22 Te Amo», pero no donde la
+música cambia de ritmo, y ahí ningún análisis puede saber a qué nivel quiere
+el clic quien toca (de 241 a 270 s la batería solo golpea cada segundo: es el
+mismo tempo con otra sensación). La salida es poder arreglarlo a mano rápido,
+sin mover los pulsos de uno en uno. Eso es lo nuevo.
+
+### Ajustar el clic a mano
+
+- **Deshacer y rehacer** (Ctrl+Z, Ctrl+Mayús+Z o Ctrl+Y, y los botones de la
+  barra), para todo lo que cambia el clic manual: arrastres, herramientas,
+  «Re-analizar» en Manual y «Borrar el manual». Es el historial de la
+  canción abierta (hasta 200 pasos): cambiar de canción lo vacía. Deshacer
+  hasta «aún sin manual» devuelve el automático con su doble o mitad y su «1»
+  corrido.
+- **Elegir varios pulsos y llevarlos juntos**: clic, Ctrl+clic, Mayús+clic,
+  o arrastrar una caja por la franja nueva de arriba de la onda. Arrastrar
+  uno de los elegidos mueve todos con la misma separación; las asas de los
+  extremos de la banda de lo elegido los estiran o los juntan con el otro
+  extremo quieto, y mientras se arrastra se ve la cantidad (`+12 ms`) o el
+  tempo (`76,3 bpm`). Las flechas corren lo elegido 5 ms (Mayús 1, Ctrl 25),
+  Supr lo quita, Ctrl+A lo elige todo, y un imán opcional pega el pulso al
+  golpe más cercano a menos de 12 ms al arrastrar.
+- **Herramientas de lo elegido o del tramo A-B**: desplazar, repartir parejo,
+  doble de pulsos, mitad, el «1» cada N, quitar, «Volver al automático en el
+  tramo», «Oír el tramo» (lo pone de bucle) y ver el automático al fondo.
+- **«Tempo y onda»**: elige un tramo, escribe su tempo (o «Buscar en la onda»,
+  que lo afina cerca de lo escrito y da la fase) y pégalo a los golpes del
+  audio **solo si pega**. Tres maneras de pegarse: solo la fase (no toca el
+  tempo), siguiendo la onda (con rigidez), o a un tempo fijo ajustado; con
+  margen, adelanto y fuente (la mezcla o la batería separada). Todo es una
+  prueba hasta «Aplicar»: se ve en la onda, suena en el motor si se quiere y
+  dice cuántos pulsos pegan («pegan 34 de 38, iba 14 ms tarde → a tiempo»). Si
+  no pega, o si empeoraría lo que ya había, no mueve nada y lo dice.
+- **Ver los golpes del audio sobre la onda**, de la mezcla o de la batería
+  separada: `GET /api/song/{id}/beats/hits`.
+
+### Comprobado con golpes reales
+
+Con los de «Sal 22 Te Amo» salieron dos fallos que los golpes inventados no
+enseñaban, y se arreglaron antes de entregar: buscar el tempo daba 60 donde el
+clic iba bien a 120 (un tempo a la mitad de golpes fuertes siempre gana si se
+mide la media; ahora se busca cerca del escrito y las mitades y dobles se
+ofrecen con su apoyo, sin elegirse solas), y el tempo fijo ajustado empeoraba
+un tramo que ya pegaba (93 % → 72 %) y se aplicaba igual. En el tramo de
+241 a 270 s, un clic a 60 bpm cae sobre un golpe en el 97 % de los pulsos y uno
+a 120, en el 50-64 %.
+
 ## 1.43.0 — sin publicar
 
 La 1.42.0 no llegó a publicarse: todo lo suyo sigue más abajo, con lo que se

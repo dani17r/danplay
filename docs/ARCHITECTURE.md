@@ -1206,6 +1206,19 @@ los lados (`beatgrid::stitch`), con el «1» y el compás sacados otra vez
 (`finish`). `grid` es siempre la automática nueva, sin un pulso suyo, y el
 servidor no escribe el estudio ni el clic propio: lo guarda quien lo pide.
 
+**Dónde golpea el audio** (`GET /api/song/{id}/beats/hits?source=mix|drums`,
+`beats::hits`). Para ajustar el clic a mano contra lo que suena, el servidor
+oye la canción (o su batería separada, `422` si no la tiene) con la misma
+envolvente de ataques que usa el re-análisis (`analysis::onset`, bloques de
+5 ms) y devuelve cada golpe: `{source, step, seconds, ref, hits: [[segundo,
+fuerza], …]}`. `Onsets::peaks(suelo)` saca todos los máximos de la envolvente
+en orden de tiempo, con el instante afinado; el suelo es 0,6 (por debajo es
+ruido de fondo) y `ref` es la fuerza del percentil 85, para normalizar. Oír la
+canción cuesta unos segundos, así que lo ya oído se guarda en memoria (8
+canciones, por la clave del archivo). Una prueba marcada como manual
+(`real_hits_dump`, `DANPLAY_HITS_IN` y `DANPLAY_HITS_OUT`) vuelca los golpes de
+un audio de verdad a un JSON, para probar la parte de la interfaz con ellos.
+
 ### Ajustar el clic manual de muchos pulsos a la vez (la parte de la interfaz)
 
 La lógica es pura y no sabe de la pantalla (`utils/beatEdit.js`: mover,
