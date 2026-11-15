@@ -860,6 +860,8 @@
    aguja. Debajo, la regla con los minutos. */
 .tl {
   --tl-h: 56px;
+  /* la franja de arriba de la onda, para elegir pulsos al ajustarlos */
+  --tl-bar: 18px;
   display: flex;
   flex-direction: column;
   user-select: none;
@@ -1446,6 +1448,11 @@
 .tl-edit-beats .tl-box {
   cursor: copy;
 }
+/* ajustando pulsos (en el escritorio) la franja de arriba es de la selección:
+   los pulsos se cogen por debajo de ella */
+.tl-desk.tl-edit-beats .tl-beat {
+  top: var(--tl-bar);
+}
 .tl-beat {
   position: absolute;
   top: 0;
@@ -1469,11 +1476,148 @@
   background: var(--accent);
   width: 2px;
 }
+/* un pulso elegido: azul y entero, se ve entre los demás */
+.tl-beat.sel::before {
+  top: 0;
+  background: var(--blue);
+  width: 2.5px;
+  left: 3.25px;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--blue) 30%, transparent);
+}
 .tl-beat:hover::before,
 .tl-beat.moving::before {
   background: var(--amber);
   width: 3px;
   left: 3px;
+}
+/* la franja de arriba: elegir pulsos arrastrando; lo elegido lleva su banda
+   (se arrastra para llevarlo) con un asa en cada extremo (para estirarlo) */
+.tl-beatbar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--tl-bar);
+  background: color-mix(in srgb, var(--text) 9%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--text) 16%, transparent);
+  cursor: cell;
+}
+.tl-selband {
+  position: absolute;
+  top: 1px;
+  bottom: 1px;
+  min-width: 3px;
+  box-sizing: border-box;
+  border: 1px solid var(--blue);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--blue) 30%, transparent);
+  cursor: grab;
+}
+.tl-selband.moving {
+  cursor: grabbing;
+}
+.tl-selband-n {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 10px;
+  line-height: 1;
+  color: var(--text);
+  white-space: nowrap;
+  pointer-events: none;
+}
+.tl-selband-h {
+  position: absolute;
+  top: -1px;
+  bottom: -1px;
+  width: 10px;
+  cursor: ew-resize;
+}
+.tl-selband-h.a {
+  left: -6px;
+}
+.tl-selband-h.b {
+  right: -6px;
+}
+.tl-selband-h::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 3px;
+  width: 4px;
+  border-radius: 2px;
+  background: var(--blue);
+}
+/* lo que se está eligiendo con la franja, a lo alto de la onda */
+.tl-boxsel {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  box-sizing: border-box;
+  border-left: 1px dashed var(--blue);
+  border-right: 1px dashed var(--blue);
+  background: color-mix(in srgb, var(--blue) 12%, transparent);
+  pointer-events: none;
+}
+/* lo que se lleva (+12 ms) o los bpm de lo que se estira, junto al puntero */
+.tl-readout {
+  position: absolute;
+  z-index: 7;
+  transform: translate(-50%, -100%);
+  padding: 1px 6px;
+  border-radius: 5px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--border2);
+  box-shadow: 0 2px 6px var(--shadow-soft);
+  pointer-events: none;
+}
+/* detrás de los pulsos y sin recibir el puntero: la rejilla automática (a
+   rayas tenues), la sombra de lo que daría una herramienta y los golpes del
+   audio (rayitas abajo, tan altas como fuertes). Trazos en tantos por ciento */
+.tl-marks,
+.tl-hits {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  pointer-events: none;
+}
+.tl-marks {
+  top: 0;
+  height: 100%;
+}
+.tl-hits {
+  bottom: 0;
+  height: min(40%, 22px);
+}
+.tl-marks path,
+.tl-hits path {
+  fill: none;
+  vector-effect: non-scaling-stroke;
+}
+.tl-ghost {
+  stroke: var(--muted);
+  stroke-width: 1;
+  stroke-dasharray: 2 4;
+  opacity: 0.75;
+}
+.tl-preview {
+  stroke: var(--violet);
+  stroke-width: 1;
+  opacity: 0.95;
+}
+.tl-preview.one {
+  stroke-width: 2;
+}
+.tl-hits path {
+  stroke: var(--red);
+  stroke-width: 1.5;
+  opacity: 0.9;
 }
 .tl-overview {
   position: relative;

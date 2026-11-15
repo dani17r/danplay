@@ -37,8 +37,17 @@
  * **Ajustar pulsos** (`editBeats`): cada pulso del clic es un asa que se
  * arrastra (con Mayús, se llevan también todos los de detrás); doble clic en
  * la onda añade uno; el clic derecho sobre uno lo quita o lo hace el «1».
- * Lo ajustado se manda entero (`update:grid`): es el clic manual de la
- * canción.
+ * Lo ajustado se manda entero (`update:grid`, con una frase de lo que se hizo
+ * para el historial): es el clic manual de la canción.
+ *
+ * Para los tramos grandes, **la selección**: un clic elige un pulso (Ctrl suma
+ * o quita, Mayús elige hasta él), y arrastrando por la franja de arriba se
+ * eligen todos los de un trozo. Arrastrar uno elegido lleva a todos los
+ * elegidos con la misma separación; la banda que los abarca se arrastra
+ * igual, y cada extremo de la banda estira o encoge el bloque con el otro
+ * extremo quieto. Los golpes del audio (`hits`) se ven como rayas abajo y
+ * pueden hacer de imán (`snapHits`: 12 ms, y Ctrl lo apaga). De quién es la
+ * selección es de quien manda (`selection`): aquí solo se pide cambiarla.
  *
  * **Poco claro** (`weak`): las zonas donde el análisis no encontró pulso con
  * apoyo en la música y el clic es una suposición, como una banda ámbar con
@@ -60,13 +69,25 @@ import {
   onUnmounted,
   nextTick,
   useTemplateRef,
-  shallowRef
+  shallowRef,
+  toRaw
 } from 'vue'
 import { api, errorMessage } from '../api.js'
 import { usePreferences } from '../composables/usePreferences.js'
 import { openMenu } from '../composables/useContextMenu.js'
 import { formatTime } from '../utils/format.js'
-import { isDownbeat, nearestBeat } from '../utils/beats.js'
+import { isDownbeat, nearestBeat, gridToOwn, ownToGrid, formatBpm } from '../utils/beats.js'
+import {
+  selectBetween,
+  selectRange,
+  toggleIndex,
+  spanOf,
+  tempoOf,
+  moveBlock,
+  stretchBlock,
+  removeBeats,
+  addBeatAt
+} from '../utils/beatEdit.js'
 import { cleanSegments } from '../utils/segments.js'
 import { isMobileApp } from '../platform.js'
 import { columnsFor, paintWave } from '../utils/wavePaint.js'
@@ -100,6 +121,28 @@ const props = defineProps({
   grid: { type: Object, default: null },
   /** ajustando los pulsos a mano (el clic manual) */
   editBeats: Boolean,
+  /**
+   * los pulsos elegidos al ajustar (sus índices, en orden): de quien manda;
+   * aquí solo se pide cambiarlos (`update:selection`)
+   */
+  selection: { type: Array, default: () => [] },
+  /**
+   * lo que daría una herramienta antes de aplicarla, `{beats, bars?}`: se
+   * pinta como una sombra de rayas finas (no se toca)
+   */
+  preview: { type: Object, default: null },
+  /** los pulsos de la rejilla automática, rayas tenues para compararlos con el clic manual */
+  ghostBeats: { type: Array, default: () => [] },
+  /**
+   * dónde golpea el audio, `[[segundo, fuerza], …]` en orden, y la fuerza de
+   * referencia (la del percentil 85; sin ella, la del golpe más fuerte):
+   * rayitas abajo de la onda
+   */
+  hits: { type: Array, default: () => [] },
+  hitsRef: { type: Number, default: 0 },
+  showHits: Boolean,
+  /** el imán: al arrastrar un pulso, se pega al golpe fuerte que tenga a 12 ms */
+  snapHits: Boolean,
   /** dónde el clic es una suposición, [[desde, hasta], …] en segundos (vacío: nada) */
   weak: { type: Array, default: () => [] },
   /**
@@ -142,7 +185,9 @@ const props = defineProps({
 // `{ mode, index }`: 'select' si se dibujo uno de cero, 'add' si se anadio
 // otro, 'edit' si se movio un borde o un tramo entero (`index`, cual),
 // 'remove' si se quito uno y 'clear' si se quitaron todos. `update:grid`
-// lleva la rejilla ajustada a mano. `cue`, la guía que se pulsó. Las de los
+// lleva la rejilla ajustada a mano y una frase corta de lo que se hizo
+// («mover 5 pulsos»), para el historial de deshacer; `update:selection`, los
+// pulsos elegidos cuando cambian. `cue`, la guía que se pulsó. Las de los
 // carriles de guías: `add-cue` (segundo, carril), `move-cue` (guía, segundo),
 // `cue-lane` (carril, cambios), `add-cue-lane`, `remove-cue-lane` y
 // `rename-cue-lane` (carril); `cue-lane-menu` (carril, evento, segundo o
@@ -151,6 +196,7 @@ const props = defineProps({
 const emit = defineEmits([
   'update:loops',
   'update:grid',
+  'update:selection',
   'seek',
   'marker',
   'cue',
@@ -258,13 +304,26 @@ function zoomToBeats() {
   const len = clamp(period * 32, 6, props.duration || 6)
   setView(props.position - len * 0.2, props.position - len * 0.2 + len)
 }
-defineExpose({ zoomBy, zoomFit, zoomToBeats, view, focusCue: (c) => focusCue(c) })
+/**
+ * Acercar la vista a un trozo: de `t0` a `t1` llena la onda, con un poco de
+ * margen a los lados (y nunca más cerca que `MIN_SPAN`).
+ */
+function zoomToSpan(t0, t1) {
+  const d = props.duration
+  if (!d || !Number.isFinite(t0) || !Number.isFinite(t1)) return
+  const a = Math.min(t0, t1)
+  const b = Math.max(t0, t1)
+  const len = Math.max((b - a) * 1.1, MIN_SPAN)
+  const mid = (a + b) / 2
+  setView(mid - len / 2, mid + len / 2)
+}
+defineExpose({ zoomBy, zoomFit, zoomToBeats, zoomToSpan, view, focusCue: (c) => focusCue(c) })
 
 // acercada, la vista sigue a la aguja cuando se va de ella
 watch(
   () => props.position,
   (t) => {
-    if (!zoomed.value || drag.mode || beatDrag.index >= 0) return
+    if (!zoomed.value || drag.mode || beatDrag.kind) return
     if (Date.now() - movedAt < FOLLOW_PAUSE) return
     if (t < view.from || t > view.from + span.value * 0.92) {
       setView(t - span.value * 0.1, t - span.value * 0.1 + span.value, false)
@@ -1039,6 +1098,12 @@ function onHover(e) {
 const dragging = computed(() => !!(drag.mode && drag.moved))
 
 // ------------------------------------------------------------ ajustar pulsos
+const MOVE_PX = 3 // px: menos que esto no es un arrastre, es un clic
+const MAGNET = 0.012 // s: a cuánto de un golpe fuerte se pega el pulso
+const MAGNET_MIN = 0.25 // lo que ha de pesar un golpe (de la referencia) para ser imán
+const MAX_TICKS = 2500 // rayitas de golpes que se pintan como mucho
+const MAX_LINES = 2000 // rayas de la sombra y de la rejilla automática
+
 /** Los pulsos que se ven (como mucho 600: más, hay que acercarse). */
 const beatsInView = computed(() => {
   const g = props.grid
@@ -1057,114 +1122,442 @@ const tooManyBeats = computed(() => {
   if (!props.editBeats || !g?.beats?.length) return false
   return !beatsInView.value.length && g.beats.some((t) => t >= view.from && t <= view.to)
 })
-/** La rejilla que se va ajustando (copia, hasta soltar). */
+/** Los pulsos elegidos, para preguntar si uno lo está sin recorrer la lista. */
+const selSet = computed(() => new Set(props.selection))
+/** De dónde a dónde llega lo elegido (índices), o null sin selección. */
+const selSpan = computed(() => {
+  const s = props.selection
+  if (!props.editBeats || !s.length) return null
+  let lo = s[0]
+  let hi = s[0]
+  for (const i of s) {
+    if (i < lo) lo = i
+    if (i > hi) hi = i
+  }
+  return [lo, hi]
+})
+/**
+ * Los pulsos mientras se arrastran: una copia con solo los tiempos, hasta
+ * soltar (entonces se manda la rejilla entera).
+ */
 const editing = shallowRef(null)
-const beatDrag = reactive({ index: -1, x0: 0, t0: 0, all: false, moved: false })
+/** Qué se arrastra: 'beat', 'band', 'after' (Mayús), 'stretch' o 'box'; '' si nada. */
+const beatDrag = reactive({ kind: '', index: -1, moved: false })
+/** Quiénes se llevan en el arrastre, para pintarlos (algo con `has(i)`). */
+const movingSet = shallowRef(null)
+/** Lo que se dice flotando junto al puntero mientras se arrastra. */
+const readout = shallowRef(null)
+/** La caja que se dibuja al elegir con la franja de arriba. */
+const boxSel = reactive({ on: false, a: 0, b: 0 })
+/** El arrastre en marcha: se lee a cada movimiento, así que no es reactivo. */
+let sess = null
+/** El último pulso elegido a pelo o con Ctrl: desde él llega la elección con Mayús. */
+let anchor = null
+watch(
+  () => props.selection,
+  (s) => {
+    if (!s.length) anchor = null
+  }
+)
+
 const shownBeats = computed(() => {
   if (!editing.value) return beatsInView.value
   const g = editing.value
   return beatsInView.value.map((b) => ({ ...b, t: g.beats[b.i] }))
 })
-function copyGrid() {
+/** ¿Se está llevando este pulso? (antes de moverse, solo el que se pulsó) */
+const isMoving = (i) => (beatDrag.moved ? !!movingSet.value?.has(i) : beatDrag.index === i)
+
+/** La banda de lo elegido, de su primer pulso al último (donde van ahora). */
+const band = computed(() => {
   const g = props.grid
-  return { ...g, beats: [...g.beats], bars: [...(g.bars || [])] }
-}
+  const sp = selSpan.value
+  if (!sp || !g?.beats?.length) return null
+  const beats = editing.value?.beats || g.beats
+  const t0 = beats[sp[0]]
+  const t1 = beats[sp[1]]
+  if (t0 == null || t1 == null) return null
+  return { t0, t1, n: props.selection.length }
+})
+
+const nPulsos = (n) => (n === 1 ? 'un pulso' : `${n} pulsos`)
+const ascending = (a, b) => a - b
+
 function listenBeats(on) {
   const f = on ? window.addEventListener : window.removeEventListener
   f.call(window, 'pointermove', onBeatMove)
   f.call(window, 'pointerup', onBeatUp)
   f.call(window, 'pointercancel', stopBeatDrag)
 }
-function onBeatDown(e, b) {
-  if (e.button) return
-  e.preventDefault()
-  e.stopPropagation()
-  editing.value = copyGrid()
-  Object.assign(beatDrag, { index: b.i, x0: e.clientX, t0: b.t, all: e.shiftKey, moved: false })
+/** Empieza un arrastre: lo que hace falta de la caja se mide una vez. */
+function begin(e, s) {
+  const r = box.value.getBoundingClientRect()
+  sess = {
+    moved: false,
+    result: null,
+    x0: e.clientX,
+    left: r.left,
+    top: r.top,
+    width: Math.max(1, r.width),
+    height: r.height || WAVE_H.value,
+    span: span.value,
+    ...s
+  }
+  beatDrag.kind = s.kind
+  beatDrag.index = s.index ?? -1
+  beatDrag.moved = false
   listenBeats(true)
 }
-function onBeatMove(e) {
-  if (beatDrag.index < 0 || !editing.value) return
-  if (!beatDrag.moved && Math.abs(e.clientX - beatDrag.x0) < 2) return
-  beatDrag.moved = true
-  const r = box.value.getBoundingClientRect()
-  const dt = ((e.clientX - beatDrag.x0) / Math.max(1, r.width)) * span.value
-  const g = copyGrid()
-  const i = beatDrag.index
-  const beats = g.beats
-  if (beatDrag.all) {
-    // con Mayús, este y todos los de detrás, juntos
-    const prev = i > 0 ? beats[i - 1] + 0.02 : 0
-    const shift = Math.max(prev - props.grid.beats[i], dt)
-    for (let k = i; k < beats.length; k++) beats[k] = round3(props.grid.beats[k] + shift)
-  } else {
-    const lo = i > 0 ? beats[i - 1] + 0.02 : 0
-    const hi = i < beats.length - 1 ? beats[i + 1] - 0.02 : props.duration
-    beats[i] = round3(clamp(beatDrag.t0 + dt, lo, hi))
+function onBeatDown(e, b) {
+  if (e.button || !props.grid?.beats?.length) return
+  e.preventDefault()
+  e.stopPropagation()
+  const own = gridToOwn(props.grid)
+  const after = e.shiftKey
+  const inSel = selSet.value.has(b.i)
+  begin(e, {
+    kind: after ? 'after' : 'beat',
+    own,
+    // con Mayús, este y todos los de detrás; uno elegido lleva a todos los
+    // elegidos; uno que no lo está, va solo (y pasará a ser la selección)
+    sel: after ? selectRange(b.i, own.beats.length - 1) : inSel ? [...props.selection] : [b.i],
+    adopt: !after && !inSel,
+    index: b.i,
+    t0: own.beats[b.i],
+    ctrl: e.ctrlKey || e.metaKey
+  })
+}
+/** Arrastrar la banda de lo elegido: como arrastrar uno de ellos. */
+function onBandDown(e) {
+  if (e.button || !props.grid?.beats?.length || !props.selection.length) return
+  e.preventDefault()
+  e.stopPropagation()
+  const own = gridToOwn(props.grid)
+  const t = timeAt(e.clientX)
+  // el elegido más cerca del puntero es el que manda en el imán
+  let index = props.selection[0]
+  let best = Infinity
+  for (const i of props.selection) {
+    const d = Math.abs((own.beats[i] ?? Infinity) - t)
+    if (d < best) {
+      best = d
+      index = i
+    }
   }
-  editing.value = g
+  begin(e, { kind: 'band', own, sel: [...props.selection], index, t0: own.beats[index] })
+}
+/** Arrastrar un extremo de la banda: estira o encoge, con el otro quieto. */
+function onHandleDown(e, side) {
+  const sp = spanOf(props.selection)
+  if (e.button || !props.grid?.beats?.length || !sp || sp[1] <= sp[0]) return
+  e.preventDefault()
+  e.stopPropagation()
+  const own = gridToOwn(props.grid)
+  const end = side === 'first' ? sp[0] : sp[1]
+  begin(e, {
+    kind: 'stretch',
+    own,
+    sel: [...props.selection],
+    fixed: side === 'first' ? 'last' : 'first',
+    index: end,
+    t0: own.beats[end]
+  })
+}
+/** Arrastrar por la franja de arriba: elegir los pulsos de un trozo. */
+function onBarDown(e) {
+  if (e.button || !props.duration || !props.grid?.beats?.length) return
+  e.preventDefault()
+  const t = timeAt(e.clientX)
+  begin(e, { kind: 'box', t0: t, t1: t, add: e.ctrlKey || e.metaKey || e.shiftKey })
+}
+
+/** Los golpes en orden de tiempo (así los da el núcleo; por si no, se ordenan). */
+const hitList = computed(() => {
+  const h = Array.isArray(props.hits) ? toRaw(props.hits) : []
+  for (let i = 1; i < h.length; i++) {
+    if (h[i][0] < h[i - 1][0]) return [...h].sort((a, b) => a[0] - b[0])
+  }
+  return h
+})
+/** Con lo que se compara la fuerza de un golpe (sin dato, el más fuerte). */
+const hitRef = computed(() => {
+  if (props.hitsRef > 0) return props.hitsRef
+  let top = 0
+  for (const h of hitList.value) if (h[1] > top) top = h[1]
+  return top || 1
+})
+/** El primer índice de `list` (en orden) cuyo valor (`get`) es `>= x`. */
+function lowerBy(list, x, get) {
+  let lo = 0
+  let hi = list.length
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1
+    if (get(list[mid]) < x) lo = mid + 1
+    else hi = mid
+  }
+  return lo
+}
+const hitTime = (h) => h[0]
+const same = (t) => t
+/**
+ * El imán: el golpe fuerte más cercano a `t` (a 12 ms o menos), o `t`. Con
+ * Ctrl puesto no se pega: es la forma de poner un pulso donde no hay golpe.
+ */
+function snapTime(t, e) {
+  const list = hitList.value
+  if (!props.snapHits || !list.length || e.ctrlKey || e.metaKey) return t
+  const min = MAGNET_MIN * hitRef.value
+  let best = null
+  for (let k = lowerBy(list, t - MAGNET, hitTime); k < list.length; k++) {
+    const h = list[k]
+    if (h[0] > t + MAGNET) break
+    if (h[1] >= min && (best === null || Math.abs(h[0] - t) < Math.abs(best - t))) best = h[0]
+  }
+  return best ?? t
+}
+
+function onBeatMove(e) {
+  const s = sess
+  if (!s) return
+  const dx = e.clientX - s.x0
+  if (!s.moved) {
+    if (Math.abs(dx) < MOVE_PX) return
+    s.moved = true
+    beatDrag.moved = true
+    // un pulso que no estaba elegido pasa a ser la selección en cuanto se lleva
+    if (s.adopt) emit('update:selection', [s.index])
+    if (s.kind === 'after') movingSet.value = { has: (i) => i >= s.index }
+    else if (s.kind === 'stretch') {
+      const [a, z] = spanOf(s.sel)
+      movingSet.value = { has: (i) => i >= a && i <= z }
+    } else if (s.kind !== 'box') movingSet.value = new Set(s.sel)
+  }
+  if (s.kind === 'box') {
+    s.t1 = timeAt(e.clientX)
+    Object.assign(boxSel, { on: true, a: Math.min(s.t0, s.t1), b: Math.max(s.t0, s.t1) })
+    return
+  }
+  const dt = (dx / s.width) * s.span
+  let text
+  if (s.kind === 'stretch') {
+    const res = stretchBlock(
+      s.own,
+      s.sel,
+      { fixed: s.fixed, to: snapTime(s.t0 + dt, e) },
+      { duration: props.duration }
+    )
+    s.result = res
+    editing.value = { beats: res.beats }
+    const bpm = tempoOf(res.beats, s.sel)
+    text = bpm ? `${formatBpm(bpm).replace('.', ',')} bpm` : ''
+  } else {
+    const res = moveBlock(s.own, s.sel, snapTime(s.t0 + dt, e) - s.t0, {
+      duration: props.duration
+    })
+    s.result = res
+    editing.value = { beats: res.beats }
+    const ms = Math.round(res.applied * 1000)
+    text = ms === 0 ? '0 ms' : `${ms > 0 ? '+' : '−'}${Math.abs(ms)} ms`
+  }
+  // flotando junto al puntero, sin salirse de la onda ni taparse con la franja
+  readout.value = {
+    x: clamp(e.clientX - s.left, 28, Math.max(28, s.width - 28)),
+    y: clamp(e.clientY - s.top - 12, 40, Math.max(40, s.height)),
+    text
+  }
+}
+/** Un clic sin arrastrar sobre un pulso: elegirlo (Ctrl suma o quita, Mayús, hasta él). */
+function clickBeat(s) {
+  if (s.kind === 'after') {
+    const from = Math.min(anchor ?? props.selection[0] ?? s.index, s.own.beats.length - 1)
+    emit('update:selection', selectRange(from, s.index))
+  } else if (s.kind === 'beat') {
+    anchor = s.index
+    emit('update:selection', s.ctrl ? toggleIndex(props.selection, s.index) : [s.index])
+  }
 }
 function onBeatUp() {
-  const g = editing.value
-  const moved = beatDrag.moved
+  const s = sess
   stopBeatDrag()
-  if (g && moved) emit('update:grid', g)
+  if (!s) return
+  if (!s.moved) {
+    if (s.kind === 'box') {
+      // un clic en la franja vacía quita la selección (con Ctrl o Mayús, deja lo que hay)
+      if (!s.add) emit('update:selection', [])
+    } else clickBeat(s)
+    return
+  }
+  if (s.kind === 'box') {
+    const hit = selectBetween(props.grid.beats, s.t0, s.t1)
+    anchor = hit[0] ?? null
+    emit(
+      'update:selection',
+      s.add ? [...new Set([...props.selection, ...hit])].sort(ascending) : hit
+    )
+    return
+  }
+  const res = s.result
+  // un arrastre que se quedó donde estaba (recortado por un vecino) no es un cambio
+  if (!res || res.beats.every((t, i) => t === s.own.beats[i])) return
+  const label =
+    s.kind === 'stretch'
+      ? `estirar ${spanOf(s.sel)[1] - spanOf(s.sel)[0] + 1} pulsos`
+      : s.kind === 'after'
+        ? 'mover desde aquí'
+        : `mover ${nPulsos(s.sel.length)}`
+  commit(res, label)
 }
 function stopBeatDrag() {
+  sess = null
+  beatDrag.kind = ''
   beatDrag.index = -1
   beatDrag.moved = false
   editing.value = null
+  movingSet.value = null
+  readout.value = null
+  boxSel.on = false
   listenBeats(false)
 }
-/** Doble clic en la onda, ajustando: un pulso ahí. */
+
+/**
+ * La rejilla de después de una edición: la que había, con los pulsos y los
+ * «1» nuevos (y el compás), como la entiende quien la guarda.
+ */
+function gridFromOwn(own) {
+  const g = ownToGrid(own)
+  return g ? { ...props.grid, ...g } : null
+}
+/** Manda lo editado, con su frase para el historial y, si cambia, la selección. */
+function commit(own, label, selection) {
+  const g = gridFromOwn(own)
+  if (!g) return
+  emit('update:grid', g, label)
+  if (selection) emit('update:selection', selection)
+}
+
+/** Doble clic en la onda, ajustando: un pulso ahí (y queda elegido). */
 function onDouble(e) {
   if (!props.editBeats || !props.grid?.beats?.length) return
-  const t = round3(timeAt(e.clientX))
-  const g = copyGrid()
-  const i = g.beats.findIndex((b) => b > t)
-  const at = i < 0 ? g.beats.length : i
-  if (g.beats[at - 1] != null && t - g.beats[at - 1] < 0.03) return
-  if (g.beats[at] != null && g.beats[at] - t < 0.03) return
-  g.beats.splice(at, 0, t)
-  g.bars = (g.bars || []).map((b) => (b >= at ? b + 1 : b))
-  emit('update:grid', g)
+  const res = addBeatAt(gridToOwn(props.grid), timeAt(e.clientX), { duration: props.duration })
+  if (res.refused) return
+  anchor = res.selection[0]
+  commit(res, 'añadir un pulso', res.selection)
 }
-/** El clic derecho sobre un pulso: quitarlo, o hacerlo el «1». */
+/** Quitar pulsos: su frase y la selección que queda (la de antes, con los índices corridos). */
+function removeFrom(gone, keep) {
+  const own = gridToOwn(props.grid)
+  const res = removeBeats(own, gone)
+  // una canción no se queda con menos de dos pulsos
+  if (res.beats.length === own.beats.length) return
+  commit(res, `quitar ${nPulsos(own.beats.length - res.beats.length)}`, keep)
+}
+/** Que este pulso sea el «1»: desde aquí, uno cada compás hasta el siguiente que ya hubiera. */
+function makeOne(i) {
+  const g = { ...props.grid, beats: [...props.grid.beats], bars: [...(props.grid.bars || [])] }
+  const meter = g.meter || 4
+  const next = g.bars.find((x) => x > i) ?? g.beats.length
+  const kept = g.bars.filter((x) => x < i || x >= next)
+  const fresh = []
+  for (let k = i; k < next; k += meter) fresh.push(k)
+  g.bars = [...new Set([...kept, ...fresh])].sort(ascending)
+  if (!g.bars.length || g.bars[0] > i) g.first_downbeat = i
+  emit('update:grid', g, 'el «1» aquí')
+}
+/** El clic derecho sobre un pulso: quitarlo, o hacerlo el «1» (con una selección, sus opciones). */
 function onBeatMenu(e, b) {
   e.preventDefault()
   e.stopPropagation()
+  const last = (props.grid?.beats?.length || 0) - 1
+  const group = props.selection.length >= 2 && selSet.value.has(b.i)
+  const pick = (from, to) => () => {
+    anchor = from
+    emit('update:selection', selectRange(from, to))
+  }
   const items = [
-    {
-      label: 'Este es el «1»',
-      icon: 'note',
-      action: () => {
-        const g = copyGrid()
-        const meter = g.meter || 4
-        // desde aquí, un «1» cada compás hasta el siguiente que ya hubiera
-        const next = (g.bars || []).find((x) => x > b.i) ?? g.beats.length
-        const kept = (g.bars || []).filter((x) => x < b.i || x >= next)
-        const fresh = []
-        for (let k = b.i; k < next; k += meter) fresh.push(k)
-        g.bars = [...new Set([...kept, ...fresh])].sort((x, y) => x - y)
-        if (!g.bars.length || g.bars[0] > b.i) g.first_downbeat = b.i
-        emit('update:grid', g)
-      }
-    },
-    {
-      label: 'Quitar este pulso',
-      icon: 'close',
-      danger: true,
-      action: () => {
-        const g = copyGrid()
-        if (g.beats.length <= 2) return
-        g.beats.splice(b.i, 1)
-        g.bars = (g.bars || []).filter((x) => x !== b.i).map((x) => (x > b.i ? x - 1 : x))
-        emit('update:grid', g)
-      }
-    }
+    { label: 'Este es el «1»', icon: 'note', action: () => makeOne(b.i) },
+    ...(group
+      ? [
+          {
+            label: 'Seleccionar desde aquí hasta el final',
+            icon: 'next',
+            action: pick(b.i, last)
+          },
+          {
+            label: 'Seleccionar desde el principio hasta aquí',
+            icon: 'previous',
+            action: pick(0, b.i)
+          },
+          { separator: true },
+          {
+            label: `Quitar ${props.selection.length} pulsos`,
+            icon: 'close',
+            danger: true,
+            action: () => removeFrom([...props.selection], [])
+          }
+        ]
+      : [
+          {
+            label: 'Quitar este pulso',
+            icon: 'close',
+            danger: true,
+            action: () =>
+              removeFrom(
+                [b.i],
+                props.selection.filter((j) => j !== b.i).map((j) => (j > b.i ? j - 1 : j))
+              )
+          }
+        ])
   ]
   openMenu(e, items, `Pulso en ${tickLabel(b.t, 0.1)}`)
 }
+
+// ---- lo que se pinta detrás de los pulsos: golpes, sombra y rejilla automática
+/** Rayas de arriba abajo en los segundos `times` que se ven, en un trazo (en % de la vista). */
+function linesPath(times) {
+  if (!times?.length || !props.duration) return ''
+  const raw = toRaw(times)
+  const len = span.value
+  let d = ''
+  let n = 0
+  for (let k = lowerBy(raw, view.from, same); k < raw.length; k++) {
+    const t = raw[k]
+    if (t > view.to) break
+    // tantas que no se distinguen: se dejan (acerca la onda para verlas)
+    if (++n > MAX_LINES) return ''
+    d += `M${(((t - view.from) / len) * 100).toFixed(3)},0V100`
+  }
+  return d
+}
+const ghostPath = computed(() => linesPath(props.ghostBeats))
+const previewPath = computed(() => linesPath(props.preview?.beats))
+/** Los «1» de la sombra, más marcados que el resto. */
+const previewOnes = computed(() => {
+  const p = props.preview
+  if (!p?.beats?.length || !p.bars?.length) return ''
+  return linesPath(p.bars.map((i) => p.beats[i]).filter((t) => t != null))
+})
+/**
+ * Las rayitas de los golpes que se ven, en un solo trazo: de abajo arriba,
+ * tan altas como fuertes (la referencia es el tope). De más de 2500 a la
+ * vista, solo los más fuertes.
+ */
+const hitsPath = computed(() => {
+  const list = hitList.value
+  if (!props.showHits || !list.length || !props.duration) return ''
+  let seen = list.slice(lowerBy(list, view.from, hitTime), lowerBy(list, view.to + 1e-9, hitTime))
+  if (seen.length > MAX_TICKS) {
+    const cut = seen.map((h) => h[1]).sort((a, b) => b - a)[MAX_TICKS - 1]
+    seen = seen.filter((h) => h[1] >= cut).slice(0, MAX_TICKS)
+  }
+  const len = span.value
+  const top = hitRef.value
+  let d = ''
+  for (const [t, strength] of seen) {
+    const h = Math.max(0.06, Math.min(1, strength / top))
+    d += `M${(((t - view.from) / len) * 100).toFixed(3)},100V${(100 - h * 100).toFixed(1)}`
+  }
+  return d
+})
 
 // ------------------------------------------------------------ los carriles de las guías
 /** El carril de una guía (sin carril, o uno que ya no está: el primero). */
@@ -1604,7 +1997,7 @@ const lockTitle = computed(() =>
         !duration
           ? ''
           : editBeats
-            ? 'Arrastra un pulso para moverlo (con Mayús, también los de detrás) · doble clic: un pulso nuevo · clic derecho sobre uno: quitarlo o hacerlo el «1»'
+            ? 'Arrastra un pulso para moverlo (con Mayús, también los de detrás) · clic: elegirlo (Ctrl suma, Mayús llega hasta él) · arrastra por la franja de arriba para elegir varios · doble clic: un pulso nuevo · clic derecho sobre uno: quitarlo o hacerlo el «1»'
             : multi
               ? 'Arrastra para añadir otro tramo · clic sobre un tramo para quitarlo · Ctrl + rueda: zoom · Mayús + rueda: recorrer · clic derecho: opciones'
               : locked && playing
@@ -1668,6 +2061,29 @@ const lockTitle = computed(() =>
           'Poco claro: aquí el clic es una suposición · ' + formatTime(a) + ' – ' + formatTime(b)
         "
       ></div>
+      <!-- lo que acompaña a los pulsos y no se toca: la rejilla automática
+           (tenue, a rayas), lo que daría una herramienta (la sombra) y los
+           golpes del audio (rayitas abajo). Cada cosa, un solo trazo -->
+      <svg
+        v-if="ghostPath || previewPath"
+        class="tl-marks"
+        viewBox="0 0 100 100"
+        preserveAspectRatio="none"
+        aria-hidden="true"
+      >
+        <path v-if="ghostPath" class="tl-ghost" :d="ghostPath" />
+        <path v-if="previewPath" class="tl-preview" :d="previewPath" />
+        <path v-if="previewOnes" class="tl-preview one" :d="previewOnes" />
+      </svg>
+      <svg
+        v-if="hitsPath"
+        class="tl-hits"
+        viewBox="0 0 100 100"
+        preserveAspectRatio="none"
+        aria-hidden="true"
+      >
+        <path :d="hitsPath" />
+      </svg>
       <div
         v-for="([a, b], i) in shown"
         v-show="inView(a, b)"
@@ -1695,6 +2111,58 @@ const lockTitle = computed(() =>
           ⋯
         </button>
       </div>
+
+      <!-- la franja de arriba, para elegir pulsos (no es de la onda: lo que
+           se pulsa aquí no elige tramo ni lleva la canción): arrastrando se
+           eligen los de un trozo, un clic vacío quita la selección, y lo
+           elegido lleva su banda con un asa en cada extremo -->
+      <template v-if="editBeats && !isMobileApp">
+        <!-- eslint-disable-next-line vuejs-accessibility/no-static-element-interactions -->
+        <div
+          class="tl-beatbar"
+          title="Arrastra para elegir los pulsos de un trozo (Ctrl o Mayús suman) · clic: quitar la selección"
+          @pointerdown.stop="onBarDown"
+          @dblclick.stop
+          @contextmenu.prevent.stop
+        >
+          <!-- eslint-disable-next-line vuejs-accessibility/no-static-element-interactions -->
+          <div
+            v-if="band"
+            v-show="inView(band.t0, band.t1)"
+            class="tl-selband"
+            :class="{ moving: beatDrag.moved && beatDrag.kind !== 'box' }"
+            :style="{ left: pct(band.t0), width: pctLen(band.t1 - band.t0) }"
+            :title="
+              nPulsos(band.n) +
+              ' elegidos · arrastra la banda para llevarlos' +
+              (band.n > 1 ? ' · un extremo, para estirarlos' : '')
+            "
+            @pointerdown="onBandDown"
+            @dblclick.stop
+          >
+            <span v-if="band.n > 1" class="tl-selband-n mono">{{ band.n }}</span>
+            <template v-if="band.n > 1">
+              <!-- eslint-disable-next-line vuejs-accessibility/no-static-element-interactions -->
+              <span
+                class="tl-selband-h a"
+                title="Estirar o encoger desde aquí (el otro extremo se queda)"
+                @pointerdown="onHandleDown($event, 'first')"
+              ></span>
+              <!-- eslint-disable-next-line vuejs-accessibility/no-static-element-interactions -->
+              <span
+                class="tl-selband-h b"
+                title="Estirar o encoger desde aquí (el otro extremo se queda)"
+                @pointerdown="onHandleDown($event, 'last')"
+              ></span>
+            </template>
+          </div>
+        </div>
+        <div
+          v-if="boxSel.on"
+          class="tl-boxsel"
+          :style="{ left: pct(boxSel.a), width: pctLen(boxSel.b - boxSel.a) }"
+        ></div>
+      </template>
 
       <!-- los marcadores: un tramo se ve como banda, un instante como raya;
            la banderita con el nombre es lo que se pulsa -->
@@ -1751,12 +2219,22 @@ const lockTitle = computed(() =>
           v-for="b in shownBeats"
           :key="'b' + b.i"
           class="tl-beat"
-          :class="{ one: b.one, moving: beatDrag.index === b.i }"
+          :data-i="b.i"
+          :class="{ one: b.one, sel: selSet.has(b.i), moving: isMoving(b.i) }"
           :style="{ left: pct(b.t) }"
           :title="(b.one ? '«1» · ' : '') + tickLabel(b.t, 0.1)"
           @pointerdown="onBeatDown($event, b)"
           @contextmenu="onBeatMenu($event, b)"
         ></span>
+        <!-- lo que se lleva (o los bpm de lo que se estira), junto al puntero -->
+        <div
+          v-if="readout"
+          class="tl-readout mono"
+          :style="{ left: readout.x + 'px', top: readout.y + 'px' }"
+          aria-hidden="true"
+        >
+          {{ readout.text }}
+        </div>
       </template>
 
       <div
