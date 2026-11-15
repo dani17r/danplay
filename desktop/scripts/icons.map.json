@@ -402,5 +402,13 @@
   "speech": {
     "style": "o",
     "file": "chat-bubble-bottom-center-text.svg"
+  },
+  "undo": {
+    "style": "o",
+    "file": "arrow-uturn-left.svg"
+  },
+  "redo": {
+    "style": "o",
+    "file": "arrow-uturn-right.svg"
   }
 }
