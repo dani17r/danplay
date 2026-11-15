@@ -1084,6 +1084,27 @@ ahí. `report.weak` (`[[desde, hasta], …]`) son las zonas sin apoyo rítmico,
 donde el clic es una suposición: la onda las pinta como una banda ámbar con
 una raya abajo, y el aviso las cuenta.
 
+**Ajustar el clic en bloque** (`StudyTimeline`, con `editBeats`). Los pulsos
+se eligen y se llevan juntos: la **selección** (índices en orden) es de quien
+manda y la línea de tiempo solo pide cambiarla (`update:selection`). Un clic
+elige un pulso (Ctrl suma o quita, Mayús llega desde el último elegido), y
+arrastrar por la franja de arriba (`.tl-beatbar`, que no elige tramo ni lleva
+la canción) elige los de un trozo. Arrastrar uno elegido lleva a todos con la
+misma separación (`moveBlock`), arrastrar uno que no lo está lo elige y lo
+lleva solo, Mayús + arrastrar lleva «este y los de detrás», y la banda de lo
+elegido se arrastra igual y estira o encoge desde cada extremo con el otro
+quieto (`stretchBlock`). Mientras se arrastra se ve la cantidad (`+12 ms`) o el
+tempo del trozo estirado (`76,3 bpm`); la copia que se pinta es de `editing` y
+a la rejilla de verdad no llega nada hasta soltar. Cada cambio llega por
+`update:grid(rejilla, frase)`, con una frase corta para el historial («mover 5
+pulsos», «quitar 3 pulsos»); los cálculos son de `utils/beatEdit.js`, que no
+sabe nada de la pantalla. Detrás de los pulsos, y sin recibir el puntero, se
+pintan (cada cosa en un solo trazo SVG, nunca un nodo por raya) los golpes del
+audio (`hits`, rayitas abajo, hasta 2500 los más fuertes), lo que daría una
+herramienta (`preview`) y la rejilla automática (`ghostBeats`). Con `snapHits`
+el pulso que se arrastra se pega al golpe fuerte (de un cuarto de la
+referencia en adelante) que tenga a 12 ms, y Ctrl lo apaga.
+
 **La batería mejora el clic sola** (`beats::after_separation`, desde que
 acaba una separación; `DANPLAY_CLICK_DRUMS=off` lo quita). La red oye la
 batería en segundo plano y `analysis::beatgrid::fill_with_drums` +
