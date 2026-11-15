@@ -63,6 +63,23 @@ impl Mode {
     pub fn uses_drums(self) -> bool {
         !matches!(self, Self::Follow | Self::Mix)
     }
+
+    /// Si, después de sacar la rejilla de lo que oyó la red, se afina con el
+    /// propio audio (`fit::refine`: cada pulso hacia su golpe). Todas menos
+    /// «follow», que es cómo era antes de 1.28 y no toca nada. Sin esto,
+    /// re-analizar es volver a decodificar lo mismo que oyó la red con otras
+    /// opciones, y a menudo no cambia nada.
+    pub fn snaps(self) -> bool {
+        self != Self::Follow
+    }
+
+    /// Si también arregla los intervalos sueltos que ningún tempo explica
+    /// (`fit::mend`): solo «arreglar» y «con intro y final», que son las que
+    /// prometen arreglar saltos; «solo la canción» y «con la batería» son
+    /// otra manera de oír, no de reparar.
+    pub fn mends(self) -> bool {
+        matches!(self, Self::Repair | Self::Fill)
+    }
 }
 
 /// Por qué no salió un tramo.
@@ -618,6 +635,19 @@ mod tests {
         assert!(Mode::Fill.edges() && !Mode::Steady.edges());
         assert!(Mode::Steady.uses_drums() && !Mode::Follow.uses_drums());
         assert!(!Mode::Mix.uses_drums(), "solo la canción: sin la batería");
+    }
+
+    #[test]
+    fn the_audio_refines_every_option_but_the_old_one_and_only_repairs_where_it_promises() {
+        for name in ["repair", "steady", "fill", "drums", "mix"] {
+            assert!(Mode::from_name(name).is_some_and(Mode::snaps), "{name}");
+        }
+        assert!(!Mode::Follow.snaps(), "«como antes»: sin tocar nada");
+        let repairs: Vec<&str> = ["repair", "steady", "fill", "drums", "follow", "mix"]
+            .into_iter()
+            .filter(|n| Mode::from_name(n).is_some_and(Mode::mends))
+            .collect();
+        assert_eq!(repairs, ["repair", "fill"]);
     }
 
     // ---------------------------------------------------- ¿mejora la batería?

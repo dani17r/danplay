@@ -90,6 +90,42 @@ Lo más importante de oír: el timbre de la voz con el tono cambiado, el clic
 relleno con la batería (se apaga con `DANPLAY_CLICK_DRUMS=off`), los 21
 compases que pasan de 3 a 6, y los M4A y `.mp3`-MP4 sonando sin ffmpeg.
 
+**Lo que queda del clic tras la 1.43.0** (nada de esto se ha oído):
+- Hacer automático el afinado con el audio (`grid_of`, con `VERSION = 6`): la
+  medida en 25 canciones lo justifica (mediana de -8 ms a 0), pero cambiaría
+  el clic de todas sin oírlo. Se decide tras probar «Re-analizar» a mano.
+- El tramo sin batería clara (en «Sal 22 Te Amo», de 241 a 270 s) sigue con
+  su desfase: ahí no hay evidencia y no se inventa. Los umbrales del afinado
+  y de «dudoso» (`fit.rs`: `MAX_SPREAD`, `MIN_VOTES`, `STEP`, 22/14 ms) se
+  eligieron con 25 canciones sin verdad de referencia.
+- Un tramo medio pulso desfasado (la 117, a 292,9 s) ni se arregla ni se
+  marca: haría falta recolocar la fase. Los «1» puestos a mano dentro de una
+  zona tocada se recalculan, no se conservan.
+- La batería separada de la canción 28 va 24,5 ms por delante de su mezcla:
+  el afinado la descarta, pero conviene mirar por qué en el separador.
+
+**Lo que dijo la 1.43.0 al probarla** (15 de noviembre): mejoró un poco el
+desfase de casi toda la canción, pero no lo importante, que es **donde la
+música cambia de ritmo**. Mirando los golpes reales de «Sal 22 Te Amo» (1.44.0,
+`real_hits_dump`), de 241 a 270 s la batería solo golpea cada segundo
+(un 97 % de los pulsos de un clic a 60 bpm cae sobre un golpe, y solo un
+50-64 % de los de uno a 120): es el mismo tempo con otra sensación, una
+mitad de tiempo. Ningún análisis puede saber a qué nivel quiere el clic quien
+toca (60 o 120), así que la salida es poder decidirlo a mano rápido: la 1.44.0
+trae el deshacer, elegir y llevar pulsos en bloque y «Tempo y onda» (el tempo
+de un tramo escrito o buscado en la onda, pegado a los golpes solo donde pega).
+
+**Lo que queda de la edición a mano tras la 1.44.0** (nada se ha oído):
+- Tocar el pulso con una tecla mientras suena y que se pegue a la onda (para
+  un tramo que cambia de ritmo, sería lo más natural para un baterista).
+- Que «Re-analizar» ofrezca por sí solo la mitad de tiempo cuando la batería
+  solo golpea cada dos pulsos, en vez de dejarlo a quien lo mire.
+- Los umbrales de `utils/beatAlign.js` (0,85 de la familia de octavos, 0,12 de
+  ventana, 0,5 de apoyo, 0,03 y 1,3 del «empeora») están afinados con golpes
+  inventados y una sola canción de verdad.
+- Poner o quitar a mano un golpe falso detectado, y guardar «formas de pegarse»
+  preferidas; la edición de pulsos en el celular.
+
 **Visto al validar** (lo que ya había y no se tocó): el `bun` del PATH de
 Vite+ se queda veinte segundos con la casa vacía de la caja de arena y
 cuelga las pruebas de humo en este equipo (le pasa igual a la 1.40.1; con el

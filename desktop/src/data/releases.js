@@ -16,6 +16,30 @@
 /** @type {Release[]} */
 export const RELEASES = [
   {
+    version: '1.44.0',
+    date: '',
+    summary:
+      'Arreglar el clic a mano sin ir pulso a pulso: deshacer, elegir varios y poner el tempo de un tramo.',
+    items: [
+      'Ctrl+Z y Ctrl+Mayús+Z deshacen y rehacen lo que cambias del clic manual de la canción.',
+      'Elige varios pulsos (clic, Ctrl, Mayús o una caja) y llévalos juntos o estíralos desde un extremo.',
+      '«Tempo y onda»: escribe el tempo de un tramo y pégalo a los golpes del audio solo donde de verdad pegue.',
+      'Ver los golpes de la canción sobre la onda, con un imán que pega el pulso al golpe al arrastrar.'
+    ]
+  },
+  {
+    version: '1.43.0',
+    date: '',
+    summary:
+      '«Re-analizar» mira el audio y afina el clic; Manual y Automático se alternan sin perder nada.',
+    items: [
+      '«Re-analizar» mide los golpes y pone el clic encima de cada uno (iba de 5 a 18 ms tarde en las pruebas).',
+      'Los modos son Automático, Manual (lo que mueves tú) y Tempo fijo, y cambiar de uno a otro no pierde nada.',
+      'En Manual, «Re-analizar» respeta las zonas que moviste a mano y rehace el resto con el análisis nuevo.',
+      'La onda marca en ámbar los tramos donde el clic es una suposición.'
+    ]
+  },
+  {
     version: '1.42.0',
     date: '',
     summary:

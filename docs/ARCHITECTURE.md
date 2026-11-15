@@ -733,8 +733,15 @@ detrás) y dice por dónde va. Con **«Clic automático»** (`useClick`, que viv
 fuera del panel de estudio), cada canción trae su clic y sus ajustes;
 mientras carga, el clic no suena (si venía sonando, se calla), su botón no
 deja ponerlo y la onda se va encendiendo con lo que lleva; al llegar, vuelve
-solo. Con el clic puesto se preparan las tres siguientes de la cola. A mano,
-un tempo para todas, que sigue igual al pasar de canción. Y lo guardado no
+solo. Con el clic puesto se preparan las tres siguientes de la cola. Hay tres
+modos, que en la interfaz se llaman **Automático** (lo que analizó DanPlay),
+**Manual** (lo que mueve él en la onda, guardado con la canción:
+`study.metronome.own`) y **Tempo fijo** (un tempo para todas, que sigue igual
+al pasar de canción); lo guardado conserva sus nombres de siempre (`auto`,
+`own`, `manual`). Cambiar de uno a otro no escribe nada, y cada uno enseña lo
+suyo: Automático, la última rejilla que dio el núcleo (también la de un
+re-análisis hecho desde Manual); Manual, sus pulsos (y, si la canción aún no
+los tiene, lo dice y suena el automático). Y lo guardado no
 se pierde: se reconocía por la fecha del archivo, y DanPlay la cambiaba él
 mismo al escribir cualquier etiqueta (el estudio guarda a menudo): ahora,
 al reescribir una etiqueta o mover el archivo, la rejilla y la onda pasan a
@@ -1061,6 +1068,43 @@ rejilla). «Con la batería separada» ya no pasa la red dentro de la petición:
 y contesta 202 `{pending, progress}` hasta que sale; el estudio pregunta
 (`useClick.reanalyze`) y enseña «oyendo la batería separada… N %».
 
+**Re-analizar con un clic manual.** El clic manual guarda, con sus pulsos,
+las zonas que movió él: `own = {beats, bars, meter, touched}`, con
+`touched = [[desde, hasta], …]` en segundos (`utils/beats.js`:
+`touchedByEdit` las saca de lo que cambió al soltar un pulso, con un pulso de
+margen por cada lado y las cercanas hechas una; son tiempos, no índices, así
+que añadir o quitar pulsos antes no las mueve). Un `own` de antes, sin ellas,
+vale entero como suyo. En Manual, «Re-analizar» manda ese `own` en la
+petición (`POST …/beats/reanalyze`, campo `own`); el núcleo devuelve `grid`
+(la rejilla automática nueva, que guarda él) y, si recibió `own`, `own`
+mezclado (sus zonas intactas, lo demás del análisis nuevo). El núcleo no
+escribe el estudio: lo guarda el estudio por el camino de siempre y lo aplica.
+En Automático la petición va sin `own`, y el aviso dice que lo manual sigue
+ahí. `report.weak` (`[[desde, hasta], …]`) son las zonas sin apoyo rítmico,
+donde el clic es una suposición: la onda las pinta como una banda ámbar con
+una raya abajo, y el aviso las cuenta.
+
+**Ajustar el clic en bloque** (`StudyTimeline`, con `editBeats`). Los pulsos
+se eligen y se llevan juntos: la **selección** (índices en orden) es de quien
+manda y la línea de tiempo solo pide cambiarla (`update:selection`). Un clic
+elige un pulso (Ctrl suma o quita, Mayús llega desde el último elegido), y
+arrastrar por la franja de arriba (`.tl-beatbar`, que no elige tramo ni lleva
+la canción) elige los de un trozo. Arrastrar uno elegido lleva a todos con la
+misma separación (`moveBlock`), arrastrar uno que no lo está lo elige y lo
+lleva solo, Mayús + arrastrar lleva «este y los de detrás», y la banda de lo
+elegido se arrastra igual y estira o encoge desde cada extremo con el otro
+quieto (`stretchBlock`). Mientras se arrastra se ve la cantidad (`+12 ms`) o el
+tempo del trozo estirado (`76,3 bpm`); la copia que se pinta es de `editing` y
+a la rejilla de verdad no llega nada hasta soltar. Cada cambio llega por
+`update:grid(rejilla, frase)`, con una frase corta para el historial («mover 5
+pulsos», «quitar 3 pulsos»); los cálculos son de `utils/beatEdit.js`, que no
+sabe nada de la pantalla. Detrás de los pulsos, y sin recibir el puntero, se
+pintan (cada cosa en un solo trazo SVG, nunca un nodo por raya) los golpes del
+audio (`hits`, rayitas abajo, hasta 2500 los más fuertes), lo que daría una
+herramienta (`preview`) y la rejilla automática (`ghostBeats`). Con `snapHits`
+el pulso que se arrastra se pega al golpe fuerte (de un cuarto de la
+referencia en adelante) que tenga a 12 ms, y Ctrl lo apaga.
+
 **La batería mejora el clic sola** (`beats::after_separation`, desde que
 acaba una separación; `DANPLAY_CLICK_DRUMS=off` lo quita). La red oye la
 batería en segundo plano y `analysis::beatgrid::fill_with_drums` +
@@ -1096,6 +1140,167 @@ los del clic que suena (`StudyBar.soundingGrid`), no los detectados.
 **La carpeta del pulso** (`DATA_DIR/beats`) se limpia al escanear
 (`beats::prune`): lo que no tiene la clave de un archivo que hay (canciones y
 pistas) se borra pasados 30 días sin tocarse.
+
+### «Re-analizar» mira el audio, y conserva lo que se movió a mano
+
+Antes, re-analizar volvía a decodificar **lo mismo que oyó la red** con otra
+opción, sin ninguna evidencia nueva: en una canción con el tiempo mal salía
+`fixed: 0`. Ahora, tras sacar la rejilla (todas las opciones menos «como
+antes»), se mira el propio audio, con números y sin opinar:
+
+- **`analysis::onset`**: una envolvente de ataques cada 5 ms (la diferencia
+  primera del audio, su energía por bloques, en log). Se calibró con audio
+  sintético (impulsos, cajas, bombos, fuertes y flojos): un golpe puesto en
+  `t` se mide en `t` ±1 ms. Es de la batería separada si la canción la tiene
+  **y va donde la mezcla** (`fit::choose`: se mide cuánto se aparta de la
+  mezcla; una batería 25 ms corrida, que se ha visto, se ignora), y si no, de
+  la mezcla. `services::beats::evidence` la saca con el mismo ffmpeg del
+  detector; sin él o sin poder leer el archivo, re-analizar sigue como antes.
+- **`analysis::fit`** mide cada pulso contra su golpe más fuerte a ±50 ms
+  (desvío con signo y si es claro: fuerza frente a la mediana de la
+  envolvente a ±2 s), y de ahí `report.fit = {before, after}` (`offset_ms`,
+  `spread_ms`, `supported`; positivo = el clic suena antes que los golpes),
+  `report.weak` (tramos de al menos dos compases sin golpes claros que apoyen
+  el clic, o con golpes que no caen donde él, o una regla perfecta sobre algo
+  que no lo es: donde el clic es solo una suposición) y `report.evidence`
+  (`drums` o `mix`). Es evidencia, no verdad.
+- **`fit::snap`** mueve cada pulso hacia su golpe con el desvío **mediano** de
+  los ocho pulsos de alrededor (un toque a contratiempo no arrastra un
+  pulso), solo si al menos tres golpes claros se ponen de acuerdo (12 ms),
+  con tope de 50 ms, sin cruzarse y con el desvío entrando y saliendo a
+  8 ms por pulso (que un intervalo no salte de golpe). Donde no hay
+  evidencia, el pulso se queda. Un tempo fijo se mueve entero, con un solo
+  desvío. **`fit::mend`** (solo «Arreglar» y «Con intro y final») arregla los
+  intervalos sueltos que ningún tempo explica: uno de 1,6 veces los de al
+  lado (si suena algo en medio), un pulso corrido o uno de más, siempre que
+  el tempo sea el mismo a los dos lados; un cambio de tempo (120 a 90) se
+  deja.
+- El informe dice además `snapped` (cuántos pulsos se movieron más de 4 ms),
+  `shift_ms` (lo que, de mediana) y `mended` (los tramos arreglados);
+  `fixed` cuenta ahora cada 4 ms y no cada 40 cuando se afinó, que un clic
+  corrido 10 ms en toda la canción ya es un cambio.
+- Lo re-analizado guarda `"refine": true` en sus `edits` (si se pudo leer el
+  audio), así que al subir la versión se vuelve a aplicar igual; los de antes
+  no lo llevan y salen como salieron.
+
+**Lo medido** (`analysis/examples/fitlab.rs`, y `real_click_bench` en
+`services/beats/tests.rs` por la ruta de verdad; los dos de solo lectura, con
+copias de 25 canciones de una biblioteca real): el clic de la red cae
+**de 5 a 18 ms después** de los golpes en 19 de ellas (la mediana, 8 ms; las
+de estudio con secuencias, 1-3 ms). Tras «Arreglar», medido con audio que NO
+se usó para afinar (la mezcla, si se afinó con la batería; la mitad de los
+pulsos, si no), la mediana de lo que queda es 0,5 ms (antes 7,8), a ±2 ms en
+20 de 25, y ninguna sale peor; las que mejoran poco (259, 253, 320, 110) son
+las de poca evidencia: la mezcla apenas tiene golpes claros. La batería
+separada de una canción (28) iba 25 ms corrida de su mezcla y se ignoró. No
+se hace sola al sacar la rejilla (`grid_of`): cambiaría el clic de todas las
+canciones sin que nadie lo oiga; haría falta subir `beats::VERSION` y dejar
+el mismo paso como un re-análisis más.
+
+**Lo que se movió a mano se conserva.** `POST …/beats/reanalyze` acepta
+`own` = `{beats, bars, meter, touched: [[desde, hasta], …]}` (el clic propio y
+los tramos que se tocaron; sin `touched`, un clic propio de antes, no se
+conserva nada) y contesta además `own`: los pulsos NUEVOS en todas partes
+menos dentro de cada tramo tocado, donde quedan los suyos, cosidos a los de
+los lados (`beatgrid::stitch`), con el «1» y el compás sacados otra vez
+(`finish`). `grid` es siempre la automática nueva, sin un pulso suyo, y el
+servidor no escribe el estudio ni el clic propio: lo guarda quien lo pide.
+
+**Dónde golpea el audio** (`GET /api/song/{id}/beats/hits?source=mix|drums`,
+`beats::hits`). Para ajustar el clic a mano contra lo que suena, el servidor
+oye la canción (o su batería separada, `422` si no la tiene) con la misma
+envolvente de ataques que usa el re-análisis (`analysis::onset`, bloques de
+5 ms) y devuelve cada golpe: `{source, step, seconds, ref, hits: [[segundo,
+fuerza], …]}`. `Onsets::peaks(suelo)` saca todos los máximos de la envolvente
+en orden de tiempo, con el instante afinado; el suelo es 0,6 (por debajo es
+ruido de fondo) y `ref` es la fuerza del percentil 85, para normalizar. Oír la
+canción cuesta unos segundos, así que lo ya oído se guarda en memoria (8
+canciones, por la clave del archivo). Una prueba marcada como manual
+(`real_hits_dump`, `DANPLAY_HITS_IN` y `DANPLAY_HITS_OUT`) vuelca los golpes de
+un audio de verdad a un JSON, para probar la parte de la interfaz con ellos.
+
+### Ajustar el clic manual de muchos pulsos a la vez (la parte de la interfaz)
+
+La lógica es pura y no sabe de la pantalla (`utils/beatEdit.js`: mover,
+estirar, repartir, escribir un tempo en un tramo, doblar, mitad, el «1» cada
+N, quitar, volver al automático; `utils/beatAlign.js`: pegar el clic a los
+golpes del audio y buscar el tempo; `utils/beatHistory.js`: deshacer y
+rehacer). `composables/useBeatEdit.js` la une con el estudio, y las tres
+cosas que se ven son `BeatTools.vue` (las herramientas bajo la onda, solo en
+el escritorio y solo ajustando pulsos), `BeatAlign.vue` («Tempo y onda») y
+las teclas.
+
+- **Un solo camino para escribir el clic manual**: `commitOwn(next, label)`.
+  Apunta cómo estaba (`BeatHistory.record`, con el `touched` incluido; `null`
+  es «aún no tenía manual»), lo deja en `study.metronome.own` con las zonas
+  tocadas (`touchedByEdit` contra lo que se veía), lo guarda y se lo da al
+  motor (`click.applyOwn`, que se repite si cambia mientras tanto: mantener
+  una flecha son muchos cambios y solo hace falta que llegue el último). Por
+  ahí van los arrastres de la onda (`update:grid` con una etiqueta),
+  cada herramienta, «Aplicar» del panel, «Re-analizar» en Manual y «Borrar el
+  manual». Deshacer hasta «sin manual» devuelve el automático **con su
+  doble/mitad y su «1» corrido**, que el primer cambio le había quitado.
+- **La selección** (índices de pulsos) es de `useBeatEdit`; la línea de tiempo
+  la pinta y la cambia con `update:selection`. Al cambiar el número de pulsos
+  sigue elegido lo que sigue existiendo (por su tiempo). Las herramientas
+  actúan sobre lo elegido o, sin nada elegido, sobre los pulsos del tramo A-B.
+- **Teclas** (oídas en la fase de captura de `window`, para ganarle al
+  reproductor): Ctrl+Z deshace; Ctrl+Mayús+Z y Ctrl+Y rehacen; con pulsos
+  elegidos, las flechas los corren 5 ms (Mayús 1, Ctrl 25; cambios seguidos
+  = un paso), Supr los quita, Ctrl+A los elige todos y Esc cierra el panel o,
+  si no, suelta la selección. No actúan con el foco en un campo de texto, con
+  un diálogo abierto ni con el estudio oculto.
+- **«Tempo y onda»**: `planAlign(own, tramo, {tempo, fit}, golpes)` calcula
+  el resultado sin tocar nada (el tempo con `setTempoSpan` y la fase o la
+  recta con `alignBeats`, que solo mueve donde mejora: mide lo que pega
+  SOBRE EL AZAR (`excess`, ver abajo), se niega si pega menos de 0,4 y no es
+  claramente mejor que lo que hay (`no pega`: un tramo a medio tiempo solo
+  apoya la mitad de un peine, y pasar de nada a algo claro sí se aplica) o si
+  lo dejaría peor (`empeora`: 3 puntos menos de `excess`, o más dispersión sin
+  ganar `excess`); «Buscar» es `estimateTempo`, que con el tempo que ya tiene
+  el clic (`around`) solo mira ±12 % alrededor y ofrece el doble y la mitad
+  como `alternatives`, con su `excess`, sin elegirlos) y `describePlan` lo
+  cuenta. Todo es una prueba hasta
+  «Aplicar»: se ve en la onda (`preview`) y, si se quiere, suena en el motor
+  sin guardarse (`hearOwn`, con 200 ms de espera); mientras suena, la onda
+  sigue enseñando lo guardado (`viewGrid`). Toda salida (cancelar, Esc,
+  cerrar, dejar de ajustar, cambiar de canción, desmontar, deshacer) pasa por
+  `endPreview`, que devuelve el motor a lo guardado.
+- **«Buscar en la onda»** busca solo cerca de lo que se espera (`estimateTempo`
+  con `around`): el tempo escrito en el campo, si el panel está en «Poner un
+  tempo», y si no el que tiene ahora el tramo; no salta nunca de octavo. Pone
+  en el campo el tempo y su fase (`anchor`). El doble y la mitad que pegan al
+  menos el 85 % de lo encontrado salen como fichas («÷2 · 60 bpm · pegan
+  97 %») que ponen ese tempo y su fase; no se eligen solos. Si cerca de lo
+  escrito `excess` es menor de 0,4 (`NOTHING_EXCESS`), se busca también sin
+  pista y se ofrece en una línea con «Usar este» (solo si ahí `excess` llega a
+  0,4); si tampoco hay nada, «Sin golpes claros en este tramo».
+  `planAlign` pasa `report.spreadReliable` (falso con «Sigue la onda»: no se
+  enseña la dispersión) y `describePlan` da su frase a «empeora» y a «no cabe».
+  **Lo que pega no se mide a secas**: la música real tiene 11–15 golpes por
+  segundo, y un peine a un tempo y una fase cualesquiera ya cae sobre uno de
+  cada dos pulsos (en Sal 22: mediana 42–58 %, hasta el 73 %), mientras que el
+  clic de verdad llega al 93–97 %. `fitReport` devuelve además `chance` (lo
+  que pegarían esos mismos pulsos corridos 0,13, 0,29, 0,41, 0,59, 0,71 y 0,87
+  intervalos: la mediana, que conserva la estructura de los golpes) y `excess`
+  `= (supported − chance) / (1 − chance)`, de 0 a 1. Las frases lo dicen («Pega:
+  30 de 39 pulsos (al azar pegarían unos 21)»); las fichas del doble y la mitad
+  solo salen si su `excess` llega al 85 % del de lo encontrado, y el doble de
+  un tempo por encima de 180 bpm (la corchea) no se ofrece. Cuidado: el mejor
+  de cientos de tempos sobre ruido denso sale con `excess` por encima de 0,4 en
+  tramos cortos (14 s: más de la mitad de las veces); `points` (los puntos del
+  peine) dice cuánto fiarse.
+- **Los golpes** (`GET /api/song/{id}/beats/hits`, `mix` o `drums`) se piden
+  una vez por canción y fuente, solo cuando hacen falta (se ven, hay imán o
+  el panel está abierto). El automático de fondo (`GET …/beats?wait=false`)
+  se pide una vez por canción, para «Volver al automático» y «Ver el
+  automático».
+- **Al ajustar pulsos, el estudio sube a todo el alto** (`.study.editing-beats`,
+  `styles/beat-tools.css`, que va con el estudio y no con `index.css`) y, si
+  aun así no cabe todo, se desplaza. La altura cambia de golpe, sin la
+  animación de siempre: con ella la onda se deslizaba hacia arriba 0,3 s y lo
+  que se pulsaba o medía en ese rato caía en otro sitio (lo vio la e2e de
+  elegir pulsos por la franja).
 
 ## Separar en pistas
 

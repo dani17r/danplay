@@ -1,0 +1,332 @@
+/* ============================================================
+   AJUSTAR LOS PULSOS DE MUCHOS EN MUCHOS
+   Las herramientas bajo la onda (BeatTools.vue) y el panel «Tempo y onda»
+   (BeatAlign.vue). Van con el estudio, que las importa: son parte de esa
+   isla y no hace falta leerlas al arrancar.
+   ============================================================ */
+
+/* con los pulsos en ajuste, el estudio sube a todo el alto que deja el
+   reproductor (como «Grande», sin tocar esa preferencia) y, si aun así no
+   cabe todo, se desplaza: nada queda cortado */
+@media (min-width: 701px) {
+  .study.desk.editing-beats {
+    height: calc(100vh - var(--player-h));
+    overflow-y: auto;
+    /* de golpe: con la altura animándose, la onda se desliza hacia arriba un
+       rato y lo que se pulsa o se mide en ese rato cae en otro sitio */
+    transition: none;
+  }
+  /* cada cosa a su alto de siempre: lo que no cabe se ve desplazando el
+     estudio, no apretando la onda hasta dejarla sin carriles */
+  .study.desk.editing-beats > * {
+    flex-shrink: 0;
+  }
+  .study.desk.editing-beats > .tl {
+    flex: 0 0 auto;
+    overflow: visible;
+  }
+  .study.desk.editing-beats > .study-body {
+    flex: 0 0 auto;
+    height: 300px;
+  }
+}
+
+.beat-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex-shrink: 0;
+  min-width: 0;
+}
+.bt-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px 14px;
+  min-width: 0;
+}
+.bt-group {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.bt-views {
+  margin-left: auto;
+}
+.bt-label {
+  font-size: 10.5px;
+  color: var(--muted2);
+  margin-right: 2px;
+}
+.bt-summary {
+  flex: 1 1 200px;
+  min-width: 0;
+  max-width: 100%;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bt-summary.none {
+  color: var(--muted2);
+  font-family: inherit;
+  font-style: italic;
+}
+.beat-tools .btn.mini {
+  justify-content: center;
+}
+.beat-tools .btn.mini.on {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+  color: var(--accent);
+}
+.beat-tools .bt-align,
+.beat-tools .bt-align.on {
+  margin-left: auto;
+  background: var(--accent2);
+  border-color: var(--accent2);
+  color: var(--bg);
+  font-weight: 600;
+}
+.beat-tools .bt-align:hover:not(:disabled) {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.beat-tools .bt-align.on {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+.beat-tools .btn.mini.bt-danger {
+  color: var(--red);
+  border-color: color-mix(in srgb, var(--red) 40%, var(--border2));
+}
+.beat-tools .btn.mini.bt-danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--red) 14%, var(--panel2));
+  border-color: color-mix(in srgb, var(--red) 60%, var(--border2));
+}
+.bt-step {
+  min-width: 34px;
+  padding-left: 5px;
+  padding-right: 5px;
+  font-size: 11px;
+}
+.bt-ms {
+  width: 60px;
+}
+.bt-ms .field-box {
+  height: 24px;
+  padding: 0 4px;
+}
+.bt-ms input {
+  min-width: 0;
+  text-align: center;
+  font-size: 11.5px;
+}
+/* el desplegable del «1» cada…, al alto de los botones de al lado */
+.bt-bars .select-box {
+  height: 24px;
+  padding: 0 24px 0 8px;
+  border-radius: 6px;
+  font-size: 11.5px;
+}
+.bt-bars .select-arrow {
+  position: absolute;
+  right: 6px;
+}
+.bt-hint {
+  margin: 0;
+  line-height: 1.4;
+}
+
+/* ---------- el panel «Tempo y onda» ---------- */
+.beat-align {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 10px 9px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--text) 3%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
+}
+.ba-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.ba-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+}
+.ba-title .ico {
+  color: var(--accent);
+}
+.ba-span {
+  min-width: 0;
+  font-size: 11px;
+  color: var(--accent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ba-span.none {
+  color: var(--muted2);
+  font-family: inherit;
+  font-style: italic;
+}
+.ba-fill {
+  flex: 1;
+}
+.ba-grid {
+  display: grid;
+  grid-template-columns: minmax(300px, 1.05fr) minmax(320px, 1.15fr) minmax(250px, 0.9fr);
+  gap: 10px 18px;
+  align-items: start;
+}
+.ba-grid.off {
+  opacity: 0.55;
+}
+.ba-col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  border: none;
+}
+.ba-col > legend,
+.ba-legend {
+  padding: 0;
+  margin: 0 0 1px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted2);
+}
+.ba-picks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+.beat-align .ba-pick.on {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+  color: var(--accent);
+}
+/* casillas con la letra de los botones de al lado */
+.beat-align .ba-check {
+  align-items: center;
+  font-size: 11.5px;
+  line-height: 1.2;
+}
+.ba-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+}
+.ba-row small {
+  color: var(--muted2);
+}
+.ba-lab {
+  font-size: 10.5px;
+  color: var(--muted2);
+  margin-right: 2px;
+}
+.ba-dim {
+  opacity: 0.45;
+  pointer-events: none;
+}
+.ba-now {
+  margin-left: 4px;
+  font-size: 11px;
+}
+.ba-found {
+  font-size: 11px;
+  color: var(--accent);
+}
+.ba-found.warn {
+  color: var(--amber);
+}
+.ba-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.ba-chip {
+  font-size: 10.5px;
+}
+.ba-suggest {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--amber);
+}
+.ba-suggest .btn {
+  margin-left: 4px;
+}
+.ba-sliders {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px 12px;
+}
+.ba-col .slider {
+  min-width: 0;
+}
+.ba-col .slider .field-label {
+  font-size: 10.5px;
+}
+.ba-text {
+  min-height: 3.9em;
+  margin: 0;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+.ba-text.ok {
+  color: var(--accent);
+}
+.ba-text.warn {
+  color: var(--amber);
+}
+.ba-spin {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-right: 5px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--muted) 35%, transparent);
+  border-top-color: var(--accent);
+  vertical-align: -1px;
+  animation: ba-turn 0.8s linear infinite;
+}
+@keyframes ba-turn {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.ba-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ba-spin {
+    animation: none;
+  }
+}
+/* una ventana estrecha: los tres bloques, uno debajo de otro */
+@media (max-width: 1100px) {
+  .ba-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

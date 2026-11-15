@@ -304,6 +304,7 @@ describe('what each method requests from the core', () => {
       '/api/song/7/beats/reanalyze',
       { mode: 'repair' }
     ],
+    beatHits: [[7], 'GET', '/api/song/7/beats/hits?source=mix'],
     phoneFolders: [[], 'GET', '/api/phone/folders'],
     setPhoneFolders: [[['/m']], 'PUT', '/api/phone/folders', { folders: ['/m'] }],
     phoneScan: [[], 'POST', '/api/phone/scan'],

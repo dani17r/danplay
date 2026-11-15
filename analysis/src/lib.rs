@@ -5,6 +5,9 @@
 //! - `mix`: el clic y las guías habladas de una mezcla guardada, en WAV;
 //! - `beatgrid`: la rejilla del clic con lo que dijo la red: de toda la
 //!   canción, «Re-analizar el clic» (un tramo, el tempo fijo) y lo que cambió;
+//! - `onset`: dónde golpea de verdad el audio (una envolvente de ataques cada
+//!   ~5 ms) y `fit`: cuánto cae el clic de esos golpes, empujarlo hacia ellos
+//!   y arreglar sus intervalos sueltos (lo que hace falta a «Re-analizar»);
 //! - `click`: la pista del clic de la mezcla que se guarda (el sonido es el
 //!   del motor, el mismo que suena en el modo estudio);
 //! - `structure`: las partes de la canción y cuándo anunciarlas (la guía
@@ -40,10 +43,12 @@ pub mod arrangement;
 pub mod beatgrid;
 pub mod click;
 pub mod cues;
+pub mod fit;
 pub mod key;
 pub mod mega;
 pub mod mix;
 pub mod onnx;
+pub mod onset;
 pub mod pulse;
 pub mod separate;
 pub mod sheet;
