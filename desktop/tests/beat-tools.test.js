@@ -28,11 +28,14 @@ import {
   planAlign,
   describePlan,
   findTempo,
+  tempoChoices,
+  ratioLabel,
   timeText,
   bpmText,
   lagText
 } from '../src/composables/useBeatEdit.js'
 import { song, stemsOf } from './support/backend.js'
+import sal22 from './fixtures/sal22-hits.json'
 
 const round3 = (t) => Math.round(t * 1000) / 1000
 /**
@@ -750,20 +753,24 @@ describe('the Tempo y onda panel', () => {
     expect(buttonOf(w, 'Deshacer').attributes('disabled')).toBeDefined()
   })
 
-  it('«Buscar en la onda» finds the tempo and its phase in the hits of the segment', async () => {
+  it('«Buscar en la onda» searches near the tempo he typed and finds its exact tempo and phase', async () => {
     hitsOf([...comb76(5.5, 22, 0.03), ...unrelated(5, 22).filter((_, i) => i % 3 === 0)])
     const w = await mountView()
     await startEditing(w)
     await openPanel(w)
+    // el clic va a 120 y él escribe ~76: se busca cerca de 76, no cerca de 120
+    await setTempo(w, 75)
     await buttonOf(w, 'Buscar en la onda').trigger('click')
     await settle()
-    const found = parseFloat(
-      w.find('.ba-tempo .study-bpm-input input').element.value.replace(',', '.')
-    )
-    expect(found).toBeGreaterThan(75.8)
-    expect(found).toBeLessThan(76.2)
+    const field = () =>
+      parseFloat(w.find('.ba-tempo .study-bpm-input input').element.value.replace(',', '.'))
+    expect(field()).toBeGreaterThan(75.8)
+    expect(field()).toBeLessThan(76.2)
     expect(text(w, '.ba-found')).toMatch(/pegan \d+ de \d+/)
     expect(held.api.beatHits).toHaveBeenCalledWith(7, 'mix')
+    // el doble solo apoya la mitad de sus puntos: no se ofrece
+    expect(w.find('.ba-chips').exists()).toBe(false)
+    expect(w.find('.ba-suggest').exists()).toBe(false)
     // el peine ya cae sobre los golpes: pega, sin pedir ajuste
     expect(result(w)).toMatch(/^Pega: \d+ de \d+ pulsos/)
     await buttonOf(w, 'Aplicar').trigger('click')
@@ -774,6 +781,180 @@ describe('the Tempo y onda panel', () => {
     const mid = own.beats.filter((t) => t > 7 && t < 19)
     const off = mid.map((t) => Math.min(...hits.map((h) => Math.abs(h - t))))
     expect(Math.max(...off)).toBeLessThan(0.02)
+  })
+
+  it('without a typed tempo it searches near what the segment has: no hits there offers a blind search, and does not touch the field', async () => {
+    hitsOf(comb76(5.5, 22, 0.03))
+    const w = await mountView()
+    await startEditing(w)
+    await openPanel(w)
+    const field = w.find('.ba-tempo .study-bpm-input input')
+    await buttonOf(w, 'Buscar en la onda').trigger('click')
+    await settle()
+    // cerca de 120 no hay nada y NO salta al 76 por su cuenta: lo ofrece
+    expect(text(w, '.ba-suggest')).toMatch(
+      /^Cerca de 120 bpm no hay golpes claros\. Buscando sin pista: 7[56](,\d)? bpm \(pegan \d+ %\)/
+    )
+    expect(field.element.value, 'el campo sigue como estaba').toBe('')
+    expect(buttonOf(w, 'Poner un tempo').attributes('aria-checked')).toBe('false')
+    await buttonOf(w, 'Usar este').trigger('click')
+    await settle()
+    expect(buttonOf(w, 'Poner un tempo').attributes('aria-checked')).toBe('true')
+    const typed = parseFloat(field.element.value.replace(',', '.'))
+    expect(typed).toBeGreaterThan(75.8)
+    expect(typed).toBeLessThan(76.2)
+    expect(w.find('.ba-suggest').exists()).toBe(false)
+    expect(text(w, '.ba-found')).toMatch(/pegan \d+ de \d+/)
+    // y con su fase: el peine cae sobre los golpes
+    await buttonOf(w, 'Aplicar').trigger('click')
+    await settle()
+    // el primer pulso nuevo cae sobre un golpe (el primero desde el 6,0 está en 6,319)
+    const first = savedOwn().beats.find((t) => t >= 6)
+    expect(Math.abs(first - 6.319)).toBeLessThan(0.01)
+  })
+
+  it('when the blind search finds nothing either it says there are no clear hits', async () => {
+    hitsOf([
+      [6.2, 3],
+      [9.9, 3]
+    ])
+    const w = await mountView()
+    await startEditing(w)
+    await openPanel(w)
+    await setTempo(w, 100)
+    await buttonOf(w, 'Buscar en la onda').trigger('click')
+    await settle()
+    expect(text(w, '.ba-found')).toBe('Sin golpes claros en este tramo')
+    expect(w.find('.ba-suggest').exists()).toBe(false)
+  })
+
+  it('a hand-typed tempo with no hits near it (but some far away) is not hidden: the blind search is offered with its support', async () => {
+    // golpes a 120 bpm; escribe 100
+    const at120 = []
+    for (let t = 6.03, k = 0; t < 21; t += 0.5, k++) at120.push([round3(t), k % 4 === 0 ? 4 : 3])
+    hitsOf(at120)
+    const w = await mountView()
+    await startEditing(w)
+    await openPanel(w)
+    await setTempo(w, 100)
+    await buttonOf(w, 'Buscar en la onda').trigger('click')
+    await settle()
+    expect(text(w, '.ba-suggest')).toContain('Cerca de 100 bpm no hay golpes claros')
+    expect(text(w, '.ba-suggest')).toContain('Buscando sin pista: 120 bpm (pegan 100 %)')
+    await buttonOf(w, 'Usar este').trigger('click')
+    await settle()
+    // el 60 pega tanto como el 120 (es un subconjunto): se ofrece, sin elegirlo
+    const chip = w.find('.ba-chip')
+    expect(chip.text()).toMatch(/^÷2 · 60 bpm · pegan 100 %$/)
+  })
+
+  describe('on the real hits of a live song (Sal 22 Te Amo, 120 bpm with a half-time section)', () => {
+    const unflat = (flat) =>
+      Array.from({ length: flat.length / 2 }, (_, i) => [flat[2 * i], flat[2 * i + 1]])
+    const realOwn = () => ({
+      beats: sal22.beats,
+      bars: sal22.beats.map((_, i) => i).filter((i) => i % 4 === 0),
+      meter: 4,
+      touched: []
+    })
+    /** Los pulsos de 100 a 160 s. */
+    const inSection = sal22.beats.map((t, i) => [t, i]).filter(([t]) => t >= 100 && t <= 160)
+    const SECTION = inSection.map(([, i]) => i)
+    async function realPanel() {
+      held.state.hits = { mix: { hits: unflat(sal22.mix), ref: 3 } }
+      withOwn(realOwn())
+      const w = await mountView()
+      await startEditing(w)
+      await openPanel(w, SECTION)
+      return w
+    }
+
+    it('searching near 120 finds ~120 and offers the half (÷2) as a chip, without picking it', async () => {
+      const w = await realPanel()
+      await buttonOf(w, 'Poner un tempo').trigger('click')
+      await buttonOf(w, 'Buscar en la onda').trigger('click')
+      await settle()
+      const field = () =>
+        parseFloat(w.find('.ba-tempo .study-bpm-input input').element.value.replace(',', '.'))
+      expect(field()).toBeGreaterThan(119)
+      expect(field()).toBeLessThan(121)
+      const chips = w.findAll('.ba-chip').map((c) => c.text())
+      expect(chips).toHaveLength(1)
+      expect(chips[0]).toMatch(/^÷2 · 60 bpm · pegan \d+ %$/)
+      // el 240 no apoya casi nada: no se ofrece
+      expect(chips.join()).not.toContain('×2')
+      expect(w.find('.ba-suggest').exists()).toBe(false)
+    })
+
+    it('clicking the chip puts that tempo and its phase in the field; the ×2 button keeps multiplying the field', async () => {
+      const w = await realPanel()
+      await buttonOf(w, 'Poner un tempo').trigger('click')
+      await buttonOf(w, 'Buscar en la onda').trigger('click')
+      await settle()
+      const span = [sal22.beats[SECTION[0]], sal22.beats[SECTION.at(-1)]]
+      const expected = findTempo(unflat(sal22.mix), span, 120).alternatives.find(
+        (a) => a.ratio === 0.5
+      )
+      await w.find('.ba-chip').trigger('click')
+      await settle()
+      const field = () =>
+        parseFloat(w.find('.ba-tempo .study-bpm-input input').element.value.replace(',', '.'))
+      expect(field()).toBeCloseTo(Math.round(expected.bpm * 10) / 10, 0)
+      // lo puesto es lo que salió: sus puntos del peine, y ahora el 120 se ofrece (×2)
+      expect(text(w, '.ba-found')).toMatch(/^60 bpm · pegan \d+ de \d+/)
+      expect(w.find('.ba-chip').text()).toMatch(/^×2 · 120(,\d)? bpm · pegan \d+ %$/)
+      // y con la fase del chip: el primer pulso nuevo cae sobre ella
+      await buttonOf(w, 'Aplicar').trigger('click')
+      await settle()
+      const first = savedOwn().beats.find((t) => t >= span[0] - 0.001)
+      const k = Math.round((first - expected.phase) / (60 / expected.bpm))
+      expect(Math.abs(first - (expected.phase + k * (60 / expected.bpm)))).toBeLessThan(0.006)
+    })
+
+    it('«×2» still multiplies what is in the field', async () => {
+      const w = await realPanel()
+      await buttonOf(w, 'Poner un tempo').trigger('click')
+      await buttonOf(w, 'Buscar en la onda').trigger('click')
+      await settle()
+      await w.find('.ba-chip').trigger('click')
+      await settle()
+      await buttonOf(w, '×2').trigger('click')
+      await settle()
+      const v = parseFloat(
+        w.find('.ba-tempo .study-bpm-input input').element.value.replace(',', '.')
+      )
+      expect(v).toBeGreaterThan(119)
+      expect(v).toBeLessThan(121)
+    })
+
+    it('«Tempo fijo» over a click that already fits is refused as «Empeoraría», with the numbers, and can be forced', async () => {
+      const w = await realPanel()
+      await buttonOf(w, 'Tempo fijo').trigger('click')
+      await settle()
+      expect(result(w)).toMatch(
+        /^Empeoraría: pegan \d+ de \d+ pulsos y pasarían a \d+; se queda como está \(puedes forzar el ajuste\)$/
+      )
+      expect(buttonOf(w, 'Aplicar').attributes('disabled')).toBeDefined()
+      // con «Forzar el ajuste» se hace igual
+      await w.find('.ba-fit .check-field input').setValue(true)
+      await settle()
+      expect(result(w)).toMatch(/^Pega: /)
+      expect(buttonOf(w, 'Aplicar').attributes('disabled')).toBeUndefined()
+    })
+  })
+
+  it('«Sigue la onda» does not show a spread (every beat sits on its hit): «Solo la fase» does', async () => {
+    // un clic que cae 30 ms antes de cada golpe, y un poco desigual
+    hitsOf(comb76(6, 22, 0.03))
+    const w = await mountView()
+    await startEditing(w)
+    await openPanel(w)
+    await setTempo(w, 76)
+    await fitHow(w, 'phase')
+    expect(result(w)).toContain('dispersión')
+    await fitHow(w, 'follow')
+    expect(result(w)).toMatch(/^Pega: /)
+    expect(result(w)).not.toContain('dispersión')
   })
 
   it('a typed tempo and «Solo la fase» slide the whole comb onto the hits, and say how it went', async () => {
@@ -796,15 +977,16 @@ describe('the Tempo y onda panel', () => {
     expect(buttonOf(w, 'Deshacer').attributes('title')).toContain('tempo y onda')
   })
 
-  it('when the audio does not match it keeps the exact tempo and says so; «Forzar el ajuste» does it anyway', async () => {
-    hitsOf(unrelated(5, 22))
+  it('when the audio does not match it keeps the exact tempo and says so', async () => {
+    // golpes al mismo tempo pero a contrapié (media vuelta de fase): ningún corrimiento de ±50 ms los alcanza
+    hitsOf(comb76(6, 22, P76 / 2))
     const w = await mountView()
     await startEditing(w)
     await openPanel(w)
     await setTempo(w, 76)
     await fitHow(w, 'phase')
     expect(result(w)).toMatch(
-      /^No pega con la onda en este tramo \(\d+ de 19 pulsos\): se queda con el tempo exacto, sin ajustar/
+      /^No pega con la onda en este tramo \(0 de 19 pulsos\): se queda con el tempo exacto, sin ajustar/
     )
     await buttonOf(w, 'Aplicar').trigger('click')
     await settle()
@@ -1056,14 +1238,94 @@ describe('planAlign', () => {
     expect(forced.refused).toBe('')
   })
 
-  it('«Buscar» (findTempo) gives the tempo, the phase and how many comb points hit', () => {
-    const f = findTempo(hits(0.011), [6, 20.5], 120)
+  it('«Buscar» (findTempo) near the tempo gives the tempo, the phase and how many comb points hit', () => {
+    const f = findTempo(hits(0.011), [6, 20.5], 76)
     expect(f.bpm).toBeGreaterThan(75.8)
     expect(f.bpm).toBeLessThan(76.2)
     expect(f.pegan).toBeLessThanOrEqual(f.points)
     expect(f.pegan / f.points).toBeGreaterThan(0.9)
     expect(f.phase).toBeCloseTo(6.011, 1)
     expect(findTempo([], [6, 20.5])).toBeNull()
+  })
+
+  it('«Buscar» never jumps octave: near 120 it does not answer 76', () => {
+    const near = findTempo(hits(0.011), [6, 20.5], 120)
+    expect(Math.abs(near.bpm - 76)).toBeGreaterThan(5)
+    expect(near.support).toBeLessThan(0.5)
+    // sin pista sí lo encuentra, y su doble (que solo apoya la mitad) no se elige
+    const blind = findTempo(hits(0.011), [6, 20.5])
+    expect(blind.bpm).toBeGreaterThan(75.8)
+    expect(blind.bpm).toBeLessThan(76.2)
+  })
+
+  it('the alternatives carry how many comb points hit, and only the ones that hit almost as much are offered', () => {
+    const at120 = []
+    for (let t = 6.03, k = 0; t < 21; t += 0.5, k++) at120.push([round3(t), k % 4 === 0 ? 4 : 3])
+    const f = findTempo(at120, [6, 20.5], 120)
+    const half = f.alternatives.find((a) => a.ratio === 0.5)
+    expect(half.bpm).toBeGreaterThan(59.5)
+    expect(half.bpm).toBeLessThan(60.5)
+    expect(half.pegan).toBeLessThanOrEqual(half.points)
+    expect(half.points).toBeLessThan(f.points)
+    // el 60 es un subconjunto del 120: pega igual y se ofrece; el 240 solo apoya la mitad y no
+    const offered = tempoChoices(f)
+    expect(offered[0]).toBe(f)
+    expect(offered.map((c) => Math.round(c.bpm))).toEqual([120, 60])
+    expect(ratioLabel(f.bpm, half.bpm)).toBe('÷2')
+    expect(ratioLabel(half.bpm, f.bpm)).toBe('×2')
+    // desde una alternativa, la otra no es «×2» a secas
+    expect(ratioLabel(60, 240)).toBe('×4')
+    expect(ratioLabel(240, 60)).toBe('÷4')
+    expect(ratioLabel(100, 150)).toBe('×1.5')
+    expect(tempoChoices(null)).toEqual([])
+  })
+
+  it('«empeora», «no cabe» and the spread have their own words', () => {
+    const fit = (supported, spreadMs = 0, offsetMs = 0) => ({ supported, spreadMs, offsetMs })
+    const base = {
+      how: 'line',
+      setTempo: false,
+      n: 40,
+      spreadReliable: true,
+      before: fit(0.93),
+      after: fit(0.93),
+      candidate: fit(0.72)
+    }
+    expect(describePlan({ ...base, refused: 'empeora' }).text).toBe(
+      'Empeoraría: pegan 37 de 40 pulsos y pasarían a 29; se queda como está (puedes forzar el ajuste)'
+    )
+    expect(describePlan({ ...base, setTempo: true, refused: 'empeora' }).text).toBe(
+      'Empeoraría: pegan 37 de 40 pulsos y pasarían a 29; se queda con el tempo exacto, sin ajustar (puedes forzar el ajuste)'
+    )
+    expect(describePlan({ ...base, refused: 'no cabe' }).text).toBe(
+      'No cabe entre los pulsos de los lados'
+    )
+    const ok = { ...base, refused: '', before: fit(0.5, 9, -14), after: fit(0.9, 3, -1) }
+    expect(describePlan(ok).text).toContain('dispersión 9 → 3 ms')
+    expect(describePlan({ ...ok, spreadReliable: false }).text).not.toContain('dispersión')
+  })
+
+  it('planAlign carries `spreadReliable` from the alignment: false with follow, true otherwise', () => {
+    const truth = []
+    for (let t = 6, k = 0; k < 29; t += 60 / 76, k++) truth.push([round3(t + 0.02), 4])
+    const wrong = { beats: HIS.beats, bars: HIS.bars, meter: 4 }
+    const follow = planAlign(
+      wrong,
+      [6, 20.5],
+      { tempo: { mode: 'set', bpm: 76 }, fit: { how: 'follow' } },
+      truth
+    )
+    expect(follow.spreadReliable).toBe(false)
+    const phase = planAlign(
+      wrong,
+      [6, 20.5],
+      { tempo: { mode: 'set', bpm: 76 }, fit: { how: 'phase' } },
+      truth
+    )
+    expect(phase.spreadReliable).toBe(true)
+    expect(
+      planAlign(wrong, [6, 20.5], { tempo: { mode: 'set', bpm: 76 } }, truth).spreadReliable
+    ).toBe(true)
   })
 })
 

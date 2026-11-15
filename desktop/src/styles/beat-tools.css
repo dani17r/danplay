@@ -12,6 +12,9 @@
   .study.desk.editing-beats {
     height: calc(100vh - var(--player-h));
     overflow-y: auto;
+    /* de golpe: con la altura animándose, la onda se desliza hacia arriba un
+       rato y lo que se pulsa o se mide en ese rato cae en otro sitio */
+    transition: none;
   }
   /* cada cosa a su alto de siempre: lo que no cabe se ve desplazando el
      estudio, no apretando la onda hasta dejarla sin carriles */
@@ -253,6 +256,23 @@
 }
 .ba-found.warn {
   color: var(--amber);
+}
+.ba-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.ba-chip {
+  font-size: 10.5px;
+}
+.ba-suggest {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--amber);
+}
+.ba-suggest .btn {
+  margin-left: 4px;
 }
 .ba-sliders {
   display: grid;

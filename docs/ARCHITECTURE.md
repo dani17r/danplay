@@ -1265,6 +1265,16 @@ las teclas.
   sigue enseñando lo guardado (`viewGrid`). Toda salida (cancelar, Esc,
   cerrar, dejar de ajustar, cambiar de canción, desmontar, deshacer) pasa por
   `endPreview`, que devuelve el motor a lo guardado.
+- **«Buscar en la onda»** busca solo cerca de lo que se espera (`estimateTempo`
+  con `around`): el tempo escrito en el campo, si el panel está en «Poner un
+  tempo», y si no el que tiene ahora el tramo; no salta nunca de octavo. Pone
+  en el campo el tempo y su fase (`anchor`). El doble y la mitad que pegan al
+  menos el 85 % de lo encontrado salen como fichas («÷2 · 60 bpm · pegan
+  97 %») que ponen ese tempo y su fase; no se eligen solos. Si cerca de lo
+  escrito pega menos de la mitad, se busca también sin pista y se ofrece en una
+  línea con «Usar este»; si tampoco hay nada, «Sin golpes claros en este tramo».
+  `planAlign` pasa `report.spreadReliable` (falso con «Sigue la onda»: no se
+  enseña la dispersión) y `describePlan` da su frase a «empeora» y a «no cabe».
 - **Los golpes** (`GET /api/song/{id}/beats/hits`, `mix` o `drums`) se piden
   una vez por canción y fuente, solo cuando hacen falta (se ven, hay imán o
   el panel está abierto). El automático de fondo (`GET …/beats?wait=false`)
@@ -1272,7 +1282,10 @@ las teclas.
   automático».
 - **Al ajustar pulsos, el estudio sube a todo el alto** (`.study.editing-beats`,
   `styles/beat-tools.css`, que va con el estudio y no con `index.css`) y, si
-  aun así no cabe todo, se desplaza.
+  aun así no cabe todo, se desplaza. La altura cambia de golpe, sin la
+  animación de siempre: con ella la onda se deslizaba hacia arriba 0,3 s y lo
+  que se pulsaba o medía en ese rato caía en otro sitio (lo vio la e2e de
+  elegir pulsos por la franja).
 
 ## Separar en pistas
 

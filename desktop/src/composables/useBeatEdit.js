@@ -211,7 +211,10 @@ export function planAlign(own, span, settings = {}, hits = []) {
     refused: aligned && !aligned.applied ? aligned.report.reason || 'no pega' : '',
     before,
     after,
-    candidate: aligned?.report.candidate ?? null
+    candidate: aligned?.report.candidate ?? null,
+    // con «sigue la onda» cada pulso se pega a su golpe y la dispersión de
+    // después sale casi 0 sin decir nada: no se enseña
+    spreadReliable: aligned ? aligned.report.spreadReliable !== false : true
   }
 }
 
@@ -244,6 +247,20 @@ export function describePlan(plan, { loading = false, error = '' } = {}) {
   if (plan.refused === 'sin pulsos') {
     return { text: 'No hay pulsos en este tramo para ajustar', kind: 'warn' }
   }
+  if (plan.refused === 'no cabe') {
+    return { text: 'No cabe entre los pulsos de los lados', kind: 'warn' }
+  }
+  if (plan.refused === 'empeora') {
+    // lo que ya pega es mejor que lo que saldría: se avisa antes de que alguien lo estropee
+    return {
+      text:
+        `Empeoraría: pegan ${count(plan.before)} de ${plan.n} pulsos y pasarían a ` +
+        `${count(plan.candidate)}; ` +
+        (plan.setTempo ? 'se queda con el tempo exacto, sin ajustar' : 'se queda como está') +
+        ' (puedes forzar el ajuste)',
+      kind: 'warn'
+    }
+  }
   if (plan.refused) {
     const c = count(plan.candidate)
     return {
@@ -266,7 +283,9 @@ export function describePlan(plan, { loading = false, error = '' } = {}) {
     text:
       `Pega: ${count(after)} de ${plan.n} pulsos (${pct} %)` +
       ` · el clic iba ${lagText(before.offsetMs)} → ${lagText(after.offsetMs)}` +
-      ` · dispersión ${Math.round(before.spreadMs)} → ${Math.round(after.spreadMs)} ms`,
+      (plan.spreadReliable
+        ? ` · dispersión ${Math.round(before.spreadMs)} → ${Math.round(after.spreadMs)} ms`
+        : ''),
     kind: 'ok'
   }
 }
@@ -279,15 +298,44 @@ export function describePlan(plan, { loading = false, error = '' } = {}) {
 export function combPoints(span, bpm) {
   return Math.max(1, Math.floor(((span[1] - span[0]) * bpm) / 60 + 1e-9) + 1)
 }
-/** Busca en la onda el tempo del tramo, cerca de `around`. */
+/**
+ * Busca en la onda el tempo del tramo. Con `around` (lo que se espera: el que
+ * se ha escrito o el que ya tiene), solo cerca de él; sin él, a ciegas. Cada
+ * resultado trae cuántos puntos del peine caben (`points`) y cuántos pegan
+ * (`pegan`), también cada alternativa (el doble y la mitad: se ofrecen, no se
+ * eligen solas).
+ * @param {Array<[number, number]>} hits @param {[number, number]} span @param {number} [around]
+ */
 export function findTempo(hits, span, around = 0) {
   const r = estimateTempo(hits, span, { around })
   if (!r) return null
-  return {
-    ...r,
-    points: combPoints(span, r.bpm),
-    pegan: Math.round(r.support * combPoints(span, r.bpm))
+  const counted = (c) => {
+    const points = combPoints(span, c.bpm)
+    return { ...c, points, pegan: Math.round(c.support * points) }
   }
+  return { ...counted(r), alternatives: (r.alternatives || []).map(counted) }
+}
+
+/** Una alternativa solo merece enseñarse si pega casi tanto como lo elegido. */
+export const ALTERNATIVE_KEEP = 0.85
+/**
+ * Lo que se ofrece tras buscar: el elegido y sus alternativas que pegan al
+ * menos el 85 % de lo elegido, para saltar de uno a otro.
+ * @param {ReturnType<typeof findTempo>} found
+ */
+export function tempoChoices(found) {
+  if (!found) return []
+  const keep = (found.alternatives || []).filter(
+    (a) => a.support >= ALTERNATIVE_KEEP * found.support - 1e-9
+  )
+  return [found, ...keep]
+}
+/** «×2», «÷2», «×4»…: cómo se ve el tempo `to` desde `from` (el doble, la mitad…). */
+export function ratioLabel(from, to) {
+  const r = to / from
+  const n = r >= 1 ? r : 1 / r
+  const shown = Math.abs(n - Math.round(n)) < 0.06 ? String(Math.round(n)) : n.toFixed(1)
+  return `${r >= 1 ? '×' : '÷'}${shown}`
 }
 
 // -------------------------------------------------------------------- el compuesto

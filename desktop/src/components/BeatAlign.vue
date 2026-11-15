@@ -25,6 +25,8 @@ import {
   describePlan,
   findTempo,
   planAlign,
+  ratioLabel,
+  tempoChoices,
   timeText
 } from '../composables/useBeatEdit.js'
 
@@ -88,8 +90,15 @@ const bpm = ref(0)
 const bpmDraft = ref(null)
 const anchor = ref(null)
 const phaseMs = ref(0)
-/** Lo que dijo «Buscar en la onda»: {bpm, pegan, points} o {none: true} */
+/**
+ * Lo que dijo «Buscar en la onda»: `{main, picked}` (lo que encontró y lo que
+ * está puesto: el mismo, o una de sus alternativas), o `{none: true}`.
+ */
 const found = ref(null)
+/** Si cerca de lo escrito no hay golpes: lo que salió buscando sin pista, para ofrecerlo. */
+const suggestion = ref(null)
+/** Menos de esto de los puntos del peine con golpe es que ahí no hay nada que encontrar. */
+const CLEAR = 0.5
 const round2 = (v) => Math.round(v * 100) / 100
 /** «+12 ms», «−3 ms», «0 ms» */
 const signed = (v) => `${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(v)} ms`
@@ -120,22 +129,61 @@ function onBpmKey(e) {
   }
 }
 const bpmShown = computed(() => bpmDraft.value ?? (bpm.value > 0 ? bpmText(bpm.value) : ''))
+/** Pone ese tempo y su fase en el campo. */
+function take(c) {
+  tempoMode.value = 'set'
+  bpm.value = c.bpm
+  bpmDraft.value = null
+  anchor.value = c.phase
+  phaseMs.value = 0
+}
+/** Cerca de lo escrito (o de lo que tiene) se busca; si ahí no hay golpes, a ciegas, y se ofrece. */
 async function search() {
   const s = span.value
   if (!s) return
+  suggestion.value = null
   await edit.loadHits()
-  const r = findTempo(edit.hits, s, nowBpm.value)
-  if (!r) {
+  // lo que se escribió es lo que se espera: lo que se quiere es su tempo exacto y su fase
+  const typed = tempoMode.value === 'set' && bpm.value > 0 ? bpm.value : nowBpm.value
+  const near = findTempo(edit.hits, s, typed)
+  if (near && (near.support >= CLEAR || !(typed > 0))) {
+    take(near)
+    found.value = { main: near, picked: near }
+    return
+  }
+  const free = typed > 0 ? findTempo(edit.hits, s, 0) : null
+  if (!free) {
     found.value = { none: true }
     return
   }
-  tempoMode.value = 'set'
-  bpm.value = r.bpm
-  bpmDraft.value = null
-  anchor.value = r.phase
-  phaseMs.value = 0
-  found.value = r
+  found.value = null
+  suggestion.value = { around: typed, result: free }
 }
+function useSuggestion() {
+  const r = suggestion.value?.result
+  if (!r) return
+  take(r)
+  found.value = { main: r, picked: r }
+  suggestion.value = null
+}
+function pick(c) {
+  take(c)
+  found.value = { ...found.value, picked: c }
+}
+const pct = (c) => Math.round((c?.support || 0) * 100)
+/** «÷2 · 60 bpm · pegan 97 %» */
+const chipText = (c) =>
+  `${ratioLabel(foundNow.value.picked.bpm, c.bpm)} · ${bpmText(c.bpm)} bpm · pegan ${pct(c)} %`
+/** Lo que se encontró, mientras el campo siga con ese tempo. */
+const foundNow = computed(() => {
+  const f = found.value
+  return f?.picked && Math.abs(bpm.value - f.picked.bpm) < 0.06 ? f : null
+})
+/** El doble y la mitad (y lo que se encontró, si se saltó a otro) que pegan casi tanto. */
+const chips = computed(() => {
+  const f = foundNow.value
+  return f ? tempoChoices(f.main).filter((c) => c !== f.picked) : []
+})
 // otro tramo: lo que se había buscado ya no vale
 watch(
   () => (span.value ? span.value.map((t) => Math.round(t * 1000)).join() : ''),
@@ -143,6 +191,7 @@ watch(
     anchor.value = null
     phaseMs.value = 0
     found.value = null
+    suggestion.value = null
   }
 )
 
@@ -320,16 +369,41 @@ function cancel() {
             <Icon n="search" :t="11" /> Buscar en la onda
           </button>
           <small v-if="found && found.none" class="ba-found warn">
-            No hay golpes claros para buscar aquí
+            Sin golpes claros en este tramo
           </small>
           <small
-            v-else-if="found"
+            v-else-if="foundNow"
             class="ba-found mono"
             title="Cuántos puntos del peine caen sobre un golpe"
           >
-            {{ bpmText(found.bpm) }} bpm · pegan {{ found.pegan }} de {{ found.points }}
+            {{ bpmText(foundNow.picked.bpm) }} bpm · pegan {{ foundNow.picked.pegan }} de
+            {{ foundNow.picked.points }}
           </small>
         </div>
+        <div v-if="chips.length" class="ba-chips" aria-label="Otros tempos que también pegan">
+          <button
+            v-for="c in chips"
+            :key="c.bpm"
+            type="button"
+            class="btn mini ba-chip mono"
+            :title="`Poner ${bpmText(c.bpm)} bpm, con su fase (pegan ${c.pegan} de ${c.points} puntos del peine)`"
+            @click="pick(c)"
+          >
+            {{ chipText(c) }}
+          </button>
+        </div>
+        <p v-if="suggestion" class="ba-suggest" aria-live="polite">
+          Cerca de {{ bpmText(suggestion.around) }} bpm no hay golpes claros. Buscando sin pista:
+          {{ bpmText(suggestion.result.bpm) }} bpm (pegan {{ pct(suggestion.result) }} %)
+          <button
+            type="button"
+            class="btn mini"
+            title="Poner ese tempo y su fase"
+            @click="useSuggestion"
+          >
+            Usar este
+          </button>
+        </p>
         <div :class="{ 'ba-dim': tempoMode !== 'set' }">
           <SliderField
             v-model="phaseMs"
