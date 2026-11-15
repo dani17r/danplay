@@ -868,6 +868,16 @@ function answers(state) {
       if (body.own) out.own = mergeOwn(body.own, next, old?.beats || [])
       return out
     }),
+    // Los golpes del audio (`state.hits.mix` / `state.hits.drums`, cada uno
+    // `{hits: [[s, fuerza], …], ref?}`); la batería sin ellos es «no la tiene»
+    beatHits: vi.fn(async (id, source = 'mix') => {
+      const h = state.hits?.[source]
+      if (!h) {
+        if (source === 'drums') throw new Error('esta canción no tiene la batería separada')
+        return { source, step: 0.005, seconds: 0, ref: 0, hits: [] }
+      }
+      return { source, step: 0.005, seconds: 0, ref: 3, ...copy(h) }
+    }),
     // «Transformar»: las propuestas de `state.tidy`; aplicar una la quita y
     // devuelve la ficha con su ruta nueva (o el error de `state.tidyError`)
     tidyList: vi.fn(async () => ({ items: copy(state.tidy), looked: 9, total: 9 })),

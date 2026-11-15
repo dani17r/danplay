@@ -17,6 +17,7 @@ pub const ROUTES: &[Route] = &[
     Route::delete("/api/song/{cid}", delete_song),
     Route::get("/api/song/{cid}/audio", audio),
     Route::get("/api/song/{cid}/beats", song_beats),
+    Route::get("/api/song/{cid}/beats/hits", song_beats_hits),
     Route::post("/api/song/{cid}/beats/prepare", song_beats_prepare),
     Route::post("/api/song/{cid}/beats/reanalyze", song_beats_reanalyze),
     Route::get("/api/song/{cid}/waveform", song_waveform),
@@ -201,6 +202,20 @@ fn song_beats(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     }
     let grid = beats::grid_of(app, &path).map_err(beats_error)?;
     Ok(grid.into())
+}
+
+/// Dónde golpea el audio de la canción (la mezcla o la batería separada):
+/// lo que se enseña en la onda al ajustar el clic a mano y contra lo que se
+/// alinea. Oír la canción tarda unos segundos la primera vez; después sale de
+/// memoria.
+fn song_beats_hits(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
+    let cid = ctx.path().int("cid").required();
+    let source = ctx.query().literal("source", &["mix", "drums"]).or("mix");
+    ctx.check()?;
+    let c = resolved_file(ctx.app, cid, "archivo no encontrado")?;
+    let path = path_of(&c);
+    let out = beats::hits(ctx.app, &path, &source).map_err(beats_error)?;
+    Ok(out.into())
 }
 
 /// Las que caben en una petición de preparar el clic (una lista entera).

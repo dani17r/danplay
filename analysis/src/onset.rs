@@ -140,6 +140,35 @@ impl Onsets {
         out
     }
 
+    /// Todos los golpes de la envolvente, en orden de tiempo: `(instante
+    /// afinado, fuerza)` de cada máximo de `flux` que llega a `floor`. Lo que
+    /// se enseña en la onda y contra lo que se alinea el clic a mano.
+    pub fn peaks(&self, floor: f64) -> Vec<(f64, f64)> {
+        let n = self.flux.len();
+        let mut out = Vec::new();
+        for frame in 1..n.saturating_sub(1) {
+            let (before, here, after) = (
+                f64::from(self.flux[frame - 1]),
+                f64::from(self.flux[frame]),
+                f64::from(self.flux[frame + 1]),
+            );
+            if here >= floor && here > 0.0 && here >= before && here > after {
+                out.push((self.when(frame), here));
+            }
+        }
+        // `when` busca la subida más empinada a unos bloques: dos máximos
+        // vecinos pueden dar el mismo instante, y uno solo es el golpe
+        out.dedup_by(|b, a| {
+            if (b.0 - a.0).abs() < self.step * 0.5 {
+                a.1 = a.1.max(b.1);
+                true
+            } else {
+                false
+            }
+        });
+        out
+    }
+
     /// El instante afinado de un golpe cuya fuerza (`flux`) es máxima en el
     /// bloque `f`: el vértice de la parábola por el bloque de subida más
     /// empinada (`rise`) a `SEARCH` bloques de `f` y sus vecinos.
@@ -307,6 +336,39 @@ mod tests {
         assert!(silence.peaks_near(2.0, 0.05).is_empty(), "silencio digital");
         assert!(silence.flux.iter().all(|x| *x == 0.0));
         assert!(envelope(&[0.0; 100], RATE).flux.is_empty(), "muy corto");
+    }
+
+    #[test]
+    fn the_peaks_are_every_hit_in_order_and_only_those_that_reach_the_floor() {
+        let loud = grid_times();
+        // flojos, entre los fuertes: a medio camino de cada par
+        let soft: Vec<f64> = loud.iter().map(|t| t + 0.25).collect();
+        let mut x = hits(&loud, 22.0, Kind::Snare, 0.8);
+        for (a, b) in x.iter_mut().zip(hits(&soft, 22.0, Kind::Snare, 0.004)) {
+            *a += b;
+        }
+        let on = envelope(&x, RATE);
+        let all = on.peaks(0.0);
+        assert!(all.windows(2).all(|w| w[0].0 < w[1].0), "en orden");
+        for t in &loud {
+            assert!(
+                all.iter().any(|(p, _)| (p - t).abs() <= 0.004),
+                "falta el golpe de {t}"
+            );
+        }
+        // con un suelo entre la fuerza de los flojos y la de los fuertes, solo
+        // quedan los fuertes
+        let floor = 0.5 * on.peaks_near(loud[5], 0.05)[0].1;
+        let strong = on.peaks(floor);
+        assert_eq!(strong.len(), loud.len(), "{strong:?}");
+        for (p, t) in strong.iter().zip(&loud) {
+            assert!((p.0 - t).abs() <= 0.004, "{} frente a {t}", p.0);
+        }
+        assert!(
+            envelope(&vec![0f32; 5 * RATE as usize], RATE)
+                .peaks(0.0)
+                .is_empty()
+        );
     }
 
     #[test]

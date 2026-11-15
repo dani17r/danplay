@@ -392,6 +392,71 @@ fn evidence(app: &App, path: &Path, stem: bool, beats: &[f64]) -> Option<Evidenc
     })
 }
 
+/// Lo que se cuenta como golpe en lo que se enseña y se alinea a mano: por
+/// debajo, es el ruido de fondo (que fluctúa unas décimas).
+const HITS_FLOOR: f64 = 0.6;
+/// Cuántas canciones guardan sus golpes en memoria (cada una pesa unas
+/// decenas de KB): ajustar el clic de una canción pide los mismos una y otra
+/// vez, y oírla cuesta unos segundos.
+const HITS_KEPT: usize = 8;
+static HITS: LazyLock<Mutex<VecDeque<(String, Arc<Value>)>>> =
+    LazyLock::new(|| Mutex::new(VecDeque::new()));
+
+/// Dónde golpea de verdad el audio de una canción, para ajustar el clic a mano
+/// contra ello: `{source, step, seconds, ref, hits: [[segundo, fuerza], …]}`.
+/// `source` es `mix` (la canción) o `drums` (la batería separada, si la
+/// tiene). La fuerza es la subida de energía en log del ataque (`onset`): un
+/// golpe claro de batería ronda 2-6; `ref` es la del percentil 85, para
+/// normalizarla.
+pub fn hits(app: &App, path: &Path, source: &str) -> Result<Value, BeatsError> {
+    let drums = source == "drums";
+    let file = if drums {
+        drums_of(app, path).ok_or_else(|| {
+            BeatsError::Beats("esta canción no tiene la batería separada".to_owned())
+        })?
+    } else {
+        path.to_path_buf()
+    };
+    let key = format!("{source}:{}", failure_key(&file));
+    {
+        let kept = HITS.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some((_, v)) = kept.iter().find(|(k, _)| *k == key) {
+            return Ok(Value::clone(v));
+        }
+    }
+    let ffmpeg = app
+        .tool("ffmpeg")
+        .ok_or_else(|| BeatsError::Beats("sin ffmpeg no se puede oír la canción".to_owned()))?;
+    let mono = analysis::pulse::decode(&ffmpeg, &file)
+        .map_err(|e| BeatsError::Other(format!("no se pudo oír el audio: {e}")))?;
+    let on = onset::envelope(&mono, analysis::pulse::RATE);
+    let peaks = on.peaks(HITS_FLOOR);
+    let mut strengths: Vec<f64> = peaks.iter().map(|p| p.1).collect();
+    strengths.sort_by(f64::total_cmp);
+    let reference = strengths
+        .get(strengths.len() * 85 / 100)
+        .copied()
+        .unwrap_or(0.0);
+    let list: Vec<Value> = peaks
+        .iter()
+        .map(|(t, s)| json!([library::num::round_to(*t, 4), library::num::round_to(*s, 2)]))
+        .collect();
+    let out = json!({
+        "source": if drums { "drums" } else { "mix" },
+        "step": library::num::round_to(on.step, 5),
+        "seconds": library::num::round_to(on.seconds(), 2),
+        "ref": library::num::round_to(reference, 2),
+        "hits": list,
+    });
+    let mut kept = HITS.lock().unwrap_or_else(PoisonError::into_inner);
+    kept.retain(|(k, _)| *k != key);
+    kept.push_back((key, Arc::new(out.clone())));
+    while kept.len() > HITS_KEPT {
+        kept.pop_front();
+    }
+    Ok(out)
+}
+
 /// Los pulsos de `all` movidos hacia sus golpes (y, en «arreglar», con los
 /// intervalos sueltos arreglados). Un tempo fijo se mueve entero, que si no
 /// dejaría de serlo. Si cambia cuántos pulsos hay, el «1» se saca otra vez;

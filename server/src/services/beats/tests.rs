@@ -1387,6 +1387,76 @@ fn only_a_stretch_is_refined_when_a_stretch_is_asked() {
     assert!(offset_ms(&g, "after").abs() <= 3.0, "{g}");
 }
 
+#[test]
+fn the_hits_say_where_the_audio_strikes() {
+    // para ajustar el clic a mano contra la onda: cada golpe de la canción
+    // con su fuerza, en orden, y la misma respuesta la segunda vez
+    let app = crate::tests::app();
+    let Some(d) = Detector::start(&app) else {
+        return;
+    };
+    let song = d.file("cancion.wav", &drum_wav(&drum_hits(0.0), 30.0));
+    let h = hits(&app, &song, "mix").expect("golpes");
+    assert_eq!(h["source"], "mix");
+    let list: Vec<(f64, f64)> = h["hits"]
+        .as_array()
+        .expect("lista")
+        .iter()
+        .map(|p| {
+            (
+                p[0].as_f64().expect("segundo"),
+                p[1].as_f64().expect("fuerza"),
+            )
+        })
+        .collect();
+    assert!(list.windows(2).all(|w| w[0].0 < w[1].0), "en orden");
+    for k in 0..59 {
+        let t = 0.5 + 0.5 * f64::from(k);
+        assert!(
+            list.iter().any(|(p, s)| (p - t).abs() <= 0.003 && *s > 1.0),
+            "falta el golpe de {t}: {h}"
+        );
+    }
+    assert!(h["ref"].as_f64() > Some(1.0), "{h}");
+    assert!((h["step"].as_f64().expect("paso") - 0.005).abs() < 0.0002);
+    assert_eq!(hits(&app, &song, "mix").expect("otra vez"), h);
+    // sin la batería separada no hay de dónde sacarlos, y se dice
+    beats_failure(hits(&app, &song, "drums"), "batería separada");
+    // un archivo que no se lee, tampoco
+    let broken = d.file("rota.mp3", b"x");
+    assert!(hits(&app, &broken, "mix").is_err());
+}
+
+#[test]
+fn the_api_gives_the_hits_and_refuses_what_it_does_not_know() {
+    let Some(app) = api_library() else {
+        return;
+    };
+    let id = first_ids(&app, 1)[0];
+    let (st, v) = call(
+        &app,
+        "GET",
+        &format!("/api/song/{id}/beats/hits?source=vinilo"),
+        None,
+    );
+    assert_eq!(st, 422, "{v}");
+    let (st, v) = call(
+        &app,
+        "GET",
+        &format!("/api/song/{id}/beats/hits?source=drums"),
+        None,
+    );
+    assert_eq!(st, 422, "{v}");
+    assert!(
+        v["detail"]
+            .as_str()
+            .is_some_and(|m| m.contains("batería separada")),
+        "{v}"
+    );
+    let (st, _) = call(&app, "GET", "/api/song/999999/beats/hits", None);
+    assert_eq!(st, 404);
+}
+
 /// El cuerpo de un re-análisis con clic propio.
 fn with_own(own: Value) -> Value {
     json!({"mode": "repair", "own": own})
