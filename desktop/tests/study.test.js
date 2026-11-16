@@ -1182,17 +1182,15 @@ describe('pitch, fine speed and metronome', () => {
     expect(bridge().toggle).not.toHaveBeenCalled()
   })
 
-  it('the count-in and the click sound: chosen, remembered, and the count-in is removed on close', async () => {
-    localStorage.removeItem('danplay.click.countIn')
+  it('the click sound is chosen and remembered, and the click is off on close', async () => {
     localStorage.removeItem('danplay.click.sound')
     try {
       const w = await mountView()
-      // al abrir, lo recordado: nada todavía (sin cuenta, el clásico)
+      // al abrir, lo recordado: nada todavía (el clásico)
       expect(bridge().setMetronome).toHaveBeenCalledWith(
         expect.objectContaining({ count_in: 0, sound: 'clasico' })
       )
       // plegado de entrada (son muchos botones): se despliega
-      expect(button(w, '1 compás')).toBeUndefined()
       await openClickMore(w)
       // los sonidos, con los dos nuevos
       expect(w.findAll('[aria-label="Sonido del clic"] button').map((b) => b.text())).toEqual([
@@ -1203,34 +1201,50 @@ describe('pitch, fine speed and metronome', () => {
         'claves',
         'charles'
       ])
-      await button(w, '1 compás').trigger('click')
       await button(w, 'cencerro').trigger('click')
       await flushPromises()
       expect(bridge().setMetronome).toHaveBeenLastCalledWith(
-        expect.objectContaining({ count_in: 1, sound: 'cencerro' })
+        expect.objectContaining({ sound: 'cencerro' })
       )
-      expect(button(w, '1 compás').classes()).toContain('on')
       expect(button(w, 'cencerro').classes()).toContain('on')
-      // mientras cuenta, se dice
-      held.playback.emit({ counting_in: true })
-      await flushPromises()
-      expect(w.text()).toContain('contando…')
-      held.playback.emit({ counting_in: false })
       w.unmount()
       // la vez siguiente vuelve lo elegido
       vi.clearAllMocks()
       const other = await mountView()
       expect(bridge().setMetronome).toHaveBeenCalledWith(
-        expect.objectContaining({ count_in: 1, sound: 'cencerro' })
+        expect.objectContaining({ sound: 'cencerro' })
       )
-      // y al salir del estudio, play vuelve a ser play: sin cuenta
       await quit(other)
       expect(bridge().setMetronome).toHaveBeenLastCalledWith(
         expect.objectContaining({ on: false, count_in: 0 })
       )
     } finally {
-      localStorage.removeItem('danplay.click.countIn')
       localStorage.removeItem('danplay.click.sound')
+    }
+  })
+
+  it('on the desktop play enters at once: there is no count-in, whatever was left chosen', async () => {
+    // lo que dejó una versión anterior: dos compases de cuenta, que retrasaban 4 s
+    // cada vez que se daba a play desde pausa (y pausaban si se pulsaba otra vez)
+    localStorage.setItem('danplay.click.countIn', '2')
+    try {
+      const w = await mountView()
+      await flushPromises()
+      expect(bridge().setMetronome).toHaveBeenCalled()
+      // nada de lo que llegó al motor llevaba cuenta
+      expect(bridge().setMetronome.mock.calls.every(([m]) => m.count_in === 0)).toBe(true)
+      // y no hay dónde elegirla
+      await openClickMore(w)
+      expect(w.find('[aria-label="Cuenta al empezar"]').exists()).toBe(false)
+      expect(button(w, '1 compás')).toBeUndefined()
+      expect(button(w, '2 compases')).toBeUndefined()
+      // ni la vuelve a poner quien la pida: llega como 0
+      await usePlayback().setMetronome({ count_in: 2 })
+      await usePlayback().resetMetronomeOverrides({ meter: 4 })
+      expect(bridge().setMetronome.mock.calls.every(([m]) => m.count_in === 0)).toBe(true)
+      w.unmount()
+    } finally {
+      localStorage.removeItem('danplay.click.countIn')
     }
   })
 

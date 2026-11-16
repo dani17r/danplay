@@ -10,6 +10,7 @@
 import { reactive, ref, shallowRef, computed } from 'vue'
 import { api, playback as bridge } from '../api.js'
 import { notify } from './useNotices.js'
+import { isMobileApp } from '../platform.js'
 import { cleanSegments, segmentAt } from '../utils/segments.js'
 import {
   afterEnd,
@@ -807,6 +808,19 @@ const metronomeSettings = {
   count_in: 0
 }
 /**
+ * Lo que de verdad llega al motor. En el escritorio NUNCA lleva cuenta: darle
+ * a play arranca todo a la vez (la canción, el clic, las pistas), sin esperar
+ * uno o dos compases de clic antes de que entre. Con la cuenta puesta, cada
+ * prueba de un tramo se retrasaba 2-4 s y volver a pulsar play durante ella
+ * pausaba, como si el reproductor se hubiera parado. Aquí, y no en la
+ * pantalla del clic, para que ningún ajuste guardado ni otro llamador la
+ * vuelva a poner. El celular la conserva: su motor la cuenta igual.
+ */
+const forEngine = () => ({
+  ...metronomeSettings,
+  count_in: isMobileApp ? metronomeSettings.count_in : 0
+})
+/**
  * @param {Partial<import('../api.js').MetronomeSettings>} patch  lo que cambia
  */
 function setMetronome(patch) {
@@ -816,7 +830,7 @@ function setMetronome(patch) {
     meterIsOwn = patch.meter != null
     if (!meterIsOwn) metronomeSettings.meter = defaultMeter()
   }
-  return send((b) => b.setMetronome({ ...metronomeSettings }))
+  return send((b) => b.setMetronome(forEngine()))
 }
 /**
  * La preferencia de acento. Con el cambio, lo que suena sin compás propio lo
@@ -828,7 +842,7 @@ function setDefaultAccent(on) {
   remember(ACCENT_KEY, !!on)
   if (meterIsOwn || metronomeSettings.meter === defaultMeter()) return Promise.resolve()
   metronomeSettings.meter = defaultMeter()
-  return send((b) => b.setMetronome({ ...metronomeSettings }))
+  return send((b) => b.setMetronome(forEngine()))
 }
 /** Los ajustes por canción (lo guardado con ella, o nada), sin tocar on/volumen. */
 function resetMetronomeOverrides(overrides = {}) {
@@ -840,7 +854,7 @@ function resetMetronomeOverrides(overrides = {}) {
   meterIsOwn = settings.meter != null
   Object.assign(metronomeSettings, { bpm: null, shift: 0, mult: 0 }, settings)
   if (!meterIsOwn) metronomeSettings.meter = defaultMeter()
-  return send((b) => b.setMetronome({ ...metronomeSettings }))
+  return send((b) => b.setMetronome(forEngine()))
 }
 /**
  * Que suenen las pistas separadas de la canción que suena en vez de ella,

@@ -3,6 +3,34 @@
 Lo que cambia en cada versión que se entrega. El detalle de por qué está
 hecho así, en [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
+## 1.44.1 — sin publicar
+
+Dar play arranca todo a la vez. Con la «Cuenta» del clic puesta (uno o dos
+compases), play desde pausa tocaba primero esos compases de clic y solo
+después entraba la canción: 2 s con un compás a 120 bpm, 4 s con dos. Al
+probar un tramo del clic a mano se pagaba en cada prueba, con la posición
+quieta mientras tanto, y volver a pulsar play durante la cuenta la pausaba:
+parecía que el reproductor se había parado.
+
+Medido con «Sal 22 Te Amo» (las seis pistas separadas y su clic de 736
+pulsos), el motor no tiene retardo propio: la canción entra a los 0,07 s de
+dar play tras saltar a cualquier punto (0, 93, 241 y 330 s), y un bucle de 1 s
+da 19 vueltas sin un solo corte. Lo que retrasaba era la cuenta. En modo
+«Ajustar pulsos» la onda va a 60 fotogramas con la CPU frenada cuatro veces:
+no hay cuelgue de la interfaz.
+
+### Arreglado
+
+- **Sin cuenta en el escritorio.** Play entra al momento, con o sin clic, en
+  modo normal o con las pistas: ya no hay dónde elegir la cuenta, y lo que
+  hubiera quedado guardado se ignora. Se corta en `usePlayback.js`
+  (`forEngine`), el único sitio por donde pasan los ajustes del metrónomo
+  hacia el motor, para que ningún llamador la vuelva a poner. El celular la
+  conserva, y el motor sigue sabiendo contar: es cosa de su pantalla.
+- Un banco de desarrollo (`real_start_latency`, `engine/src/real_files.rs`,
+  no entra en la CI) mide cuánto tarda en sonar la canción con las partes de
+  verdad, tras saltar y dar play, y si un bucle corto se corta.
+
 ## 1.44.0 — sin publicar
 
 La 1.43.0 mejoró el desfase de casi toda «Sal 22 Te Amo», pero no donde la
