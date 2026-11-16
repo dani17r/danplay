@@ -26,6 +26,28 @@ final, con todo validado (sección «Cómo se valida»).
 
 ---
 
+## Al 16 de noviembre de 2026 (versión 1.44.1, en `main`)
+
+Desde el estado de abajo: la 1.43.0 (reanalizador con audio), la 1.44.0
+(editar el clic a mano: deshacer, elegir y llevar pulsos en bloque, «Tempo y
+onda») y la 1.44.1 (play arranca todo a la vez: se quitó la «Cuenta» del
+escritorio; ver `CHANGELOG.md`). Las tres están fusionadas en `main`, con la
+CI en verde, y ninguna publicada. M6 hecho (las ramas locales ya contenidas en
+`main`, borradas; las de GitHub se dejaron) y M2 en lo que quedaba del crate
+del motor.
+
+**Lo que espera a Daniel**: probar la 1.44.x en uso y decir el texto exacto
+del error del «reajuste de tiempo» (no se reprodujo ni en Chrome ni en
+WebKit con los datos reales de «Sal 22»); decidir el afinado automático con
+el audio (`VERSION = 6`), si el tramo de 241 a 270 s va a 60 o a 120, y
+cuándo publicar (la etiqueta `v*` publica todo lo no publicado).
+
+**Lo que no se hace sin oírlo ni sin pedirlo**: H2 y H5 (estirar y exportar
+con otro estirador), subir `cpal` (el PR de Dependabot), partir `StudyBar.vue`
+(M5: invisible para quien toca y con riesgo de romper lo que acaba de quedar
+bien; mejor después de que se use la 1.44.x), y las ideas de la edición del
+clic a mano de más abajo.
+
 ## Estado (14 de noviembre de 2026, rama `fase-8/mejoras`, versión 1.42.0)
 
 Lo de abajo sigue siendo la revisión tal como se hizo; aquí va lo que ya

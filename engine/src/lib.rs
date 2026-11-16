@@ -1,4 +1,5 @@
-//! El motor de pistas de la app del celular (`mobile/`).
+//! El motor de audio de DanPlay: el que suena en la app de escritorio
+//! (`desktop/src-tauri/src/player`) y en la del celular (`mobile/`).
 //!
 //! Abre lo que se separo en la PC (un `.danpista`, ver `library::bundle`) y
 //! lo deja estudiar: cada parte (bateria, voces, bajo...) con su volumen y

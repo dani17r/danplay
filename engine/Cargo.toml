@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 rust-version.workspace = true
-description = "El motor de pistas de la app del celular: las partes de una cancion, cada una con su volumen, con velocidad, tono, tramos y clic"
+description = "El motor de audio de DanPlay, en el escritorio y en el celular: las partes de una cancion, cada una con su volumen, con velocidad, tono, tramos y clic"
 
 [features]
 default = ["engine"]
