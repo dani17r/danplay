@@ -191,3 +191,199 @@ fn real_files_decode_like_ffmpeg() {
     println!("{exact} de {total} iguales a ffmpeg (misma longitud, encaje exacto y más de 40 dB)");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// Un banco de desarrollo (no de la CI): cuánto tarda en SONAR la canción al
+/// darle a play, con las partes de verdad y el clic puesto, y si se corta al
+/// repetir un tramo corto. Lo que se mide es lo que se oye: el reloj de la
+/// pared desde el `play` hasta que la posición de la canción echa a andar, con
+/// el motor tirado de él al ritmo real de una salida de audio.
+///
+/// ```text
+/// DANPLAY_LATENCY_DIR=carpeta_con_las_partes DANPLAY_LATENCY_GRID=rejilla.json \
+///     cargo test --release -p danplay-engine real_start_latency -- --ignored --nocapture
+/// ```
+///
+/// `rejilla.json` es `{beats, bars, meter}` (el clic manual de la canción).
+#[test]
+#[ignore = "banco de desarrollo: pide DANPLAY_LATENCY_DIR"]
+#[allow(
+    clippy::too_many_lines,
+    reason = "un banco que imprime lo que mide, paso a paso"
+)]
+fn real_start_latency() {
+    use crate::bundle::PartFile;
+    use crate::engine::Engine;
+    use crate::queue::LoopEnd;
+    use crate::render::ClickPlan;
+    use std::time::{Duration, Instant};
+
+    let Some(dir) = std::env::var_os("DANPLAY_LATENCY_DIR") else {
+        println!("sin DANPLAY_LATENCY_DIR: nada que medir");
+        return;
+    };
+    let dir = PathBuf::from(dir);
+    let mut files: Vec<PartFile> = std::fs::read_dir(&dir)
+        .expect("la carpeta")
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .filter(|p| {
+            p.extension()
+                .and_then(|x| x.to_str())
+                .is_some_and(|x| ["flac", "mp3", "ogg", "wav", "m4a", "opus"].contains(&x))
+        })
+        .map(|path| {
+            let name = path
+                .file_stem()
+                .expect("el nombre del archivo")
+                .to_string_lossy()
+                .into_owned();
+            PartFile {
+                source: name.to_lowercase(),
+                name,
+                path,
+            }
+        })
+        .collect();
+    files.sort_by(|a, b| a.name.cmp(&b.name));
+    println!(
+        "partes: {}",
+        files
+            .iter()
+            .map(|f| f.name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+
+    let plan = std::env::var_os("DANPLAY_LATENCY_GRID").map(|p| {
+        let v: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(p).expect("la rejilla")).expect("json");
+        let beats: Vec<f64> = v["beats"]
+            .as_array()
+            .expect("beats")
+            .iter()
+            .filter_map(serde_json::Value::as_f64)
+            .collect();
+        let bars: Vec<usize> = v["bars"]
+            .as_array()
+            .expect("bars")
+            .iter()
+            .filter_map(|x| x.as_u64().map(|n| n as usize))
+            .collect();
+        let mut accents = vec![false; beats.len()];
+        for i in bars {
+            if let Some(a) = accents.get_mut(i) {
+                *a = true;
+            }
+        }
+        ClickPlan {
+            on: true,
+            beats,
+            accents,
+            meter: v["meter"].as_u64().unwrap_or(4) as u8,
+            bpm: 120.0,
+            volume: 1.0,
+            ..ClickPlan::default()
+        }
+    });
+
+    let rate = 44_100u32;
+    let step = 441usize; // 10 ms
+    let e = Engine::offline(rate);
+    let t = Instant::now();
+    let loaded = e.load_files("banco", &files, 0.0).expect("carga");
+    println!(
+        "cargada en {:.0} ms ({} partes, {:.1} s)",
+        t.elapsed().as_secs_f64() * 1e3,
+        loaded.parts.len(),
+        loaded.duration
+    );
+    if let Some(p) = &plan {
+        e.set_click(p.clone());
+        println!("clic: {} pulsos", p.beats.len());
+    }
+
+    // tira del motor al ritmo real de una salida, hasta que `stop` diga que basta
+    let run = |secs: f64, stop: &mut dyn FnMut(&Engine) -> bool| -> (f64, f64) {
+        let mut buf = vec![0f32; step * 2];
+        let t0 = Instant::now();
+        let mut frames = 0u64;
+        loop {
+            e.pull(&mut buf);
+            frames += step as u64;
+            let heard = frames as f64 / f64::from(rate);
+            let wall = t0.elapsed().as_secs_f64();
+            if stop(&e) || heard >= secs {
+                return (heard, wall);
+            }
+            let due = t0 + Duration::from_secs_f64(heard);
+            if let Some(d) = due.checked_duration_since(Instant::now()) {
+                std::thread::sleep(d);
+            }
+        }
+    };
+
+    println!("\n== entrar tras darle a play: saltar y dar play enseguida, o tras esperar 1,5 s ==");
+    for pos in [0.0f64, 93.017, 241.0, 330.0] {
+        for wait_ms in [0u64, 1_500] {
+            for count in [0u32, 1, 2] {
+                e.pause();
+                e.set_count_in(count);
+                e.set_segments(&[], LoopEnd::Repeat);
+                e.seek(pos);
+                if wait_ms > 0 {
+                    let mut idle = vec![0f32; step * 2];
+                    let until = Instant::now() + Duration::from_millis(wait_ms);
+                    while Instant::now() < until {
+                        e.pull(&mut idle);
+                        std::thread::sleep(Duration::from_millis(5));
+                    }
+                }
+                let base = e.state().underruns;
+                e.play();
+                let (heard, wall) = run(14.0, &mut |e| e.state().position > pos + 0.05);
+                let st = e.state();
+                println!(
+                    "pos {pos:>6.1} s, espera {wait_ms:>4} ms, cuenta {count}: la canción entra a los {heard:>5.2} s de audio ({wall:>5.2} s de reloj), cortes {}",
+                    st.underruns - base
+                );
+            }
+        }
+    }
+
+    println!("\n== repetir un tramo de 1 s (como tu bucle de 93,0 a 94,0) ==");
+    for count in [0u32, 1] {
+        e.pause();
+        e.set_count_in(count);
+        e.seek(93.017);
+        e.set_segments(&[(93.017, 94.017)], LoopEnd::Repeat);
+        std::thread::sleep(Duration::from_millis(300));
+        let base = e.state().underruns;
+        e.play();
+        let last = std::cell::Cell::new(e.state().position);
+        let still = std::cell::Cell::new(0.0f64);
+        let longest = std::cell::Cell::new(0.0f64);
+        let wraps = std::cell::Cell::new(0u32);
+        let (heard, _) = run(20.0, &mut |e| {
+            let p = e.state().position;
+            if p < last.get() - 0.5 {
+                wraps.set(wraps.get() + 1);
+            }
+            if (p - last.get()).abs() < 1e-9 {
+                still.set(still.get() + 0.01);
+            } else {
+                longest.set(longest.get().max(still.get()));
+                still.set(0.0);
+            }
+            last.set(p);
+            false
+        });
+        let st = e.state();
+        println!(
+            "cuenta {count}: {heard:.0} s de audio, {} vueltas, parada más larga de la posición {:.2} s, cortes {}",
+            wraps.get(),
+            longest.get(),
+            st.underruns - base
+        );
+    }
+    println!("\nhecho");
+}

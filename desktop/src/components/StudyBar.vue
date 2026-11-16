@@ -1138,7 +1138,10 @@ function setClickSound(v) {
 }
 // al abrir el estudio, lo que quedo elegido
 {
-  const count = Math.min(2, Math.max(0, Math.round(Number(readPref(PREF_COUNT, 0)) || 0)))
+  // (la cuenta solo existe en el celular: en el escritorio, play entra al momento)
+  const count = isMobileApp
+    ? Math.min(2, Math.max(0, Math.round(Number(readPref(PREF_COUNT, 0)) || 0)))
+    : 0
   const sound = readPref(PREF_SOUND, 'clasico')
   // el volumen también: antes volvía al 80 % cada vez que se abría DanPlay
   const volume = Number(readPref(PREF_VOLUME, null))
@@ -3613,7 +3616,12 @@ defineExpose({ close: hide, hide, exit })
                 {{ m.n }}
               </button>
             </div>
-            <div class="study-metro-row study-meters" role="group" aria-label="Cuenta al empezar">
+            <div
+              v-if="isMobileApp"
+              class="study-metro-row study-meters"
+              role="group"
+              aria-label="Cuenta al empezar"
+            >
               <span class="study-metro-label">Cuenta</span>
               <button
                 v-for="c in COUNT_INS"

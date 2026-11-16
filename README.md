@@ -16,8 +16,8 @@
   <img alt="Windows" src="https://img.shields.io/badge/Windows-portable%20%2B%20instalador-0078d4?logo=windows&logoColor=white">
   <img alt="Vue 3" src="https://img.shields.io/badge/Vue-3-42b883?logo=vue.js&logoColor=white">
   <img alt="Rust" src="https://img.shields.io/badge/Rust-Tauri%202-b7410e?logo=rust&logoColor=white">
-  <img alt="Version" src="https://img.shields.io/badge/version-1.44.0-4ade80">
-  <img alt="Pruebas" src="https://img.shields.io/badge/pruebas-3.301%20en%20verde-2ea043">
+  <img alt="Version" src="https://img.shields.io/badge/version-1.44.1-4ade80">
+  <img alt="Pruebas" src="https://img.shields.io/badge/pruebas-3.303%20en%20verde-2ea043">
 </p>
 
 <!--
@@ -537,7 +537,7 @@ cd desktop && vp test run                # la interfaz
 cargo build -p danplay-server && (cd desktop && vp run e2e)   # los flujos en Chrome
 ```
 
-3.301 pruebas repartidas así (la CI las pasa todas menos las de humo, que
+3.303 pruebas repartidas así (la CI las pasa todas menos las de humo, que
 necesitan la app ya compilada):
 
 | Tanda | Pruebas |
@@ -548,7 +548,7 @@ necesitan la app ya compilada):
 | El motor de audio (`danplay-engine`): decodificar, estirar y remuestrear, las pistas juntas, el pulso y el sonido del clic | 121 |
 | La app de escritorio (`danplay-app`): reproductor (con audio de verdad), cola, sesión, bandeja, núcleo, permisos por ventana, metrónomo (la cuenta y sus sonidos), limitador, las pistas separadas sonando juntas | 147 |
 | La app del celular (`danplay-mobile`): lo que contesta en vez del núcleo, sus listas y la música del teléfono | 28 |
-| Interfaz: componentes, páginas, reactividad, teclado y accesibilidad, listas grandes y agrupadas, temas, contratos, chat, modo estudio y su mezclador, la edición del clic a mano (deshacer, elegir pulsos, «Tempo y onda»), proyección | 1.677 |
+| Interfaz: componentes, páginas, reactividad, teclado y accesibilidad, listas grandes y agrupadas, temas, contratos, chat, modo estudio y su mezclador, la edición del clic a mano (deshacer, elegir pulsos, «Tempo y onda»), proyección | 1.679 |
 | Interfaz: rutas de medios en cada sistema | 7 |
 | De punta a punta: la interfaz contra el núcleo de verdad (`danplay-server`), en Chrome (Playwright) | 29 |
 | Humo sobre la app **ya compilada** o empaquetada (el binario de un .deb o el AppImage) | 18 |

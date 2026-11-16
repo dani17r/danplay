@@ -16,6 +16,15 @@
 /** @type {Release[]} */
 export const RELEASES = [
   {
+    version: '1.44.1',
+    date: '',
+    summary: 'Al dar play, la canción y el clic arrancan a la vez, sin cuenta ni espera.',
+    items: [
+      'Se quitó la «Cuenta» de uno o dos compases que retrasaba la entrada de la canción cada vez que dabas play.',
+      'Probar un tramo del clic con «Oír el tramo» suena al momento, con las pistas o sin ellas.'
+    ]
+  },
+  {
     version: '1.44.0',
     date: '',
     summary:

@@ -752,6 +752,23 @@ describe('the desktop components, on the phone', () => {
     w.unmount()
   })
 
+  it('keeps its count-in, which the desktop no longer has', async () => {
+    // (en el escritorio, play entra al momento; el celular sigue contando)
+    localStorage.setItem('danplay.click.countIn', '1')
+    const w = mount(StudyBar, { attachTo: document.body })
+    await flushPromises()
+    expect(held.playback.bridge.setMetronome).toHaveBeenCalledWith(
+      expect.objectContaining({ count_in: 1 })
+    )
+    // y la fila para elegirla sigue ahí
+    await w
+      .findAll('button')
+      .find((b) => b.text().includes('Compás, cuenta y sonido'))
+      .trigger('click')
+    expect(w.find('[aria-label="Cuenta al empezar"]').exists()).toBe(true)
+    w.unmount()
+  })
+
   it('cues brought from the PC: they play and mix, but cannot be made or changed', async () => {
     held.state.songs[0].study = JSON.stringify({
       cues: [

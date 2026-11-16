@@ -848,6 +848,15 @@ margen, y en cuanto suena el clic se reengancha a ella. Pausa en plena
 cuenta la deja en pausa. Es cosa del estudio: al cerrarlo, play vuelve a ser
 play.
 
+**En el escritorio no hay cuenta (1.44.1).** Con la cuenta puesta, cada play
+desde pausa esperaba uno o dos compases (2-4 s a 120 bpm) con la posición
+quieta, y repetir un tramo para probar un ajuste del clic se hacía eterno;
+medido con las seis pistas de «Sal 22», el motor entra a los 0,07 s tras
+saltar y dar play, así que lo único que retrasaba era la cuenta. La interfaz
+de escritorio no la ofrece y `usePlayback.js` (`forEngine`, por donde pasan
+todos los ajustes del metrónomo) manda siempre `count_in: 0`, venga lo que
+venga de lo guardado. El celular (`isMobileApp`) y el motor la conservan.
+
 **Cuatro sonidos**: clásico (un pitido), madera, baqueta (corto y brillante,
 se cuela entre platos) y cencerro (se oye aunque la banda suene fuerte).
 Cada uno son unos pocos parciales con su caída (`metronome.rs`, `Sound`), y
