@@ -17,7 +17,7 @@
 export const RELEASES = [
   {
     version: '1.44.1',
-    date: '',
+    date: '2026-11-16',
     summary: 'Al dar play, la canción y el clic arrancan a la vez, sin cuenta ni espera.',
     items: [
       'Se quitó la «Cuenta» de uno o dos compases que retrasaba la entrada de la canción cada vez que dabas play.',
@@ -26,7 +26,7 @@ export const RELEASES = [
   },
   {
     version: '1.44.0',
-    date: '',
+    date: '2026-11-16',
     summary:
       'Arreglar el clic a mano sin ir pulso a pulso: deshacer, elegir varios y poner el tempo de un tramo.',
     items: [
@@ -38,7 +38,7 @@ export const RELEASES = [
   },
   {
     version: '1.43.0',
-    date: '',
+    date: '2026-11-16',
     summary:
       '«Re-analizar» mira el audio y afina el clic; Manual y Automático se alternan sin perder nada.',
     items: [
@@ -50,7 +50,7 @@ export const RELEASES = [
   },
   {
     version: '1.42.0',
-    date: '',
+    date: '2026-11-16',
     summary:
       'El clic sigue los cambios de tempo, la guía sale de la letra y el cifrado, y suena recién instalada.',
     items: [

@@ -3,7 +3,7 @@
 Lo que cambia en cada versión que se entrega. El detalle de por qué está
 hecho así, en [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-## 1.44.1 — sin publicar
+## 1.44.1 — 2026-11-16
 
 Dar play arranca todo a la vez. Con la «Cuenta» del clic puesta (uno o dos
 compases), play desde pausa tocaba primero esos compases de clic y solo
@@ -31,7 +31,7 @@ no hay cuelgue de la interfaz.
   no entra en la CI) mide cuánto tarda en sonar la canción con las partes de
   verdad, tras saltar y dar play, y si un bucle corto se corta.
 
-## 1.44.0 — sin publicar
+## 1.44.0 — 2026-11-16
 
 La 1.43.0 mejoró el desfase de casi toda «Sal 22 Te Amo», pero no donde la
 música cambia de ritmo, y ahí ningún análisis puede saber a qué nivel quiere
@@ -80,7 +80,7 @@ un tramo que ya pegaba (93 % → 72 %) y se aplicaba igual. En el tramo de
 241 a 270 s, un clic a 60 bpm cae sobre un golpe en el 97 % de los pulsos y uno
 a 120, en el 50-64 %.
 
-## 1.43.0 — sin publicar
+## 1.43.0 — 2026-11-16
 
 La 1.42.0 no llegó a publicarse: todo lo suyo sigue más abajo, con lo que se
 hizo antes. Lo nuevo es el clic de las canciones con mal tiempo:
@@ -132,7 +132,7 @@ análisis nuevo.
   Manual se aplicaba encima de lo tuyo (ahora cada petición lleva su época y
   las tardías se descartan).
 
-## 1.42.0 — sin publicar
+## 1.42.0 — 2026-11-16
 
 La 1.41.0 no llegó a publicarse: todo lo suyo está aquí, con lo que se hizo
 después.
@@ -313,7 +313,7 @@ rama a `main`.
   entre las dos cosas. En un equipo cargado la ventana se alarga (falló una
   vez en macOS). Ahora la señal va antes.
 
-### De la 1.41.0 (sin publicar)
+### De la 1.41.0
 
 - **El clic sigue a las canciones que cambian de tempo**: un final en vivo
   más lento, el paso de una canción a otra en un popurrí, una subida. La
