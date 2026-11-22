@@ -35,6 +35,9 @@ use tauri::{AppHandle, Emitter};
 pub const STATE_EVENT: &str = "danplay://state";
 const TICK: Duration = Duration::from_millis(250);
 
+/// Por donde sale el estado hacia la interfaz (el evento `danplay://state`).
+type Emit = Box<dyn Fn(&PlaybackState) + Send>;
+
 /// Una pista separada en el mezclador del estudio (como en la PC).
 #[derive(Deserialize, Clone, Debug)]
 pub struct StemTrack {
@@ -89,6 +92,9 @@ pub enum Command {
         cues: Vec<CueSpec>,
         volume: f32,
     },
+    /// En las pruebas: atenderla hace *panic*.
+    #[cfg(test)]
+    Panic,
 }
 
 type Grids = Arc<Mutex<HashMap<String, Arc<BeatGrid>>>>;
@@ -106,6 +112,15 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 
 impl Player {
     pub fn new(app: AppHandle, lib: Arc<Library>) -> Player {
+        Player::start(
+            lib,
+            Box::new(move |state| {
+                let _ = app.emit(STATE_EVENT, state);
+            }),
+        )
+    }
+
+    fn start(lib: Arc<Library>, emit: Emit) -> Player {
         let (tx, rx) = channel();
         let state = Arc::new(Mutex::new(PlaybackState {
             index: -1,
@@ -117,7 +132,7 @@ impl Player {
         let listing = Arc::new(Mutex::new((Vec::new(), None)));
         let grids: Grids = Arc::new(Mutex::new(HashMap::new()));
         let mut worker = Worker {
-            app,
+            emit,
             lib,
             engine: Engine::new(),
             shared: Arc::clone(&state),
@@ -146,6 +161,7 @@ impl Player {
             cues: Vec::new(),
             cue_volume: 1.0,
             clips: Clips::default(),
+            output: OutputConfig::default(),
         };
         let _ = std::thread::Builder::new()
             .name("danplay-queue".into())
@@ -182,7 +198,7 @@ impl Player {
 }
 
 struct Worker {
-    app: AppHandle,
+    emit: Emit,
     lib: Arc<Library>,
     engine: Engine,
     shared: Arc<Mutex<PlaybackState>>,
@@ -217,10 +233,23 @@ struct Worker {
     cues: Vec<CueSpec>,
     cue_volume: f32,
     clips: Clips,
+    /// La salida elegida: si el motor se rehace tras caerse, se le vuelve
+    /// a decir.
+    output: OutputConfig,
 }
 
 impl Worker {
+    /// Atiende las ordenes hasta que se cierra el canal. Se vigila, como en la
+    /// PC: si algo hace *panic* (un archivo que tumba al decodificador al
+    /// abrirlo), el hilo no se muere en silencio (antes, desde ese momento
+    /// ninguna orden hacia nada hasta cerrar la app), se dice y se sigue.
     fn run(&mut self, rx: &Receiver<Command>) {
+        while std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.serve(rx))).is_err() {
+            self.after_a_panic();
+        }
+    }
+
+    fn serve(&mut self, rx: &Receiver<Command>) {
         loop {
             match rx.recv_timeout(TICK) {
                 Ok(c) => {
@@ -238,6 +267,28 @@ impl Worker {
                 Err(RecvTimeoutError::Disconnected) => return,
             }
         }
+    }
+
+    /// Tras un *panic*: un motor nuevo (el de antes se suelta), nada cargado,
+    /// y se dice que paso. La cola sigue como estaba.
+    fn after_a_panic(&mut self) {
+        let name = self
+            .items
+            .get(self.index)
+            .map(|t| t.title.clone())
+            .unwrap_or_default();
+        self.engine = Engine::new();
+        self.engine.set_output_config(self.output.clone());
+        self.engine.set_speed(self.speed);
+        self.engine.set_pitch(self.pitch);
+        self.loaded = None;
+        self.parts.clear();
+        self.roles.clear();
+        self.stems = None;
+        self.cues.clear();
+        self.last = None;
+        self.error = fallen_text(&name);
+        self.publish(true);
     }
 
     #[expect(
@@ -338,7 +389,10 @@ impl Worker {
                 self.routing = spec;
                 self.apply_routing();
             }
-            Command::Output(config) => self.engine.set_output_config(config),
+            Command::Output(config) => {
+                self.output = config.clone();
+                self.engine.set_output_config(config);
+            }
             Command::Cues { song, cues, volume } => {
                 if self.loaded.as_deref() == Some(song.as_str()) {
                     // las que vinieron en el .danpista van dentro de su
@@ -358,6 +412,8 @@ impl Worker {
                     self.engine.set_cues(plan);
                 }
             }
+            #[cfg(test)]
+            Command::Panic => panic!("un fallo del reproductor, en las pruebas"),
         }
     }
 
@@ -594,7 +650,7 @@ impl Worker {
         });
         if always || state.playing || changed {
             *lock(&self.shared) = state.clone();
-            let _ = self.app.emit(STATE_EVENT, &state);
+            (self.emit)(&state);
             self.last = Some(state);
         }
     }
@@ -668,6 +724,18 @@ fn buses_of(
 /// leerse (lo mismo que dice la PC, `desktop/src-tauri/src/player/engine.rs`).
 fn broken_text(name: &str) -> String {
     format!("«{name}» está dañado y no se pudo seguir leyendo: se pasa a la siguiente.")
+}
+
+/// Lo que se dice cuando el reproductor se cae (un *panic*) y se vuelve a
+/// levantar: como en la PC, nombrando la cancion si se sabe cual era.
+fn fallen_text(name: &str) -> String {
+    if name.is_empty() {
+        "El reproductor se cayó leyendo un archivo y se ha vuelto a levantar.".into()
+    } else {
+        format!(
+            "No se pudo leer «{name}»: el archivo está dañado. El reproductor se ha vuelto a levantar."
+        )
+    }
 }
 
 /// Como se le llama en un aviso a lo que suena: una cancion del telefono, por
@@ -918,6 +986,34 @@ mod tests {
         assert_eq!(shown_name(&path, "Mi Gozo"), "Mi Gozo");
         assert!(shown_name(&path, "").starts_with("barak-mi-gozo-"));
         let _ = std::fs::remove_dir_all(&folder);
+    }
+
+    #[test]
+    fn the_player_gets_back_up_after_a_panic_and_says_so() {
+        // un *panic* al atender una orden mataba el hilo del reproductor, y
+        // desde ahi ninguna orden hacia nada hasta cerrar la app
+        let dir = std::env::temp_dir().join(format!("danplay-caida-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("tracks")).expect("carpeta");
+        let lib = Arc::new(Library::new(dir.join("tracks")));
+        let player = Player::start(lib, Box::new(|_| {}));
+        player.send(Command::Panic);
+        player.send(Command::Volume(0.5));
+        let limit = std::time::Instant::now() + Duration::from_secs(3);
+        while (player.state().volume - 0.5).abs() > 1e-6 && std::time::Instant::now() < limit {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let state = player.state();
+        assert!(
+            (state.volume - 0.5).abs() < 1e-6,
+            "sigue atendiendo: {state:?}"
+        );
+        assert!(
+            state.error.contains("se ha vuelto a levantar"),
+            "{}",
+            state.error
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// Y van por la salida del clic y la de las guias (a los cascos), no por
