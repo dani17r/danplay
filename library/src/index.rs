@@ -386,10 +386,12 @@ pub fn wake_waiters() {
 
 /// `/api/status` pide las cifras continuamente y calcularlas es un agregado
 /// sobre toda la tabla que además evalúa `lyrics != ''`, la columna más pesada.
-/// Se recuerdan unos segundos, y cualquier escritura en `songs` las olvida al
-/// instante con `touch()`, así que nunca se enseña un total viejo después de
-/// indexar o borrar algo.
-const STATS_TTL: Duration = Duration::from_secs(5);
+/// Cualquier escritura las olvida al instante con `touch()` (también las que
+/// callan la revisión, `quietly`: van por `writes`), así que nunca se enseña
+/// un total viejo después de indexar o borrar algo. El tope es solo por si
+/// algo escribe sin avisar: con cinco segundos, la app en reposo las volvía a
+/// contar en cada estado que pide el escritorio (cada 30 s).
+const STATS_TTL: Duration = Duration::from_secs(300);
 
 struct CachedStats {
     at: Instant,
@@ -405,15 +407,16 @@ pub fn stats_cached(db: &str) -> Option<Dict> {
     let cache = STATS.lock().unwrap_or_else(PoisonError::into_inner);
     cache
         .as_ref()
-        .filter(|c| c.db == db && c.rev == revision() && c.at.elapsed() < STATS_TTL)
+        .filter(|c| c.db == db && c.rev == writes() && c.at.elapsed() < STATS_TTL)
         .map(|c| c.value.clone())
 }
 
 /// Las cifras de la biblioteca, contadas ahora.
 ///
-/// Se recuerdan solo para la `revision` con la que se contó (`rev`, leída
-/// ANTES de abrir la conexión): si otro hilo escribe (y llama a `touch`)
-/// mientras se cuenta, lo contado ya nace viejo y no se guarda.
+/// Se recuerdan solo para las escrituras con las que se contó (`rev`, lo
+/// que valía `writes()` ANTES de abrir la conexión): si otro hilo escribe (y
+/// llama a `touch`) mientras se cuenta, lo contado ya nace viejo y no se
+/// guarda.
 pub fn stats(conn: &Connection, db: &str, rev: u64) -> rusqlite::Result<Dict> {
     let f = fetch_one(
         conn,
@@ -437,7 +440,7 @@ pub fn stats(conn: &Connection, db: &str, rev: u64) -> rusqlite::Result<Dict> {
     ] {
         value.insert(k.into(), or_zero(k));
     }
-    if revision() == rev {
+    if writes() == rev {
         *STATS.lock().unwrap_or_else(PoisonError::into_inner) = Some(CachedStats {
             at: Instant::now(),
             db: db.to_owned(),

@@ -3,7 +3,7 @@ use crate::app::{App, VERSION, path_str};
 use crate::error::ApiError;
 use crate::router::{Ctx, Reply, Route};
 use crate::services::{ai, folders, journal, tools};
-use library::index::{Dict, revision, stats, stats_cached};
+use library::index::{Dict, revision, stats, stats_cached, writes};
 use serde_json::{Value, json};
 use std::path::PathBuf;
 
@@ -17,15 +17,15 @@ pub const ROUTES: &[Route] = &[
 ];
 
 /// Las cifras de la biblioteca, recordadas unos
-/// segundos (y olvidadas en cuanto algo escribe en `songs`).
+/// minutos (y olvidadas en cuanto algo escribe en `songs`).
 pub fn stats_of(app: &App) -> Result<Dict, ApiError> {
     let key = app.config().database.to_string_lossy().into_owned();
     if let Some(cached) = stats_cached(&key) {
         return Ok(cached);
     }
-    // la revisión, ANTES de abrir: si alguien escribe mientras se cuenta, lo
-    // contado no se recuerda
-    let rev = revision();
+    // lo escrito hasta ahora, ANTES de abrir: si alguien escribe mientras se
+    // cuenta, lo contado no se recuerda
+    let rev = writes();
     app.db(|c| stats(c, &key, rev))
 }
 

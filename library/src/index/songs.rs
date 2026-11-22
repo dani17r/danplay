@@ -11,6 +11,7 @@ use crate::text;
 use crate::value;
 use rusqlite::Connection;
 use serde_json::Value;
+use std::collections::HashMap;
 use std::path::Path;
 
 /// La canción de la biblioteca con ese id (la fila entera), o None.
@@ -67,12 +68,15 @@ pub fn update(conn: &Connection, cid: i64, fields: &Dict) -> rusqlite::Result<Op
 /// biblioteca: una canción movida sigue sonando desde su sitio nuevo, y la
 /// que ya no está sale de la cola.
 pub fn paths_of(conn: &Connection, ids: &[i64]) -> rusqlite::Result<Vec<(i64, Option<String>)>> {
-    // en el orden en que llegan, sin repetir
+    // en el orden en que llegan, sin repetir; y dónde quedó cada id (buscarlo
+    // en la lista por cada uno era cuadrático con una cola de miles)
     let mut out: Vec<(i64, Option<String>)> = Vec::new();
+    let mut at: HashMap<i64, usize> = HashMap::new();
     for &i in ids.iter().filter(|&&i| i > 0) {
-        if !out.iter().any(|(k, _)| *k == i) {
+        at.entry(i).or_insert_with(|| {
             out.push((i, None));
-        }
+            out.len() - 1
+        });
     }
     let wanted: Vec<i64> = out.iter().map(|(k, _)| *k).collect();
     for chunk in wanted.chunks(SCAN_BATCH) {
@@ -91,8 +95,8 @@ pub fn paths_of(conn: &Connection, ids: &[i64]) -> rusqlite::Result<Vec<(i64, Op
             ) else {
                 continue;
             };
-            if let Some(slot) = out.iter_mut().find(|(k, _)| *k == id) {
-                slot.1 = Path::new(path).is_file().then(|| path.to_owned());
+            if let Some(&i) = at.get(&id) {
+                out[i].1 = Path::new(path).is_file().then(|| path.to_owned());
             }
         }
     }

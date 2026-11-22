@@ -9,8 +9,9 @@ use library::rusqlite::Connection;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 
-/// Cuánto se guarda una canción apartada esperando a que su archivo vuelva.
-pub const MISSING_DAYS: f64 = 30.0;
+/// Cuánto se guarda una canción apartada esperando a que su archivo vuelva
+/// (uno solo para todo el núcleo: el de `library`).
+pub use library::index::scan::MISSING_DAYS;
 
 /// Cada cuánto, como mucho, se poda aunque el escaneo no encuentre nada
 /// (ver `scan`).
