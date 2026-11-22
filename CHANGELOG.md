@@ -106,6 +106,21 @@ una prueba.
 - Separar una canción gasta 100 MB menos de memoria (200 MB menos en máxima
   calidad), con el mismo resultado bit a bit.
 
+### Lo nuevo de la pantalla y el estudio
+
+- **En una pantalla grande, la interfaz se agranda sola**: a partir de la
+  ventana de un portátil, todo crece en proporción (como mucho un 30 %), y se
+  puede apagar en Ajustes › Apariencia.
+- **El modo estudio, por pestañas por defecto**: la velocidad y el tono, el
+  clic, los marcadores y las notas, cada una en su pestaña y a todo lo ancho.
+  Con la chincheta el panel se queda fijo debajo de la onda; sin ella, la
+  onda tiene todo el alto y la pestaña se abre encima. Las cuatro columnas
+  siguen en «⋯».
+- **Las notas, el modelo y la clave de la IA, en el propio chat**: un botón de
+  opciones en la cabecera deja ver qué IA contesta, cambiar el modelo, saltar
+  entre proveedores y pegar la clave sin salir del chat; y si no hay IA
+  configurada, se elige ahí mismo.
+
 ### Para desarrollar
 
 - La CI: todas las acciones fijadas por SHA, los paquetes se construyen solo
