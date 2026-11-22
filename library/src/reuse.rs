@@ -183,17 +183,13 @@ pub fn shift_study(study: &Dict, lag: f64) -> Dict {
         }
     }
     let segments = |v: &Value| -> Value {
-        Value::Array(
-            v.as_array()
-                .map(|a| {
-                    a.iter()
-                        .filter_map(pair)
-                        .filter(|(_, b)| *b > 0.0)
-                        .map(|(a, b)| Value::from(vec![a.max(0.0), b]))
-                        .collect()
-                })
-                .unwrap_or_default(),
-        )
+        Value::Array(v.as_array().map_or_default(|a| {
+            a.iter()
+                .filter_map(pair)
+                .filter(|(_, b)| *b > 0.0)
+                .map(|(a, b)| Value::from(vec![a.max(0.0), b]))
+                .collect()
+        }))
     };
     if let Some(loops) = study.get("loops").filter(|v| v.is_array()) {
         out.insert("loops".into(), segments(loops));
@@ -212,15 +208,12 @@ pub fn shift_study(study: &Dict, lag: f64) -> Dict {
                 m.insert("end".into(), at(&end).map_or(Value::Null, Value::from));
             }
             if let Some(parts) = m.get("parts").filter(|v| value::truthy(v)).cloned() {
-                let shifted: Vec<Value> = parts
-                    .as_array()
-                    .map(|a| {
-                        a.iter()
-                            .filter_map(pair)
-                            .map(|(a, b)| Value::from(vec![a.max(0.0), b]))
-                            .collect()
-                    })
-                    .unwrap_or_default();
+                let shifted: Vec<Value> = parts.as_array().map_or_default(|a| {
+                    a.iter()
+                        .filter_map(pair)
+                        .map(|(a, b)| Value::from(vec![a.max(0.0), b]))
+                        .collect()
+                });
                 m.insert("parts".into(), Value::Array(shifted));
             }
             markers.push(Value::Object(m));
@@ -250,8 +243,7 @@ pub fn shift_study(study: &Dict, lag: f64) -> Dict {
         let beats: Vec<f64> = own
             .get("beats")
             .and_then(Value::as_array)
-            .map(|a| a.iter().filter_map(at).collect())
-            .unwrap_or_default();
+            .map_or_default(|a| a.iter().filter_map(at).collect());
         let keep: Vec<usize> = (0..beats.len()).filter(|&i| beats[i] >= 0.0).collect();
         let index: HashMap<usize, usize> = keep
             .iter()
@@ -261,7 +253,7 @@ pub fn shift_study(study: &Dict, lag: f64) -> Dict {
         let bars: Vec<Value> = own
             .get("bars")
             .and_then(Value::as_array)
-            .map(|a| {
+            .map_or_default(|a| {
                 a.iter()
                     .filter_map(|b| {
                         bar_index(b)
@@ -269,8 +261,7 @@ pub fn shift_study(study: &Dict, lag: f64) -> Dict {
                             .map(|&n| Value::from(n))
                     })
                     .collect()
-            })
-            .unwrap_or_default();
+            });
         let mut new_own = own.clone();
         new_own.insert(
             "beats".into(),

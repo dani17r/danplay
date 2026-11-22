@@ -159,12 +159,11 @@ impl Client {
         let headers = p
             .get("headers")
             .and_then(Value::as_object)
-            .map(|h| {
+            .map_or_default(|h| {
                 h.iter()
                     .map(|(k, v)| (k.clone(), value::str_of(v)))
                     .collect()
-            })
-            .unwrap_or_default();
+            });
         let timeout = p
             .get("timeout")
             .and_then(Value::as_f64)

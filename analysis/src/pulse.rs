@@ -467,7 +467,7 @@ pub fn decode(ffmpeg: &Path, path: &Path) -> Result<Vec<f32>, ReadError> {
         let last_one = errores.trim().lines().last().map(str::to_owned);
         return Err(ReadError::Failed(format!(
             "ffmpeg no pudo leer la cancion{}",
-            last_one.map(|l| format!(": {l}")).unwrap_or_default()
+            last_one.map_or_default(|l| format!(": {l}"))
         )));
     }
     Ok(r.stdout

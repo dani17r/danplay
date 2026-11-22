@@ -434,8 +434,7 @@ pub fn adopt_stems(
     }
     let name = target
         .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default();
+        .map_or_default(|n| n.to_string_lossy().into_owned());
     let mut work = target.with_file_name(format!(
         ".adoptando-{name}-{}",
         library::index::now() as i64
@@ -461,8 +460,7 @@ pub fn adopt_stems(
             for t in manifest
                 .get("tracks")
                 .filter(|v| value::truthy(v))
-                .map(value::list_of)
-                .unwrap_or_default()
+                .map_or_default(value::list_of)
             {
                 let Value::Object(mut t) = t else {
                     return Err(std::io::Error::other(
@@ -472,10 +470,9 @@ pub fn adopt_stems(
                 let file = t
                     .get("file")
                     .filter(|v| value::truthy(v))
-                    .map(value::str_of)
-                    .unwrap_or_default();
+                    .map_or_default(value::str_of);
                 let flac = format!("{}.flac", paths::stem(std::path::Path::new(&file)));
-                let from = t.get("file").map(value::str_of).unwrap_or_default();
+                let from = t.get("file").map_or_default(value::str_of);
                 encode_shifted(&ffmpeg, &source.join(from), &work.join(&flac), lag)?;
                 t.insert("file".into(), flac.into());
                 tracks.push(Value::Object(t));
@@ -751,8 +748,7 @@ pub fn settle(
     let twin_path = twin
         .get("path")
         .filter(|v| value::truthy(v))
-        .map(value::str_of)
-        .unwrap_or_default();
+        .map_or_default(value::str_of);
     let measured =
         if !twin_path.is_empty() && Path::new(&twin_path).is_file() && twin_path != song_path {
             lag_between(app, Path::new(&song_path), &[PathBuf::from(&twin_path)])
@@ -762,8 +758,7 @@ pub fn settle(
             let paths: Vec<PathBuf> = manifest
                 .get("tracks")
                 .filter(|v| value::truthy(v))
-                .map(value::list_of)
-                .unwrap_or_default()
+                .map_or_default(value::list_of)
                 .iter()
                 .filter_map(|t| t.get("file").map(|f| folder.join(value::str_of(f))))
                 .filter(|p| p.is_file())
@@ -811,7 +806,7 @@ pub fn settle(
     // las pistas
     if let Some(folder) = &folder {
         let here = stems::info(app, &song).is_some_and(|same| {
-            let mine = same.get("folder").map(value::str_of).unwrap_or_default();
+            let mine = same.get("folder").map_or_default(value::str_of);
             paths::real(&mine) == paths::real(&folder.to_string_lossy())
         });
         if here && lag == 0.0 {

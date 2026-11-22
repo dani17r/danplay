@@ -854,7 +854,7 @@ pub fn recommend(models: &[Dict], now: f64) -> Dict {
             let limit = (floor * 2.0).max(0.05);
             cheap.iter().find(|m| cost(m).is_some_and(|c| c <= limit))
         });
-    let id = |m: Option<&&Dict>| m.map(|m| s(m, "id")).unwrap_or_default();
+    let id = |m: Option<&&Dict>| m.map_or_default(|m| s(m, "id"));
     let mut out = Dict::new();
     out.insert("chat".into(), id(chat).into());
     out.insert("fast".into(), id(fast).into());

@@ -281,7 +281,7 @@ fn ai_check(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
 /// uno), y el catálogo para cuando aún no hay clave.
 fn ai_models(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let mut draft = profile_body(ctx)?;
-    let provider = draft.get("provider").map(value::str_of).unwrap_or_default();
+    let provider = draft.get("provider").map_or_default(value::str_of);
     draft.shift_remove("activate");
     let recheck = draft
         .shift_remove("recheck")
@@ -310,8 +310,7 @@ fn ai_models(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
         Some(
             live.get("models")
                 .and_then(Value::as_array)
-                .map(|a| a.iter().filter_map(|m| m.as_object().cloned()).collect())
-                .unwrap_or_default(),
+                .map_or_default(|a| a.iter().filter_map(|m| m.as_object().cloned()).collect()),
         )
     } else {
         None

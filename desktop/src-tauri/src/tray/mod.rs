@@ -47,8 +47,8 @@ impl From<&PlaybackState> for NowPlaying {
     fn from(state: &PlaybackState) -> Self {
         let track = state.track.as_ref();
         Self {
-            title: track.map(|t| t.title.clone()).unwrap_or_default(),
-            artist: track.map(|t| t.artist.clone()).unwrap_or_default(),
+            title: track.map_or_default(|t| t.title.clone()),
+            artist: track.map_or_default(|t| t.artist.clone()),
             loaded: track.is_some(),
             playing: state.playing,
             has_previous: state.has_previous,

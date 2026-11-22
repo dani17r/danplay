@@ -520,13 +520,11 @@ pub fn find(folder: &str) -> Result<Sequence, SequenceError> {
         .or_else(|| als_in(&tracks_dir).into_iter().next());
     let project = als.as_ref().and_then(|a| read_als(Path::new(a)).ok());
     let mut cover: Option<String> = None;
-    let mut entries: Vec<String> = std::fs::read_dir(&folder)
-        .map(|r| {
-            r.flatten()
-                .filter_map(|e| e.file_name().to_str().map(str::to_owned))
-                .collect()
-        })
-        .unwrap_or_default();
+    let mut entries: Vec<String> = std::fs::read_dir(&folder).map_or_default(|r| {
+        r.flatten()
+            .filter_map(|e| e.file_name().to_str().map(str::to_owned))
+            .collect()
+    });
     entries.sort();
     for name in entries {
         let path = paths::join(&folder, &name);

@@ -139,7 +139,7 @@ fn delete_song(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     ctx.check()?;
     let r = songs::trash(ctx.app, cid, from_lists)?;
     if r.get("ok") != Some(&Value::Bool(true)) {
-        let error = r.get("error").map(value::str_of).unwrap_or_default();
+        let error = r.get("error").map_or_default(value::str_of);
         let status = if error.contains("no existe") {
             404
         } else {
@@ -384,8 +384,7 @@ fn song_beats_reanalyze(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
 fn stem_file(app: &App, song: &Dict, stem: &str) -> Result<PathBuf, ApiError> {
     let tracks = stems::info(app, song)
         .and_then(|d| d.get("tracks").cloned())
-        .map(|t| value::list_of(&t))
-        .unwrap_or_default();
+        .map_or_default(|t| value::list_of(&t));
     tracks
         .iter()
         .find(|t| t.get("source").and_then(Value::as_str) == Some(stem))

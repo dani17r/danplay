@@ -337,8 +337,7 @@ impl Seen {
             .iter()
             .rev()
             .find(|w| !failure_kind(w).is_empty())
-            .map(|w| text::head(w, 200).to_owned())
-            .unwrap_or_default()
+            .map_or_default(|w| text::head(w, 200).to_owned())
     }
 }
 

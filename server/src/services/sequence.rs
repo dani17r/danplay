@@ -33,8 +33,7 @@ pub fn summary(folder: &str) -> Result<Value, String> {
     let sections: Vec<Value> = s
         .project_data
         .as_ref()
-        .map(|p| p.locators.clone())
-        .unwrap_or_default()
+        .map_or_default(|p| p.locators.clone())
         .iter()
         .enumerate()
         .map(|(i, (_, name))| {
@@ -175,8 +174,7 @@ pub fn import_sequence(app: &App, folder: &str, p: &Progress) -> Result<Value, J
         .map(|t| {
             let name = Path::new(&t.path)
                 .file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_default();
+                .map_or_default(|n| n.to_string_lossy().into_owned());
             match project.clips.iter().find(|(n, _, _)| *n == name) {
                 Some((_, beat, _)) if tempo != 0.0 => lseq::beat_seconds(*beat, tempo),
                 _ => 0.0,
@@ -272,8 +270,7 @@ pub fn import_sequence(app: &App, folder: &str, p: &Progress) -> Result<Value, J
                         }
                         let file = dest
                             .file_name()
-                            .map(|n| n.to_string_lossy().into_owned())
-                            .unwrap_or_default();
+                            .map_or_default(|n| n.to_string_lossy().into_owned());
                         files
                             .lock()
                             .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -418,8 +415,7 @@ pub fn import_sequence(app: &App, folder: &str, p: &Progress) -> Result<Value, J
             files
                 .iter()
                 .find(|(k, _)| k == key)
-                .map(|(_, f)| f.clone())
-                .unwrap_or_default()
+                .map_or_default(|(_, f)| f.clone())
         };
         let manifest = json!({
             "version": 2,
@@ -429,7 +425,7 @@ pub fn import_sequence(app: &App, folder: &str, p: &Progress) -> Result<Value, J
             "created": now,
             "updated": now,
             "source": {
-                "file": mix_path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
+                "file": mix_path.file_name().map_or_default(|n| n.to_string_lossy().into_owned()),
                 "folder": rel_folder,
                 "size": size,
                 "duration": library::num::round_to(seconds, 2),

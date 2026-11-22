@@ -47,15 +47,14 @@ pub fn path_of(app: &App, cid: i64) -> Result<Option<String>, ApiError> {
 
 /// Un texto de la fila (`c["path"]`), o vacío.
 pub fn text(song: &Dict, key: &str) -> String {
-    song.get(key).map(value::str_of).unwrap_or_default()
+    song.get(key).map_or_default(value::str_of)
 }
 
 /// Un texto de la fila, o vacío si falta o es falso (`null`, 0, "").
 pub fn text_or_empty(song: &Dict, key: &str) -> String {
     song.get(key)
         .filter(|v| value::truthy(v))
-        .map(value::str_of)
-        .unwrap_or_default()
+        .map_or_default(value::str_of)
 }
 
 /// La canción de esa ruta exacta, o `None`.
@@ -789,8 +788,7 @@ pub fn tidy_apply(
     let current = |k: &str| {
         song.get(k)
             .filter(|v| value::truthy(v))
-            .map(value::str_of)
-            .unwrap_or_default()
+            .map_or_default(value::str_of)
     };
     if write_tags && let Some(a) = artist {
         let a = a.trim();

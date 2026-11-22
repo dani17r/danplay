@@ -570,8 +570,7 @@ impl Watcher {
     pub fn watched(&self) -> Vec<String> {
         lock(&self.observer)
             .as_ref()
-            .map(|o| o.watched.iter().cloned().collect())
-            .unwrap_or_default()
+            .map_or_default(|o| o.watched.iter().cloned().collect())
     }
 }
 

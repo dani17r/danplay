@@ -592,7 +592,7 @@ fn real_output_under_load() {
         ),
         ("un proceso ocupado por núcleo, nice 10", Some(Some(10))),
     ] {
-        let mut load = nice.map(busy).unwrap_or_default();
+        let mut load = nice.map_or_default(busy);
         std::thread::sleep(Duration::from_millis(300));
         let xruns = e.output_status().map_or(0, |s| s.xruns);
         let cuts = e.state().underruns;

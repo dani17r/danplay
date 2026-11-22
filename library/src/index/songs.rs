@@ -169,8 +169,7 @@ fn num(x: f64) -> Value {
 pub fn segments(raw: Option<&Value>, limit: usize) -> Vec<[f64; 2]> {
     let items = raw
         .filter(|v| value::truthy(v))
-        .map(value::list_of)
-        .unwrap_or_default();
+        .map_or_default(value::list_of);
     let mut out: Vec<[f64; 2]> = Vec::new();
     for v in items.iter().take(limit) {
         let Some(pair) = v.as_array().filter(|a| a.len() == 2) else {
@@ -264,8 +263,7 @@ pub fn own_click(own: Option<&Value>) -> Option<Dict> {
     let raw = own
         .get("beats")
         .filter(|v| value::truthy(v))
-        .map(value::list_of)
-        .unwrap_or_default();
+        .map_or_default(value::list_of);
     for t in raw.iter().take(8000) {
         let Some(t) = value::float_of(t)
             .filter(|t| t.is_finite())
@@ -283,8 +281,7 @@ pub fn own_click(own: Option<&Value>) -> Option<Dict> {
     let raw_bars = own
         .get("bars")
         .filter(|v| value::truthy(v))
-        .map(value::list_of)
-        .unwrap_or_default();
+        .map_or_default(value::list_of);
     let mut bars: Vec<i64> = raw_bars
         .iter()
         .take(8000)
@@ -408,8 +405,7 @@ pub fn own_cue_file(path: Option<&Value>, base: &str, previews: bool) -> Option<
 pub fn cues(raw: Option<&Value>, cues_dir: &str) -> Vec<Dict> {
     let items = raw
         .filter(|v| value::truthy(v))
-        .map(value::list_of)
-        .unwrap_or_default();
+        .map_or_default(value::list_of);
     let mut out: Vec<Dict> = Vec::new();
     for c in items.iter().take(200) {
         let Value::Object(c) = c else { continue };
@@ -594,8 +590,7 @@ pub fn clean_study(study: &Value, cues_dir: &str) -> String {
         let raw_markers = study
             .get("markers")
             .filter(|v| value::truthy(v))
-            .map(value::list_of)
-            .unwrap_or_default();
+            .map_or_default(value::list_of);
         let mut markers: Vec<Dict> = raw_markers
             .iter()
             .take(MAX_MARKERS)

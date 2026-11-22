@@ -848,10 +848,7 @@ fn mention(c: &[char], at: usize) -> Option<(String, String, usize)> {
         let e = hand_stop(c, j, bound).unwrap_or(bound);
         let text = word(j, e);
         let text = text.trim();
-        let first_word = tx::words(text)
-            .first()
-            .map(|w| tx::fold(w))
-            .unwrap_or_default();
+        let first_word = tx::words(text).first().map_or_default(|w| tx::fold(w));
         if !text.is_empty()
             && (tx::first(text).is_some_and(tx::is_lower)
                 || ROLE_WORDS.contains(first_word.as_str()))
@@ -2387,8 +2384,7 @@ fn make_item(mut d: Draft, b: &Block, n: usize, preps: &[Prep]) -> Option<SetIte
     let (url, cat) = d.url.clone().unwrap_or((String::new(), ""));
     let raw = d
         .prep
-        .map(|i| tidy(&render(&preps[i].toks, true, LOOK), MAX_RAW))
-        .unwrap_or_default();
+        .map_or_default(|i| tidy(&render(&preps[i].toks, true, LOOK), MAX_RAW));
     Some(SetItem {
         n,
         query: names::search_form(&title),
@@ -2630,10 +2626,7 @@ pub fn parse(text: &str) -> SetlistParse {
     let tasks = items
         .iter()
         .filter(|it| {
-            let first = tx::words(&it.title)
-                .first()
-                .map(|w| tx::fold(w))
-                .unwrap_or_default();
+            let first = tx::words(&it.title).first().map_or_default(|w| tx::fold(w));
             !it.title.is_empty() && is_task(&first) && !title_cased(&it.title)
         })
         .count();

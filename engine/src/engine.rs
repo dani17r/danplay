@@ -293,8 +293,7 @@ impl Engine {
         let declared = manifest["song"]["duration"].as_f64().unwrap_or(0.0);
         let id = folder
             .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_default();
+            .map_or_default(|n| n.to_string_lossy().into_owned());
         let mut loaded = self.load_files(&id, &files, declared)?;
         loaded.manifest = Some(manifest);
         Ok(loaded)

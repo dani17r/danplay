@@ -248,8 +248,7 @@ fn validate_args(
         .map(|e| {
             let loc = e["loc"]
                 .as_array()
-                .map(|l| l.iter().map(value::str_of).collect())
-                .unwrap_or_default();
+                .map_or_default(|l| l.iter().map(value::str_of).collect());
             (loc, e["type"].as_str().unwrap_or_default().to_owned())
         })
         .collect())
@@ -730,8 +729,7 @@ impl Io for ServerIo<'_> {
         let items: Vec<String> = plan
             .get("items")
             .and_then(Value::as_array)
-            .map(|a| a.iter().map(value::str_of).collect())
-            .unwrap_or_default();
+            .map_or_default(|a| a.iter().map(value::str_of).collect());
         let wanted = wanted_of(plan);
         let done = youtube::run_many(self.app, &items, &wanted, false, None, None);
         Ok(Value::Array(done.into_iter().map(Value::Object).collect()))

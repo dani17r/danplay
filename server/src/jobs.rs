@@ -373,10 +373,7 @@ mod tests {
         assert!(!already);
         assert_eq!(snap["active"], true);
         assert_eq!(snap["name"], "scan");
-        let keys: Vec<&String> = snap
-            .as_object()
-            .map(|o| o.keys().collect())
-            .unwrap_or_default();
+        let keys: Vec<&String> = snap.as_object().map_or_default(|o| o.keys().collect());
         assert_eq!(
             keys,
             [
@@ -477,10 +474,7 @@ mod tests {
         assert_eq!(e("d"), "la busqueda fallo");
         assert_eq!(jobs.snapshot("nada"), None);
         let all = jobs.snapshot_all();
-        let names: Vec<&String> = all
-            .as_object()
-            .map(|o| o.keys().collect())
-            .unwrap_or_default();
+        let names: Vec<&String> = all.as_object().map_or_default(|o| o.keys().collect());
         assert_eq!(names, ["a", "b", "c", "d"]);
     }
 
@@ -545,8 +539,7 @@ mod tests {
         let all = jobs.snapshot_all();
         let family = all
             .as_object()
-            .map(|o| o.keys().filter(|n| n.starts_with("guia-")).count())
-            .unwrap_or_default();
+            .map_or_default(|o| o.keys().filter(|n| n.starts_with("guia-")).count());
         // los que había al arrancar el último (los más recientes) y él
         assert_eq!(family, KEPT_PER_FAMILY + 1, "{all}");
         assert!(all.get("guia-1").is_none() && all.get("scan").is_some());

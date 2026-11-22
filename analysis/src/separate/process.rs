@@ -163,7 +163,7 @@ pub fn decode(program: &str, path: &str) -> Result<Vec<f32>, Error> {
         let last_one = errores.trim().lines().last().map(str::to_owned);
         return Err(format!(
             "ffmpeg no pudo leer la cancion{}",
-            last_one.map(|l| format!(": {l}")).unwrap_or_default()
+            last_one.map_or_default(|l| format!(": {l}"))
         )
         .into());
     }
@@ -331,8 +331,7 @@ pub fn compacted(program: &str, src: &Path, format: &str) -> Result<PathBuf, Err
             .collect();
         let name = src
             .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_default();
+            .map_or_default(|n| n.to_string_lossy().into_owned());
         return Err(format!("ffmpeg no pudo pasar {name} a {format}: {tail}").into());
     }
     std::fs::remove_file(src)?;
@@ -469,8 +468,7 @@ fn put<V>(d: &mut Vec<(String, V)>, k: &str, v: V) {
 
 fn name(p: &Path) -> String {
     p.file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default()
+        .map_or_default(|n| n.to_string_lossy().into_owned())
 }
 
 fn file<'a>(t: &'a Job, source: &str) -> Result<&'a str, Error> {

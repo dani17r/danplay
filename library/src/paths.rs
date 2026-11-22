@@ -181,8 +181,7 @@ pub fn expand_home(p: &str) -> String {
 pub fn file_name(p: &str) -> String {
     Path::new(p)
         .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default()
+        .map_or_default(|n| n.to_string_lossy().into_owned())
 }
 
 /// La carpeta en que está (la raíz, de la raíz; «», de un nombre suelto).
@@ -198,8 +197,7 @@ pub fn parent(p: &str) -> String {
 /// El nombre sin su extensión.
 pub fn stem(path: &Path) -> String {
     path.file_stem()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default()
+        .map_or_default(|n| n.to_string_lossy().into_owned())
 }
 
 /// La extensión, con su punto («.MP3», tal cual), o vacía: «.flac» y «x.»

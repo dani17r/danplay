@@ -261,7 +261,7 @@ pub fn by_name(conn: &Connection, name: &str) -> rusqlite::Result<Option<Dict>> 
     }
     let found = fetch_all(conn, "SELECT id, name FROM playlists ORDER BY name", [])?
         .into_iter()
-        .find(|r| names::flat(&r.get("name").map(value::str_of).unwrap_or_default()) == key);
+        .find(|r| names::flat(&r.get("name").map_or_default(value::str_of)) == key);
     match found.and_then(|r| r.get("id").and_then(Value::as_i64)) {
         Some(id) => by_id(conn, id),
         None => Ok(None),
@@ -583,8 +583,7 @@ pub fn ghost(cid: i64, card: &Dict, position: &Value) -> Dict {
         &card
             .get("file")
             .filter(|v| value::truthy(v))
-            .map(value::str_of)
-            .unwrap_or_default(),
+            .map_or_default(value::str_of),
     );
     let title = card
         .get("title")
@@ -786,7 +785,7 @@ pub fn relink_ghosts(conn: &Connection, new_ids: &[i64]) -> rusqlite::Result<(us
     let mut moved: Vec<(i64, i64)> = Vec::new();
     for r in &rows {
         let sid = r.get("id").and_then(Value::as_i64).unwrap_or(0);
-        for (gid, d) in by_key.get(&ident(r)).map(Vec::as_slice).unwrap_or_default() {
+        for (gid, d) in by_key.get(&ident(r)).map_or_default(Vec::as_slice) {
             if close(d, r.get("duration").unwrap_or(&Value::Null)) {
                 moved.push((*gid, sid));
             }

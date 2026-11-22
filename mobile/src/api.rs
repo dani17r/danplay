@@ -24,13 +24,12 @@ fn list_songs(lib: &Library, folders: &[String]) -> Vec<Value> {
 fn folders_of(lib: &Library, body: &Value) -> Vec<String> {
     body.get("ids")
         .and_then(Value::as_array)
-        .map(|ids| {
+        .map_or_default(|ids| {
             ids.iter()
                 .filter_map(Value::as_i64)
                 .filter_map(|i| lib.folder_name(i))
                 .collect()
         })
-        .unwrap_or_default()
 }
 
 /// Lo que no hay en el celular.
@@ -117,8 +116,7 @@ pub fn handle(lib: &Library, method: &str, full: &str, body: Option<&str>) -> Re
         }
         ("GET", ["search"]) => {
             let words: Vec<String> = query(q, "q")
-                .map(|s| plain(&decode(s)))
-                .unwrap_or_default()
+                .map_or_default(|s| plain(&decode(s)))
                 .split_whitespace()
                 .map(str::to_string)
                 .collect();
@@ -222,13 +220,12 @@ pub fn handle(lib: &Library, method: &str, full: &str, body: Option<&str>) -> Re
             let folders = body
                 .get("folders")
                 .and_then(Value::as_array)
-                .map(|a| {
+                .map_or_default(|a| {
                     a.iter()
                         .filter_map(Value::as_str)
                         .map(str::to_string)
                         .collect()
-                })
-                .unwrap_or_default();
+                });
             Ok(json!({"songs": lib.music.set_folders(folders)}))
         }
         ("POST", ["phone", "scan"]) => Ok(json!({"songs": lib.music.scan()})),
@@ -246,8 +243,7 @@ pub fn handle(lib: &Library, method: &str, full: &str, body: Option<&str>) -> Re
         }
         ("GET", ["phone", "songs"]) => {
             let words: Vec<String> = query(q, "q")
-                .map(|s| plain(&decode(s)))
-                .unwrap_or_default()
+                .map_or_default(|s| plain(&decode(s)))
                 .split_whitespace()
                 .map(str::to_string)
                 .collect();

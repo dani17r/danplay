@@ -615,21 +615,21 @@ pub fn ask(
                 "trimmed": checked.get("dropped").cloned().unwrap_or(json!(0)),
             });
             let mut asked = plan::register(app, name, &clean, &spec, &Value::Null, turn.chat_id)?;
-            let summary = asked.get("summary").map(value::str_of).unwrap_or_default();
+            let summary = asked.get("summary").map_or_default(value::str_of);
             // compatibilidad: una interfaz de antes confirma con {tool, args}
             asked.insert("args".into(), clean);
             Ok((asked, summary))
         } else {
             let mut asked =
                 plan::register(app, name, args, &Value::Null, &Value::Null, turn.chat_id)?;
-            let summary = asked.get("summary").map(value::str_of).unwrap_or_default();
+            let summary = asked.get("summary").map_or_default(value::str_of);
             asked.insert("args".into(), args.clone());
             Ok((asked, summary))
         }
     })();
     let brief_of = |a: &Value| {
         json!({
-            "item": text::head(&a.get("item").map(value::str_of).unwrap_or_default(), 80),
+            "item": text::head(&a.get("item").map_or_default(value::str_of), 80),
             "song": tools::song_brief(a.get("song").unwrap_or(&Value::Null)),
         })
     };

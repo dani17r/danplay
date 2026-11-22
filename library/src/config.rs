@@ -162,8 +162,7 @@ pub fn write_private(path: &Path, text: &str) -> std::io::Result<()> {
     std::fs::create_dir_all(folder)?;
     let name = path
         .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default();
+        .map_or_default(|n| n.to_string_lossy().into_owned());
     let mut tmp = tempfile::Builder::new()
         .prefix(&format!(".{name}."))
         .suffix(".tmp")
@@ -490,8 +489,7 @@ impl Config {
     /// de API: `write_private`.
     pub fn save_env(&self, pairs: &[(&str, &str)]) -> std::io::Result<()> {
         let text = std::fs::read(&self.env_file)
-            .map(|b| String::from_utf8_lossy(&b).into_owned())
-            .unwrap_or_default();
+            .map_or_default(|b| String::from_utf8_lossy(&b).into_owned());
         let mut lines: Vec<String> = text.lines().map(str::to_owned).collect();
         for (key, value) in pairs {
             let value = value.replace(['\r', '\n'], " ");

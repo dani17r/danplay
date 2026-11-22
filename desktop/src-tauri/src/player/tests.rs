@@ -781,7 +781,7 @@ fn a_prepared_song_that_plays_again_counts_as_used() {
     play();
     let flac = super::formats::cached(std::path::Path::new(&song)).expect("preparada");
     // como si no sonara desde hace dos días
-    let two_days = Duration::from_secs(2 * 24 * 60 * 60);
+    let two_days = Duration::from_hours(48);
     std::fs::File::options()
         .write(true)
         .open(&flac)

@@ -617,8 +617,7 @@ fn fill_with_drums(base: &Value, raw: &Raw, extra: Option<&Raw>) -> Result<Value
     let bars: Vec<i64> = base
         .get("bars")
         .and_then(Value::as_array)
-        .map(|b| b.iter().filter_map(Value::as_i64).collect())
-        .unwrap_or_default();
+        .map_or_default(|b| b.iter().filter_map(Value::as_i64).collect());
     let with = whole(raw, "auto", false, None, Some(drums))?.end.beats;
     let seconds = raw.seconds;
     let drums_logits = f64s(&drums.beat);

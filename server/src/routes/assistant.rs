@@ -400,7 +400,7 @@ fn export_markdown(c: &Dict) -> String {
         };
         lines.push(format!("**{who}** · {}", local_time(at)));
         lines.push(String::new());
-        lines.push(m.get("text").map(value::str_of).unwrap_or_default());
+        lines.push(m.get("text").map_or_default(value::str_of));
         let tools = m
             .get("tools")
             .filter(|v| value::truthy(v))
@@ -528,8 +528,7 @@ fn confirm_tool(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
         }
         let list: Vec<String> = items
             .as_array()
-            .map(|a| a.iter().map(value::str_of).collect())
-            .unwrap_or_default();
+            .map_or_default(|a| a.iter().map(value::str_of).collect());
         youtube::start_many(app, list.clone(), tools::wanted_of(&wanted), job, None);
         let n = list.len();
         return Ok(json!({
@@ -610,8 +609,7 @@ fn confirm_registered(
         .args
         .get("items")
         .and_then(Value::as_array)
-        .map(|a| a.iter().map(value::str_of).collect())
-        .unwrap_or_default();
+        .map_or_default(|a| a.iter().map(value::str_of).collect());
     let after = entry.after.clone();
     // lo de completar la lista sale del registro, nunca del cliente
     let on_done: Option<youtube::OnDone> = after.clone().map(|after| {
@@ -635,7 +633,7 @@ fn confirm_registered(
     let mut text = downloading_text(n);
     let target = after.as_ref().and_then(|a| a.get("playlist")).cloned();
     if let Some(t) = target.as_ref().filter(|t| value::truthy(t)) {
-        let name = t.get("name").map(value::str_of).unwrap_or_default();
+        let name = t.get("name").map_or_default(value::str_of);
         let _ = write!(
             text,
             " Al terminar {} añado a «{name}».",

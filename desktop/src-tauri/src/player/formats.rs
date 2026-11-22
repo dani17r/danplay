@@ -335,7 +335,7 @@ fn touch(file: &Path) {
 }
 
 /// Lo que se marca como usado se vuelve a marcar pasado esto, no antes.
-const MARKED_FOR: Duration = Duration::from_secs(60 * 60);
+const MARKED_FOR: Duration = Duration::from_hours(1);
 
 /// Un convertido que va a sonar, como usado ahora (`touch`): si no, la caché
 /// tiraba primero lo que se convirtió primero, aunque sonara a diario, y la

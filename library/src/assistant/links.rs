@@ -281,7 +281,7 @@ pub fn clean_youtube_url(url: &str) -> String {
 
 /// El id de 11 caracteres de un vídeo de YouTube; "" si no es de un vídeo.
 pub fn youtube_video_id(url: &str) -> String {
-    youtube_parts(url).map(|(v, _)| v).unwrap_or_default()
+    youtube_parts(url).map_or_default(|(v, _)| v)
 }
 
 /// Los «%XX» como bytes, leídos como UTF-8 (con «�» donde no lo es).
@@ -366,7 +366,7 @@ pub fn video_id(url: &str) -> String {
     };
     let segs: Vec<&str> = parts.path.split('/').filter(|s| !s.is_empty()).collect();
     let vid = if host.ends_with("youtu.be") {
-        segs.first().map(|s| (*s).to_owned()).unwrap_or_default()
+        segs.first().map_or_default(|s| (*s).to_owned())
     } else if segs.first() == Some(&"watch") {
         parse_qs_first(&parts.query, "v").unwrap_or_default()
     } else if segs.len() > 1 && matches!(segs[0], "shorts" | "embed" | "live" | "v") {

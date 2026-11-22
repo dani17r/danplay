@@ -514,15 +514,11 @@ fn find<'a>(entry: &Dict, ix: &Index<'a>) -> Option<&'a Dict> {
     {
         return Some(same[0]);
     }
-    let near: Vec<&&Dict> = ix
-        .by_key
-        .get(&scan::ident(entry))
-        .map(|v| {
-            v.iter()
-                .filter(|r| close(r.get("duration"), entry.get("duration")))
-                .collect()
-        })
-        .unwrap_or_default();
+    let near: Vec<&&Dict> = ix.by_key.get(&scan::ident(entry)).map_or_default(|v| {
+        v.iter()
+            .filter(|r| close(r.get("duration"), entry.get("duration")))
+            .collect()
+    });
     (near.len() == 1).then(|| *near[0])
 }
 

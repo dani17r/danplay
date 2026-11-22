@@ -308,8 +308,7 @@ pub fn ident(row: &Dict) -> String {
     let text = |k: &str| {
         row.get(k)
             .filter(|v| value::truthy(v))
-            .map(value::str_of)
-            .unwrap_or_default()
+            .map_or_default(value::str_of)
     };
     let artist = text("artist");
     let title = text("title");

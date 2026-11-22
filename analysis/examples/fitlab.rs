@@ -209,14 +209,12 @@ fn main() {
     };
     let wanted: Vec<&String> = args.iter().skip(2).collect();
     let mode = std::env::var("FITLAB_MODE").unwrap_or_else(|_| "repair".into());
-    let mut dirs: Vec<PathBuf> = std::fs::read_dir(root)
-        .map(|d| {
-            d.filter_map(Result::ok)
-                .map(|e| e.path())
-                .filter(|p| p.is_dir() && p.join("cancion.npz").is_file())
-                .collect()
-        })
-        .unwrap_or_default();
+    let mut dirs: Vec<PathBuf> = std::fs::read_dir(root).map_or_default(|d| {
+        d.filter_map(Result::ok)
+            .map(|e| e.path())
+            .filter(|p| p.is_dir() && p.join("cancion.npz").is_file())
+            .collect()
+    });
     dirs.sort_by_key(|p| {
         let name = p.file_name().and_then(|n| n.to_str()).unwrap_or_default();
         (name.parse::<u64>().unwrap_or(u64::MAX), name.to_owned())

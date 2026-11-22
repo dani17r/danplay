@@ -136,11 +136,10 @@ fn encode(ffmpeg: &Path, source: &Path, target: &Path, args: &[&str]) -> Result<
     cmd.push(target.to_string_lossy().into_owned());
     let name = source
         .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default();
+        .map_or_default(|n| n.to_string_lossy().into_owned());
     let r = processes::run(
         &mut processes::order(ffmpeg, &cmd),
-        Duration::from_secs(24 * 3600),
+        Duration::from_hours(24),
     )
     .map_err(|e| format!("ffmpeg no pudo preparar «{name}»: {e}"))?;
     if !r.succeeded() || !target.is_file() {
@@ -215,7 +214,7 @@ pub fn manifest(
     let tracks: Vec<Value> = info
         .get("tracks")
         .and_then(Value::as_array)
-        .map(|ts| {
+        .map_or_default(|ts| {
             ts.iter()
                 .filter_map(|t| {
                     let source = t.get("source")?.as_str()?;
@@ -235,8 +234,7 @@ pub fn manifest(
                     Some(Value::Object(d))
                 })
                 .collect()
-        })
-        .unwrap_or_default();
+        });
     let mut out = Dict::new();
     out.insert("format".into(), "danpista".into());
     out.insert("version".into(), Value::from(VERSION));
@@ -510,8 +508,7 @@ pub fn write(package: &Bundle<'_>, done: &(dyn Fn() + Sync)) -> Result<Dict, Str
         .info
         .get("tracks")
         .and_then(Value::as_array)
-        .map(|t| t.iter().filter_map(|x| x.as_object().cloned()).collect())
-        .unwrap_or_default();
+        .map_or_default(|t| t.iter().filter_map(|x| x.as_object().cloned()).collect());
     let work = tempfile::Builder::new()
         .prefix("danplay-celular-")
         .tempdir()

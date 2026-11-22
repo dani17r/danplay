@@ -1895,9 +1895,7 @@ impl Index {
         let url_s = tx::head(url, 500).trim().to_owned();
         let url_s = if url_s.is_empty() {
             let c: Vec<char> = tx::head(title, MAX_CHARS).chars().collect();
-            find_url(&c, 0)
-                .map(|(a, b)| c[a..b].iter().take(500).collect())
-                .unwrap_or_default()
+            find_url(&c, 0).map_or_default(|(a, b)| c[a..b].iter().take(500).collect())
         } else {
             url_s
         };

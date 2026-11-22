@@ -27,7 +27,7 @@ fn numeric(num: u64) -> String {
     if INVALID_CODEPOINTS.binary_search(&n).is_ok() {
         return String::new();
     }
-    char::from_u32(n).map(String::from).unwrap_or_default()
+    char::from_u32(n).map_or_default(String::from)
 }
 
 /// Los dígitos (de `base`) al principio de `s`, y hasta dónde llegan. Un

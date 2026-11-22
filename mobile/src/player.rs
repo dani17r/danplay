@@ -296,8 +296,7 @@ impl Worker {
         let name = self
             .items
             .get(self.index)
-            .map(|t| t.title.clone())
-            .unwrap_or_default();
+            .map_or_default(|t| t.title.clone());
         self.engine = Engine::new();
         self.engine.set_output_config(self.output.clone());
         self.engine.set_speed(self.speed);
@@ -498,7 +497,7 @@ impl Worker {
                         .collect(),
                     None => vec![folder.clone()],
                 };
-                let roles = manifest.map(bundle::roles).unwrap_or_default();
+                let roles = manifest.map_or_default(bundle::roles);
                 self.roles = part_roles(roles, self.parts.len());
                 self.loaded = Some(folder.clone());
                 self.engine.set_speed(self.speed);

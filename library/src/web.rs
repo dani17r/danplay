@@ -133,8 +133,7 @@ pub fn parse(page: &str, limit: Option<i64>) -> Vec<Outcome> {
             url: unwrap_url(group(page, g, 1)),
             summary: snippets
                 .get(i)
-                .map(|s| plain_text(group(page, s, 1)).chars().take(400).collect())
-                .unwrap_or_default(),
+                .map_or_default(|s| plain_text(group(page, s, 1)).chars().take(400).collect()),
         })
         .collect()
 }

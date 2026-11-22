@@ -190,8 +190,7 @@ impl Detector {
     /// Las canciones con que se le llamó, en orden.
     pub(crate) fn calls(&self) -> Vec<String> {
         std::fs::read_to_string(&self.calls)
-            .map(|t| t.lines().map(str::to_owned).collect())
-            .unwrap_or_default()
+            .map_or_default(|t| t.lines().map(str::to_owned).collect())
     }
 
     /// Un archivo de mentira en su carpeta.
@@ -532,7 +531,7 @@ fn writing_a_tag_keeps_what_was_worked_out_from_the_sound() {
     let old = std::fs::metadata(&gozo)
         .and_then(|m| m.modified())
         .expect("fecha")
-        - Duration::from_secs(86_400);
+        - Duration::from_hours(24);
     std::fs::File::options()
         .write(true)
         .open(&gozo)
@@ -1814,22 +1813,19 @@ fn real_click_bench() {
             .map(|v| beats_of(v.get("grid").unwrap_or(&v)));
         // lo tocado, a falta de la interfaz: lo que no cae en un pulso de la
         // automática de antes (a 40 ms), con un margen, y los cercanos juntos
-        let touched: Vec<(f64, f64)> = own
-            .as_ref()
-            .map(|own| {
-                let mut out: Vec<(f64, f64)> = Vec::new();
-                for b in own
-                    .iter()
-                    .filter(|b| auto.iter().all(|a| (a - **b).abs() > 0.04))
-                {
-                    match out.last_mut() {
-                        Some(last) if *b - 0.5 <= last.1 => last.1 = *b + 0.5,
-                        _ => out.push((*b - 0.5, *b + 0.5)),
-                    }
+        let touched: Vec<(f64, f64)> = own.as_ref().map_or_default(|own| {
+            let mut out: Vec<(f64, f64)> = Vec::new();
+            for b in own
+                .iter()
+                .filter(|b| auto.iter().all(|a| (a - **b).abs() > 0.04))
+            {
+                match out.last_mut() {
+                    Some(last) if *b - 0.5 <= last.1 => last.1 = *b + 0.5,
+                    _ => out.push((*b - 0.5, *b + 0.5)),
                 }
-                out
-            })
-            .unwrap_or_default();
+            }
+            out
+        });
         let own_req = own.as_ref().map(|beats| Own {
             beats: beats.clone(),
             bars: Vec::new(),

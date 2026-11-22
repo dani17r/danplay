@@ -270,8 +270,7 @@ pub fn fill(app: &App, args: &Dict, turn: &mut Turn) -> Result<Value, ApiError> 
     let wanted_name = [get("playlist"), get("name")]
         .into_iter()
         .find(value::truthy)
-        .map(|v| value::str_of(&v))
-        .unwrap_or_default();
+        .map_or_default(|v| value::str_of(&v));
     let (pl, created, bad) = target(app, &wanted_name, turn, value::truthy(&get("create")))?;
     let Some(pl) = pl else {
         return Ok(json!({ "error": bad }));

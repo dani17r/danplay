@@ -97,8 +97,7 @@ impl Context<'_> {
         let active = providers::active(&data);
         let fallbacks = active
             .as_ref()
-            .map(|a| providers::fallbacks(&data, &text(a, "id")))
-            .unwrap_or_default();
+            .map_or_default(|a| providers::fallbacks(&data, &text(a, "id")));
         let mut refs: Vec<&Dict> = p.into_iter().collect();
         refs.extend(active.iter());
         refs.extend(fallbacks.iter());
@@ -273,7 +272,7 @@ fn forget_problem(pid: &str) {
 /// `{"primary": {id, name, model, problem}, "answering": {...} | None}`.
 pub fn status(ctx: &Context<'_>) -> Dict {
     let p = ctx.profile();
-    let pid = p.as_ref().map(|p| text(p, "id")).unwrap_or_default();
+    let pid = p.as_ref().map_or_default(|p| text(p, "id"));
     let (problem, answering) = {
         let e = state();
         let problem = (e.down_until.get(&pid).copied().unwrap_or(0.0) > (ctx.now)())
@@ -282,7 +281,7 @@ pub fn status(ctx: &Context<'_>) -> Dict {
             .map(|h| json!({"kind": h.kind, "code": h.code, "at": h.at}));
         (problem, e.last_chat_via.clone())
     };
-    let get = |k: &str| p.as_ref().map(|p| text(p, k)).unwrap_or_default();
+    let get = |k: &str| p.as_ref().map_or_default(|p| text(p, k));
     json!({
         "primary": {"id": get("id"), "name": get("name"), "model": get("chat_model"), "problem": problem},
         "answering": answering,
@@ -308,7 +307,7 @@ fn signature(p: &Dict) -> String {
         text(p, "base_url"),
         text(p, "key"),
         headers,
-        p.get("timeout").map(Value::to_string).unwrap_or_default()
+        p.get("timeout").map_or_default(Value::to_string)
     )
 }
 
@@ -373,8 +372,7 @@ fn known_limits(ctx: &Context<'_>, p: &Dict, model: &str) -> Vec<String> {
     let mut out: Vec<String> = state()
         .unsupported
         .get(&key)
-        .map(|s| s.iter().cloned().collect())
-        .unwrap_or_default();
+        .map_or_default(|s| s.iter().cloned().collect());
     let quirks = p
         .get("quirks")
         .and_then(Value::as_object)
@@ -936,8 +934,7 @@ fn draft_profile(ctx: &Context<'_>, draft: Option<&Dict>) -> Option<Dict> {
         .into_iter()
         .flatten()
         .find(|v| value::truthy(v))
-        .map(value::str_of)
-        .unwrap_or_default();
+        .map_or_default(value::str_of);
     providers::resolve(&pid, &d)
 }
 
@@ -1237,8 +1234,7 @@ pub fn list_models(ctx: &Context<'_>, draft: Option<&Dict>, recheck: bool) -> Di
         let name = extra
             .get("name")
             .filter(|v| value::truthy(v))
-            .map(value::str_of)
-            .unwrap_or_default();
+            .map_or_default(value::str_of);
         if !catalog::is_chat(&mid, &name) {
             continue;
         }

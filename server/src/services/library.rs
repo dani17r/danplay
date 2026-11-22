@@ -15,7 +15,7 @@ pub use library::index::scan::MISSING_DAYS;
 
 /// Cada cuánto, como mucho, se poda aunque el escaneo no encuentre nada
 /// (ver `scan`).
-const PRUNE_EVERY: std::time::Duration = std::time::Duration::from_secs(6 * 3600);
+const PRUNE_EVERY: std::time::Duration = std::time::Duration::from_hours(6);
 
 /// El mismo archivo en otro sitio: su clic sigue valiendo (sin esto se volvía
 /// a calcular, 15-20 s por canción, al mover la carpeta).

@@ -118,7 +118,7 @@ struct FakeVoice {
 #[cfg(test)]
 pub fn fake_voice(app: &App, installed: bool) {
     let mut fake = lock(&app.cues.fake);
-    let started = fake.take().map(|f| f.started).unwrap_or_default();
+    let started = fake.take().map_or_default(|f| f.started);
     *fake = Some(FakeVoice { installed, started });
 }
 
@@ -127,8 +127,7 @@ pub fn fake_voice(app: &App, installed: bool) {
 pub fn fake_started(app: &App) -> Vec<String> {
     lock(&app.cues.fake)
         .as_ref()
-        .map(|f| f.started.clone())
-        .unwrap_or_default()
+        .map_or_default(|f| f.started.clone())
 }
 
 impl std::fmt::Debug for Cues {
@@ -185,13 +184,12 @@ struct VoiceFile {
 
 fn files_of(v: &Dict) -> Vec<VoiceFile> {
     v.get("files")
-        .map(value::list_of)
-        .unwrap_or_default()
+        .map_or_default(value::list_of)
         .iter()
         .map(|f| VoiceFile {
-            dest: PathBuf::from(f.get("dest").map(value::str_of).unwrap_or_default()),
-            url: f.get("url").map(value::str_of).unwrap_or_default(),
-            sha256: f.get("sha256").map(value::str_of).unwrap_or_default(),
+            dest: PathBuf::from(f.get("dest").map_or_default(value::str_of)),
+            url: f.get("url").map_or_default(value::str_of),
+            sha256: f.get("sha256").map_or_default(value::str_of),
             bytes: f.get("bytes").and_then(Value::as_i64).unwrap_or(0),
         })
         .collect()
@@ -231,7 +229,7 @@ fn download(f: &VoiceFile, advance: &dyn Fn(i64)) -> std::result::Result<(), Str
     if let Some(dir) = f.dest.parent() {
         std::fs::create_dir_all(dir).map_err(|e| format!("no se pudo bajar la voz ({e})"))?;
     }
-    let mut tmp_name = f.dest.file_name().map(OsString::from).unwrap_or_default();
+    let mut tmp_name = f.dest.file_name().map_or_default(OsString::from);
     tmp_name.push(".part");
     let tmp = f.dest.with_file_name(tmp_name);
     let mut out =
@@ -279,7 +277,7 @@ pub fn install(app: &App, voice_id: &str) -> Result<Value> {
     if missing.is_empty() {
         return Ok(json!({"installed": true}));
     }
-    let pack = v.get("pack").map(value::str_of).unwrap_or_default();
+    let pack = v.get("pack").map_or_default(value::str_of);
     let running = {
         let mut installs = lock(&app.cues.installs);
         let running = installs.get(&pack).is_some_and(|s| s.error.is_empty());
@@ -381,14 +379,11 @@ fn say_with(
     lang: &str,
 ) -> std::result::Result<(Vec<f32>, u32), String> {
     let ort = onnx::library(app).ok_or("falta ONNX Runtime en esta instalación de DanPlay")?;
-    let engine = v.get("engine").map(value::str_of).unwrap_or_default();
+    let engine = v.get("engine").map_or_default(value::str_of);
     let key = if engine == "supertonic" {
         "supertonic".to_owned()
     } else {
-        format!(
-            "piper-{}",
-            v.get("model").map(value::str_of).unwrap_or_default()
-        )
+        format!("piper-{}", v.get("model").map_or_default(value::str_of))
     };
     if loaded.key != key || loaded.engine.is_none() {
         loaded.engine = None;
@@ -398,7 +393,7 @@ fn say_with(
                 &voices_dir(app).join("supertonic-3"),
             )?)
         } else {
-            let model = v.get("model").map(value::str_of).unwrap_or_default();
+            let model = v.get("model").map_or_default(value::str_of);
             let path = voices_dir(app)
                 .join("piper")
                 .join(&model)
@@ -410,7 +405,7 @@ fn say_with(
     loaded.used = Some(Instant::now());
     match loaded.engine.as_mut() {
         Some(Engine::Supertonic(s)) => {
-            let style = v.get("style").map(value::str_of).unwrap_or_default();
+            let style = v.get("style").map_or_default(value::str_of);
             let wav = s.say(spoken, &style, lang)?;
             Ok((wav, s.sample_rate() as u32))
         }
@@ -921,7 +916,7 @@ mod tests {
                 .into_iter()
                 .find(|v| v["id"] == voice)
                 .expect("la voz");
-            let error = item.get("error").map(value::str_of).unwrap_or_default();
+            let error = item.get("error").map_or_default(value::str_of);
             if !error.is_empty() || installed(app, voice) {
                 return error;
             }

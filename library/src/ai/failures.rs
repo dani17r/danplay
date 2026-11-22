@@ -353,12 +353,11 @@ impl Who {
         let name = p
             .get("name")
             .filter(|v| value::truthy(v))
-            .map(value::str_of)
-            .unwrap_or_default();
+            .map_or_default(value::str_of);
         Self {
             name,
             local: p.get("local").is_some_and(value::truthy),
-            base_url: p.get("base_url").map(value::str_of).unwrap_or_default(),
+            base_url: p.get("base_url").map_or_default(value::str_of),
         }
     }
 }

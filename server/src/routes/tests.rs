@@ -205,8 +205,7 @@ fn folders_search_and_locate() {
     assert_eq!(s, 422);
     let kinds: Vec<&str> = v["detail"]
         .as_array()
-        .map(|e| e.iter().filter_map(|x| x["type"].as_str()).collect())
-        .unwrap_or_default();
+        .map_or_default(|e| e.iter().filter_map(|x| x["type"].as_str()).collect());
     assert_eq!(kinds, ["greater_than_equal", "greater_than_equal"]);
     let (s, v) = call(&app, "GET", "/api/search?q=nada", None);
     assert_eq!((s, v), (200, json!({"total": 0, "count": 0, "songs": []})));

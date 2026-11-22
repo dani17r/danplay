@@ -1021,8 +1021,7 @@ fn unpack(data: &[u8], zip: &mut Zip) -> Result<V, Error> {
 pub fn read(path: &Path, key: Option<&str>) -> Result<Vec<(String, Rc<Tensor>)>, Error> {
     let name = path
         .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default();
+        .map_or_default(|n| n.to_string_lossy().into_owned());
     let file = File::open(path).map_err(|e| Error::Io(e.kind(), e.to_string()))?;
     let mut file = match zip::ZipArchive::new(file) {
         Ok(a) => a,
@@ -1118,8 +1117,7 @@ pub struct TensorSt {
 pub fn safetensors(path: &Path) -> Result<Vec<TensorSt>, Error> {
     let name = path
         .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default();
+        .map_or_default(|n| n.to_string_lossy().into_owned());
     let not_safetensors = || Error::Checkpoint(format!("{name} no es un safetensors"));
     let mut f = File::open(path).map_err(|e| Error::Io(e.kind(), e.to_string()))?;
     let mut length = [0u8; 8];
@@ -1161,13 +1159,11 @@ pub fn safetensors(path: &Path) -> Result<Vec<TensorSt>, Error> {
         let pos: Vec<u64> = meta
             .get("data_offsets")
             .and_then(serde_json::Value::as_array)
-            .map(|v| v.iter().filter_map(serde_json::Value::as_u64).collect())
-            .unwrap_or_default();
+            .map_or_default(|v| v.iter().filter_map(serde_json::Value::as_u64).collect());
         let shape: Vec<u64> = meta
             .get("shape")
             .and_then(serde_json::Value::as_array)
-            .map(|v| v.iter().filter_map(serde_json::Value::as_u64).collect())
-            .unwrap_or_default();
+            .map_or_default(|v| v.iter().filter_map(serde_json::Value::as_u64).collect());
         let [a, z] = pos[..] else {
             return Err(not_safetensors());
         };

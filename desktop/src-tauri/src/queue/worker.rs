@@ -192,7 +192,7 @@ impl Playback {
     }
 
     pub fn state(&self) -> PlaybackState {
-        self.snapshot.lock().map(|s| s.clone()).unwrap_or_default()
+        self.snapshot.lock().map_or_default(|s| s.clone())
     }
 
     pub fn listing(&self) -> (Vec<Track>, Option<serde_json::Value>) {

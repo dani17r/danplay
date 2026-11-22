@@ -756,8 +756,7 @@ fn download_unlocked(
     let items: Vec<Map<String, Value>> = meta
         .get("items")
         .and_then(Value::as_array)
-        .map(|v| v.iter().filter_map(|i| i.as_object().cloned()).collect())
-        .unwrap_or_default();
+        .map_or_default(|v| v.iter().filter_map(|i| i.as_object().cloned()).collect());
     let mut importer = ingest::Importer::new(app, None);
     let mut vocab = if w.file_it {
         importer.vocabulary()
@@ -1186,8 +1185,7 @@ pub fn choose_folder(
     let inbox = app.config().inbox.clone();
     let inbox_name = inbox
         .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default();
+        .map_or_default(|n| n.to_string_lossy().into_owned());
     for sub in subfolders().into_iter().chain([inbox_name.as_str()]) {
         let dir = Path::new(&chosen).join(sub);
         if let Err(e) = std::fs::create_dir(&dir)

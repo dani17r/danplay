@@ -342,8 +342,7 @@ pub fn capitalize_words(s: &str) -> String {
             let mut chars = word.chars();
             let first = chars
                 .next()
-                .map(|c| c.to_uppercase().collect::<String>())
-                .unwrap_or_default();
+                .map_or_default(|c| c.to_uppercase().collect::<String>());
             first + &chars.as_str().to_lowercase()
         } else {
             word.to_string()

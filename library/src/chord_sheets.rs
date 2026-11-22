@@ -363,9 +363,7 @@ fn deduced_key(sections: &[Section], capo: i64) -> String {
         .iter()
         .flat_map(|s| s.chords.iter().cloned())
         .collect();
-    crate::theory::guess::key_of(&chords, capo)
-        .map(|g| g.key.to_owned())
-        .unwrap_or_default()
+    crate::theory::guess::key_of(&chords, capo).map_or_default(|g| g.key.to_owned())
 }
 
 /// El tono si es un tono que se puede usar (para transponer), o vacío.

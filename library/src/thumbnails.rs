@@ -35,7 +35,7 @@ pub const MAX_BYTES: u64 = 256 * 1024 * 1024;
 pub const CHECK_EVERY: usize = 200;
 /// Cada cuánto, como mucho, se pone al día la marca de uso de una miniatura
 /// que se sirve (su fecha).
-const USED_EVERY: std::time::Duration = std::time::Duration::from_secs(86_400);
+const USED_EVERY: std::time::Duration = std::time::Duration::from_hours(24);
 
 /// Cada tipo con su extensión, en el orden en que se buscan.
 const KINDS: [(&str, &str); 3] = [
@@ -90,8 +90,7 @@ fn parts(f: &Path) -> Option<(String, String, String)> {
 
 fn name_of(f: &Path) -> String {
     f.file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default()
+        .map_or_default(|n| n.to_string_lossy().into_owned())
 }
 
 /// Lo que hay en la carpeta (en el orden del disco), o `None` si no se puede

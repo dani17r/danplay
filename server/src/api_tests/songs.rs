@@ -338,14 +338,12 @@ fn id_of(app: &crate::App, title: &str) -> i64 {
 
 fn waveform_files(app: &crate::App) -> Vec<PathBuf> {
     let folder = crate::services::media::waveform_folder(app);
-    let mut files: Vec<PathBuf> = std::fs::read_dir(folder)
-        .map(|d| {
-            d.filter_map(Result::ok)
-                .map(|e| e.path())
-                .filter(|p| p.extension().is_some_and(|x| x == "json"))
-                .collect()
-        })
-        .unwrap_or_default();
+    let mut files: Vec<PathBuf> = std::fs::read_dir(folder).map_or_default(|d| {
+        d.filter_map(Result::ok)
+            .map(|e| e.path())
+            .filter(|p| p.extension().is_some_and(|x| x == "json"))
+            .collect()
+    });
     files.sort();
     files
 }

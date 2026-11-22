@@ -232,8 +232,7 @@ fn put(abs: &Path, trash: &Path, top: Option<&Path>) -> Result<(), String> {
     }
     let name = abs
         .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default();
+        .map_or_default(|n| n.to_string_lossy().into_owned());
     let (base, ext) = library::names::splitext(&name);
     let mut dest = name.clone();
     let mut n = 0;

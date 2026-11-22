@@ -153,8 +153,7 @@ pub fn append(conn: &Connection, chat_id: i64, messages: &[Value]) -> Result<usi
         let text_of = |k: &str| {
             m.get(k)
                 .filter(|v| value::truthy(v))
-                .map(value::str_of)
-                .unwrap_or_default()
+                .map_or_default(value::str_of)
         };
         let role = text_of("role");
         let text = text_of("text");

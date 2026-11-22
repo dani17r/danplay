@@ -315,7 +315,7 @@ impl Output {
 
 /// El id de una salida, como se guarda.
 fn id_of(device: &cpal::Device) -> String {
-    device.id().map(|id| id.to_string()).unwrap_or_default()
+    device.id().map_or_default(|id| id.to_string())
 }
 
 fn name_of(device: &cpal::Device) -> String {
@@ -398,8 +398,7 @@ fn pcm_of(device: &cpal::Device) -> Option<String> {
 #[cfg(target_os = "linux")]
 fn pcm_names(host: &cpal::Host) -> Vec<String> {
     host.devices()
-        .map(|all| all.filter_map(|d| pcm_of(&d)).collect())
-        .unwrap_or_default()
+        .map_or_default(|all| all.filter_map(|d| pcm_of(&d)).collect())
 }
 
 /// Cómo se llega al servidor de sonido (fuera de Linux no hay puente: nada).

@@ -445,9 +445,7 @@ fn thumbnails(app: &App) -> PathBuf {
 }
 
 fn files_in(dir: &Path) -> Vec<PathBuf> {
-    std::fs::read_dir(dir)
-        .map(|d| d.flatten().map(|e| e.path()).collect())
-        .unwrap_or_default()
+    std::fs::read_dir(dir).map_or_default(|d| d.flatten().map(|e| e.path()).collect())
 }
 
 #[test]
