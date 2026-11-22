@@ -488,20 +488,17 @@ impl Worker {
         match opened {
             Ok(loaded) => {
                 self.duration = loaded.duration;
-                self.parts = if Path::new(&folder).is_dir() {
-                    bundle::parts(Path::new(&folder))
-                        .map(|p| {
-                            p.into_iter()
-                                .map(|p| p.path.to_string_lossy().into_owned())
-                                .collect()
-                        })
-                        .unwrap_or_default()
-                } else {
-                    vec![folder.clone()]
+                // lo que dice el manifiesto que el motor ya leyo (antes se
+                // leia dos veces mas del disco en cada carga)
+                let manifest = loaded.manifest.as_ref();
+                self.parts = match manifest {
+                    Some(m) => bundle::parts_in(Path::new(&folder), m)
+                        .into_iter()
+                        .map(|p| p.path.to_string_lossy().into_owned())
+                        .collect(),
+                    None => vec![folder.clone()],
                 };
-                let roles = bundle::manifest(Path::new(&folder))
-                    .map(|m| bundle::roles(&m))
-                    .unwrap_or_default();
+                let roles = manifest.map(bundle::roles).unwrap_or_default();
                 self.roles = part_roles(roles, self.parts.len());
                 self.loaded = Some(folder.clone());
                 self.engine.set_speed(self.speed);

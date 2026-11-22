@@ -96,6 +96,10 @@ pub struct Loaded {
     pub id: String,
     pub duration: f64,
     pub parts: Vec<String>,
+    /// El manifiesto del `.danpista` (con `load`), ya leido: el celular
+    /// sacaba de el otra vez las partes y sus papeles, leyendolo de nuevo.
+    #[serde(skip)]
+    pub manifest: Option<serde_json::Value>,
 }
 
 struct Song {
@@ -280,19 +284,20 @@ impl Engine {
     /// Carga la pista de esa carpeta (un .danpista: sustituye a la que
     /// hubiera).
     pub fn load(&self, folder: &Path) -> Result<Loaded, String> {
-        let files = bundle::parts(folder)?;
+        let manifest = bundle::manifest(folder).ok_or("esa pista ya no está o está rota")?;
+        let files = bundle::parts_in(folder, &manifest);
         if files.is_empty() || files.len() > MAX_PARTS {
             return Err("esa pista no tiene partes que se puedan oír".into());
         }
         // lo que dura: lo que diga el contenedor, o lo que dice la PC
-        let declared = bundle::manifest(folder)
-            .and_then(|m| m["song"]["duration"].as_f64())
-            .unwrap_or(0.0);
+        let declared = manifest["song"]["duration"].as_f64().unwrap_or(0.0);
         let id = folder
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
-        self.load_files(&id, &files, declared)
+        let mut loaded = self.load_files(&id, &files, declared)?;
+        loaded.manifest = Some(manifest);
+        Ok(loaded)
     }
 
     /// Carga una cancion hecha de esos archivos (una o muchas partes, a la
@@ -404,6 +409,7 @@ impl Engine {
             id,
             duration: frames as f64 / f64::from(RATE),
             parts: names,
+            manifest: None,
         }
     }
 
@@ -455,6 +461,7 @@ impl Engine {
             id: id.to_string(),
             duration: song.frames() as f64 / f64::from(RATE),
             parts: names,
+            manifest: None,
         };
         deck.controls.handed_over.store(false, Ordering::Release);
         if let Some(old) = lock(&deck.incoming).replace(song) {
@@ -1096,6 +1103,9 @@ mod tests {
         settle();
         assert_eq!(loaded.parts, ["Batería", "Voces"]);
         assert!((loaded.duration - 2.0).abs() < 1e-6);
+        // el manifiesto ya leido va con lo cargado (el celular lo leia otra vez)
+        let manifest = loaded.manifest.as_ref().expect("el manifiesto");
+        assert_eq!(bundle::parts_in(&dir, manifest).len(), 2);
         let s = e.state();
         assert!(!s.playing && s.position == 0.0 && s.loaded.is_some());
         // la segunda parte callada: suena la primera sola

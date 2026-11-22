@@ -444,7 +444,13 @@ pub fn manifest(folder: &Path) -> Option<Value> {
 /// Sus partes, en el orden del mezclador.
 pub fn parts(folder: &Path) -> Result<Vec<PartFile>, String> {
     let m = manifest(folder).ok_or("esa pista ya no está o está rota")?;
-    Ok(m["tracks"]
+    Ok(parts_in(folder, &m))
+}
+
+/// Las partes que dice el manifiesto `m` de la pista de `folder`, en el
+/// orden del mezclador (sin volver a leerlo).
+pub fn parts_in(folder: &Path, m: &Value) -> Vec<PartFile> {
+    m["tracks"]
         .as_array()
         .map(|t| {
             t.iter()
@@ -455,7 +461,7 @@ pub fn parts(folder: &Path) -> Result<Vec<PartFile>, String> {
                 })
                 .collect()
         })
-        .unwrap_or_default())
+        .unwrap_or_default()
 }
 
 /// El papel de cada parte, en el orden de `parts`: "click", "guide" o ""
