@@ -115,7 +115,8 @@ export function useLibrary(context) {
    * pasan cada vez que algo cambia en el núcleo; el indicador es para cuando
    * la persona acaba de pedir algo y espera.
    * @param {boolean} [quiet]
-   * @param {any} [fresh]  el estado del núcleo, si se acaba de leer
+   * @param {any} [fresh]  el estado del núcleo si se acaba de leer, o la
+   *   pregunta que ya va de camino (una promesa)
    */
   async function load(quiet = false, fresh = null) {
     const mine = ++loadRequest
@@ -123,8 +124,8 @@ export function useLibrary(context) {
     try {
       // el estado se relee siempre: si no, `configured` se quedaba congelado
       // en false y toda la vista central seguía mostrando la bienvenida
-      // (salvo que quien llama lo acabe de leer: al arrancar)
-      const e = fresh || (await api.status())
+      // (salvo que quien llama lo acabe de leer, o lo esté leyendo)
+      const e = await (fresh || api.status())
       if (mine !== loadRequest) return
       stats.value = e.stats
       configured.value = e.configured
@@ -238,11 +239,13 @@ export function useLibrary(context) {
   }
 
   /**
-   * El estado del núcleo: carpetas, cifras y lo que espera en la Entrada (las
-   * dos preguntas a la vez: ninguna espera a la otra).
+   * Todo otra vez (algo cambió en el núcleo): el estado, lo que espera en la
+   * Entrada y la lista, a la vez y con UNA sola pregunta por el estado. La
+   * hacían por separado el estado y la lista: dos `/status` por refresco.
    */
-  async function loadStatus() {
-    await Promise.all([api.status().then(applyStatus), loadInbox()])
+  async function refresh() {
+    const asked = api.status()
+    await Promise.all([asked.then(applyStatus), loadInbox(), load(true, asked)])
   }
 
   /**
@@ -345,7 +348,7 @@ export function useLibrary(context) {
     load,
     start,
     setSongs,
-    loadStatus,
+    refresh,
     patchSong,
     moveInPlaylist
   }

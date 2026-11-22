@@ -306,6 +306,7 @@ describe('something changes in the core behind the scenes', () => {
     await mountView()
     api.search.mockClear()
     api.playlists.mockClear()
+    api.status.mockClear()
     held.changeListener?.({ revision: 1 })
     held.changeListener?.({ revision: 2 })
     held.changeListener?.({ revision: 3 })
@@ -313,6 +314,8 @@ describe('something changes in the core behind the scenes', () => {
     await flushPromises()
     expect(api.search).toHaveBeenCalledTimes(1)
     expect(api.playlists).toHaveBeenCalledTimes(1)
+    // y una sola pregunta por el estado: la pedían el estado y la lista
+    expect(api.status).toHaveBeenCalledTimes(1)
     vi.useRealTimers()
   })
 })

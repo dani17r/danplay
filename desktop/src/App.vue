@@ -230,7 +230,7 @@ const library = useLibrary({
 })
 const { songs, listCount, loadingMore, loading, stats, status, waiting } = library
 const { configured, missingFolders, sort, sortDesc } = library
-const { sortBy, applySort, load, setSongs, loadStatus } = library
+const { sortBy, applySort, load, setSongs } = library
 // Los repertorios y sus acciones: crear, añadir, exportar, borrar. Necesita
 // `view` (para saber de que lista se quita una cancion) y `load` (para
 // volver a pedirla despues).
@@ -478,7 +478,7 @@ const title = computed(
  * hasta salir y volver a entrar: la lista decía «6 temas» con tres.
  */
 async function refreshAll() {
-  await Promise.all([loadStatus(), load(true), playlistActions.load(), refreshDetail()])
+  await Promise.all([library.refresh(), playlistActions.load(), refreshDetail()])
 }
 
 /** La ficha abierta y la copia de la cola, con lo que diga el núcleo ahora. */
