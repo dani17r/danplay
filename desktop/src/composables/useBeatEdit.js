@@ -1,3 +1,4 @@
+// @ts-check
 // Editar el clic manual de una canción, de muchos pulsos a la vez: lo que une
 // la lógica pura (`utils/beatEdit.js`, `beatAlign.js`, `beatHistory.js`) con
 // el modo estudio.
@@ -141,6 +142,7 @@ export function planAlign(own, span, settings = {}, hits = []) {
   const [t0, t1] = span
   // los pulsos que salen de un tempo escrito pueden caer unos ms fuera del tramo
   const pad = 0.006
+  /** @type {[number, number]} */
   const area = [t0 - pad, t1 + pad]
   const reach = fit.reach ?? REACH_DEFAULT
   const bpm = Number(tempo.bpm)
@@ -350,21 +352,23 @@ const ARROW_OWNERS = `${EDITABLE}, input[type="range"], input[type="radio"], [ro
 const inside = (el, selector) => el instanceof Element && !!el.closest(selector)
 
 /**
- * @param {{
- *   songId: any,        la canción abierta (ref o función): la historia es de cada una
- *   study: any,         el estudio de la canción (ref): `metronome.own`, `loops`…
- *   grid: any,          la rejilla que se ve y suena (`soundingGrid`)
- *   duration: any,
- *   editing: any,       ref: se están ajustando los pulsos
- *   visible?: any,      el estudio se ve (si no, las teclas no son suyas)
- *   click: any,         `useClick()`
- *   player: any,        `usePlayback()`
- *   scheduleSave: () => void,
- *   flushSave: () => Promise<void>,
- *   hasDrums?: any,     la canción tiene la batería separada
- *   hear?: (a: number, b: number) => Promise<any>,  poner ese tramo en bucle y que suene
- *   now?: () => number, el reloj de la historia (pruebas)
- * }} deps
+ * @typedef {Object} BeatEditDeps
+ * @property {any} songId    la canción abierta (ref o función): la historia es de cada una
+ * @property {any} study     el estudio de la canción (ref): `metronome.own`, `loops`…
+ * @property {any} grid      la rejilla que se ve y suena (`soundingGrid`)
+ * @property {any} duration
+ * @property {any} editing   ref: se están ajustando los pulsos
+ * @property {any} [visible] el estudio se ve (si no, las teclas no son suyas)
+ * @property {any} click     `useClick()`
+ * @property {any} player    `usePlayback()`
+ * @property {() => void} [scheduleSave]
+ * @property {() => Promise<void>} [flushSave]
+ * @property {any} [hasDrums] la canción tiene la batería separada
+ * @property {(a: number, b: number) => Promise<any>} [hear]  poner ese tramo en bucle y que suene
+ * @property {() => number} [now]  el reloj de la historia (pruebas)
+ */
+/**
+ * @param {BeatEditDeps} deps
  */
 export function useBeatEdit(deps) {
   const { study, editing, click, player } = deps
@@ -740,7 +744,12 @@ export function useBeatEdit(deps) {
   })
 
   // ---------------------------------------------------------------- las herramientas
-  /** Una herramienta: actúa sobre el objetivo y deja una sola entrada en la historia. */
+  /**
+   * Una herramienta: actúa sobre el objetivo y deja una sola entrada en la historia.
+   * @param {any} label
+   * @param {(own: any, sel: number[]) => any} make
+   * @param {{ key?: string, needs?: number }} [opts]
+   */
   async function tool(label, make, { key, needs = 1 } = {}) {
     const sel = target.value
     const own = currentOwn()
@@ -845,7 +854,7 @@ export function useBeatEdit(deps) {
       notify(`No se pudo traer el automático: ${errorMessage(e)}`)
       return false
     }
-    const r = revertToAuto(currentOwn() ?? own, auto, sp)
+    const r = revertToAuto(currentOwn() ?? own, auto, /** @type {[number, number]} */ (sp))
     const done = await commitOwn(r, 'volver al automático en el tramo')
     if (done) selection.value = [...r.selection]
     return done

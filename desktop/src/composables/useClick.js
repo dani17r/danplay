@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * El clic del metrónomo, con el panel de estudio abierto o cerrado.
  *
@@ -267,7 +268,9 @@ async function settle(g, from) {
 async function fromRust(id, path, my = epoch) {
   let g = null
   try {
-    g = await player().analyzeBeats(player().track.value?.bpm || null, path)
+    // (`track` lleva lo que el índice sabe de ella, el tempo también)
+    const bpm = /** @type {any} */ (player().track.value)?.bpm
+    g = await player().analyzeBeats(bpm || null, path)
   } catch (e) {
     if (my === epoch && sameSong(id, path)) error.value = e instanceof Error ? e.message : String(e)
   }
@@ -398,7 +401,7 @@ async function reload(fresh = null) {
  * y contesta por dónde va (`pending`); aquí se pregunta cada poco, se
  * enseña (`reanalyzing`) y se devuelve la respuesta de verdad cuando llega.
  * @param {number} id
- * @param {{mode: string, start?: number, end?: number}} opts
+ * @param {Parameters<typeof api.reanalyzeBeats>[1]} opts
  */
 async function reanalyze(id, opts) {
   if (opts.mode !== 'drums') return api.reanalyzeBeats(id, opts)
