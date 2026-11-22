@@ -3,7 +3,9 @@
 //! (`download_one`) y archivarlo con la ingesta de siempre (`download`),
 //! varias seguidas bajo un solo turno (`run_many`) con lo que se hace al
 //! terminar (`on_done`), dónde se guarda (`folder`, `choose_folder`) y el
-//! historial. yt-dlp es su ejecutable oficial (`services::ytdlp`).
+//! historial. yt-dlp es su ejecutable oficial (`services::ytdlp`); desde la
+//! 1.45 no viaja en los paquetes, y si no lo hay se instala antes de la
+//! primera consulta o descarga (`ensure_ytdlp`).
 //!
 //! # Para el asistente
 //!
@@ -15,8 +17,9 @@
 //!   false, reason, items: []}`; `failure_kind(reason)` dice si es «bot»,
 //!   «rate» o «network» (para dejar de insistir). `already_in_library(&app,
 //!   título)`: lo que ya tienes y parece esa canción. Antes de lanzar
-//!   consultas por docenas: `ytdlp::executable(&app)` (que haya yt-dlp, y
-//!   así ya elegido) y `ytdlp::js_runtime(&app, false)`.
+//!   consultas por docenas: `ensure_ytdlp(&app, …)` (que haya yt-dlp: si no,
+//!   lo instala), `ytdlp::executable(&app)` (así ya elegido) y
+//!   `ytdlp::js_runtime(&app, false)`.
 //! - **Bajar estas**: comprobar `available(&app)` (si no, 503 con
 //!   `unavailable_reason`) y `folder(&app)?["ready"]` (si no, 409 con
 //!   `NO_FOLDER`); quedarse el turno con `claim(&app)` (0: 409 con `BUSY`) y
@@ -30,6 +33,7 @@
 //!   `cancel(&app)` y `canceled(&app)`.
 use crate::app::{App, path_str};
 use crate::error::ApiError;
+use crate::jobs::JobError;
 use crate::services::{folders, ingest, library as lib, songs, stems, tags, tools, ytdlp};
 use library::index::{Dict, history, search};
 use library::paths;
@@ -40,6 +44,7 @@ use serde_json::{Map, Value, json};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, MutexGuard, PoisonError};
+use std::time::{Duration, Instant};
 
 /// Sin carpeta elegida no se baja nada: lo bajado acabaría donde nadie lo
 /// busca. La interfaz lo pregunta antes; esto es por si algo llega sin
@@ -47,6 +52,16 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 pub const NO_FOLDER: &str = "elige antes donde guardar lo que descargas";
 /// Una descarga a la vez.
 pub const BUSY: &str = "ya hay una descarga en marcha";
+/// Hay yt-dlp pero no contesta (ni el descargado ni el de la app).
+pub const YTDLP_BROKEN: &str =
+    "yt-dlp no contesta: prueba con «Actualizar yt-dlp» en la pagina de Descargas";
+/// El trabajo que pone yt-dlp al día desde GitHub (contrato A). Sin ninguno,
+/// es el que lo instala.
+pub const YTDLP_JOB: &str = "yt-dlp";
+/// Lo que se espera, como mucho, a que se instale yt-dlp (unos 38 MB).
+const INSTALL_CAP: Duration = Duration::from_secs(600);
+/// Cada cuánto se mira cómo va.
+const INSTALL_POLL: Duration = Duration::from_millis(200);
 
 pub use library::youtube::failure_kind;
 
@@ -226,6 +241,101 @@ pub fn unavailable_reason(app: &App) -> String {
     tools::youtube_unavailable_reason(app)
 }
 
+/// Por qué no se puede usar yt-dlp ahora mismo: lo que falte, o que el que
+/// hay no contesta.
+fn no_ytdlp_reason(app: &App) -> String {
+    let why = unavailable_reason(app);
+    if why.is_empty() {
+        YTDLP_BROKEN.into()
+    } else {
+        why
+    }
+}
+
+// ------------------------------------------------------ que haya yt-dlp
+
+/// Arranca el trabajo «yt-dlp» (`ytdlp::update`, en 5 pasos), o da el que ya
+/// corre: (instantánea, ya_estaba). Lo lanzan el botón «Actualizar yt-dlp» y
+/// la primera consulta o descarga sin yt-dlp (`ensure_ytdlp`).
+pub fn start_ytdlp_job(app: &App) -> (Value, bool) {
+    let worker = app.clone();
+    app.jobs
+        .start(YTDLP_JOB, "no se pudo actualizar yt-dlp", move |p| {
+            let step =
+                |n: i64, message: &str| p.update(Some(n.into()), Some(5.into()), Some(message));
+            ytdlp::update(&worker, &step).map_err(|e| JobError::Expected(e.0))
+        })
+}
+
+/// Cómo va el trabajo «yt-dlp», como un paso de la descarga.
+fn installing(job: &Value) -> Map<String, Value> {
+    let done = job["done"].as_f64().unwrap_or(0.0);
+    let total = job["total"].as_f64().filter(|t| *t > 0.0).unwrap_or(5.0);
+    let message = job["message"]
+        .as_str()
+        .filter(|m| !m.is_empty())
+        .unwrap_or("instalando yt-dlp");
+    object(vec![
+        ("phase", json!("installing")),
+        ("name", json!(message)),
+        ("percent", json!((100.0 * done / total).clamp(0.0, 100.0))),
+    ])
+}
+
+/// Lo que se dice si no se pudo instalar.
+fn install_failed(why: &str) -> String {
+    format!(
+        "No se pudo instalar yt-dlp, lo que baja de YouTube: {why}. Se instala solo la \
+         primera vez, y hace falta internet."
+    )
+}
+
+/// Que haya yt-dlp antes de usarlo. Desde la 1.45 no viaja en los paquetes
+/// (eran 38 de los 145 MB del .deb, y solo sirve para YouTube, que ya pide
+/// red): si no hay ninguno, se instala con el trabajo «yt-dlp», el de
+/// «Actualizar yt-dlp», que sin ninguno trae el último de GitHub y comprueba
+/// su suma, y se espera a que acabe contando el avance a `progress` (la fase
+/// `installing`). Si se cancela mientras, se deja de esperar (la instalación
+/// sigue sola) y vuelve `Ok`: quien llama mira `cancel()`. `Err` dice por qué
+/// no, para la persona.
+///
+/// Nunca con `ytdlp::using` cogido: al dejar en uso lo instalado, el trabajo
+/// espera a que nadie esté usando yt-dlp.
+pub fn ensure_ytdlp(
+    app: &App,
+    progress: &mut dyn FnMut(Map<String, Value>),
+    cancel: &dyn Fn() -> bool,
+) -> Result<(), String> {
+    if ytdlp::installed(app) {
+        return Ok(());
+    }
+    log::info!("no hay yt-dlp: se instala antes de usarlo");
+    let (mut job, _) = start_ytdlp_job(app);
+    let deadline = Instant::now() + INSTALL_CAP;
+    while job["active"] == true {
+        progress(installing(&job));
+        if cancel() {
+            return Ok(());
+        }
+        if Instant::now() >= deadline {
+            return Err(install_failed("tarda demasiado"));
+        }
+        std::thread::sleep(INSTALL_POLL);
+        job = app
+            .jobs
+            .snapshot(YTDLP_JOB)
+            .unwrap_or_else(|| json!({"active": false}));
+    }
+    match job["error"].as_str().unwrap_or_default() {
+        "" if ytdlp::installed(app) => {
+            progress(installing(&job));
+            Ok(())
+        }
+        "" => Err(install_failed("no quedo en su carpeta")),
+        why => Err(install_failed(why)),
+    }
+}
+
 /// `{"ok": false, "reason": ...}` (y lo que se añada).
 fn failure(reason: &str) -> Map<String, Value> {
     let mut m = Map::new();
@@ -298,14 +408,20 @@ pub fn query_result(data: &Value, seen: &Seen) -> Result<Map<String, Value>, Str
 /// Consulta sin descargar, para enseñar qué se va a bajar. Con `timeout`
 /// (segundos) es LIGERA (eso por respuesta y sin reintentos), de las que se
 /// lanzan por docenas. Si falla, `reason` dice por qué (ver `failure_kind`).
-/// Un enlace que no es de YouTube se rechaza sin consultar nada. `Err` es un
-/// fallo que no se esperaba (un campo que no se deja leer).
+/// Un enlace que no es de YouTube se rechaza sin consultar nada. Sin yt-dlp,
+/// antes se instala (`ensure_ytdlp`). `Err` es un fallo que no se esperaba
+/// (un campo que no se deja leer).
 pub fn info(
     app: &App,
     query: &str,
     results: i64,
     timeout: Option<f64>,
 ) -> Result<Map<String, Value>, String> {
+    if normalize(query, results).is_ok()
+        && let Err(why) = ensure_ytdlp(app, &mut |_| {}, &|| false)
+    {
+        return Ok(yt::failed(&why));
+    }
     let _using = ytdlp::using(app);
     info_unlocked(app, query, results, timeout)
 }
@@ -316,12 +432,14 @@ fn info_unlocked(
     results: i64,
     timeout: Option<f64>,
 ) -> Result<Map<String, Value>, String> {
-    let Some(exe) = ytdlp::executable(app) else {
-        return Ok(yt::failed(&unavailable_reason(app)));
-    };
+    // lo que no es de YouTube, antes que nada: no hace falta yt-dlp para
+    // decirlo
     let url = match normalize(query, results) {
         Ok(u) => u,
         Err(why) => return Ok(yt::failed(&why)),
+    };
+    let Some(exe) = ytdlp::executable(app) else {
+        return Ok(yt::failed(&no_ytdlp_reason(app)));
     };
     let rt = ytdlp::js_runtime(app, false);
     let mut args = ytdlp::base_args(rt.as_ref(), true);
@@ -431,7 +549,7 @@ pub fn download_one(
 ) -> Result<Map<String, Value>, String> {
     let exe = ytdlp::executable(app);
     let Some(exe) = exe.filter(|_| tools::ffmpeg_available(app)) else {
-        return Ok(failure(&unavailable_reason(app)));
+        return Ok(failure(&no_ytdlp_reason(app)));
     };
     let cfg = app.config();
     let folder: PathBuf = folder.map_or_else(|| cfg.inbox.clone(), Path::to_path_buf);
@@ -589,7 +707,10 @@ fn either<'a>(a: &'a Value, b: &'a Value) -> &'a Value {
 /// Baja (uno, una lista o una búsqueda) y, con `file_it`, lo
 /// pasa por la ingesta (identificar, renombrar según las reglas de la casa
 /// y mover a Artistas/<Artista>/). yt-dlp no se cambia por otra versión
-/// mientras tanto. `Err` es un fallo que no se esperaba.
+/// mientras tanto; si no lo hay, antes se instala (`ensure_ytdlp`, con su
+/// avance en `progress`). `Err` es un fallo que no se esperaba, o que no se
+/// pudo instalar yt-dlp: sin él no se puede bajar ninguna de las que
+/// vengan detrás.
 pub fn download(
     app: &App,
     inbox: &str,
@@ -597,6 +718,15 @@ pub fn download(
     progress: &mut dyn FnMut(Map<String, Value>),
     cancel: &dyn Fn() -> bool,
 ) -> Result<Vec<Map<String, Value>>, String> {
+    if normalize(inbox, w.results).is_ok() {
+        ensure_ytdlp(app, progress, cancel)?;
+        if cancel() {
+            let mut c = failure("canceled");
+            c.insert("canceled".into(), json!(true));
+            c.insert("requested".into(), json!(inbox));
+            return Ok(vec![c]);
+        }
+    }
     let _using = ytdlp::using(app);
     download_unlocked(app, inbox, w, progress, cancel)
 }

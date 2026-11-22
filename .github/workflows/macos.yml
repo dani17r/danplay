@@ -98,8 +98,9 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       # Lo que se mete dentro, con version fija y su sha256 (las mismas que en
-      # Linux y Windows), para el procesador de este Mac
-      - name: ffmpeg, fpcalc, QuickJS y yt-dlp
+      # Linux y Windows), para el procesador de este Mac. yt-dlp ya no: la
+      # app lo instala la primera vez que se baja algo de YouTube.
+      - name: ffmpeg, fpcalc y QuickJS
         run: |
           ./scripts/tools-macos.sh
           ls -la desktop/src-tauri/tools
@@ -149,8 +150,10 @@ jobs:
         run: |
           app=target/release/bundle/macos/DanPlay.app/Contents
           ls "$app"/Resources/data/libonnxruntime.*.dylib "$app"/Resources/data/pulse/beat_this.onnx \
-             "$app"/Resources/data/models-snapshot.json "$app"/Resources/tools/ffmpeg \
-             "$app"/Resources/tools/yt-dlp
+             "$app"/Resources/data/models-snapshot.json "$app"/Resources/tools/ffmpeg
+          if [ -e "$app"/Resources/tools/yt-dlp ]; then
+            echo "la .app lleva yt-dlp: ya no viaja (la app lo instala al bajar de YouTube)"; exit 1
+          fi
           if find "$app" | grep -iE 'python|\.pyc|/_internal/'; then
             echo "la .app lleva algo de Python"; exit 1
           fi

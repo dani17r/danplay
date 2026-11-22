@@ -1,9 +1,10 @@
 #!/bin/sh
 # Las herramientas que viajan DENTRO del paquete de macOS (la .app), en
 # desktop/src-tauri/tools/: ffmpeg (ondas, clic, separar, convertir), fpcalc
-# (identificar por el sonido), yt-dlp (bajar de YouTube: su ejecutable
-# oficial, sin Python) y QuickJS-NG (`qjs`, el motor de JavaScript que YouTube
-# exige a yt-dlp), para el procesador de este Mac: Apple Silicon o Intel.
+# (identificar por el sonido) y QuickJS-NG (`qjs`, el motor de JavaScript que
+# YouTube exige a yt-dlp), para el procesador de este Mac: Apple Silicon o
+# Intel. yt-dlp ya no viaja (desde la 1.45): la app lo instala de GitHub la
+# primera vez que se baja algo de YouTube (ver scripts/tools-linux.sh).
 #
 #   ./scripts/tools-macos.sh                 lo que viaja en la .app
 #   ./scripts/tools-macos.sh --with-ffprobe  y ffprobe, que la app ya
@@ -54,9 +55,6 @@ QJS_URL=https://github.com/quickjs-ng/quickjs/releases/download/v0.17.0/$QJS
 # fpcalc 1.6.1: un solo binario para los dos procesadores
 FPCALC_URL=https://github.com/acoustid/chromaprint/releases/download/v1.6.1/chromaprint-fpcalc-1.6.1-macos-universal.tar.gz
 FPCALC_SHA256=240aeb5a8c8205af458e3625cb7487b826b711a999e491ef00111f3cebd76f00
-# yt-dlp 2026.08.19 (la de Linux y Windows): también uno para los dos
-YTDLP_URL=https://github.com/yt-dlp/yt-dlp/releases/download/2026.08.19/yt-dlp_macos
-YTDLP_SHA256=0f192b7ec147ab6288885d6351d9ab67367640029b4377576ef46dd79cf7b202
 
 mkdir -p "$CACHE" "$DEST"
 
@@ -87,11 +85,9 @@ download "$FFMPEG_URL/ffmpeg.zip" "$FFMPEG_SHA256" "ffmpeg-9.0.2-$ARCH.zip" \
     "$MIRROR/ffmpeg-9.0.2-macos-$ARCH.zip"
 download "$QJS_URL" "$QJS_SHA256" "qjs-0.17.0-$ARCH"
 download "$FPCALC_URL" "$FPCALC_SHA256" fpcalc-1.6.1-universal.tar.gz
-download "$YTDLP_URL" "$YTDLP_SHA256" yt-dlp-2026.08.19
 
 unzip -o -q "$CACHE/ffmpeg-9.0.2-$ARCH.zip" -d "$DEST"
 cp "$CACHE/qjs-0.17.0-$ARCH" "$DEST/qjs"
-cp "$CACHE/yt-dlp-2026.08.19" "$DEST/yt-dlp"
 tar xzf "$CACHE/fpcalc-1.6.1-universal.tar.gz" -C "$DEST" --strip-components=1 \
     chromaprint-fpcalc-1.6.1-macos-universal/fpcalc
 if [ "$WITH_FFPROBE" = 1 ]; then
@@ -103,8 +99,9 @@ else
     # el de una vez anterior con --with-ffprobe: en la .app no viaja
     rm -f "$DEST/ffprobe"
 fi
-rm -f "$DEST/deno"  # el de antes: ya no viaja
-chmod 755 "$DEST/ffmpeg" "$DEST/fpcalc" "$DEST/qjs" "$DEST/yt-dlp"
+# los de antes: ya no viajan (uno viejo aquí acabaría en la .app)
+rm -f "$DEST/deno" "$DEST/yt-dlp"
+chmod 755 "$DEST/ffmpeg" "$DEST/fpcalc" "$DEST/qjs"
 
 # Que arrancan de verdad en este Mac. Con la salida guardada y no por una
 # tubería: sin `pipefail`, `programa | head -1` da el estado de `head`, y un
@@ -115,5 +112,3 @@ v=$("$DEST/fpcalc" -version) || die "fpcalc no arranca aquí"
 printf '%s\n' "$v"
 v=$("$DEST/qjs" --version) || die "qjs no arranca aquí"
 printf 'QuickJS %s\n' "$v"
-v=$("$DEST/yt-dlp" --ignore-config --version) || die "yt-dlp no arranca aquí"
-printf 'yt-dlp %s\n' "$v"

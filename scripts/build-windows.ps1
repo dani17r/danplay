@@ -2,11 +2,13 @@
 #
 #   .\scripts\build-windows.ps1                 interfaz + datos + app
 #   .\scripts\build-windows.ps1 -Installer      ademas, el instalador (NSIS)
-#   .\scripts\build-windows.ps1 -NoTools        sin ffmpeg, fpcalc, QuickJS ni yt-dlp dentro
+#   .\scripts\build-windows.ps1 -NoTools        sin ffmpeg, fpcalc ni QuickJS dentro
 #
 # Sin Python: el nucleo va dentro de la app (el crate `server`). Lo que viaja
 # con ella son sus datos (desktop/src-tauri/data: los modelos, las voces, la
 # foto del catalogo y ONNX Runtime) y sus programas (desktop/src-tauri/tools).
+# yt-dlp ya no (desde la 1.45): la app lo instala de GitHub la primera vez
+# que se baja algo de YouTube.
 #
 # Lo que hace falta tener puesto:
 #   - Node 24                https://nodejs.org/
@@ -84,14 +86,16 @@ foreach ($item in 'pulse', 'separator', 'voices.json', 'models-snapshot.json') {
     Copy-Item -Recurse "data/$item" $data
 }
 
-# --- ffmpeg, fpcalc, QuickJS y yt-dlp ----------------------------------------
+# --- ffmpeg, fpcalc y QuickJS -------------------------------------------------
 # Con version fija y su SHA-256, las mismas que el instalador de la CI
 # (.github/workflows/windows.yml). QuickJS (qjs.exe) es el motor de JavaScript
-# que YouTube exige a yt-dlp; yt-dlp, su ejecutable oficial.
+# que YouTube exige a yt-dlp.
 $tools = 'desktop/src-tauri/tools'
 New-Item -ItemType Directory -Force -Path $tools | Out-Null
+# el yt-dlp de una version anterior, si quedo: ya no viaja
+Remove-Item (Join-Path $tools 'yt-dlp.exe') -ErrorAction SilentlyContinue
 if (-not $NoTools) {
-    Step '3/4  ffmpeg, fpcalc, QuickJS y yt-dlp (van dentro del instalador)'
+    Step '3/4  ffmpeg, fpcalc y QuickJS (van dentro del instalador)'
     $zips = @(
         @{ Url = 'https://github.com/GyanD/codexffmpeg/releases/download/9.0.2/ffmpeg-9.0.2-essentials_build.zip'
            Sha = '60f467265b1e312373dbcd92200c2618a74850f98d3d078e94296bb3fa2047ba'
@@ -103,10 +107,7 @@ if (-not $NoTools) {
     $exes = @(
         @{ Url = 'https://github.com/quickjs-ng/quickjs/releases/download/v0.17.0/qjs-windows-x86_64.exe'
            Sha = '2aeabf0092c3262d6b2609824418f7dd7ed1f1df939f73b2b15645230cac0d77'
-           Name = 'qjs-0.17.0.exe'; Exe = 'qjs.exe' },
-        @{ Url = 'https://github.com/yt-dlp/yt-dlp/releases/download/2026.08.19/yt-dlp.exe'
-           Sha = '66674953fe251b89f4d08c5f0e35e0728679bd67ab3d7d05c0562af101dd3e7a'
-           Name = 'yt-dlp-2026.08.19.exe'; Exe = 'yt-dlp.exe' }
+           Name = 'qjs-0.17.0.exe'; Exe = 'qjs.exe' }
     )
     try {
         foreach ($item in $zips) {

@@ -114,9 +114,17 @@ FFMPEG="$TOOLS/ffmpeg"
 ls "$DATA"/libonnxruntime.* >/dev/null 2>&1 && pass "y ONNX Runtime entre ellos" \
   || fail "no hay ONNX Runtime en $DATA"
 if [ -n "$TOOLS" ]; then
-    for tool in ffmpeg fpcalc qjs yt-dlp; do
+    for tool in ffmpeg fpcalc qjs; do
         [ -x "$TOOLS/$tool" ] && pass "lleva $tool" || fail "no lleva $tool en $TOOLS"
     done
+    # yt-dlp ya no viaja en los paquetes: la app lo instala la primera vez
+    # que baja de YouTube (junto a la compilada puede quedar uno de antes, que
+    # no se empaqueta: ahi da igual)
+    case "$TOOLS" in
+        */lib/DanPlay/tools)
+            [ -e "$TOOLS/yt-dlp" ] && fail "el paquete lleva yt-dlp, que ya no viaja" \
+              || pass "el paquete no lleva yt-dlp" ;;
+    esac
 else
     echo "  --    sin tools/ junto a la app (la compilada sin --package): se usan los del sistema"
 fi

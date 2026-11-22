@@ -86,8 +86,9 @@ jobs:
             patchelf libasound2-dev libdbus-1-dev libayatana-appindicator3-dev file
 
       # dentro de los paquetes: sin instalar nada aparte, y sin depender de
-      # las bibliotecas de cada distribucion (ver los scripts)
-      - name: ffmpeg, fpcalc, QuickJS y yt-dlp dentro
+      # las bibliotecas de cada distribucion (ver los scripts). yt-dlp ya no:
+      # la app lo instala la primera vez que se baja algo de YouTube.
+      - name: ffmpeg, fpcalc y QuickJS dentro
         run: ./scripts/tools-linux.sh
 
       # con la foto del catálogo de modelos del repositorio (data/), la que
@@ -144,10 +145,12 @@ jobs:
           contents=$(dpkg-deb -c target/release/bundle/deb/*.deb)
           for wanted in usr/bin/danplay-app usr/lib/DanPlay/data/libonnxruntime.so \
                         usr/lib/DanPlay/data/pulse/beat_this.onnx usr/lib/DanPlay/data/models-snapshot.json \
-                        usr/lib/DanPlay/tools/ffmpeg usr/lib/DanPlay/tools/fpcalc usr/lib/DanPlay/tools/qjs \
-                        usr/lib/DanPlay/tools/yt-dlp; do
+                        usr/lib/DanPlay/tools/ffmpeg usr/lib/DanPlay/tools/fpcalc usr/lib/DanPlay/tools/qjs; do
             echo "$contents" | grep -q "$wanted" || { echo "falta $wanted"; exit 1; }
           done
+          if echo "$contents" | grep -q 'usr/lib/DanPlay/tools/yt-dlp'; then
+            echo "el .deb lleva yt-dlp: ya no viaja (la app lo instala al bajar de YouTube)"; exit 1
+          fi
           if echo "$contents" | grep -iE 'python|\.pyc|/_internal/|libpython'; then
             echo "el .deb lleva algo de Python"; exit 1
           fi

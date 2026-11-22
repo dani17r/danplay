@@ -2090,9 +2090,15 @@ inmediata.
 
 ## yt-dlp al día
 
-YouTube cambia a menudo y yt-dlp saca versión cada pocas semanas; la que viaja
-con la app (su ejecutable oficial, en `tools/`) se quedaría congelada hasta la
-siguiente versión de DanPlay. «Actualizar yt-dlp» (Descargas) baja de GitHub
+YouTube cambia a menudo y yt-dlp saca versión cada pocas semanas; uno que
+viajara con la app (su ejecutable oficial, en `tools/`) se quedaría congelado
+hasta la siguiente versión de DanPlay. **Desde la 1.45 no viaja**: eran 38 de
+los 145 MB del `.deb`, y solo sirve para YouTube, que ya pide red. La primera
+consulta o descarga sin yt-dlp lo instala antes (`youtube::ensure_ytdlp`)
+con la misma tarea que «Actualizar yt-dlp» (`yt-dlp`), que sin ninguno trae
+el último; la descarga cuenta ese paso como `phase: "installing"` y, sin red,
+acaba diciendo por qué no pudo. Quien ya lo había actualizado alguna vez
+sigue con el de su carpeta de datos, sin instalar nada. «Actualizar yt-dlp» (Descargas) baja de GitHub
 el ejecutable de la última versión para este sistema (`yt-dlp_linux`,
 `yt-dlp_macos`, `yt-dlp.exe`), lo comprueba contra su `SHA2-256SUMS`, lo deja
 en la carpeta de datos (`tools/yt-dlp/<versión>/`, con su marca `current`) y
@@ -2842,11 +2848,14 @@ compila sin empaquetar (`tauri build --no-bundle`) y luego se empaqueta
 (`tauri bundle`); el script comprueba que el `.deb` lleva el núcleo, sus
 datos y sus programas, y nada de Python.
 
-**Los programas de fuera, dentro de los paquetes.** ffmpeg, fpcalc,
-QuickJS-NG y yt-dlp (su ejecutable oficial) viajan en la carpeta `tools/` de
-cada paquete (en Linux y macOS los ponen `scripts/tools-linux.sh` y
-`tools-macos.sh`, con versiones y sha256 fijados; en Windows, su CI). La app
-se la da al núcleo, que la mira antes que el sistema.
+**Los programas de fuera, dentro de los paquetes.** ffmpeg, fpcalc y
+QuickJS-NG viajan en la carpeta `tools/` de cada paquete (en Linux y macOS
+los ponen `scripts/tools-linux.sh` y `tools-macos.sh`, con versiones y
+sha256 fijados, y el ffmpeg con una segunda dirección, la versión
+`tools-ffmpeg-9.0.2` del propio repositorio; en Windows, su CI). La app se la
+da al núcleo, que la mira antes que el sistema. yt-dlp no (desde la 1.45): lo
+instala la app al usarlo (ver «yt-dlp al día»). El `.deb` va en xz, no en el
+gzip de Tauri (21 MB menos).
 
 **Los datos, en `data/`.** Lo de `data/` del repositorio (el grafo y los pesos de
 Beat This!, los grafos del separador, el catálogo de voces y la foto del

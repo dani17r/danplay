@@ -19,7 +19,7 @@ on:
   workflow_dispatch:
     inputs:
       with_tools:
-        description: 'Incluir ffmpeg, fpcalc, QuickJS y yt-dlp dentro del instalador (+80 MB)'
+        description: 'Incluir ffmpeg, fpcalc y QuickJS dentro del instalador'
         type: boolean
         default: true
 
@@ -45,12 +45,10 @@ env:
   FPCALC_URL: https://github.com/acoustid/chromaprint/releases/download/v1.6.1/chromaprint-fpcalc-1.6.1-windows-x86_64.zip
   FPCALC_SHA256: 735d6182b38e9f364b84ce6f4ccd682c75e2851de89735711d6b762d12b92a4e
   # YouTube ya exige un motor de JavaScript para yt-dlp: QuickJS-NG, un
-  # .exe suelto de 2 MB (Deno, el de antes, pesaba 93).
+  # .exe suelto de 2 MB (Deno, el de antes, pesaba 93). yt-dlp ya no viaja:
+  # la app lo instala la primera vez que se baja algo de YouTube.
   QJS_URL: https://github.com/quickjs-ng/quickjs/releases/download/v0.17.0/qjs-windows-x86_64.exe
   QJS_SHA256: 2aeabf0092c3262d6b2609824418f7dd7ed1f1df939f73b2b15645230cac0d77
-  # yt-dlp, su ejecutable oficial (el de Linux y macOS: scripts/tools-*.sh)
-  YTDLP_URL: https://github.com/yt-dlp/yt-dlp/releases/download/2026.08.19/yt-dlp.exe
-  YTDLP_SHA256: 66674953fe251b89f4d08c5f0e35e0728679bd67ab3d7d05c0562af101dd3e7a
   # ONNX Runtime oficial (el pulso, el separador, las voces), el mismo que
   # scripts/data.sh: de su .zip solo hace falta onnxruntime.dll y su licencia
   ORT_URL: https://github.com/microsoft/onnxruntime/releases/download/v1.31.0/onnxruntime-win-x64-1.31.0.zip
@@ -108,7 +106,7 @@ jobs:
       # Lo que viaja dentro del instalador, con version fija y su sha256.
       # ffprobe ya no: lo poco que medía (una caratula, la duracion de una
       # secuencia) sale de las cabeceras de los archivos.
-      - name: ffmpeg, fpcalc, QuickJS y yt-dlp
+      - name: ffmpeg, fpcalc y QuickJS
         if: env.WITH_TOOLS == 'true'
         shell: pwsh
         run: |
@@ -128,7 +126,6 @@ jobs:
           Get-ChildItem -Recurse fpcalc-tmp -Include fpcalc.exe |
             ForEach-Object { Copy-Item $_.FullName $tools }
           Download $env:QJS_URL $env:QJS_SHA256 "$tools/qjs.exe"
-          Download $env:YTDLP_URL $env:YTDLP_SHA256 "$tools/yt-dlp.exe"
           Get-ChildItem $tools
 
       # Sin ellas en el instalador, la carpeta se queda solo con el aviso.
@@ -139,7 +136,7 @@ jobs:
           Remove-Item -Recurse -Force desktop/src-tauri/tools
           New-Item -ItemType Directory -Force -Path desktop/src-tauri/tools | Out-Null
           Set-Content desktop/src-tauri/tools/LEEME.txt `
-            "Aqui van ffmpeg.exe, fpcalc.exe, qjs.exe y yt-dlp.exe si se quieren dentro del instalador."
+            "Aqui van ffmpeg.exe, fpcalc.exe y qjs.exe si se quieren dentro del instalador."
 
       # Lo que hace scripts/data.sh en Linux y macOS: lo de data/ (con la foto
       # del catalogo de modelos del repositorio, la misma en todos los
@@ -228,10 +225,11 @@ jobs:
             danplay-app.exe   la aplicacion, con el nucleo dentro
             data\             los modelos (el pulso, el separador), las voces
                               de las guias y ONNX Runtime, que los mueve
-            tools\            ffmpeg.exe, fpcalc.exe, qjs.exe y yt-dlp.exe:
-                              conversion de formatos, reproduccion de .opus
-                              y .wma, identificar por el sonido y bajar de
-                              YouTube
+            tools\            ffmpeg.exe, fpcalc.exe y qjs.exe: conversion
+                              de formatos, reproduccion de .opus y .wma,
+                              identificar por el sonido y bajar de YouTube
+                              (yt-dlp lo instala la app la primera vez que
+                              se baja algo)
 
           Hace falta WebView2, que Windows 10 y 11 actualizados ya traen. Si la
           ventana sale en blanco: https://developer.microsoft.com/microsoft-edge/webview2/

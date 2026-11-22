@@ -8,8 +8,8 @@
 # Sin Python ni PyInstaller: el nucleo va dentro de la app (el crate
 # `server`). Lo que viaja con ella son sus datos (desktop/src-tauri/data:
 # los modelos, las voces, la foto del catalogo y ONNX Runtime) y, en los
-# paquetes, sus programas (desktop/src-tauri/tools: ffmpeg, fpcalc, QuickJS y
-# yt-dlp).
+# paquetes, sus programas (desktop/src-tauri/tools: ffmpeg, fpcalc y
+# QuickJS; yt-dlp lo instala la app la primera vez que baja de YouTube).
 #
 # Los paquetes acaban en dist/installers/. Respeta CARGO_TARGET_DIR.
 set -eu
@@ -35,7 +35,7 @@ rm -rf desktop/src-tauri/core desktop/src-tauri/binaries
 
 step "3/3  app de escritorio (Tauri), con el nucleo dentro"
 if [ "${1:-}" = "--package" ]; then
-    # ffmpeg, fpcalc, QuickJS y yt-dlp dentro de los paquetes
+    # ffmpeg, fpcalc y QuickJS dentro de los paquetes
     # (desktop/src-tauri/tools)
     ./scripts/tools-linux.sh
     # La compila `tauri build` (con su entorno: compilarla tambien con cargo
@@ -106,15 +106,19 @@ if [ "${1:-}" = "--package" ]; then
         printf '  %s  (%s)\n' "$(basename "$f")" "$(du -h "$f" | cut -f1)"
     done
 
-    # Lo que tiene que llevar el .deb, y lo que no: ni rastro de Python.
+    # Lo que tiene que llevar el .deb, y lo que no: ni rastro de Python, ni
+    # yt-dlp (ya no viaja: la app lo instala al bajar de YouTube).
     DEB="dist/installers/DanPlay_${VERSION}_amd64.deb"
     [ -f "$DEB" ] || die "no salio $DEB"
     CONTENTS=$(dpkg-deb -c "$DEB")
     for wanted in usr/bin/danplay-app usr/lib/DanPlay/data/libonnxruntime.so \
                   usr/lib/DanPlay/data/pulse/beat_this.onnx usr/lib/DanPlay/data/models-snapshot.json \
-                  usr/lib/DanPlay/tools/ffmpeg usr/lib/DanPlay/tools/yt-dlp; do
+                  usr/lib/DanPlay/tools/ffmpeg; do
         printf '%s\n' "$CONTENTS" | grep -q "$wanted" || die "el .deb no lleva $wanted"
     done
+    if printf '%s\n' "$CONTENTS" | grep -q 'usr/lib/DanPlay/tools/yt-dlp'; then
+        die "el .deb lleva yt-dlp, que ya no viaja"
+    fi
     ar t "$DEB" | grep -qx 'data.tar.xz' || die "el .deb no va en xz: $(ar t "$DEB" | tr '\n' ' ')"
     if printf '%s\n' "$CONTENTS" | grep -iqE 'python|\.pyc|/_internal/|libpython'; then
         die "el .deb lleva algo de Python: $(printf '%s\n' "$CONTENTS" | grep -iE 'python|\.pyc|/_internal/|libpython' | head -3)"

@@ -347,7 +347,7 @@ política de activación ya está puesta (`tray::dock`: al esconderse pasa a
 `Accessory` y sale del Dock, al volver a `Regular`). El paquete sale de la
 integración continua: `./scripts/build-macos.sh` lanza `macos.yml`, espera y
 deja en `dist/installers/` un `.dmg` para Apple Silicon y otro para Intel, con
-ffmpeg, fpcalc, QuickJS, yt-dlp y ONNX Runtime dentro (en los Intel, la 1.23.2,
+ffmpeg, fpcalc, QuickJS y ONNX Runtime dentro (en los Intel, la 1.23.2,
 la última que Microsoft publica para ellos) y firmados solo «ad hoc» (la ejecución guarda
 además la `.app` en `.zip`). Pero **nadie lo ha abierto todavía en un Mac
 de verdad**. Falta ver si la bandeja de Tauri entrega el clic como en

@@ -1,12 +1,14 @@
 #!/bin/sh
 # Las herramientas que viajan DENTRO de los paquetes de Linux (.deb y
 # .AppImage), en desktop/src-tauri/tools/: ffmpeg (ondas, clic, separar,
-# convertir), fpcalc (identificar por el sonido), yt-dlp (bajar de YouTube:
-# su ejecutable oficial, que no pide Python en el sistema) y QuickJS-NG
-# (`qjs`, el motor de JavaScript que YouTube exige a yt-dlp). ffprobe ya no: lo
-# poco que medía (una carátula, la duración de una secuencia) sale de las
-# cabeceras. Deno tampoco: hacía lo mismo que qjs en 96 MB en vez de 2,5
-# (más rápido, sí: unos 5 s menos por descarga).
+# convertir), fpcalc (identificar por el sonido) y QuickJS-NG (`qjs`, el
+# motor de JavaScript que YouTube exige a yt-dlp). ffprobe ya no: lo poco que
+# medía (una carátula, la duración de una secuencia) sale de las cabeceras.
+# Deno tampoco: hacía lo mismo que qjs en 96 MB en vez de 2,5 (más rápido,
+# sí: unos 5 s menos por descarga). Y yt-dlp tampoco, desde la 1.45: eran 38
+# de los 145 MB del .deb, y solo sirve para YouTube, que ya pide red; la app
+# lo instala de GitHub (comprobando su suma) la primera vez que se baja algo
+# (services::youtube::ensure_ytdlp).
 #
 #   ./scripts/tools-linux.sh
 #
@@ -35,10 +37,6 @@ FPCALC_SHA256=fc16cd37a70168040bc9ceb45f1d4d1216f5a75bc4c9cf8564bea70ac6a45733
 # QuickJS-NG 0.17.0, el mismo que el de Windows y macOS (un binario suelto)
 QJS_URL=https://github.com/quickjs-ng/quickjs/releases/download/v0.17.0/qjs-linux-x86_64
 QJS_SHA256=0bfc02511a9f549c28b53880d988fc7cd5d361e90c5e8afdfcd7dc6774ceace5
-# yt-dlp 2026.08.19, con la suma de su SHA2-256SUMS. La app se pone al día sola
-# desde GitHub (services::ytdlp): esta es la de partida.
-YTDLP_URL=https://github.com/yt-dlp/yt-dlp/releases/download/2026.08.19/yt-dlp_linux
-YTDLP_SHA256=58162f9bfdc27458ea47bfcb311cf47028f17d8154a8bf7d689861d46399230a
 
 die () { printf '\033[31m%s\033[0m\n' "$1" >&2; exit 1; }
 [ "$(uname -m)" = x86_64 ] || die "las herramientas de Linux son para x86_64 (esto es $(uname -m))"
@@ -70,16 +68,15 @@ download () {
 download "$FFMPEG_URL/ffmpeg.zip" "$FFMPEG_SHA256" ffmpeg-9.0.2.zip "$FFMPEG_MIRROR"
 download "$FPCALC_URL" "$FPCALC_SHA256" fpcalc-1.6.1.tar.gz
 download "$QJS_URL" "$QJS_SHA256" qjs-0.17.0
-download "$YTDLP_URL" "$YTDLP_SHA256" yt-dlp-2026.08.19
 
 unzip -o -q -j "$CACHE/ffmpeg-9.0.2.zip" ffmpeg -d "$DEST"
 cp "$CACHE/qjs-0.17.0" "$DEST/qjs"
-cp "$CACHE/yt-dlp-2026.08.19" "$DEST/yt-dlp"
 tar xzf "$CACHE/fpcalc-1.6.1.tar.gz" -C "$DEST" --strip-components=1 \
     chromaprint-fpcalc-1.6.1-linux-x86_64/fpcalc
-# el ffprobe y el Deno de una versión anterior, si quedaron ahí: ya no viajan
-rm -f "$DEST/ffprobe" "$DEST/deno"
-chmod 755 "$DEST/ffmpeg" "$DEST/fpcalc" "$DEST/qjs" "$DEST/yt-dlp"
+# el ffprobe y el Deno de una versión anterior, si quedaron ahí: ya no
+# viajan; y yt-dlp tampoco (ver arriba): uno viejo aquí acabaría en el .deb
+rm -f "$DEST/ffprobe" "$DEST/deno" "$DEST/yt-dlp"
+chmod 755 "$DEST/ffmpeg" "$DEST/fpcalc" "$DEST/qjs"
 
 # Que arrancan de verdad en esta máquina (la de la CI es la más vieja que se
 # admite: Ubuntu 22.04). Con la salida guardada y no por una tubería: sin
@@ -91,5 +88,3 @@ v=$("$DEST/fpcalc" -version) || die "fpcalc no arranca aquí"
 printf '%s\n' "$v"
 v=$("$DEST/qjs" --version) || die "qjs no arranca aquí"
 printf 'QuickJS %s\n' "$v"
-v=$("$DEST/yt-dlp" --ignore-config --version) || die "yt-dlp no arranca aquí"
-printf 'yt-dlp %s\n' "$v"

@@ -41,7 +41,7 @@ la saca la propia app, y un `.exe` no se puede ejecutar en Linux.
 | **Accesos directos** | ninguno | menú Inicio y escritorio (se puede desmarcar) |
 | **«Abrir con DanPlay»** | lo activa la propia app desde Ajustes | lo deja puesto el instalador |
 | **Desinstalador** | borrar la carpeta | sí, y sale en «Aplicaciones instaladas» |
-| **ffmpeg, fpcalc, QuickJS y yt-dlp** | solo con `--with-tools` | siempre (el de la CI; ver abajo) |
+| **ffmpeg, fpcalc y QuickJS** | solo con `--with-tools` | siempre (el de la CI; ver abajo) |
 | **Tamaño** | por medir sin Python (en la 1.30, con él: 217 MB comprimido) | por medir (en la 1.30: 191 MB) |
 
 ## Actualizar
@@ -103,9 +103,10 @@ las mismas claves que escribe el instalador).
 `.github/workflows/windows.yml` lo hace entero en `windows-latest`, sin
 Python:
 
-1. Descarga `ffmpeg` 9.0.2, `fpcalc` 1.6.1, QuickJS-NG 0.17.0 (el motor de
-   JavaScript que YouTube exige a yt-dlp) y yt-dlp 2026.08.19 (su ejecutable
-   oficial), **con versión fija y comprobando su SHA-256**. Antes se bajaba
+1. Descarga `ffmpeg` 9.0.2, `fpcalc` 1.6.1 y QuickJS-NG 0.17.0 (el motor de
+   JavaScript que YouTube exige a yt-dlp), **con versión fija y comprobando
+   su SHA-256**. yt-dlp ya no (desde la 1.45): la app lo instala la primera
+   vez que se baja algo de YouTube. Antes se bajaba
    «la última» sin comprobar nada: dos instaladores de la misma versión
    podían llevar un ffmpeg distinto. Para subir una, se cambian la URL y la
    suma en el propio flujo.
@@ -147,7 +148,7 @@ herramientas de compilación de Visual Studio; Python, ya no.
 | **Cómo hablan la app y el núcleo** | en el mismo proceso: sin socket ni puerto | igual: sin puerto ni secreto (hasta la 1.30, con el núcleo de Python aparte, era un puerto de loopback con un secreto de un solo arranque) |
 | **Dónde van los datos** | `~/.local/share/danplay`, `~/.config/danplay` | `%LOCALAPPDATA%\danplay`, `%APPDATA%\danplay` (como decía `platformdirs`) |
 | **ONNX Runtime** (el pulso, el separador, las voces) | en `data/`, el de Microsoft para Linux (o para macOS) | en `data\`, `onnxruntime.dll` |
-| **ffmpeg, fpcalc, yt-dlp y el motor de JS** | dentro de los paquetes (`tools/`; el `.deb` declara además ffmpeg y fpcalc); para YouTube, Deno, Node ≥ 22 o QuickJS si están | van **dentro** del instalador, en `tools\` (QuickJS y yt-dlp incluidos); la app se los da al núcleo, que los usa antes que los del PATH |
+| **ffmpeg, fpcalc, yt-dlp y el motor de JS** | ffmpeg, fpcalc y QuickJS dentro de los paquetes (`tools/`); para YouTube, Deno, Node ≥ 22 o QuickJS si están; yt-dlp lo instala la app al usarlo | ffmpeg, fpcalc y QuickJS van **dentro** del instalador, en `tools\`; la app se los da al núcleo, que los usa antes que los del PATH; yt-dlp, igual que en Linux |
 | **Bandeja** | protocolo D-Bus propio (`ksni`), porque la de Tauri no entrega clics | la de Tauri, que ahí sí los entrega y además dice dónde está el icono |
 | **Mini reproductor** | lo coloca el escritorio en Wayland | pegado al icono, con `tauri-plugin-positioner` |
 | **Mandos del sistema** | MPRIS | SMTC (los dos con `souvlaki`) |

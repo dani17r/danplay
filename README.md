@@ -161,8 +161,8 @@ tocar tus datos): ver [Contribuir](docs/CONTRIBUTING.md).
 
 Compilada desde el código, para la conversión de formatos y la huella
 acústica hacen falta dos programas del sistema (los paquetes `.deb`,
-`.AppImage`, de Windows y de macOS ya los traen dentro, con yt-dlp y QuickJS
-para descargar de YouTube). Si te faltan, la app lo dice y sigue funcionando
+`.AppImage`, de Windows y de macOS ya los traen dentro, con QuickJS para
+descargar de YouTube; yt-dlp lo instala la app la primera vez que bajas algo). Si te faltan, la app lo dice y sigue funcionando
 sin esas dos funciones:
 
 ```bash
@@ -177,7 +177,7 @@ callado.
 `scripts/build.sh --package` genera además un `.deb` y un `.AppImage`. El
 núcleo va dentro de la app, con sus datos (los modelos del pulso y del
 separador, las voces y ONNX Runtime, que los mueve) y sus programas
-(ffmpeg, fpcalc, QuickJS y yt-dlp). No llevan `mutagen` (GPL): las
+(ffmpeg, fpcalc y QuickJS). No llevan `mutagen` (GPL): las
 etiquetas las escribe el núcleo, con lofty — [por qué importa](docs/DEPENDENCIES.md#mutagen-ya-no-va-en-los-paquetes).
 
 > **Nota sobre las claves.** DanPlay funciona sin ninguna clave: escanea,

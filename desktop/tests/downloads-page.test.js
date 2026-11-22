@@ -232,6 +232,76 @@ describe('yt-dlp', () => {
     held.youtube.mockResolvedValue({ available: true, active: false, results: [] })
   })
 
+  // Desde la 1.45 yt-dlp no viaja con la app: sin él se puede bajar igual
+  // (la primera descarga lo instala), y la página lo dice
+  it('without yt-dlp it says it installs itself, and downloading is not locked', async () => {
+    held.youtube.mockResolvedValue({
+      available: true,
+      reason: '',
+      active: false,
+      results: [],
+      version: '',
+      bundled_version: '',
+      js_runtime: 'qjs',
+      js_runtime_hint: ''
+    })
+    const w = await mountView()
+    expect(w.find('.yt-version').text()).toBe('—')
+    expect(w.find('.yt-missing').text()).toContain('se instala solo')
+    expect(w.text()).not.toContain('Falta una pieza')
+    await w.find('input').setValue('barak mi gozo')
+    const download = w.findAll('button').find((b) => b.text() === 'Descargar')
+    expect(download.attributes('disabled')).toBeUndefined()
+    await download.trigger('click')
+    await flushPromises()
+    await flushPromises()
+    expect(api.youtubeDownload).toHaveBeenCalledTimes(1)
+    held.youtube.mockResolvedValue({ available: true, active: false, results: [] })
+  })
+
+  it('while it installs yt-dlp, the bar says so', async () => {
+    held.youtube.mockResolvedValue({
+      available: true,
+      active: true,
+      phase: 'installing',
+      name: 'bajando yt-dlp 2026.09.20',
+      percent: 20,
+      results: [],
+      version: ''
+    })
+    const w = await mountView()
+    expect(w.text()).toContain('Instalando yt-dlp')
+    expect(w.find('.dl-current').text()).toBe('bajando yt-dlp 2026.09.20')
+    expect(w.find('.yt-missing').exists()).toBe(false)
+    held.youtube.mockResolvedValue({ available: true, active: false, results: [] })
+  })
+
+  it('if yt-dlp could not be installed, it says why under the link', async () => {
+    const why =
+      'No se pudo instalar yt-dlp, lo que baja de YouTube: no se pudo consultar GitHub ' +
+      '(sin conexion a internet). Se instala solo la primera vez, y hace falta internet.'
+    held.youtube.mockResolvedValue({
+      available: true,
+      active: true,
+      phase: 'installing',
+      results: [],
+      version: ''
+    })
+    const w = await mountView()
+    held.youtube.mockResolvedValue({
+      available: true,
+      active: false,
+      phase: 'done',
+      error: why,
+      results: [{ ok: false, reason: why, requested: 'barak mi gozo' }],
+      version: ''
+    })
+    await useDownloads().refresh()
+    await flushPromises()
+    expect(w.text()).toContain('hace falta internet')
+    held.youtube.mockResolvedValue({ available: true, active: false, results: [] })
+  })
+
   it('while something is downloading, it does not update', async () => {
     held.youtube.mockResolvedValue({
       available: true,
