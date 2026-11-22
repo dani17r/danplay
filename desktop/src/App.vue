@@ -67,7 +67,7 @@ import Icon from './components/Icon.vue'
 import * as islands from './islands.js'
 import { vPreload, preloadWhenIdle, warm } from './islands.js'
 import { useTerms } from './composables/useTerms.js'
-import { compareVersions } from './data/releases.js'
+import { compareVersions } from './utils/version.js'
 import { version as appVersion } from '../package.json'
 import TextField from './components/ui/TextField.vue'
 import SelectField from './components/ui/SelectField.vue'
@@ -996,6 +996,53 @@ onMounted(async () => {
     }
     coreWasReady = !!e?.ready
   })
+
+  // Lo que llega de fuera, escuchado desde ya y todo a la vez. Iban en fila
+  // (cinco esperas) y detrás de la lista: un .danpista abierto al lanzar la
+  // app esperaba a que llegara la biblioteca. Uno que no se pueda escuchar
+  // no deja sin los demás ni sin la lista.
+  //
+  // Abrir una canción desde el explorador la mete en la lista del
+  // reproductor. Si esa lista está delante, tiene que aparecer sola: se
+  // cargaba al entrar y se quedaba quieta mientras iban llegando canciones.
+  // Una pista de una secuencia se abre entera. Un .danpista: los de antes de
+  // montarse la ventana (la app estaba cerrada) y los que lleguen después. Y
+  // cualquier cambio en el núcleo —lo haga quien lo haga— se refleja aquí sin
+  // salir y volver a entrar: Rust avisa, esta ventana escucha.
+  const opened = new Set()
+  const openOnce = (file) => {
+    if (!file || opened.has(file)) return
+    opened.add(file)
+    openBundle(file).finally(() => opened.delete(file))
+  }
+  const orNothing = (p) => p.catch(() => null)
+  ;[stopExternalWatch, stopSequenceWatch, stopBundleWatch, stopChangeWatch] = await Promise.all([
+    orNothing(
+      api.onExternal(() => {
+        if (view.value.kind === 'player') load(true)
+      })
+    ),
+    orNothing(
+      api.onSequence((folder) => {
+        if (folder) openSequence(folder)
+      })
+    ),
+    orNothing(
+      api.onBundle(async (file) => {
+        await api.takeOpenedBundles().catch(() => [])
+        openOnce(file)
+      })
+    ),
+    orNothing(core.onChanged(onCoreChanged))
+  ])
+  // (ya escuchando, para que no se pierda uno que llegue entre medias)
+  api
+    .takeOpenedBundles()
+    .catch(() => [])
+    .then((files) => {
+      for (const file of files || []) openOnce(file)
+    })
+
   try {
     // a la vez todo lo que no depende de otra cosa: la lista solo espera al
     // estado (`useLibrary.start`), y los repertorios, a nada
@@ -1029,33 +1076,6 @@ onMounted(async () => {
     )
   }
 
-  // Abrir una canción desde el explorador la mete en la lista del
-  // reproductor. Si esa lista está delante, tiene que aparecer sola: se
-  // cargaba al entrar y se quedaba quieta mientras iban llegando canciones.
-  stopExternalWatch = await api.onExternal(() => {
-    if (view.value.kind === 'player') load(true)
-  })
-  // se abrió desde fuera una pista de una secuencia: abrirla entera
-  stopSequenceWatch = await api.onSequence((folder) => {
-    if (folder) openSequence(folder)
-  })
-  // se abrió un .danpista desde fuera: los de antes de montarse la ventana
-  // (la app estaba cerrada) y los que lleguen después
-  const opened = new Set()
-  const openOnce = (file) => {
-    if (!file || opened.has(file)) return
-    opened.add(file)
-    openBundle(file).finally(() => opened.delete(file))
-  }
-  stopBundleWatch = await api.onBundle(async (file) => {
-    await api.takeOpenedBundles().catch(() => [])
-    openOnce(file)
-  })
-  for (const file of await api.takeOpenedBundles().catch(() => [])) openOnce(file)
-
-  // Cualquier cambio en el núcleo —lo haga quien lo haga— se refleja aquí
-  // sin salir y volver a entrar. Rust avisa; esta ventana escucha.
-  stopChangeWatch = await core.onChanged(onCoreChanged)
   menus.loadShareTargets()
   // y si había una descarga en marcha (un reinicio de la ventana), que se vea
   downloads.refresh()

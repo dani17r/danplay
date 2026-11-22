@@ -42,7 +42,7 @@ import { useSeparation } from '../composables/useSeparation.js'
 import { useClick } from '../composables/useClick.js'
 import { useRouting } from '../composables/useRouting.js'
 import { vTips } from '../composables/useTooltips.js'
-import { startStudyTour, stopStudyTour, tourSeen } from '../composables/useStudyTour.js'
+import { tourSeen } from '../composables/tourSeen.js'
 import { usePreferences } from '../composables/usePreferences.js'
 import { WAVE_STYLES } from '../utils/wavePaint.js'
 import { takeToPhone } from '../composables/usePhone.js'
@@ -2456,7 +2456,7 @@ function stemsMenu(ev) {
  * solo quería ver la lista se quedaba sin clic.
  */
 async function hide() {
-  stopStudyTour()
+  stopTour()
   await flushSave()
   emit('hide')
   emit('close')
@@ -2535,10 +2535,19 @@ const PANELS = [
 const savedPanel = readPref(PANEL_KEY, 'click')
 const panel = ref(PANELS.some((p) => p.v === savedPanel) ? savedPanel : 'click')
 watch(panel, (v) => savePref(PANEL_KEY, v))
+/**
+ * El recorrido (useStudyTour.js), cargado la primera vez que se pide: trae
+ * driver.js y su CSS, y sale una vez en la vida. `null` hasta entonces.
+ * @type {typeof import('../composables/useStudyTour.js') | null}
+ */
+let tourModule = null
 /** El recorrido por el modo estudio (con «?» o desde el menú). */
-function tour() {
-  if (root.value) startStudyTour(root.value)
+async function tour() {
+  tourModule ??= await import('../composables/useStudyTour.js')
+  // mientras llegaba su trozo se pudo ocultar el estudio
+  if (root.value && props.visible) tourModule.startStudyTour(root.value)
 }
+const stopTour = () => tourModule?.stopStudyTour()
 // la primera vez que se abre en el escritorio, solo (y ya no más: se recuerda)
 let tourTimer = null
 watch(
@@ -2555,7 +2564,7 @@ watch(
 )
 onUnmounted(() => {
   clearTimeout(tourTimer)
-  stopStudyTour()
+  stopTour()
 })
 let sizeWatch = null
 /**

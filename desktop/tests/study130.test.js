@@ -5,7 +5,20 @@ import { mount, flushPromises } from '@vue/test-utils'
 // en su carril), «ir con un clic» con la onda bloqueada, ocultar la mezcla y
 // los canales, el carril del clic, la guía automática y la voz de las guías,
 // los menús cortos (lo puesto, marcado) y el recorrido.
-const held = vi.hoisted(() => ({ playback: null, api: null, state: null, savePath: null }))
+const held = vi.hoisted(() => ({
+  playback: null,
+  api: null,
+  state: null,
+  savePath: null,
+  driver: false
+}))
+
+// El recorrido trae driver.js con su CSS y sale una vez en la vida: no viaja
+// con el estudio, llega al pedirlo. Se apunta si llega a cargarse.
+vi.mock('driver.js', async (importOriginal) => {
+  held.driver = true
+  return importOriginal()
+})
 
 vi.mock('../src/api.js', async (importOriginal) => {
   const actual = await importOriginal()
@@ -36,8 +49,10 @@ import {
   sideOf,
   targetOf
 } from '../src/composables/useRouting.js'
-import { stopStudyTour } from '../src/composables/useStudyTour.js'
 import { song } from './support/backend.js'
+
+// con todo lo de arriba ya importado, antes de que ninguna prueba pida el recorrido
+const driverWithTheStudy = held.driver
 
 const base = {
   index: 0,
@@ -91,7 +106,7 @@ const mountView = async () => {
   return w
 }
 afterEach(() => {
-  stopStudyTour()
+  // (desmontarlo cierra el recorrido, si se abrió)
   for (const w of mounted.splice(0)) {
     try {
       w.unmount()
@@ -571,14 +586,20 @@ describe('the automatic cue', () => {
 })
 
 describe('the tour', () => {
+  it('does not travel with the study: driver.js arrives when it is asked for', () => {
+    expect(driverWithTheStudy, 'StudyBar.vue importa driver.js al abrirse').toBe(false)
+  })
+
   it('«?» opens it, with its steps and animations', async () => {
     const w = await mountView()
     await w.find('.study-help').trigger('click')
+    await vi.dynamicImportSettled()
     await flushPromises()
     const pop = document.querySelector('.driver-popover')
     expect(pop).not.toBeNull()
     expect(pop.textContent).toContain('El modo estudio')
     expect(pop.querySelector('.tour-demo')).not.toBeNull()
+    const { stopStudyTour } = await import('../src/composables/useStudyTour.js')
     stopStudyTour()
     expect(localStorage.getItem('danplay.study.tourSeen')).toBe('true')
   })
