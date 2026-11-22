@@ -462,15 +462,15 @@ fn cover(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let cid = ctx.path().int("cid").required();
     let size = ctx.query().int("size").opt();
     ctx.check()?;
-    // `resolve`: la portada sale del propio archivo, así que una canción de
-    // fuera de la biblioteca también tiene la suya
-    let Some(c) = songs::resolve(ctx.app, cid)? else {
+    // `path_of` (como `resolve`): la portada sale del propio archivo, así que
+    // una canción de fuera de la biblioteca también tiene la suya
+    let Some(path) = songs::path_of(ctx.app, cid)? else {
         return Err(ApiError::not_found("no existe"));
     };
-    if !songs::exists(&c) {
+    if path.is_empty() || !Path::new(&path).exists() {
         return Err(ApiError::not_found("sin portada"));
     }
-    let path = path_of(&c);
+    let path = PathBuf::from(path);
     let found = match size {
         Some(s) if media::THUMBNAIL_SIZES.contains(&s) => media::thumbnail(ctx.app, &path, s),
         _ => media::cached_cover(&path),
@@ -720,13 +720,15 @@ fn song_study(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     Ok(Value::Object(c).into())
 }
 
-/// Dónde está en el disco (lo usa Rust para servir el audio). `resolve`: una
-/// canción abierta desde fuera tiene que sonar igual que las demás.
+/// Dónde está en el disco (lo usa Rust para servir el audio). `path_of`
+/// (como `resolve`): una canción abierta desde fuera tiene que sonar igual
+/// que las demás.
 fn audio_path(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let cid = ctx.path().int("cid").required();
     ctx.check()?;
-    let c = resolved_file(ctx.app, cid, "no existe")?;
-    let path = songs::text(&c, "path");
+    let path = songs::path_of(ctx.app, cid)?
+        .filter(|p| !p.is_empty() && Path::new(p).exists())
+        .ok_or_else(|| ApiError::not_found("no existe"))?;
     let bytes = std::fs::metadata(&path)?.len();
     Ok(json!({"path": path, "kind": media::audio_type(&path), "bytes": bytes}).into())
 }

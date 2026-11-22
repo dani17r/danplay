@@ -5,7 +5,7 @@ use crate::app::App;
 use crate::http::{Body, Response};
 use crate::services::ai::log_warnings;
 use library::warnings::Warnings;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::ffi::OsString;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
@@ -172,6 +172,9 @@ pub fn write_cover(app: &App, path: &Path, data: &[u8], mime: &str) -> bool {
     // aquí, que es el único sitio donde cambia una carátula: la fecha del
     // archivo puede no cambiar (dos escrituras en el mismo tic del reloj)
     forget_cover(path);
+    // y sus miniaturas de antes ya no se sirven: fuera ya (guardar una nueva
+    // no las busca, ver `library::thumbnails::store`)
+    forget_thumbnails(app, &path.to_string_lossy());
     true
 }
 
@@ -180,11 +183,29 @@ pub fn write_cover(app: &App, path: &Path, data: &[u8], mime: &str) -> bool {
 /// Los tamaños de las miniaturas.
 pub const THUMBNAIL_SIZES: [i64; 3] = library::thumbnails::SIZES;
 
-/// DATA_DIR/covers, solo para su dueño.
+/// Las carpetas de miniaturas ya creadas y puestas solo para su dueño.
+static READY_FOLDERS: LazyLock<Mutex<HashSet<PathBuf>>> =
+    LazyLock::new(|| Mutex::new(HashSet::new()));
+
+/// DATA_DIR/covers, solo para su dueño. Se prepara una vez (o otra vez si no
+/// se pudo guardar una miniatura: la borraron): crearla y cambiarle los
+/// permisos en cada carátula pintada eran dos llamadas al sistema por fila.
 pub fn thumbnails_folder(app: &App) -> PathBuf {
     let path = app.config().data_dir.join("covers");
-    let _ = library::config::private_dir(&path);
+    let mut ready = READY_FOLDERS.lock().unwrap_or_else(PoisonError::into_inner);
+    if !ready.contains(&path) && library::config::private_dir(&path).is_ok() {
+        ready.insert(path.clone());
+    }
     path
+}
+
+/// La carpeta de miniaturas ya no está como se dejó: la próxima vez se
+/// prepara otra vez.
+fn thumbnails_folder_lost(path: &Path) {
+    READY_FOLDERS
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .remove(path);
 }
 
 /// La miniatura (o la carátula tal cual si no se pudo encoger); `None` si no
@@ -209,7 +230,12 @@ pub fn thumbnail(app: &App, path: &Path, size: i64) -> Option<Cover> {
     );
     log_warnings("danplay.thumbnails", warnings);
     match made {
-        Ok(t) => Some((t.data, t.mime)),
+        Ok(t) => {
+            if t.unsaved {
+                thumbnails_folder_lost(&folder);
+            }
+            Some((t.data, t.mime))
+        }
         Err(e) => {
             log::warn!("no pude hacer la miniatura de {}: {e}", path.display());
             Some(original)

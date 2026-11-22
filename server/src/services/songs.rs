@@ -26,6 +26,21 @@ pub fn resolve(app: &App, cid: i64) -> Result<Option<Dict>, ApiError> {
     app.db(|c| library::external::by_id(c, cid))
 }
 
+/// Solo dónde está su archivo (de la biblioteca o de fuera, como `resolve`),
+/// o `None` si no existe esa canción. Para lo que solo necesita la ruta
+/// (servir su carátula o su audio): `resolve` lee la fila entera, con su
+/// letra, su cifrado y su estudio, por cada miniatura que se pinta.
+pub fn path_of(app: &App, cid: i64) -> Result<Option<String>, ApiError> {
+    // las de fuera llevan el id en negativo (`library::external`)
+    let (query, id) = match cid {
+        0 => return Ok(None),
+        c if c > 0 => ("SELECT path FROM songs WHERE id=?", c),
+        c => ("SELECT path FROM external_songs WHERE id=?", -c),
+    };
+    let row = app.db(|c| index::fetch_one(c, query, [id]))?;
+    Ok(row.map(|r| text(&r, "path")))
+}
+
 /// Un texto de la fila (`c["path"]`), o vacío.
 pub fn text(song: &Dict, key: &str) -> String {
     song.get(key).map(value::str_of).unwrap_or_default()

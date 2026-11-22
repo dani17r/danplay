@@ -444,6 +444,33 @@ mod tests {
             3 * n,
             start.elapsed()
         );
+        // un disco que se desmonta: las miniaturas de 5 000 canciones, fuera.
+        // Antes se listaba la carpeta entera por cada canción; eso se mide
+        // con unas pocas (es lineal) para no esperar minutos
+        let gone = &known_pb[..5000.min(n)];
+        let sample = 100.min(gone.len());
+        let start = std::time::Instant::now();
+        for p in &gone[..sample] {
+            let prefix = format!("{}_", library::thumbnails::key(p));
+            let listed = std::fs::read_dir(&covers).expect("carpeta");
+            let mine = listed
+                .filter_map(Result::ok)
+                .filter(|e| e.file_name().to_string_lossy().starts_with(&prefix))
+                .count();
+            assert_eq!(mine, 3);
+        }
+        let per_song = start.elapsed() / u32::try_from(sample).unwrap_or(1);
+        let start = std::time::Instant::now();
+        let removed =
+            library::thumbnails::forget(&covers, gone, &mut library::warnings::Warnings::new());
+        assert_eq!(removed, 3 * gone.len());
+        println!(
+            "olvidar las miniaturas de {} canciones entre {} archivos: {:?} (listando la carpeta por cada una, como antes: {per_song:?} por canción, unos {:?} en total)",
+            gone.len(),
+            3 * n,
+            start.elapsed(),
+            per_song * u32::try_from(gone.len()).unwrap_or(1)
+        );
     }
 
     /// El caso real: un flac (o un ogg, o un opus) con su modo estudio, se
