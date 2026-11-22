@@ -62,6 +62,9 @@ const PREF_SNAP = 'danplay.click.snapHits'
 const PREF_GHOST = 'danplay.click.ghostAuto'
 const PREF_HEAR = 'danplay.click.hearTrial'
 
+/** De cuántas canciones (y fuente) se guardan los golpes ya pedidos. */
+export const HITS_KEEP = 4
+
 function readPref(key, fallback) {
   try {
     const v = localStorage.getItem(key)
@@ -585,7 +588,12 @@ export function useBeatEdit(deps) {
   const hitsRef = ref(0)
   const hitsStatus = ref(/** @type {'idle'|'loading'|'ready'|'error'} */ ('idle'))
   const hitsError = ref('')
-  /** Los golpes ya pedidos, por canción y fuente (también los que están llegando). */
+  /**
+   * Los golpes ya pedidos, por canción y fuente (también los que están
+   * llegando): los de las últimas HITS_KEEP. Son miles de pares por canción y
+   * el estudio vive toda la sesión: sin tope se quedaban los de cada canción
+   * ajustada desde que se abrió la app.
+   */
   const hitsCache = new Map()
   const hasDrums = computed(() => !!toValue(deps.hasDrums))
   watch(hasDrums, (has) => {
@@ -598,10 +606,17 @@ export function useBeatEdit(deps) {
     if (id == null) return null
     const key = `${id}:${source}`
     let pending = hitsCache.get(key)
-    if (!pending) {
+    if (pending) {
+      // la usada pasa al final: se tira la que lleva más sin usarse
+      hitsCache.delete(key)
+      hitsCache.set(key, pending)
+    } else {
       pending = api.beatHits(id, source)
       hitsCache.set(key, pending)
-      pending.catch(() => hitsCache.delete(key))
+      pending.catch(() => {
+        if (hitsCache.get(key) === pending) hitsCache.delete(key)
+      })
+      while (hitsCache.size > HITS_KEEP) hitsCache.delete(hitsCache.keys().next().value)
     }
     const mine = source === hitsSource.value
     if (mine) {

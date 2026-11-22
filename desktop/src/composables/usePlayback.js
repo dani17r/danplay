@@ -494,12 +494,19 @@ const defaultMeter = () => (accentDefault.value ? null : 0)
  */
 let meterIsOwn = false
 
+/** Lo último que se escribió de cada clave (en esta ventana). */
+const written = new Map()
 function remember(key, value) {
+  written.set(key, String(value))
   try {
     localStorage.setItem(key, String(value))
   } catch {
     /* modo privado */
   }
+}
+/** Como `remember`, sin volver a escribir lo que ya está escrito. */
+function rememberOnce(key, value) {
+  if (written.get(key) !== String(value)) remember(key, value)
 }
 
 /**
@@ -552,9 +559,12 @@ function applyState(s) {
   const changed = 'revision' in s && s.revision !== seenRevision
   if (changed) seenRevision = s.revision
   if (ready && backend && (changed || state.length !== queue.value.length)) refreshQueue(changed)
-  if (ready) {
-    remember(VOLUME_KEY, state.volume)
-    remember(REPEAT_KEY, state.repeat)
+  // Lo que se recuerda para el próximo arranque, solo si cambió (llegan cuatro
+  // avisos por segundo sonando) y solo desde la ventana principal: el mini y
+  // la proyección no aplican lo guardado (ver `boot`) ni deben escribirlo.
+  if (ready && isMainWindow()) {
+    rememberOnce(VOLUME_KEY, state.volume)
+    rememberOnce(REPEAT_KEY, state.repeat)
   }
 }
 
@@ -633,6 +643,7 @@ export function resetPlayback() {
   seenRevision = -1
   seekGuard = null
   saidError = ''
+  written.clear()
   queue.value = []
   crossfade.value = savedCrossfade()
   formants.value = savedFormants()
