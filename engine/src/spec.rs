@@ -73,8 +73,27 @@ const fn one() -> f32 {
 
 /// Las guias ya leidas, por su ruta (son frases de unos segundos: se leen
 /// enteras una vez y se reutilizan).
-#[derive(Default)]
-pub struct Clips(HashMap<String, Arc<[f32]>>);
+pub struct Clips {
+    by_path: HashMap<String, Arc<[f32]>>,
+    /// Las muestras que suman, y lo mas que se guarda.
+    samples: usize,
+    limit: usize,
+}
+
+/// Lo mas que se guarda de guias, en muestras: 128 MB. Antes se contaban
+/// solo las guias (64), y una de cinco minutos pesa 106 MB: 64 asi eran
+/// casi 7 GB.
+const CLIP_SAMPLES: usize = 128 * 1024 * 1024 / 4;
+
+impl Default for Clips {
+    fn default() -> Self {
+        Clips {
+            by_path: HashMap::new(),
+            samples: 0,
+            limit: CLIP_SAMPLES,
+        }
+    }
+}
 
 impl Clips {
     /// Una guia, leida entera a la tasa del motor (como mucho cinco minutos,
@@ -88,7 +107,7 @@ impl Clips {
     /// se puede abrir, no es un audio, o no tiene nada que oir. Una guia
     /// que se corta a medias (un archivo dañado) si suena, hasta donde llega.
     pub fn read(&mut self, path: &str) -> Result<Arc<[f32]>, String> {
-        if let Some(c) = self.0.get(path) {
+        if let Some(c) = self.by_path.get(path) {
             return Ok(Arc::clone(c));
         }
         let mut part = Part::open_file(Path::new(path), RATE, 64 * 1024 * 1024)?;
@@ -105,10 +124,15 @@ impl Clips {
             return Err("no tiene nada que oír".into());
         }
         let clip: Arc<[f32]> = Arc::from(all);
-        if self.0.len() > 64 {
-            self.0.clear();
+        if self.by_path.len() > 64 || self.samples + clip.len() > self.limit {
+            self.by_path.clear();
+            self.samples = 0;
         }
-        self.0.insert(path.to_string(), Arc::clone(&clip));
+        // una sola que ya no cabe se da, pero no se guarda
+        if clip.len() <= self.limit {
+            self.samples += clip.len();
+            self.by_path.insert(path.to_string(), Arc::clone(&clip));
+        }
         Ok(clip)
     }
 
@@ -179,6 +203,44 @@ mod tests {
             RoutingSpec::default().routing(&[]).buses,
             Routing::default().buses
         );
+    }
+
+    #[test]
+    fn the_cues_kept_in_memory_have_a_limit_in_bytes() {
+        // se contaban solo las guias (64): una de cinco minutos pesa 106 MB
+        let dir = crate::testing::scratch("guias-tope");
+        let mut clips = Clips {
+            limit: 30_000,
+            ..Clips::default()
+        };
+        for k in 0..4 {
+            let path = dir.join(format!("g{k}.wav"));
+            std::fs::write(
+                &path,
+                &crate::testing::wav(2, 44_100, &vec![0.1; 10_000])[..],
+            )
+            .expect("wav");
+            let clip = clips.read(&path.to_string_lossy()).expect("se lee");
+            assert_eq!(clip.len(), 10_000);
+            assert!(
+                clips.samples <= 30_000,
+                "{} muestras guardadas",
+                clips.samples
+            );
+        }
+        // una que no cabe sola suena igual, sin guardarse
+        let big = dir.join("grande.wav");
+        std::fs::write(
+            &big,
+            &crate::testing::wav(2, 44_100, &vec![0.1; 40_000])[..],
+        )
+        .expect("wav");
+        assert_eq!(
+            clips.read(&big.to_string_lossy()).expect("se lee").len(),
+            40_000
+        );
+        assert!(clips.samples <= 30_000);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

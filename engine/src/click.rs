@@ -1,6 +1,6 @@
-//! Como suena el clic del metronomo. Lo comparten la app de escritorio
-//! (`metronome.rs`, en una fuente de rodio) y el motor del celular, para que
-//! un golpe suene igual en los dos sitios.
+//! Como suena el clic del metronomo. Lo usan el motor (el de la PC y el del
+//! celular) y el clic de la mezcla que se guarda (`analysis::click`), para que
+//! un golpe suene igual en todos los sitios.
 //!
 //! Se sintetiza muestra a muestra, a la tasa que se pida: unos pocos
 //! parciales senoidales que se apagan, con un ataque de medio milisegundo
@@ -217,6 +217,32 @@ mod tests {
             }
         }
         assert!(bad.is_empty(), "acaban cortados: {bad:#?}");
+    }
+
+    /// Un banco (no de la CI): lo que cuesta sintetizar un golpe en el hilo de
+    /// audio, muestra a muestra, por trozo de 256 (lo que pide el render).
+    #[test]
+    #[ignore = "banco de desarrollo: lo que cuesta el clic"]
+    fn what_a_click_costs_to_synthesize() {
+        use std::time::Instant;
+        for sound in SOUNDS {
+            let len = click_len(true, 44_100, sound);
+            let reps = 400;
+            let t = Instant::now();
+            let mut sum = 0f32;
+            for _ in 0..reps {
+                for i in 0..len {
+                    sum += click_sample(std::hint::black_box(i), true, 44_100, sound);
+                }
+            }
+            let each = t.elapsed().as_secs_f64() / (reps * len) as f64;
+            std::hint::black_box(sum);
+            println!(
+                "{sound:?}: {:.0} ns por muestra, {:.1} µs por trozo de 256 con una voz",
+                each * 1e9,
+                each * 256.0 * 1e6
+            );
+        }
     }
 
     #[test]

@@ -33,14 +33,23 @@ use std::path::Path;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{Sender, channel};
 use std::sync::{Arc, Mutex, PoisonError};
-use std::thread::JoinHandle;
 
 /// La tasa del motor (la de las partes; lo que va a otra se convierte).
 pub const RATE: u32 = 44_100;
 
 /// Lo que pesa menos que esto se lee entero en memoria; lo demas, del
 /// disco por trozos (un WAV de una secuencia pesa 40 MB).
-const IN_MEMORY: u64 = 24 * 1024 * 1024;
+pub(crate) const IN_MEMORY: u64 = 24 * 1024 * 1024;
+/// Y entre todas las partes de una cancion, como mucho esto en memoria. El
+/// tope de arriba es por parte: 32 partes de 24 MB eran 768 MB por cancion,
+/// y puede haber hasta tres juegos vivos (la que suena, la del fundido y las
+/// de un relevo). En un telefono, eso es que el sistema cierre la app.
+#[cfg(any(target_os = "android", target_os = "ios"))]
+const SONG_IN_MEMORY: u64 = 64 * 1024 * 1024;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+const SONG_IN_MEMORY: u64 = 256 * 1024 * 1024;
+/// Partes que se abren a la vez al cargar.
+const OPENERS: usize = 4;
 
 /// Como va, para la interfaz.
 #[derive(Serialize, Debug, Clone, Default)]
@@ -87,6 +96,10 @@ pub struct Loaded {
     pub id: String,
     pub duration: f64,
     pub parts: Vec<String>,
+    /// El manifiesto del `.danpista` (con `load`), ya leido: el celular
+    /// sacaba de el otra vez las partes y sus papeles, leyendolo de nuevo.
+    #[serde(skip)]
+    pub manifest: Option<serde_json::Value>,
 }
 
 struct Song {
@@ -99,7 +112,6 @@ struct Song {
     asked_order: AtomicU64,
     shared: Arc<feeder::Shared>,
     gains: Arc<Gains>,
-    thread: Option<JoinHandle<()>>,
 }
 
 impl Song {
@@ -131,13 +143,12 @@ impl Song {
         let _ = self.orders.send(Order::Segments(frames, end));
     }
 
-    /// Suelta el hilo que decodifica (acaba al soltar las ordenes).
-    fn close(mut self) {
-        let thread = self.thread.take();
+    /// Suelta el hilo que decodifica: acaba solo en cuanto ve que ya no hay
+    /// quien le mande ordenes. No se le espera: con el archivo en un disco
+    /// dormido o de red, esperar a que acabara su lectura dejaba sin
+    /// responder al que cambia de cancion (ni pausa ni siguiente).
+    fn close(self) {
         drop(self);
-        if let Some(t) = thread {
-            let _ = t.join();
-        }
     }
 }
 
@@ -227,7 +238,7 @@ impl Engine {
     pub fn offline(out_rate: u32) -> Engine {
         let mut e = Engine::new();
         for d in &e.decks {
-            lock(&d.render).set_out_rate(out_rate);
+            lock(&d.render).set_output(out_rate, 2);
         }
         e.offline = true;
         e
@@ -273,19 +284,20 @@ impl Engine {
     /// Carga la pista de esa carpeta (un .danpista: sustituye a la que
     /// hubiera).
     pub fn load(&self, folder: &Path) -> Result<Loaded, String> {
-        let files = bundle::parts(folder)?;
+        let manifest = bundle::manifest(folder).ok_or("esa pista ya no está o está rota")?;
+        let files = bundle::parts_in(folder, &manifest);
         if files.is_empty() || files.len() > MAX_PARTS {
             return Err("esa pista no tiene partes que se puedan oír".into());
         }
         // lo que dura: lo que diga el contenedor, o lo que dice la PC
-        let declared = bundle::manifest(folder)
-            .and_then(|m| m["song"]["duration"].as_f64())
-            .unwrap_or(0.0);
+        let declared = manifest["song"]["duration"].as_f64().unwrap_or(0.0);
         let id = folder
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
-        self.load_files(&id, &files, declared)
+        let mut loaded = self.load_files(&id, &files, declared)?;
+        loaded.manifest = Some(manifest);
+        Ok(loaded)
     }
 
     /// Carga una cancion hecha de esos archivos (una o muchas partes, a la
@@ -298,13 +310,14 @@ impl Engine {
         declared: f64,
     ) -> Result<Loaded, String> {
         let (parts, names) = open_parts(files)?;
+        let (song, ring) = spawn_song(id, parts, declared, 0)?;
         self.drop_other();
         let deck = self.deck();
         self.unload_deck(deck);
         if !self.offline {
             self.ensure_output();
         }
-        Ok(self.start_song(deck, id, parts, names, declared, 1.0))
+        Ok(self.start_song(deck, song, ring, names, 1.0))
     }
 
     /// La siguiente cancion entra fundiendose con la que suena, en
@@ -318,9 +331,10 @@ impl Engine {
         seconds: f32,
     ) -> Result<Loaded, String> {
         let (parts, names) = open_parts(files)?;
+        let (song, ring) = spawn_song(id, parts, declared, 0)?;
         self.drop_other();
         let incoming = self.other();
-        let loaded = self.start_song(incoming, id, parts, names, declared, 0.0);
+        let loaded = self.start_song(incoming, song, ring, names, 0.0);
         let frames = (seconds.max(0.05) * RATE as f32) as u32;
         let outgoing = self.deck();
         outgoing
@@ -356,13 +370,12 @@ impl Engine {
     fn start_song(
         &self,
         deck: &Deck,
-        id: &str,
-        parts: Vec<Part>,
+        song: Song,
+        ring: Ring,
         names: Vec<String>,
-        declared: f64,
         fade: f32,
     ) -> Loaded {
-        let (song, ring) = spawn_song(id, parts, declared, 0);
+        let id = song.id.clone();
         let frames = song.frames();
         let c = &deck.controls;
         c.playing.store(false, Ordering::Release);
@@ -393,9 +406,10 @@ impl Engine {
         self.send_routing(deck, routing);
         *lock(&deck.song) = Some(song);
         Loaded {
-            id: id.to_string(),
+            id,
             duration: frames as f64 / f64::from(RATE),
             parts: names,
+            manifest: None,
         }
     }
 
@@ -434,7 +448,7 @@ impl Engine {
             // nada cargado: es una cancion como otra
             return self.load_files(id, files, declared);
         };
-        let (song, ring) = spawn_song(id, parts, declared, start);
+        let (song, ring) = spawn_song(id, parts, declared, start)?;
         let (segments, end) = lock(&self.session).segments.clone();
         if !segments.is_empty() {
             song.segments(segments, end);
@@ -447,6 +461,7 @@ impl Engine {
             id: id.to_string(),
             duration: song.frames() as f64 / f64::from(RATE),
             parts: names,
+            manifest: None,
         };
         deck.controls.handed_over.store(false, Ordering::Release);
         if let Some(old) = lock(&deck.incoming).replace(song) {
@@ -455,7 +470,7 @@ impl Engine {
         self.send(
             deck,
             Msg::Handoff(Box::new(Handoff {
-                ring,
+                ring: Some(ring),
                 start,
                 fade: (fade.clamp(0.005, 2.0) * RATE as f32) as u32,
                 routing,
@@ -496,6 +511,11 @@ impl Engine {
     /// Suelta la cancion que se fue con el fundido, cuando ya no se oye; y
     /// las partes que ya fueron relevadas.
     fn reap(&self) {
+        // lo que el hilo de audio ya soltó, fuera: antes solo se recogía al
+        // mandarle algo, y sonando sin tocar nada se quedaba ahí
+        for deck in &self.decks {
+            lock(&deck.mail).empty();
+        }
         for deck in &self.decks {
             if deck.controls.handed_over.swap(false, Ordering::AcqRel) {
                 let fresh = lock(&deck.incoming).take();
@@ -721,7 +741,15 @@ impl Engine {
 
     /// A donde va cada cosa. Si hacen falta mas canales de los que tiene la
     /// salida abierta, se vuelve a abrir con ellos.
+    ///
+    /// El mismo enrutado que ya hay no hace nada. Mandarlo otra vez sonando
+    /// era un cambio de enrutado entero: la envolvente abajo y arriba (unos
+    /// 6 ms de bajon) y los estiradores desde cero. El celular lo mandaba
+    /// con cada toque del mezclador, y la PC dos veces en cada carga.
     pub fn set_routing(&self, routing: Routing) {
+        if *lock(&self.session).routing == routing {
+            return;
+        }
         let routing = Arc::new(routing);
         let reopen = {
             let mut s = lock(&self.session);
@@ -813,24 +841,94 @@ fn gains(gain: f32, pan: f32) -> (f32, f32) {
 }
 
 /// Abre cada parte, a la tasa del motor.
-fn open_parts(files: &[PartFile]) -> Result<(Vec<Part>, Vec<String>), String> {
+pub(crate) fn open_parts(files: &[PartFile]) -> Result<(Vec<Part>, Vec<String>), String> {
+    open_parts_within(files, IN_MEMORY, SONG_IN_MEMORY)
+}
+
+/// Que partes se leen enteras en memoria, por lo que pesa cada una: ninguna
+/// que pase de `per_part`, y de las demas, de la que menos pesa a la que mas,
+/// mientras quepan en `budget`. Las mas grandes, del disco por trozos.
+fn kept_in_memory(sizes: &[u64], per_part: u64, budget: u64) -> Vec<bool> {
+    let mut order: Vec<usize> = (0..sizes.len()).collect();
+    order.sort_by_key(|&i| sizes[i]);
+    let mut keep = vec![false; sizes.len()];
+    let mut used = 0u64;
+    for i in order {
+        if sizes[i] <= per_part && used.saturating_add(sizes[i]) <= budget {
+            keep[i] = true;
+            used += sizes[i];
+        }
+    }
+    keep
+}
+
+/// Abre las partes (hasta `OPENERS` a la vez: antes iban una tras otra), con
+/// lo que se lee entero en memoria decidido para toda la cancion.
+fn open_parts_within(
+    files: &[PartFile],
+    per_part: u64,
+    budget: u64,
+) -> Result<(Vec<Part>, Vec<String>), String> {
     if files.is_empty() || files.len() > MAX_PARTS {
         return Err("esa canción no tiene partes que se puedan oír".into());
     }
-    let mut parts = Vec::with_capacity(files.len());
-    let mut names = Vec::with_capacity(files.len());
-    for f in files {
-        let part =
-            Part::open_file(&f.path, RATE, IN_MEMORY).map_err(|e| format!("«{}»: {e}", f.name))?;
-        parts.push(part);
-        names.push(f.name.clone());
+    // lo que no dice cuanto pesa, del disco (abrirlo dira que le pasa)
+    let sizes: Vec<u64> = files
+        .iter()
+        .map(|f| std::fs::metadata(&f.path).map_or(u64::MAX, |m| m.len()))
+        .collect();
+    let memory = kept_in_memory(&sizes, per_part, budget);
+    let open = |i: usize| {
+        let limit = if memory[i] { u64::MAX } else { 0 };
+        Part::open_file(&files[i].path, RATE, limit)
+            .map_err(|e| format!("«{}»: {e}", files[i].name))
+    };
+    let mut opened: Vec<Option<Result<Part, String>>> = (0..files.len()).map(|_| None).collect();
+    if files.len() == 1 {
+        opened[0] = Some(open(0));
+    } else {
+        let workers = OPENERS.min(files.len());
+        let open = &open;
+        std::thread::scope(|s| {
+            let handles: Vec<_> = (0..workers)
+                .map(|w| {
+                    s.spawn(move || {
+                        (w..files.len())
+                            .step_by(workers)
+                            .map(|i| (i, open(i)))
+                            .collect::<Vec<_>>()
+                    })
+                })
+                .collect();
+            for h in handles {
+                match h.join() {
+                    Ok(list) => {
+                        for (i, part) in list {
+                            opened[i] = Some(part);
+                        }
+                    }
+                    // un archivo que tumba al decodificador: como antes, a
+                    // quien carga (la PC lo vigila)
+                    Err(panic) => std::panic::resume_unwind(panic),
+                }
+            }
+        });
     }
-    Ok((parts, names))
+    let mut parts = Vec::with_capacity(files.len());
+    for part in opened {
+        parts.push(part.ok_or("una parte no se pudo abrir")??);
+    }
+    Ok((parts, files.iter().map(|f| f.name.clone()).collect()))
 }
 
 /// Pone a andar el hilo que decodifica una cancion desde `from` y devuelve
 /// lo que la sigue por fuera y los anillos para el render.
-fn spawn_song(id: &str, parts: Vec<Part>, declared: f64, from: u64) -> (Song, Ring) {
+fn spawn_song(
+    id: &str,
+    parts: Vec<Part>,
+    declared: f64,
+    from: u64,
+) -> Result<(Song, Ring), String> {
     // lo que dura, para empezar: lo que dicen los archivos; si no, lo que
     // dice quien carga (la PC la mide con ffmpeg); y a falta de las dos, la
     // cuenta aproximada de un mp3 sin cabecera. Es solo un punto de partida:
@@ -862,11 +960,16 @@ fn spawn_song(id: &str, parts: Vec<Part>, declared: f64, from: u64) -> (Song, Ri
     for _ in 0..POOL {
         let _ = free_tx.push(Box::new(Block::new(n_parts)));
     }
+    #[cfg(test)]
+    {
+        feeder.stall_seek = feeder::STALL_SEEK.get();
+    }
     let (orders, rx) = channel();
-    let thread = std::thread::Builder::new()
+    // sin el hilo no llegaria nada: «sonando» en silencio. Que se diga
+    std::thread::Builder::new()
         .name("danplay-parts".into())
         .spawn(move || feeder::run(feeder, free_rx, full_tx, &rx))
-        .ok();
+        .map_err(|e| format!("no se pudo poner a leer la canción: {e}"))?;
     let gains = Arc::new(Gains::default());
     let ring = Ring {
         full: full_rx,
@@ -883,9 +986,8 @@ fn spawn_song(id: &str, parts: Vec<Part>, declared: f64, from: u64) -> (Song, Ri
         asked_order: AtomicU64::new(0),
         shared,
         gains,
-        thread,
     };
-    (song, ring)
+    Ok((song, ring))
 }
 
 impl Drop for Engine {
@@ -1001,6 +1103,9 @@ mod tests {
         settle();
         assert_eq!(loaded.parts, ["Batería", "Voces"]);
         assert!((loaded.duration - 2.0).abs() < 1e-6);
+        // el manifiesto ya leido va con lo cargado (el celular lo leia otra vez)
+        let manifest = loaded.manifest.as_ref().expect("el manifiesto");
+        assert_eq!(bundle::parts_in(&dir, manifest).len(), 2);
         let s = e.state();
         assert!(!s.playing && s.position == 0.0 && s.loaded.is_some());
         // la segunda parte callada: suena la primera sola
@@ -1078,6 +1183,105 @@ mod tests {
     }
 
     #[test]
+    fn sending_the_same_routing_again_while_it_plays_does_not_dip() {
+        // el celular mandaba el enrutado con cada toque del mezclador: aunque
+        // fuera el mismo, era un cambio de enrutado sonando (la envolvente
+        // abajo y arriba, unos 6 ms de bajon cada vez)
+        let (dir, parts) = files("mismo-enrutado");
+        let pass = |again: bool| {
+            let e = Engine::offline(44_100);
+            e.load_files("cancion", &parts[..1], 0.0).expect("carga");
+            settle_on(&e);
+            e.play();
+            let mut out = pull_steady(&e, 8_820);
+            if again {
+                e.set_routing(Routing::default());
+            }
+            out.extend(pull_steady(&e, 17_640));
+            out
+        };
+        let reference = pass(false);
+        let resent = pass(true);
+        // el nivel de cada ventana de 3 ms del canal izquierdo, tras la orden
+        let rms = |x: &[f32]| -> Vec<f32> {
+            let left: Vec<f32> = x.iter().step_by(2).copied().collect();
+            left[8_820..]
+                .as_chunks::<132>()
+                .0
+                .iter()
+                .map(|w| (w.iter().map(|v| v * v).sum::<f32>() / w.len() as f32).sqrt())
+                .collect()
+        };
+        let (want, got) = (rms(&reference), rms(&resent));
+        let worst = want
+            .iter()
+            .zip(&got)
+            .filter(|(w, _)| **w > 0.01)
+            .map(|(w, g)| g / w)
+            .fold(f32::INFINITY, f32::min);
+        assert!(
+            worst > 0.95,
+            "una ventana bajó a {worst:.2} del nivel de referencia"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn changing_song_does_not_wait_for_the_thread_that_was_reading_the_one_before() {
+        // con el archivo en un disco dormido o de red, el hilo que decodifica
+        // la de antes puede tardar en acabar lo que estaba leyendo: cerrarla
+        // lo esperaba, y quien cambia de cancion se quedaba sin responder
+        let dir = folder("dormido");
+        let e = Engine::offline(44_100);
+        // su salto a 1,25 s tarda un segundo y medio
+        crate::feeder::STALL_SEEK.set(Some(55_125));
+        e.load(&dir).expect("carga");
+        crate::feeder::STALL_SEEK.set(None);
+        e.seek(1.25);
+        std::thread::sleep(Duration::from_millis(100));
+        let t = Instant::now();
+        e.load(&dir).expect("otra");
+        let took = t.elapsed();
+        assert!(took < Duration::from_millis(500), "tardó {took:?}");
+        assert_eq!(
+            e.state().loaded.as_deref(),
+            dir.file_name().and_then(|n| n.to_str())
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_biggest_parts_are_read_from_the_disk_when_a_song_would_take_too_much_memory() {
+        // el tope era por parte: 32 partes de 24 MB, 768 MB por cancion
+        assert_eq!(
+            kept_in_memory(&[10, 30, 20, 50], 40, 35),
+            [true, false, true, false]
+        );
+        assert_eq!(kept_in_memory(&[10, 30], 40, 100), [true, true]);
+        // con archivos de verdad: con sitio solo para la pequeña, la grande va
+        // del disco; y se abren todas, en su orden
+        let (dir, files) = files("presupuesto");
+        let sizes: Vec<u64> = files
+            .iter()
+            .map(|f| std::fs::metadata(&f.path).expect("tamaño").len())
+            .collect();
+        let small = usize::from(sizes[1] < sizes[0]);
+        let (parts, names) = open_parts_within(&files, u64::MAX, sizes[small]).expect("abre");
+        assert_eq!(names, ["OGG", "MP3"]);
+        assert!(parts[small].in_memory() && !parts[1 - small].in_memory());
+        let (parts, _) = open_parts_within(&files, u64::MAX, u64::MAX).expect("abre");
+        assert!(parts.iter().all(Part::in_memory));
+        // y si una no abre, se dice cual
+        let mut broken = files.clone();
+        broken[1].path = dir.join("no-esta.mp3");
+        let e = open_parts_within(&broken, IN_MEMORY, SONG_IN_MEMORY)
+            .err()
+            .unwrap_or_default();
+        assert!(e.starts_with("«MP3»"), "{e}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn a_crossfade_brings_the_next_in_and_lets_the_other_go() {
         let (dir, parts) = files("fundido");
         let e = Engine::offline(44_100);
@@ -1124,7 +1328,8 @@ mod tests {
         for from in [0u64, 10_000] {
             for _ in 0..200 {
                 let part = Part::open(Arc::clone(&bytes), "ogg").expect("ogg");
-                let (song, mut ring) = spawn_song("prueba", vec![part], 2.0, from);
+                let (song, mut ring) =
+                    spawn_song("prueba", vec![part], 2.0, from).expect("el hilo");
                 // nada mas volver, sin esperar al hilo: el salto ya esta puesto
                 assert_eq!(ring.shared.generation.load(Ordering::Acquire), 1);
                 assert_eq!(ring.shared.target.load(Ordering::Acquire), from);
