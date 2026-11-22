@@ -801,15 +801,19 @@ const pct = (t) => (props.duration ? ((t - view.from) / span.value) * 100 + '%' 
 const pctLen = (len) => (props.duration ? (len / span.value) * 100 + '%' : '0%')
 /** Si algo de `a` a `b` se ve. */
 const inView = (a, b = a) => b >= view.from - 1e-6 && a <= view.to + 1e-6
+/**
+ * Dónde está la caja de la onda. Medirla obliga al navegador a maquetar: los
+ * manejadores del puntero la miden UNA vez y pasan `r` a lo de abajo (antes
+ * se medía en cada llamada, dentro de bucles por tramo y por marcador).
+ */
+const rectOf = () => box.value.getBoundingClientRect()
 /** El segundo que cae bajo esa x de pantalla. */
-function timeAt(clientX) {
-  const r = box.value.getBoundingClientRect()
+function timeAt(clientX, r = rectOf()) {
   const f = r.width > 0 ? clamp((clientX - r.left) / r.width, 0, 1) : 0
   return clamp(view.from + f * span.value, 0, props.duration)
 }
 /** Y al reves: en que x (dentro de la caja) cae ese segundo. */
-function xOf(t) {
-  const r = box.value.getBoundingClientRect()
+function xOf(t, r = rectOf()) {
   return props.duration ? ((t - view.from) / span.value) * r.width : 0
 }
 
@@ -923,10 +927,11 @@ const isEditing = (i) =>
 const partsOf = (m) => (m.parts?.length ? m.parts : m.end > m.t ? [[m.t, m.end]] : [])
 
 /** Cerca del principio o del final de un marcador, el borde se pega a el. */
-function snap(t) {
+function snap(t, r = rectOf()) {
+  const x = xOf(t, r)
   for (const m of props.markers || []) {
-    if (Math.abs(xOf(m.t) - xOf(t)) <= SNAP) return m.t
-    if (m.end > m.t && Math.abs(xOf(m.end) - xOf(t)) <= SNAP) return m.end
+    if (Math.abs(xOf(m.t, r) - x) <= SNAP) return m.t
+    if (m.end > m.t && Math.abs(xOf(m.end, r) - x) <= SNAP) return m.end
   }
   return t
 }
@@ -935,22 +940,22 @@ function snap(t) {
  * Que hay bajo esa x (dentro de la caja): el borde de un tramo, su interior o
  * nada. Los bordes mandan sobre el interior de otro, y el mas cercano gana.
  */
-function hitAt(x) {
+function hitAt(x, r = rectOf()) {
   let edge = null
   saved.value.forEach(([a, b], i) => {
     for (const [side, t] of [
       ['a', a],
       ['b', b]
     ]) {
-      const d = Math.abs(x - xOf(t))
+      const d = Math.abs(x - xOf(t, r))
       if (d <= HANDLE && (!edge || d < edge.d)) edge = { mode: side, index: i, d }
     }
   })
   if (edge) return edge
-  const inside = saved.value.findIndex(([a, b]) => x > xOf(a) && x < xOf(b))
+  const inside = saved.value.findIndex(([a, b]) => x > xOf(a, r) && x < xOf(b, r))
   return inside >= 0 ? { mode: 'move', index: inside } : { mode: 'select', index: -1 }
 }
-const xIn = (clientX) => clientX - box.value.getBoundingClientRect().left
+const xIn = (clientX, r = rectOf()) => clientX - r.left
 
 function listen(on) {
   const f = on ? window.addEventListener : window.removeEventListener
@@ -960,8 +965,9 @@ function listen(on) {
 }
 function onDown(e) {
   if (e.button || !props.duration) return
-  const t = timeAt(e.clientX)
-  const hit = hitAt(xIn(e.clientX))
+  const r = rectOf()
+  const t = timeAt(e.clientX, r)
+  const hit = hitAt(xIn(e.clientX, r), r)
   const cur = hit.index >= 0 ? saved.value[hit.index] : null
   Object.assign(drag, {
     mode: hit.mode,
@@ -981,13 +987,14 @@ function onMove(e) {
   if (!drag.mode) return
   if (!drag.moved && Math.abs(e.clientX - drag.startX) < THRESHOLD) return
   drag.moved = true
-  const t = snap(timeAt(e.clientX))
+  const r = rectOf()
+  const t = snap(timeAt(e.clientX, r), r)
   if (drag.mode === 'select') drag.a = t
   else if (drag.mode === 'a') drag.a = clamp(t, 0, drag.b - MIN_LOOP)
   else if (drag.mode === 'b') drag.b = clamp(t, drag.a + MIN_LOOP, props.duration)
   else if (drag.mode === 'move') {
     const len = drag.b0 - drag.a0
-    const a = clamp(drag.a0 + (timeAt(e.clientX) - drag.from), 0, props.duration - len)
+    const a = clamp(drag.a0 + (timeAt(e.clientX, r) - drag.from), 0, props.duration - len)
     drag.a = a
     drag.b = a + len
   }
@@ -1060,10 +1067,11 @@ function stopDrag() {
 /** El clic derecho: las opciones del tramo de debajo (o de ese punto). */
 function onContext(e) {
   if (!props.duration) return
-  const hit = hitAt(xIn(e.clientX))
+  const r = rectOf()
+  const hit = hitAt(xIn(e.clientX, r), r)
   emit('options', {
     index: hit.mode === 'select' ? -1 : hit.index,
-    t: round2(timeAt(e.clientX)),
+    t: round2(timeAt(e.clientX, r)),
     x: e.clientX,
     y: e.clientY,
     event: e
@@ -1091,7 +1099,8 @@ function onHover(e) {
     hover.value = ''
     return
   }
-  const hit = hitAt(xIn(e.clientX))
+  const r = rectOf()
+  const hit = hitAt(xIn(e.clientX, r), r)
   hover.value = hit.mode === 'a' || hit.mode === 'b' ? 'edge' : hit.mode === 'move' ? 'inside' : ''
 }
 

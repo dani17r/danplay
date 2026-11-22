@@ -679,3 +679,28 @@ describe('zooming to a span', () => {
     expect(w.vm.view.from).toBe(0)
   })
 })
+
+describe('the pointer over the wave', () => {
+  // Medir la caja obliga al navegador a maquetar. Se medía en cada xOf, dentro
+  // de bucles por tramo y por marcador: con diez tramos, cuarenta y tantas
+  // medidas por cada movimiento del ratón.
+  it('measures the box once per event, however many segments and markers there are', async () => {
+    const loops = Array.from({ length: 10 }, (_, i) => [i * 4, i * 4 + 2])
+    const markers = Array.from({ length: 10 }, (_, i) => ({ t: i * 4 + 1, end: i * 4 + 3 }))
+    const w = await mountEdit({ editBeats: false, loops, markers })
+    const el = w.find('.tl-box').element
+    const rect = el.getBoundingClientRect
+    let n = 0
+    el.getBoundingClientRect = () => (n++, rect())
+    fire(el, 'pointermove', { clientX: 333 })
+    expect(n, 'al pasar por encima').toBe(1)
+    n = 0
+    fire(el, 'pointerdown', { clientX: 333 })
+    expect(n, 'al pulsar').toBe(1)
+    n = 0
+    move(420)
+    expect(n, 'al arrastrar').toBe(1)
+    up(420)
+    await flushPromises()
+  })
+})
