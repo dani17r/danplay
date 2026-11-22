@@ -361,6 +361,15 @@ describe('the model picker', () => {
     expect(w.find('.model-warn').text()).toBe('sin herramientas')
     w.unmount()
   })
+
+  it('says «pick» only when a row is chosen, not while typing', async () => {
+    const w = mountView()
+    await w.find('input').setValue('gra')
+    expect(w.emitted('pick')).toBeUndefined()
+    await w.find('.model-row').trigger('click')
+    expect(w.emitted('pick')).toEqual([['grande']])
+    w.unmount()
+  })
 })
 
 describe('the AI card in Settings', () => {

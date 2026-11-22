@@ -29,6 +29,10 @@ const props = defineProps({
   loading: Boolean,
   disabled: Boolean
 })
+// `pick`: se eligió una fila de la lista (no basta con escribir). Quien
+// guarda al momento (el panel del asistente) espera a esto: lo escrito a
+// medias también cambia el v-model, letra a letra.
+const emit = defineEmits(['pick'])
 
 const open = ref(false)
 const root = useTemplateRef('root')
@@ -107,6 +111,7 @@ function context(m) {
 function choose(m) {
   model.value = m.id
   open.value = false
+  emit('pick', m.id)
 }
 function type(e) {
   text.value = e.target.value

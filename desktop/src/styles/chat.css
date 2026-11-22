@@ -160,6 +160,70 @@
 .chat-cancel {
   gap: 5px;
 }
+/* las opciones de la IA, desplegadas bajo la cabecera como las
+   conversaciones: en el flujo y no flotando, así caben igual en una ventana
+   de móvil (y la lista de modelos, que también va en el flujo, no se corta) */
+.chat-ai {
+  border-bottom: 1px solid var(--border);
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  max-height: 62%;
+  overflow-y: auto;
+  background: color-mix(in srgb, var(--panel) 70%, transparent);
+}
+.chat-ai-now {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.chat-ai-now .ai-current-txt {
+  min-width: 0;
+}
+.chat-ai-now .ai-current-txt span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-ai-models {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.chat-ai-model {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  min-width: 0;
+}
+.chat-ai-model .model-picker {
+  flex: 1;
+  min-width: 0;
+}
+.chat-ai .ai-profiles {
+  margin: 0;
+}
+.chat-ai-actions {
+  align-items: center;
+}
+.chat-ai .key-state {
+  margin-top: 0;
+}
+.chat-noai-actions {
+  justify-content: center;
+}
+/* estrecha: un selector debajo del otro */
+@media (max-width: 700px) {
+  .chat-ai {
+    padding: 9px 10px;
+  }
+  .chat-ai-models {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 /* las conversaciones guardadas, desplegadas bajo la cabecera */
 .chat-list {
   border-bottom: 1px solid var(--border);

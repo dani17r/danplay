@@ -590,7 +590,7 @@ describe('switching view from the sidebar', () => {
     // salir (<KeepAlive>): lo que tenias abierto en el sigue abierto.
     const w = await withLibrary()
     await clickButton(w, 'Asistente')
-    await w.find('.chat-head button[aria-expanded]').trigger('click')
+    await w.find('.chat-head button[title="Conversaciones guardadas"]').trigger('click')
     expect(w.find('.chat-list').exists()).toBe(true)
     const before = api.chats.mock.calls.length
     await clickButton(w, 'Todas las canciones')
