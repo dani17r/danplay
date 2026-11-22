@@ -573,7 +573,12 @@ fn many_missing_thumbnails_at_once_start_no_more_ffmpeg_than_cores() {
                     let stat = std::fs::read_to_string(e.path().join("stat")).unwrap_or_default();
                     // «pid (nombre) estado ppid ...»
                     let after = stat.rsplit_once(") ").map_or("", |(_, r)| r);
-                    stat.contains("(ffmpeg)") && after.split(' ').nth(1) == Some(me.as_str())
+                    // y solo los de miniaturas de 96 (las demás pruebas
+                    // lanzan los suyos a la vez)
+                    let line = std::fs::read(e.path().join("cmdline")).unwrap_or_default();
+                    stat.contains("(ffmpeg)")
+                        && after.split(' ').nth(1) == Some(me.as_str())
+                        && String::from_utf8_lossy(&line).contains("scale='min(96,iw)'")
                 })
                 .count()
         })
