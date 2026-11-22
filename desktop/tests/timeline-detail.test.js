@@ -298,6 +298,29 @@ describe('painting the wave', () => {
     expect(held.paint).toHaveLength(1)
   })
 
+  // A escala 1 (una pantalla grande al 100 %), al cambiar el alto de los
+  // carriles la onda se quedaba con el de antes: el lienzo llevaba `:height`
+  // en la plantilla, Vue le cambiaba el dibujo y `draw` lo daba por bueno
+  // sin poner el estilo, y los carriles no cuadraban con sus nombres.
+  it('when the lanes get taller the wave grows with them, at scale 1 too', async () => {
+    const ratio = window.devicePixelRatio
+    window.devicePixelRatio = 1
+    try {
+      const w = await mountLanes([lane('drums'), lane('bass')])
+      await settled()
+      const canvas = w.find('canvas.tl-wave').element
+      expect(canvas.style.height).toBe('68px')
+      held.paint = []
+      await w.setProps({ laneHeight: 60 })
+      await vi.advanceTimersByTimeAsync(40)
+      expect(canvas.style.height, 'el alto que se ve').toBe('120px')
+      expect(canvas.height, 'el del dibujo').toBe(120)
+      expect(held.paint.length, 'y se vuelve a pintar').toBeGreaterThan(0)
+    } finally {
+      window.devicePixelRatio = ratio
+    }
+  })
+
   it('the colors are read from the theme once, not on every paint', async () => {
     const w = await mountLanes([lane('drums')])
     await settled()

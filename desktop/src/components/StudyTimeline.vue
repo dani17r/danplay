@@ -643,6 +643,11 @@ watch(
   }
 )
 
+// otro alto (los carriles se reparten otro sitio: al fijar o soltar el panel
+// de abajo, «Grande»…): a pintar con él. El lienzo toma su alto al pintar,
+// así que el observador de tamaño no siempre se entera
+watch(WAVE_H, () => nextTick(scheduleDraw))
+
 const { theme, waveStyle } = usePreferences()
 watch([theme, waveStyle], () => {
   colors = null
@@ -2115,7 +2120,11 @@ const lockTitle = computed(() =>
       @wheel="onWheel"
       @dblclick="onDouble"
     >
-      <canvas ref="canvas" class="tl-wave" :height="WAVE_H"></canvas>
+      <!-- el alto en el estilo, y el del dibujo (por los píxeles de la pantalla)
+           lo pone `draw`: con `:height` Vue cambiaba el dibujo por su cuenta,
+           lo borraba, y a escala 1 `draw` lo daba por bueno y el estilo se
+           quedaba con el alto de antes (la onda no cuadraba con sus carriles) -->
+      <canvas ref="canvas" class="tl-wave" :style="{ height: WAVE_H + 'px' }"></canvas>
       <!-- en el celular los mandos van debajo de la onda, no a su lado: el
            nombre de cada pista va sobre su carril para no perderse -->
       <div v-if="laneMode && isMobileApp" class="tl-lane-tags" aria-hidden="true">
