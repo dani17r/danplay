@@ -451,6 +451,23 @@ async function request(method, path, body) {
   return r.json()
 }
 
+/**
+ * Un GET por el puente de solo lectura (`api_read`): el de la ventana de
+ * proyección, que no tiene el entero (ver `permissions/windows.toml`).
+ * Fuera de la app, una petición como cualquier otra.
+ * @param {string} path  ruta sin el prefijo /api
+ * @returns {Promise<any>}
+ */
+async function readOnly(path) {
+  if (!(inTauri && invoke)) return request('GET', path)
+  try {
+    const txt = await invoke('api_read', { method: 'GET', path: '/api' + path })
+    return txt ? JSON.parse(txt) : null
+  } catch (e) {
+    throw fromBridge(e)
+  }
+}
+
 const GET = (r) => request('GET', r)
 const POST = (r, c) => request('POST', r, c)
 const PATCH = (r, c) => request('PATCH', r, c)
@@ -839,7 +856,13 @@ export const projection = {
     if (!inTauri) return false
     const { getCurrentWindow } = await import('@tauri-apps/api/window')
     return getCurrentWindow().isFullscreen()
-  }
+  },
+  /**
+   * La ficha de una canción (con la letra), por el puente de solo lectura:
+   * esta ventana no puede pedirle al núcleo que cambie nada.
+   * @param {number} id @returns {Promise<Song>}
+   */
+  song: (id) => readOnly(`/song/${id}`)
 }
 
 /** El popup del mini reproductor. */

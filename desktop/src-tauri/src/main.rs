@@ -159,6 +159,7 @@ fn main() {
         .register_asynchronous_uri_scheme_protocol("danplay", protocol::handle)
         .invoke_handler(tauri::generate_handler![
             core::api,
+            core::api_read,
             core::core_ready,
             queue::commands::set_queue,
             queue::commands::queue_next,
