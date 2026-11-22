@@ -20,7 +20,24 @@ import { inject } from 'vue'
  * @property {ReturnType<typeof import('./useStudyMarkers.js').useStudyMarkers>} markers
  *   los marcadores: el elegido, los de la casilla, elegir, tocar, guardar…
  * @property {StudyLoops} loops  los tramos (StudyBar)
- * @property {StudyCues} cues    las guías habladas (StudyBar)
+ * @property {ReturnType<typeof import('./useStudyCues.js').useStudyCues>} cues
+ *   las guías habladas: sus carriles, ponerlas, moverlas, la guía automática…
+ * @property {{ stems: import('vue').ShallowRef<any> }} stems
+ *   las pistas separadas: lo que dice el núcleo de las de la canción (StudyBar)
+ * @property {StudyMetro} metro  el clic (StudyBar)
+ * @property {ReturnType<typeof import('./useClick.js').useClick>} click
+ *   el clic de la canción que suena: su rejilla, si carga, y el modo
+ * @property {ReturnType<typeof import('./useRouting.js').useRouting>} routing
+ *   por dónde suena cada cosa
+ * @property {import('vue').Ref<any>} timeline
+ *   la línea de tiempo (StudyTimeline): su zoom, ir a una guía…
+ */
+
+/**
+ * @typedef {object} StudyMetro
+ * @property {import('vue').ComputedRef<any>} soundingGrid  la rejilla del clic tal como suena
+ * @property {import('vue').ComputedRef<boolean>} hasOwn   la canción tiene su clic manual
+ * @property {import('vue').ComputedRef<number[]>} clickBeats  los pulsos del clic (los del imán)
  */
 
 /**
@@ -32,20 +49,6 @@ import { inject } from 'vue'
  * @property {import('vue').Ref<number>} lastTouched      el último tramo que se tocó
  * @property {import('vue').Ref<number | null>} pendingA  la A puesta, esperando a la B
  * @property {import('vue').ComputedRef<boolean>} hasLoop
- */
-
-/**
- * @typedef {object} StudyCues
- * @property {import('vue').ComputedRef<any[]>} cueList  las guías, por orden
- * @property {(c: any) => void} goToCue
- * @property {(c: any) => Promise<void>} previewCue
- * @property {(c: any) => void} editCue
- * @property {(c: any) => void} removeCue
- * @property {import('vue').ComputedRef<any[]>} guideLanes  los carriles de las guías
- * @property {(c: any) => string} laneOfCue
- * @property {import('vue').ComputedRef<boolean>} cueEdit  se pueden tocar (la canción parada)
- * @property {string} STOP_FIRST
- * @property {import('vue').Ref<number>} cueVolume
  */
 
 /** @type {import('vue').InjectionKey<StudyContext>} */
