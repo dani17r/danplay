@@ -1367,7 +1367,7 @@ fn names_of<I: Index>(ids: &[i64], index: &mut I) -> Result<String, Refused<I::E
     }
     let mut out = shown.join(", ");
     if ids.len() > 3 {
-        out.push_str(&format!(" y {} más", ids.len() - 3));
+        out = format!("{out} y {} más", ids.len() - 3);
     }
     Ok(out)
 }
@@ -1516,7 +1516,7 @@ fn edit_song_entry<I: Index>(args: &Dict, index: &mut I) -> Result<Draft, Refuse
     let mut changes = Vec::new();
     for (key, label) in FIELD_NAMES {
         let v = get(args, key);
-        if v.is_null() || *v == Value::from("") {
+        if v.is_null() || v.as_str() == Some("") {
             continue;
         }
         clean.insert(key.into(), v.clone());
