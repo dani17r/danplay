@@ -60,6 +60,8 @@ const VOICES: usize = 6;
 const CUE_VOICES: usize = 4;
 /// Lo que cabe en el buzon: ordenes que no cambian cada milisegundo.
 const MAILBOX: usize = 64;
+/// Golpes de cuenta como mucho: cuatro compases de 255 pulsos.
+const COUNT_HITS: usize = 4 * 255;
 
 /// Lo que se cambia desde fuera mientras suena, sin candados.
 pub struct Controls {
@@ -359,7 +361,9 @@ pub struct Ring {
 /// suena) y, cuando lo que suena llega ahi, se pasa de unas a otras en
 /// `fade` muestras, a la par muestra a muestra y antes del estirador.
 pub struct Handoff {
-    pub ring: Ring,
+    /// Sus anillos. El render se los queda al empezar el relevo y devuelve
+    /// la caja vacia, para soltarla fuera del hilo de audio.
+    pub ring: Option<Ring>,
     pub start: u64,
     pub fade: u32,
     /// El enrutado de las partes nuevas (los mismos buses, otras partes).
@@ -456,9 +460,12 @@ struct Run {
     len: u64,
 }
 
-/// Un relevo en marcha.
+/// Un relevo en marcha (lo de su `Handoff`).
 struct Incoming {
-    handoff: Box<Handoff>,
+    ring: Ring,
+    start: u64,
+    fade: u32,
+    routing: Option<Arc<Routing>>,
     current: Option<Box<Block>>,
     offset: usize,
     /// La generacion de sus bloques (la del primero que llega).
@@ -474,8 +481,8 @@ struct CountIn {
     elapsed: u64,
     /// Cuando entra la cancion.
     song_in: u64,
-    /// Los golpes: (muestra desde el principio, ¿es el 1?).
-    hits: Vec<(u64, bool)>,
+    /// Cuantos golpes hay (en `Render::count_hits`), y el siguiente.
+    hits: usize,
     next: usize,
 }
 
@@ -543,6 +550,10 @@ pub struct Render {
     cues: Arc<CuePlan>,
     cue_voices: [CueVoice; CUE_VOICES],
     count: Option<CountIn>,
+    /// Los golpes de la cuenta: (muestra desde el principio, ¿es el 1?). Con
+    /// sitio para todos desde el principio: antes era un `Vec` nuevo en cada
+    /// cuenta, que se pedia y se soltaba en el hilo de audio.
+    count_hits: Vec<(u64, bool)>,
     /// Ya esta sonando (la envolvente puede estar subiendo).
     running: bool,
     envelope: f32,
@@ -608,6 +619,7 @@ impl Render {
             cues: Arc::new(CuePlan::default()),
             cue_voices: [CueVoice::default(); CUE_VOICES],
             count: None,
+            count_hits: Vec::with_capacity(COUNT_HITS),
             running: false,
             envelope: 0.0,
             pending: None,
@@ -766,13 +778,12 @@ impl Render {
     pub fn apply(&mut self, msg: Msg) {
         let old = match msg {
             Msg::Ring(ring) => {
-                let dropped = self.incoming.take();
-                if let (Some(old), Some(trash)) = (dropped, self.trash.as_mut()) {
-                    let _ = trash.push(Trash::Handoff(old.handoff, old.current));
+                if let Some(old) = self.incoming.take() {
+                    self.discard(old);
                 }
                 self.set_ring(ring).map(|(r, b)| Trash::Ring(r, b))
             }
-            Msg::Handoff(h) => self.start_handoff(h),
+            Msg::Handoff(h) => Some(self.start_handoff(h)),
             Msg::Click(plan) => Some(Trash::Click(self.set_click(plan))),
             Msg::Cues(plan) => Some(Trash::Cues(self.set_cues(plan))),
             Msg::FreeClick(free) => Some(Trash::FreeClick(self.set_free_click(free))),
@@ -946,14 +957,14 @@ impl Render {
             let entry = c.song_in.saturating_sub(lead);
             music_from = (entry.saturating_sub(c.elapsed) as usize).min(n);
             let end = c.elapsed + n as u64;
-            while c.next < c.hits.len() && c.hits[c.next].0 < end {
-                let (at, accent) = c.hits[c.next];
+            while c.next < c.hits && self.count_hits[c.next].0 < end {
+                let (at, accent) = self.count_hits[c.next];
                 let wait = at.saturating_sub(c.elapsed) as usize;
                 self.voices_start(wait, accent);
                 c.next += 1;
             }
             c.elapsed = end;
-            let left = c.hits.len() - c.next;
+            let left = c.hits - c.next;
             self.controls.counting.store(left as u32, Ordering::Release);
             if left > 0 || c.elapsed < c.song_in {
                 self.count = Some(c);
@@ -993,7 +1004,8 @@ impl Render {
     /// La cuenta para entrar en lo que suena: los golpes al tempo y en el
     /// compas de la cancion (los de su rejilla alrededor de ahi), acabando
     /// justo donde cae el siguiente pulso. Como en la PC (`player/metro.rs`).
-    fn count_in(&self, bars: u32) -> CountIn {
+    /// Los golpes van a `count_hits`.
+    fn count_in(&mut self, bars: u32) -> CountIn {
         let rate = f64::from(self.rate);
         let speed = f64::from(load_f32(&self.controls.speed).clamp(0.25, 3.0));
         let position = self.position_now() as f64 / rate;
@@ -1024,17 +1036,17 @@ impl Render {
         let to_beat = to_beat / speed;
         let song_in = (f64::from(count) * wall - to_beat).max(0.0);
         let delay = song_in + to_beat - f64::from(count) * wall;
-        let hits = (0..count)
-            .map(|k| {
-                let at = ((delay + f64::from(k) * wall) * rate).round().max(0.0) as u64;
-                let accent = plan.meter > 0 && (first + k) % per_bar == 0;
-                (at, accent)
-            })
-            .collect();
+        let meter = plan.meter;
+        self.count_hits.clear();
+        for k in 0..count.min(COUNT_HITS as u32) {
+            let at = ((delay + f64::from(k) * wall) * rate).round().max(0.0) as u64;
+            let accent = meter > 0 && (first + k) % per_bar == 0;
+            self.count_hits.push((at, accent));
+        }
         CountIn {
             elapsed: 0,
             song_in: (song_in * rate).round() as u64,
-            hits,
+            hits: self.count_hits.len(),
             next: 0,
         }
     }
@@ -1377,18 +1389,25 @@ impl Render {
 
     /// Empieza un relevo (ver `Handoff`). Si no esta sonando, las partes
     /// nuevas pasan a ser las que suenan sin mas.
-    fn start_handoff(&mut self, h: Box<Handoff>) -> Option<Trash> {
+    fn start_handoff(&mut self, mut h: Box<Handoff>) -> Trash {
+        // lo de dentro se queda; la caja vuelve vacia, para soltarla fuera
+        let Some(ring) = h.ring.take() else {
+            return Trash::Handoff(h, None);
+        };
+        let routing = h.routing.take();
         let mut bus_of = [0usize; MAX_PARTS];
-        let routing = h.routing.as_ref().unwrap_or(&self.routing);
+        let by = routing.as_deref().unwrap_or(&self.routing);
         for (p, slot) in bus_of.iter_mut().enumerate() {
-            *slot = routing.bus_of_part(p);
+            *slot = by.bus_of_part(p);
         }
-        let old = self
-            .incoming
-            .take()
-            .map(|i| Trash::Handoff(i.handoff, i.current));
+        if let Some(old) = self.incoming.take() {
+            self.discard(old);
+        }
         self.incoming = Some(Incoming {
-            handoff: h,
+            ring,
+            start: h.start,
+            fade: h.fade,
+            routing,
             current: None,
             offset: 0,
             generation: None,
@@ -1402,7 +1421,17 @@ impl Render {
             let at = self.controls.audible.load(Ordering::Acquire);
             self.promote(Some(at));
         }
-        old
+        Trash::Handoff(h, None)
+    }
+
+    /// Un relevo que ya no va a ser: lo suyo, a soltar fuera.
+    fn discard(&mut self, old: Incoming) {
+        if let Some(trash) = self.trash.as_mut() {
+            let _ = trash.push(Trash::Ring(Some(old.ring), old.current));
+            if let Some(r) = old.routing {
+                let _ = trash.push(Trash::Routing1(r));
+            }
+        }
     }
 
     /// El relevo, en lo que acaba de tomar `pull`: las partes nuevas entran
@@ -1420,12 +1449,12 @@ impl Render {
         };
         let cap = self.in_cap;
         let buses = self.routing.bus_count();
-        let parts = inc.handoff.ring.parts.min(MAX_PARTS);
+        let parts = inc.ring.parts.min(MAX_PARTS);
         let mut target = [[0f32; 2]; MAX_PARTS];
         for (p, t) in target.iter_mut().enumerate().take(parts) {
-            *t = inc.handoff.ring.gains.get(p);
+            *t = inc.ring.gains.get(p);
         }
-        let fade = inc.handoff.fade.max(1) as f32;
+        let fade = inc.fade.max(1) as f32;
         let total: usize = self.pieces[..self.n_pieces].iter().map(|x| x.1).sum();
         let step = 1.0 / total.max(1) as f32;
         let mut ramp = 0usize;
@@ -1433,7 +1462,7 @@ impl Render {
         'pieces: for &(i, k, song) in &self.pieces[..self.n_pieces] {
             let mut f = 0;
             if !inc.active {
-                let start = inc.handoff.start;
+                let start = inc.start;
                 if start >= song && start < song + k as u64 {
                     f = (start - song) as usize;
                     inc.active = true;
@@ -1448,10 +1477,10 @@ impl Render {
             ramp += f;
             while f < k {
                 if inc.current.is_none() {
-                    if let Ok(b) = inc.handoff.ring.full.pop() {
+                    if let Ok(b) = inc.ring.full.pop() {
                         let g = *inc.generation.get_or_insert(b.generation);
                         if b.generation != g {
-                            let _ = inc.handoff.ring.free.push(b);
+                            let _ = inc.ring.free.push(b);
                             failed = true;
                             break 'pieces;
                         }
@@ -1475,7 +1504,7 @@ impl Render {
                     if at < want {
                         // todo el bloque queda por detras
                         if let Some(b) = inc.current.take() {
-                            let _ = inc.handoff.ring.free.push(b);
+                            let _ = inc.ring.free.push(b);
                         }
                         continue;
                     }
@@ -1483,7 +1512,7 @@ impl Render {
                     break 'pieces;
                 }
                 let n = (k - f).min(b.frames - inc.offset);
-                let stride = inc.handoff.ring.parts * 2;
+                let stride = inc.ring.parts * 2;
                 for j in 0..n {
                     let x = (inc.done as f32 / fade).min(1.0);
                     inc.done = inc.done.saturating_add(1);
@@ -1510,7 +1539,7 @@ impl Render {
                 ramp += n;
                 inc.offset += n;
                 f += n;
-                let shared = &inc.handoff.ring.shared;
+                let shared = &inc.ring.shared;
                 shared
                     .consumed_frame
                     .store(b.start + inc.offset as u64, Ordering::Release);
@@ -1520,7 +1549,7 @@ impl Render {
                 if inc.offset >= b.frames
                     && let Some(b) = inc.current.take()
                 {
-                    let _ = inc.handoff.ring.free.push(b);
+                    let _ = inc.ring.free.push(b);
                 }
             }
         }
@@ -1545,14 +1574,14 @@ impl Render {
             return;
         };
         let Incoming {
-            handoff,
+            ring,
+            routing,
             current,
             offset,
             generation,
             gains_now,
             ..
         } = inc;
-        let Handoff { ring, routing, .. } = *handoff;
         self.catch_up = late;
         if let Some(g) = generation.or_else(|| ring.full.peek().ok().map(|b| b.generation)) {
             self.generation = g;

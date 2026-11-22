@@ -16,6 +16,72 @@ use std::sync::Arc;
 
 pub const MARKS: [usize; 3] = [4_410, 30_123, 70_500];
 
+/// Cuantas veces se pide o se suelta memoria en este hilo mientras corre
+/// `f`: el hilo de audio no tiene que hacer ninguna de las dos (el sistema
+/// puede tardar en darla o en recogerla, y entonces se oye un corte).
+pub fn allocations(f: impl FnOnce()) -> usize {
+    alloc::WATCH.set(true);
+    alloc::COUNT.set(0);
+    f();
+    alloc::WATCH.set(false);
+    alloc::COUNT.get()
+}
+
+/// El repartidor de memoria de las pruebas: el del sistema, contando lo que
+/// pide o suelta el hilo que este mirando (`allocations`).
+#[allow(unsafe_code)]
+mod alloc {
+    use std::alloc::{GlobalAlloc, Layout, System};
+    use std::cell::Cell;
+
+    thread_local! {
+        // constantes y sin destructor: mirarlas no pide memoria
+        pub static WATCH: Cell<bool> = const { Cell::new(false) };
+        pub static COUNT: Cell<usize> = const { Cell::new(0) };
+    }
+
+    fn note() {
+        let _ = WATCH.try_with(|w| {
+            if w.get() {
+                COUNT.set(COUNT.get() + 1);
+            }
+        });
+    }
+
+    struct Counting;
+
+    // SAFETY: todo lo hace el repartidor del sistema, con lo mismo que se
+    // pide; aqui solo se cuenta (sin pedir memoria al contar)
+    unsafe impl GlobalAlloc for Counting {
+        unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+            note();
+            // SAFETY: lo que pide quien llama, tal cual
+            unsafe { System.alloc(layout) }
+        }
+
+        unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
+            note();
+            // SAFETY: lo que pide quien llama, tal cual
+            unsafe { System.alloc_zeroed(layout) }
+        }
+
+        unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+            note();
+            // SAFETY: `ptr` lo dio este mismo repartidor (el del sistema)
+            unsafe { System.dealloc(ptr, layout) }
+        }
+
+        unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+            note();
+            // SAFETY: `ptr` lo dio este mismo repartidor (el del sistema)
+            unsafe { System.realloc(ptr, layout, new_size) }
+        }
+    }
+
+    #[global_allocator]
+    static GLOBAL: Counting = Counting;
+}
+
 pub fn fixture(ext: &str) -> (Arc<[u8]>, Vec<usize>) {
     let bytes: &[u8] = match ext {
         "ogg" => include_bytes!("../tests/fixtures/pulses.ogg"),

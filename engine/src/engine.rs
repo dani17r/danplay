@@ -452,7 +452,7 @@ impl Engine {
         self.send(
             deck,
             Msg::Handoff(Box::new(Handoff {
-                ring,
+                ring: Some(ring),
                 start,
                 fade: (fade.clamp(0.005, 2.0) * RATE as f32) as u32,
                 routing,

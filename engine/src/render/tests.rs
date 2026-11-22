@@ -939,7 +939,7 @@ fn late_handoff() -> (Bench, Incoming, Vec<f32>) {
     let start = b.shared.consumed_frame.load(Ordering::Acquire) + 15_435;
     let (inc, ring) = Incoming::new(start);
     b.render.start_handoff(Box::new(Handoff {
-        ring,
+        ring: Some(ring),
         start,
         fade: 2_205,
         routing: None,
@@ -1046,7 +1046,7 @@ fn parts_relayed_to_an_output_of_their_own_are_heard_from_their_first_instant_wh
     let start = b.shared.consumed_frame.load(Ordering::Acquire) + 15_435;
     let (mut inc, ring) = Incoming::new(start);
     b.render.start_handoff(Box::new(Handoff {
-        ring,
+        ring: Some(ring),
         start,
         fade: 2_205,
         routing: Some(Arc::new(two_buses(vec![1]))),
@@ -1100,4 +1100,64 @@ fn stretched_the_song_still_enters_on_the_beat_after_the_count_in() {
             hits[0]
         );
     }
+}
+
+/// El render de `b` a trozos de 512, contando lo que pide o suelta de
+/// memoria (lo que se llena por fuera, el que decodifica, no cuenta).
+fn allocations_while(b: &mut Bench, inc: Option<&mut Incoming>, frames: usize) -> usize {
+    let mut out = vec![0f32; 1_024];
+    let mut inc = inc;
+    let mut n = 0;
+    for _ in 0..frames / 512 {
+        b.pump();
+        if let Some(i) = inc.as_mut() {
+            i.pump();
+        }
+        n += crate::testing::allocations(|| b.render.render(&mut out));
+    }
+    n
+}
+
+#[test]
+fn the_count_in_neither_asks_for_nor_gives_back_memory_in_the_audio_thread() {
+    // los golpes de la cuenta eran un `Vec` nuevo, pedido al darle a sonar y
+    // soltado al entrar la cancion, los dos en el hilo de audio
+    let mut b = Bench::new(1, 44_100);
+    let mail = b.render.mailbox();
+    b.click((0..4).map(|k| 0.1 + 0.5 * f64::from(k)).collect(), 4);
+    b.controls.count_in.store(1, Ordering::Release);
+    b.controls.count_request.store(true, Ordering::Release);
+    b.play();
+    let n = allocations_while(&mut b, None, 44_100 * 3);
+    assert_eq!(n, 0, "veces que pidio o solto memoria");
+    // y la cuenta conto, y acabo
+    assert_eq!(b.controls.counting.load(Ordering::Acquire), 0);
+    drop(mail);
+}
+
+#[test]
+fn a_handoff_neither_asks_for_nor_gives_back_memory_in_the_audio_thread() {
+    // al pasar a las partes nuevas, la caja del relevo se soltaba en el hilo
+    // de audio
+    let mut b = Bench::new(1, 44_100);
+    let mut mail = b.render.mailbox();
+    b.play();
+    b.run(13_230);
+    let start = b.shared.consumed_frame.load(Ordering::Acquire) + 15_435;
+    let (mut inc, ring) = Incoming::new(start);
+    let handoff = Box::new(Handoff {
+        ring: Some(ring),
+        start,
+        fade: 2_205,
+        routing: None,
+    });
+    assert!(mail.send(Msg::Handoff(handoff)).is_ok());
+    let n = allocations_while(&mut b, Some(&mut inc), 44_100);
+    assert!(
+        b.controls.handed_over.load(Ordering::Acquire),
+        "relevo hecho"
+    );
+    assert_eq!(n, 0, "veces que pidio o solto memoria");
+    // lo viejo vuelve por el buzon y se suelta aqui
+    mail.empty();
 }

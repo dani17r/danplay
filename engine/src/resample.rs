@@ -79,12 +79,17 @@ impl Resampler {
             let sum: f64 = row.iter().sum();
             table.extend(row.iter().map(|c| (c / sum) as f32));
         }
+        // con sitio desde el principio para lo mas que llega a tener (la
+        // historia, lo que pide por delante y un trozo nuevo): antes empezaba
+        // con lo justo y crecia en los primeros callbacks, en el hilo de audio
+        let mut input = Vec::with_capacity((2 * half + 2 + CHUNK) * channels * 2);
+        input.resize(half * channels, 0.0);
         Resampler {
             step,
             channels,
             half,
             table,
-            input: vec![0.0; half * channels],
+            input,
             pos: half as f64,
             chunk: vec![0.0; CHUNK * channels],
         }
@@ -228,7 +233,10 @@ mod tests {
         let n = left.len() as f64;
         let omega = 2.0 * std::f64::consts::PI * hz / 44_100.0;
         let (s, c) = left.iter().enumerate().fold((0.0, 0.0), |(s, c), (i, v)| {
-            (s + v * (omega * i as f64).sin(), c + v * (omega * i as f64).cos())
+            (
+                s + v * (omega * i as f64).sin(),
+                c + v * (omega * i as f64).cos(),
+            )
         });
         let tone = 2.0 * (s * s + c * c).sqrt() / n;
         let rms = (left.iter().map(|v| v * v).sum::<f64>() / n).sqrt();
@@ -277,6 +285,27 @@ mod tests {
         let (kept, _) = through(48_000, 15_000.0);
         println!("de 48000 Hz: 15 kHz a {kept:+.2} dB");
         assert!(bad.is_empty(), "{bad:#?}");
+    }
+
+    #[test]
+    fn converting_never_grows_its_buffer_while_it_plays() {
+        // empezaba con lo justo y crecia en los primeros callbacks: pedir
+        // memoria en el hilo de audio, cuando la salida no va a 44,1 kHz
+        for (from, to, channels) in [
+            (44_100, 48_000, 2),
+            (44_100, 96_000, 8),
+            (192_000, 44_100, 2),
+        ] {
+            let mut r = Resampler::with_channels(from, to, channels);
+            let room = r.input.capacity();
+            let mut out = vec![0f32; to as usize * channels];
+            r.pull(&mut out, |buf| buf.fill(0.1));
+            assert_eq!(
+                r.input.capacity(),
+                room,
+                "de {from} a {to}, {channels} canales"
+            );
+        }
     }
 
     #[test]
