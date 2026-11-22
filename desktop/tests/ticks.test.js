@@ -220,4 +220,42 @@ describe('what plays and what gets repainted', () => {
       vi.useRealTimers()
     }
   })
+
+  it('the playhead only touches the page when it changes pixel', async () => {
+    vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'cancelAnimationFrame'] })
+    try {
+      held.state.songs = [song(7, { title: 'Mi Gozo', study: '' })]
+      held.playback.emit({
+        track: { id: 7, title: 'Mi Gozo', artist: 'Barak', duration: 200, blur: false },
+        playing: false,
+        position: 10,
+        duration: 200,
+        path: '/musica/cancion-7.mp3'
+      })
+      const w = mount(StudyBar, { attachTo: document.body })
+      await flushPromises()
+      // 200 s en 200 px: un píxel por segundo
+      const box = w.find('.tl-box').element
+      Object.defineProperty(box, 'clientWidth', { configurable: true, value: 200 })
+      const head = w.find('.tl-head').element
+      held.playback.emit({ position: 50 })
+      await flushPromises()
+      vi.advanceTimersByTime(20)
+      const at50 = head.style.left
+      expect(parseFloat(at50)).toBeCloseTo(25, 5)
+      // un cuarto de segundo: el mismo píxel, no se toca
+      held.playback.emit({ position: 50.25 })
+      await flushPromises()
+      vi.advanceTimersByTime(20)
+      expect(head.style.left).toBe(at50)
+      // un segundo: otro píxel
+      held.playback.emit({ position: 51 })
+      await flushPromises()
+      vi.advanceTimersByTime(20)
+      expect(parseFloat(head.style.left)).toBeCloseTo(25.5, 5)
+      w.unmount()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })

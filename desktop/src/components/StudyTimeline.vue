@@ -331,7 +331,20 @@ const overviewHead = useTemplateRef('overviewHead')
 const playhead = usePlayhead(paintHead, () => props.visible)
 /** Pone la aguja (y las de los carriles y la vista de toda la canción) en `t`. */
 function paintHead(t) {
+  followHead(t)
   const shown = !!props.duration && inView(t)
+  // Solo se toca el DOM cuando la aguja cambia de píxel: con la canción
+  // entera a la vista avanza unos pocos píxeles por segundo, y moverla en
+  // cada fotograma obligaba al navegador a recalcular y pintar 60 veces por
+  // segundo lo que antes eran 4 (medido: más ocupado que repintar la
+  // plantilla). Acercada, sí se mueve en cada fotograma.
+  // (sin maquetación, como en las pruebas, a una resolución fina)
+  const w = (box.value?.clientWidth || 10000) * (window.devicePixelRatio || 1)
+  const at = props.duration ? Math.round(((t - view.from) / span.value) * w) : 0
+  const whole = props.duration ? Math.round((t / props.duration) * w) : 0
+  const key = `${shown}:${at}:${whole}`
+  if (key === headKey) return
+  headKey = key
   const left = pct(t)
   for (const el of [head.value, clickNeedle.value, guideNeedle.value]) {
     if (!el) continue
@@ -341,7 +354,13 @@ function paintHead(t) {
   if (overviewHead.value && props.duration) {
     overviewHead.value.style.left = (t / props.duration) * 100 + '%'
   }
-  followHead(t)
+}
+/** Dónde se pintó la aguja la última vez (se vacía si cambia lo que la lleva). */
+let headKey = ''
+/** Pintarla otra vez sí o sí: una aguja nueva (un carril que aparece) va sin poner. */
+function repaintHead() {
+  headKey = ''
+  playhead.repaint()
 }
 // acercada, la vista sigue a la aguja cuando se va de ella
 function followHead(t) {
@@ -355,9 +374,9 @@ function followHead(t) {
 // carril o la vista entera que aparece): se vuelve a poner, ya pintado
 watch(
   () => [view.from, view.to, props.duration, zoomed.value, showClick.value, showGuides.value],
-  () => nextTick(playhead.repaint)
+  () => nextTick(repaintHead)
 )
-onMounted(() => playhead.repaint())
+onMounted(repaintHead)
 
 /**
  * La rueda, como en un editor de música: con Ctrl o ⌘ (o pellizcando el
