@@ -29,7 +29,8 @@ export const RELEASES = [
       'yt-dlp se instala solo la primera vez que bajas algo de YouTube, y el instalador pesa unos 60 MB menos.',
       'El asistente pide permiso antes de cambiar una lista si acaba de leer algo de internet.',
       'En una pantalla grande la interfaz se agranda sola, y se puede apagar en Ajustes.',
-      'El modo estudio, por pestañas: la velocidad y el tono, el clic, los marcadores y las notas. Se puede fijar el panel o dejar que se abra encima de la onda.',
+      'El modo estudio, por pestañas: la velocidad y el tono, el clic, los marcadores y las notas.',
+      'El panel del estudio se puede fijar, o dejar que se abra encima de la onda.',
       'En el chat, un botón de opciones deja cambiar el modelo y pegar la clave de la IA sin salir.'
     ]
   },
