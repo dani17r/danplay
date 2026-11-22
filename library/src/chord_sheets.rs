@@ -68,9 +68,15 @@ const NOISE_WORDS: [&str; 22] = [
 
 static PARENS: LazyLock<Re> = LazyLock::new(|| rx(r"\([^()]*\)|\[[^\[\]]*\]"));
 
+/// Lo que se mira de un título, como mucho: uno de verdad cabe de sobra.
+const MAX_TITLE: usize = 300;
+
 /// Sin lo que va entre paréntesis, también si van uno dentro de otro.
 fn no_parens(s: &str) -> String {
-    let mut s = s.to_string();
+    // cada pasada quita un nivel: un título con cien mil paréntesis anidados
+    // (el de un resultado de una página de cifrados) eran cien mil pasadas
+    // por todo el texto, diez segundos por comparación
+    let mut s = crate::text::head(s, MAX_TITLE).to_string();
     loop {
         let out = sub(&PARENS, &s, " ");
         if out == s {

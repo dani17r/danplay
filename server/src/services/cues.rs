@@ -526,7 +526,7 @@ fn decode(app: &App, path: &Path, longest: f64, too_long: &str) -> Result<(Vec<f
         .iter()
         .map(Into::into)
         .collect();
-    args.push(path.as_os_str().to_owned());
+    args.push(library::processes::ffmpeg_input(path));
     let max_duration = (longest * 2.0).to_string();
     for a in [
         "-t",
@@ -602,6 +602,11 @@ fn real(p: &Path) -> String {
 /// dura la canción, y como mucho `MAX_IMPORT_SECONDS`; sin él, un minuto.
 pub fn import_recording(app: &App, path: &str, longest: Option<f64>) -> Result<Value> {
     let path = PathBuf::from(path);
+    // la ruta llega del cliente: relativa, dependería de dónde arrancó el
+    // núcleo (y ffmpeg leería «concat:…» como otra cosa)
+    if !path.is_absolute() {
+        return Err(cue("la ruta del audio tiene que ser completa"));
+    }
     let meta = std::fs::metadata(&path)
         .ok()
         .filter(std::fs::Metadata::is_file);

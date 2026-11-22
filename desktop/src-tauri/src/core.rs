@@ -355,6 +355,30 @@ pub async fn api(
     Ok(text)
 }
 
+/// El puente de solo lectura, el de la ventana de proyeccion: solo lee la
+/// ficha de lo que suena (la letra). Con `api` tenia el nucleo entero
+/// (borrar, cambiar etiquetas, descargar) para algo que solo lee.
+#[tauri::command]
+pub async fn api_read(state: tauri::State<'_, Core>, method: String, path: String) -> Result<String, String> {
+    read(&state.address, &method, &path).await
+}
+
+/// Lo de `api_read`: un `GET` a /api/ y nada mas.
+async fn read(address: &Address, method: &str, path: &str) -> Result<String, String> {
+    if method != "GET" {
+        return Err("metodo no permitido".into());
+    }
+    if !path.starts_with("/api/") {
+        return Err("ruta no permitida".into());
+    }
+    let (code, bytes, _) = request(address, "GET", path, None).await?;
+    let text = String::from_utf8_lossy(&bytes).to_string();
+    if code >= 400 {
+        return Err(format!("{code}: {text}"));
+    }
+    Ok(text)
+}
+
 #[tauri::command]
 pub async fn core_ready(state: tauri::State<'_, Core>) -> Result<bool, String> {
     Ok(state.ready().await)
@@ -491,6 +515,34 @@ mod tests {
         assert_eq!(bytes, br#"{"detail":"no hay nada que cambiar"}"#);
         let (code, _, _) = ask("GET", "/api/search?limit=0", None).expect("respuesta");
         assert_eq!(code, 422);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// El puente de la proyeccion solo lee: un `POST` (o cualquier otra cosa
+    /// que no sea `GET`) no llega al nucleo, ni nada fuera de /api/.
+    #[test]
+    fn the_read_only_bridge_refuses_to_write() {
+        let dir = std::env::temp_dir().join(format!("danplay-app-read-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let cfg = server::Config::isolated(dir.join("data"), dir.join("config"), dir.join("Musica"));
+        let address = Address::InProcess(server::App::new(cfg, server::Guard::default()));
+        let ask = |method: &str, path: &str| tauri::async_runtime::block_on(read(&address, method, path));
+        for method in ["POST", "PUT", "PATCH", "DELETE", "get"] {
+            assert_eq!(
+                ask(method, "/api/playlists"),
+                Err("metodo no permitido".into()),
+                "{method}"
+            );
+        }
+        assert_eq!(ask("GET", "/docs"), Err("ruta no permitida".into()));
+        let status: serde_json::Value =
+            serde_json::from_str(&ask("GET", "/api/status").expect("estado")).expect("json");
+        assert_eq!(status["rust"], true);
+        assert!(
+            ask("GET", "/api/song/999999")
+                .expect_err("no existe")
+                .starts_with("404: ")
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

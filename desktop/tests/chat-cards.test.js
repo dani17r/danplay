@@ -484,7 +484,13 @@ describe('deleting: the dialog, outside the turn and one at a time', () => {
     return {
       text: 'Te pido permiso.',
       tools: [{ name: 'delete_song', summary: 'espera tu visto bueno' }],
-      confirm: { id, tool: 'delete_song', summary: 'Mandar a la papelera «Mi Gozo»', args: {} }
+      confirm: {
+        id,
+        tool: 'delete_song',
+        summary: 'Mandar a la papelera «Mi Gozo»',
+        effect: 'El archivo va a la papelera del sistema',
+        args: {}
+      }
     }
   }
 
@@ -495,6 +501,8 @@ describe('deleting: the dialog, outside the turn and one at a time', () => {
     expect(useChat().thinking.value).toBe(false)
     expect(useDialog().dialog.value.open).toBe(true)
     expect(useDialog().dialog.value.message).toContain('Mi Gozo')
+    // lo que pasa después también lo escribe el servidor
+    expect(useDialog().dialog.value.detail).toBe('El archivo va a la papelera del sistema')
     // no hay tarjeta en línea para esto
     expect(w.find('.cc').exists()).toBe(false)
     dialogOk()
@@ -506,6 +514,29 @@ describe('deleting: the dialog, outside the turn and one at a time', () => {
       event: 'confirm_accepted'
     })
     expect(hooks.reload).toHaveBeenCalled()
+  })
+
+  it('a list change asked for after reading outside text goes the same way, by id', async () => {
+    held.state.chatConfirms.e1 = 'live'
+    held.replies.push({
+      text: 'Te pido permiso.',
+      tools: [{ name: 'set_playlist_songs', summary: 'espera tu visto bueno' }],
+      confirm: {
+        id: 'e1',
+        tool: 'set_playlist_songs',
+        summary: 'Dejar la lista «domingo» con 1 tema (ahora tiene 8): «Barak - Mi Gozo»',
+        effect: 'Lo pide después de leer texto de fuera. Salen 7 de la lista.'
+      }
+    })
+    const w = await mountView()
+    await typeText(w, 'busca quién canta mi gozo')
+    expect(useDialog().dialog.value.message).toContain('Dejar la lista «domingo» con 1 tema')
+    expect(useDialog().dialog.value.detail).toContain('texto de fuera')
+    expect(w.find('.cc').exists()).toBe(false)
+    dialogCancel()
+    await flushPromises()
+    expect(held.api.chatConfirm).not.toHaveBeenCalled()
+    expect(useChat().messages.value.at(-1)).toMatchObject({ ref: 'e1', event: 'confirm_declined' })
   })
 
   it('never on top of another dialog: it waits its turn, and so does what is queued', async () => {

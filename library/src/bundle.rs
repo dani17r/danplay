@@ -114,7 +114,11 @@ fn encode(ffmpeg: &Path, source: &Path, target: &Path, args: &[&str]) -> Result<
     let mut cmd: Vec<String> = ["-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-i"]
         .map(str::to_owned)
         .to_vec();
-    cmd.push(source.to_string_lossy().into_owned());
+    cmd.push(
+        crate::processes::ffmpeg_input(source)
+            .to_string_lossy()
+            .into_owned(),
+    );
     cmd.extend(
         [
             "-map",

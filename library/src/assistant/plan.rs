@@ -13,6 +13,7 @@
 //! base llega por `Index`.
 use super::links::{PLAYLIST, WATCH, clean_youtube_url, host_of};
 use super::text;
+use super::tools::CONFIRM_AFTER_OUTSIDE;
 use super::value::{
     Error, NULL, at, at_of, dic, dict_of, expected, get, int, items as list_items, same, yes,
 };
@@ -1271,7 +1272,9 @@ fn delete_song_entry<I: Index>(args: &Dict, index: &mut I) -> Result<Draft, Refu
     })
 }
 
-fn delete_playlist_entry<I: Index>(args: &Dict, index: &mut I) -> Result<Draft, Refused<I::Error>> {
+/// La lista que nombran los argumentos (por su nombre y, si no, por su id),
+/// o «no existe esa lista».
+fn list_of<I: Index>(args: &Dict, index: &mut I) -> Result<Dict, Refused<I::Error>> {
     let name = text_or(&[get(args, "name"), get(args, "playlist")]);
     let name = name.trim();
     let mut pl = if name.is_empty() {
@@ -1289,7 +1292,12 @@ fn delete_playlist_entry<I: Index>(args: &Dict, index: &mut I) -> Result<Draft, 
     if pl.is_null() {
         return Err(Refused::Value("no existe esa lista".into()));
     }
-    let p = dict_of(&pl)?;
+    Ok(dict_of(&pl)?.clone())
+}
+
+fn delete_playlist_entry<I: Index>(args: &Dict, index: &mut I) -> Result<Draft, Refused<I::Error>> {
+    let pl = list_of(args, index)?;
+    let p = &pl;
     let n = get(p, "n");
     let n = if crate::value::truthy(n) { int(n)? } else { 0 };
     let (id, name) = (at_of(p, "id")?.clone(), at_of(p, "name")?.clone());
@@ -1304,6 +1312,236 @@ fn delete_playlist_entry<I: Index>(args: &Dict, index: &mut I) -> Result<Draft, 
         args: dic([("playlist_id", id), ("name", name)]),
         summary,
         effect: "Las canciones siguen en tu biblioteca".into(),
+        ..Draft::default()
+    })
+}
+
+// ------------------------------------- lo que pide permiso tras leer fuera
+
+/// Por qué se pide permiso para algo que normalmente se hace sin más.
+const FROM_OUTSIDE: &str =
+    "Lo pide después de leer texto de fuera (la web, YouTube, una letra o un cifrado)";
+
+/// Los ids de canción que se piden (uno suelto vale), sin repetir y todos
+/// de verdad; si no, por qué no (como `tools::checked_song_ids`).
+fn song_ids_of<I: Index>(raw: &Value, index: &mut I) -> Result<Vec<i64>, Refused<I::Error>> {
+    let items: Vec<Value> = match raw {
+        Value::Array(a) => a.clone(),
+        Value::Null => Vec::new(),
+        other => vec![other.clone()],
+    };
+    let mut ids: Vec<i64> = Vec::new();
+    for x in &items {
+        let Some(i) = crate::value::int_of(x) else {
+            return Err(Refused::Value(format!(
+                "«{}» no es un id de canción",
+                datum_of(x, 40)
+            )));
+        };
+        if !ids.contains(&i) {
+            ids.push(i);
+        }
+    }
+    if ids.is_empty() {
+        return Err(Refused::Value("no hay ningún id de canción".into()));
+    }
+    let alive = index.existing(&ids).map_err(Refused::Index)?;
+    if ids.iter().any(|i| !alive.contains(i)) {
+        return Err(Refused::Value(
+            "hay ids que no son ninguna canción: no los supongas".into(),
+        ));
+    }
+    Ok(ids)
+}
+
+/// «A - B», «C - D» y N más: las canciones por su nombre.
+fn names_of<I: Index>(ids: &[i64], index: &mut I) -> Result<String, Refused<I::Error>> {
+    let mut shown = Vec::new();
+    for id in ids.iter().take(3) {
+        let song = index.song(*id).map_err(Refused::Index)?;
+        let name = match &song {
+            Value::Object(d) => who(d)?,
+            _ => Value::from(*id),
+        };
+        shown.push(format!("«{}»", datum_of(&name, 60)));
+    }
+    let mut out = shown.join(", ");
+    if ids.len() > 3 {
+        out = format!("{out} y {} más", ids.len() - 3);
+    }
+    Ok(out)
+}
+
+/// La lista, su id y su nombre, y lo que se guarda para ver al aceptar que
+/// sigue siendo la misma.
+fn list_parts<I: Index>(
+    args: &Dict,
+    index: &mut I,
+) -> Result<(i64, Value, Dict), Refused<I::Error>> {
+    let pl = list_of(args, index)?;
+    let (id, name) = (at_of(&pl, "id")?.clone(), at_of(&pl, "name")?.clone());
+    let guard = dic([("form", form_of(&name).into())]);
+    Ok((int(&id)?, name, guard))
+}
+
+fn set_songs_entry<I: Index>(args: &Dict, index: &mut I) -> Result<Draft, Refused<I::Error>> {
+    let (pid, name, guard) = list_parts(args, index)?;
+    let ids = song_ids_of(get(args, "ids"), index)?;
+    let before = index.songs(pid).map_err(Refused::Index)?;
+    let gone = before.iter().filter(|i| !ids.contains(i)).count();
+    let summary = format!(
+        "Dejar la lista «{}» con {} {} (ahora tiene {}): {}",
+        datum_of(&name, 60),
+        ids.len(),
+        plural(ids.len(), "tema", "temas"),
+        before.len(),
+        names_of(&ids, index)?
+    );
+    let effect = if gone == 0 {
+        format!("{FROM_OUTSIDE}. No sale ninguna de las que ya tiene.")
+    } else {
+        format!("{FROM_OUTSIDE}. Salen {gone} de la lista; siguen en tu biblioteca.")
+    };
+    Ok(Draft {
+        tool: "set_playlist_songs",
+        args: dic([
+            ("playlist_id", pid.into()),
+            (
+                "ids",
+                Value::Array(ids.into_iter().map(Value::from).collect()),
+            ),
+        ]),
+        summary,
+        effect,
+        guard,
+        ..Draft::default()
+    })
+}
+
+fn remove_songs_entry<I: Index>(args: &Dict, index: &mut I) -> Result<Draft, Refused<I::Error>> {
+    let (pid, name, guard) = list_parts(args, index)?;
+    let wanted = if get(args, "song_ids").is_null() {
+        get(args, "song_id")
+    } else {
+        get(args, "song_ids")
+    };
+    let ids = song_ids_of(wanted, index)?;
+    let inside = index.songs(pid).map_err(Refused::Index)?;
+    let ids: Vec<i64> = ids.into_iter().filter(|i| inside.contains(i)).collect();
+    if ids.is_empty() {
+        return Err(Refused::Value(format!(
+            "ninguna de esas está en la lista «{}»",
+            datum_of(&name, 60)
+        )));
+    }
+    Ok(Draft {
+        tool: "remove_from_playlist",
+        summary: format!(
+            "Quitar {} {} de la lista «{}»: {}",
+            ids.len(),
+            plural(ids.len(), "tema", "temas"),
+            datum_of(&name, 60),
+            names_of(&ids, index)?
+        ),
+        effect: format!("{FROM_OUTSIDE}. Siguen en tu biblioteca."),
+        args: dic([
+            ("playlist_id", pid.into()),
+            (
+                "song_ids",
+                Value::Array(ids.into_iter().map(Value::from).collect()),
+            ),
+        ]),
+        guard,
+        ..Draft::default()
+    })
+}
+
+fn rename_entry<I: Index>(args: &Dict, index: &mut I) -> Result<Draft, Refused<I::Error>> {
+    let (pid, name, guard) = list_parts(args, index)?;
+    let new_name = text_or(&[get(args, "new_name")]).trim().to_owned();
+    let note = get(args, "note");
+    if new_name.is_empty() && note.is_null() {
+        return Err(Refused::Value("no me has dicho qué cambiar".into()));
+    }
+    let what = match (new_name.is_empty(), note.is_null()) {
+        (false, true) => format!("a «{}»", datum(&new_name, 60)),
+        (false, false) => format!("a «{}» y cambiar su nota", datum(&new_name, 60)),
+        _ => String::new(),
+    };
+    let summary = if what.is_empty() {
+        format!("Cambiar la nota de la lista «{}»", datum_of(&name, 60))
+    } else {
+        format!("Renombrar la lista «{}» {what}", datum_of(&name, 60))
+    };
+    let mut clean = dic([("playlist_id", pid.into())]);
+    if !new_name.is_empty() {
+        clean.insert("new_name".into(), new_name.into());
+    }
+    if !note.is_null() {
+        clean.insert("note".into(), note.clone());
+    }
+    Ok(Draft {
+        tool: "rename_playlist",
+        args: clean,
+        summary,
+        effect: format!("{FROM_OUTSIDE}. Las canciones de la lista no cambian."),
+        guard,
+        ..Draft::default()
+    })
+}
+
+/// Cómo se llama cada campo de una canción, para quien lo lee.
+const FIELD_NAMES: [(&str, &str); 9] = [
+    ("title", "título"),
+    ("artist", "artista"),
+    ("album", "álbum"),
+    ("year", "año"),
+    ("genre", "género"),
+    ("key", "tono"),
+    ("bpm", "bpm"),
+    ("stars", "estrellas"),
+    ("favorite", "favorita"),
+];
+
+fn edit_song_entry<I: Index>(args: &Dict, index: &mut I) -> Result<Draft, Refused<I::Error>> {
+    let sid = loose_id(get(args, "id"));
+    let song = match sid {
+        Some(i) => index.song(i).map_err(Refused::Index)?,
+        None => Value::Null,
+    };
+    let (Some(sid), Value::Object(song)) = (sid, song) else {
+        return Err(Refused::Value("no existe esa canción".into()));
+    };
+    let mut clean = dic([("id", sid.into())]);
+    let mut changes = Vec::new();
+    for (key, label) in FIELD_NAMES {
+        let v = get(args, key);
+        if v.is_null() || v.as_str() == Some("") {
+            continue;
+        }
+        clean.insert(key.into(), v.clone());
+        let shown = match v {
+            Value::Bool(true) => "sí".to_owned(),
+            Value::Bool(false) => "no".to_owned(),
+            other => datum_of(other, 60),
+        };
+        changes.push(format!("{label} → «{shown}»"));
+    }
+    if changes.is_empty() {
+        return Err(Refused::Value("no me has dicho qué cambiar".into()));
+    }
+    Ok(Draft {
+        tool: "edit_song",
+        summary: format!(
+            "Cambiar «{}»: {}",
+            datum_of(&who(&song)?, 80),
+            changes.join(", ")
+        ),
+        effect: format!(
+            "{FROM_OUTSIDE}. Se cambia en la biblioteca y, si las escribes, en las etiquetas del archivo."
+        ),
+        args: clean,
+        guard: dic([("path", get(&song, "path").clone())]),
         ..Draft::default()
     })
 }
@@ -1326,7 +1564,7 @@ pub fn draft<I: Index>(
     after: &Value,
     index: &mut I,
 ) -> Result<Draft, Refused<I::Error>> {
-    if !TOOLS.contains(&tool) {
+    if !TOOLS.contains(&tool) && !CONFIRM_AFTER_OUTSIDE.contains(&tool) {
         return Err(Refused::Value(format!("«{tool}» no necesita confirmación")));
     }
     let Value::Object(args) = args else {
@@ -1340,6 +1578,10 @@ pub fn draft<I: Index>(
             "solo una descarga lleva plan o «después»".into(),
         )),
         "delete_song" => delete_song_entry(args, index),
+        "set_playlist_songs" => set_songs_entry(args, index),
+        "remove_from_playlist" => remove_songs_entry(args, index),
+        "rename_playlist" => rename_entry(args, index),
+        "edit_song" => edit_song_entry(args, index),
         _ => delete_playlist_entry(args, index),
     }
 }
@@ -1353,7 +1595,7 @@ pub fn target_changed<I: Index>(
     index: &mut I,
 ) -> Result<&'static str, Fault<I::Error>> {
     match tool {
-        "delete_song" => {
+        "delete_song" | "edit_song" => {
             let id = int(at_of(args, "id")?)?;
             let song = index.song(id).map_err(Fault::Index)?;
             if !crate::value::truthy(&song)
@@ -1362,7 +1604,7 @@ pub fn target_changed<I: Index>(
                 return Ok("Esa canción ya no está o ya no es la misma.");
             }
         }
-        "delete_playlist" => {
+        "delete_playlist" | "set_playlist_songs" | "remove_from_playlist" | "rename_playlist" => {
             let id = int(at_of(args, "playlist_id")?)?;
             let pl = index.playlist(id).map_err(Fault::Index)?;
             if !crate::value::truthy(&pl)

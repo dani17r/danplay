@@ -9,6 +9,7 @@
 // aqui, o no lo podra llamar nadie.
 const COMMANDS: &[&str] = &[
     "api",
+    "api_read",
     "core_ready",
     "set_queue",
     "queue_next",

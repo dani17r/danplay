@@ -159,6 +159,7 @@ fn main() {
         .register_asynchronous_uri_scheme_protocol("danplay", protocol::handle)
         .invoke_handler(tauri::generate_handler![
             core::api,
+            core::api_read,
             core::core_ready,
             queue::commands::set_queue,
             queue::commands::queue_next,
@@ -247,8 +248,34 @@ fn main() {
     });
 }
 
+/// Los registros (llevan rutas de la biblioteca y enlaces de YouTube) y los
+/// datos del WebView, solo para su dueño: `tauri-plugin-log` los crea con la
+/// umask del sistema, y quedaban en 664 dentro de carpetas en 775, a la vista
+/// de cualquier otro usuario del equipo. Los registros que ya hay, en 0600.
+fn keep_private(dirs: &[std::path::PathBuf]) {
+    for dir in dirs {
+        let _ = server::private_dir(dir);
+        #[cfg(unix)]
+        for entry in std::fs::read_dir(dir).into_iter().flatten().flatten() {
+            use std::os::unix::fs::PermissionsExt;
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            let log = name.starts_with("danplay") && name.ends_with(".log");
+            if log && entry.file_type().is_ok_and(|t| t.is_file()) {
+                let _ = std::fs::set_permissions(entry.path(), std::fs::Permissions::from_mode(0o600));
+            }
+        }
+    }
+}
+
 fn setup(app: &tauri::App) {
     let handle = app.handle().clone();
+    keep_private(
+        &[app.path().app_log_dir(), app.path().app_data_dir()]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>(),
+    );
 
     // Aqui ya no hay duda de que somos la instancia buena: el plugin de
     // instancia unica corta el arranque antes de llegar a `setup`.
@@ -378,6 +405,33 @@ mod tests {
             .filter(|l| l.trim_start().starts_with('"') && l.trim_end().ends_with("\","))
             .count();
         assert_eq!(declared, commands.len(), "build.rs declara comandos que no existen");
+    }
+
+    /// La carpeta de registros y los registros que ya hay quedan solo para su
+    /// dueño; lo demás de la carpeta, como estaba.
+    #[cfg(unix)]
+    #[test]
+    fn the_logs_are_only_for_their_owner() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("danplay-registros-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let logs = dir.join("logs");
+        std::fs::create_dir_all(&logs).expect("carpeta");
+        let set = |p: &std::path::Path, mode: u32| {
+            std::fs::set_permissions(p, std::fs::Permissions::from_mode(mode)).expect("modo");
+        };
+        set(&logs, 0o775);
+        for name in ["danplay.log", "danplay_2026-11-22_10-00-00.log", "otro.txt"] {
+            std::fs::write(logs.join(name), "x").expect("archivo");
+            set(&logs.join(name), 0o664);
+        }
+        super::keep_private(std::slice::from_ref(&logs));
+        let mode = |p: &std::path::Path| std::fs::metadata(p).expect("modo").permissions().mode() & 0o777;
+        assert_eq!(mode(&logs), 0o700);
+        assert_eq!(mode(&logs.join("danplay.log")), 0o600);
+        assert_eq!(mode(&logs.join("danplay_2026-11-22_10-00-00.log")), 0o600);
+        assert_eq!(mode(&logs.join("otro.txt")), 0o664);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// El ruido de las bibliotecas no entra al registro; sus errores y todo

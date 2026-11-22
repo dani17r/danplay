@@ -274,7 +274,7 @@ fn pcm_args(path: &Path, rate: u32, window: Option<(f64, f64)>) -> Vec<OsString>
         ]);
     }
     args.push("-i".into());
-    args.push(path.as_os_str().to_owned());
+    args.push(crate::processes::ffmpeg_input(path));
     args.extend(["-f", "s16le", "-ac", "1", "-ar"].map(OsString::from));
     args.push(rate.to_string().into());
     args.push("-".into());

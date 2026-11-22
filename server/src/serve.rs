@@ -10,9 +10,13 @@ use http_body_util::{BodyExt, Full, combinators::BoxBody};
 use hyper::body::Frame;
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
-use hyper_util::rt::TokioIo;
+use hyper_util::rt::{TokioIo, TokioTimer};
 use std::convert::Infallible;
 use std::path::PathBuf;
+use std::time::Duration;
+
+/// Lo que puede tardar un cliente en mandar las cabeceras de una petición.
+pub const HEADER_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Dónde escucha.
 #[derive(Debug, Clone)]
@@ -132,9 +136,25 @@ async fn answer(
         );
         return Ok(r);
     }
+    // El tope del cuerpo, antes de leerlo: la guardia lo mira después, con
+    // el cuerpo ya en memoria, y cualquiera podía mandar gigas que se
+    // acumulaban enteros antes de oír que no.
+    let cap = crate::guard::body_cap(req.uri().path());
+    let declared = req
+        .headers()
+        .get(hyper::header::CONTENT_LENGTH)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.trim().parse::<u64>().ok());
+    if declared.is_some_and(|n| n > cap as u64) {
+        return Ok(to_hyper(crate::guard::too_big()));
+    }
     let (parts, body) = req.into_parts();
-    let body = match body.collect().await {
+    let body = match http_body_util::Limited::new(body, cap).collect().await {
         Ok(b) => b.to_bytes().to_vec(),
+        // sin `Content-Length` (a trozos) también se corta en el tope
+        Err(e) if e.is::<http_body_util::LengthLimitError>() => {
+            return Ok(to_hyper(crate::guard::too_big()));
+        }
         Err(_) => Vec::new(),
     };
     let request = Request {
@@ -163,9 +183,22 @@ fn serve_connection<S>(app: App, stream: S)
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
 {
+    serve_with(app, stream, HEADER_TIMEOUT);
+}
+
+/// `serve_connection` con otro plazo para las cabeceras (las pruebas no
+/// esperan diez segundos).
+fn serve_with<S>(app: App, stream: S, header_timeout: Duration)
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
     tokio::spawn(async move {
         let service = service_fn(move |req| answer(app.clone(), req));
+        // sin plazo, una conexión que manda las cabeceras de byte en byte (o
+        // ninguna) se quedaba abierta para siempre
         if let Err(e) = http1::Builder::new()
+            .timer(TokioTimer::new())
+            .header_read_timeout(header_timeout)
             .serve_connection(TokioIo::new(stream), service)
             .await
         {
@@ -260,4 +293,77 @@ pub fn loopback(host: &str) -> bool {
     }
     host.parse::<std::net::IpAddr>()
         .is_ok_and(|ip| ip.is_loopback())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    /// Le manda `sent` al servidor por una conexión en memoria, sin cerrarla
+    /// (como quien sube algo despacio), y espera como mucho `wait`: la
+    /// cabecera de la respuesta, "" si cerró sin contestar, o `None` si a
+    /// los `wait` seguía esperando.
+    fn exchange(sent: Vec<u8>, header_timeout: Duration, wait: Duration) -> Option<String> {
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        let app = crate::tests::app();
+        rt.block_on(async move {
+            let (client, server) = tokio::io::duplex(1 << 16);
+            serve_with(app, server, header_timeout);
+            let (mut rd, mut wr) = tokio::io::split(client);
+            tokio::spawn(async move {
+                let _ = wr.write_all(&sent).await;
+                std::future::pending::<()>().await;
+            });
+            let mut got = Vec::new();
+            let mut buf = [0u8; 4096];
+            let read = tokio::time::timeout(wait, async {
+                while !got.windows(4).any(|w| w == b"\r\n\r\n") {
+                    match rd.read(&mut buf).await {
+                        Ok(0) | Err(_) => break,
+                        Ok(n) => got.extend_from_slice(&buf[..n]),
+                    }
+                }
+            })
+            .await;
+            read.ok()
+                .map(|()| String::from_utf8_lossy(&got).into_owned())
+        })
+    }
+
+    /// Un cuerpo que pasa del tope se rechaza sin esperar a que llegue
+    /// entero: antes se juntaba todo en memoria y luego se decía que no.
+    #[test]
+    fn a_huge_body_is_refused_before_reading_it() {
+        let wait = Duration::from_secs(5);
+        let head = "POST /api/scan HTTP/1.1\r\nHost: localhost\r\nContent-Length: 5242880\r\n\r\n";
+        let mut sent = head.as_bytes().to_vec();
+        sent.extend_from_slice(&[b' '; 1000]);
+        let got = exchange(sent, HEADER_TIMEOUT, wait).expect("contesta sin esperar al cuerpo");
+        assert!(got.starts_with("HTTP/1.1 413"), "{got}");
+        // a trozos, sin decir cuánto: se corta en el tope
+        let head =
+            "POST /api/scan HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n";
+        let mut sent = head.as_bytes().to_vec();
+        let chunk = vec![b' '; 64 * 1024];
+        for _ in 0..(2 * crate::guard::MAX_BODY / chunk.len()) {
+            sent.extend_from_slice(format!("{:x}\r\n", chunk.len()).as_bytes());
+            sent.extend_from_slice(&chunk);
+            sent.extend_from_slice(b"\r\n");
+        }
+        let got = exchange(sent, HEADER_TIMEOUT, wait).expect("contesta sin esperar al final");
+        assert!(got.starts_with("HTTP/1.1 413"), "{got}");
+    }
+
+    /// Una conexión que no termina de mandar las cabeceras se cierra al
+    /// plazo, en vez de quedarse abierta para siempre.
+    #[test]
+    fn a_connection_that_never_finishes_its_headers_is_closed() {
+        let sent = b"GET /api/status HTTP/1.1\r\nHo".to_vec();
+        let got = exchange(sent, Duration::from_millis(200), Duration::from_secs(5));
+        assert_eq!(got.as_deref(), Some(""), "sigue abierta");
+    }
 }

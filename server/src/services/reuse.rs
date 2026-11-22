@@ -246,7 +246,7 @@ fn decode(app: &App, path: &Path, seconds: f64, rate: usize) -> Result<Option<Ve
         return Ok(None);
     };
     let mut cmd = library::processes::order(&ffmpeg, &["-v", "error", "-nostdin", "-i"]);
-    cmd.arg(path).args([
+    cmd.arg(library::processes::ffmpeg_input(path)).args([
         "-t",
         &seconds.to_string(),
         "-ac",
@@ -382,7 +382,7 @@ fn encode_shifted(ffmpeg: &Path, src: &Path, dest: &Path, lag: f64) -> std::io::
         format!("atrim=start={:.6},asetpts=PTS-STARTPTS", -lag)
     };
     let mut cmd = library::processes::order(ffmpeg, &["-v", "error", "-nostdin", "-y", "-i"]);
-    cmd.arg(src)
+    cmd.arg(library::processes::ffmpeg_input(src))
         .args(["-af", &filter, "-c:a", "flac"])
         .arg(dest);
     let out = library::processes::run(&mut cmd, ENCODE_TIMEOUT)

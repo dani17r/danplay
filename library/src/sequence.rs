@@ -251,6 +251,15 @@ impl Node {
     }
 }
 
+/// Hasta dónde se anida el XML de un proyecto: uno de verdad no pasa de unas
+/// decenas de niveles. Recorrer el árbol (`descendants`) y soltarlo son
+/// recursivos: con decenas de miles de niveles (caben en 100 KB de gzip) se
+/// desbordaba la pila y, con el núcleo dentro del proceso, se caía DanPlay.
+const MAX_XML_DEPTH: usize = 256;
+/// Cuántos elementos como mucho: los 64 MB de `MAX_ALS` llenos de `<a/>`
+/// son 16 millones, más de 1 GB de memoria en el árbol.
+const MAX_XML_NODES: usize = 2_000_000;
+
 /// El XML entero como árbol. Un proyecto de Ableton no trae DTD: si trae, no
 /// se lee (una «bomba» de entidades colgaría el núcleo).
 fn parse_xml(data: &[u8]) -> Result<Node, SequenceError> {
@@ -267,10 +276,22 @@ fn parse_xml(data: &[u8]) -> Result<Node, SequenceError> {
     }];
     let mut buf = Vec::new();
     let broken = || SequenceError("el proyecto de Ableton está dañado".into());
+    let mut nodes = 0usize;
     loop {
         let ev = reader.read_event_into(&mut buf).map_err(|_| broken())?;
+        if matches!(ev, Event::Start(_) | Event::Empty(_)) {
+            nodes += 1;
+            if nodes > MAX_XML_NODES {
+                return Err(broken());
+            }
+        }
         match ev {
-            Event::Start(e) => stack.push(node(&e).ok_or_else(broken)?),
+            Event::Start(e) => {
+                stack.push(node(&e).ok_or_else(broken)?);
+                if stack.len() > MAX_XML_DEPTH {
+                    return Err(broken());
+                }
+            }
             Event::Empty(e) => {
                 let n = node(&e).ok_or_else(broken)?;
                 stack.last_mut().ok_or_else(broken)?.children.push(n);
@@ -838,5 +859,41 @@ mod tests {
         ] {
             assert_eq!(role_of(name), role, "{name:?}");
         }
+    }
+
+    /// Un `.als` (gzip) con este XML dentro, y lo que dice `read_als`.
+    fn read_xml(xml: &[u8]) -> Result<Project, SequenceError> {
+        use std::io::Write;
+        let dir = tempfile::tempdir().expect("en la prueba");
+        let path = dir.path().join("Set.als");
+        let mut gz = flate2::write::GzEncoder::new(
+            std::fs::File::create(&path).expect("en la prueba"),
+            flate2::Compression::fast(),
+        );
+        gz.write_all(xml).expect("en la prueba");
+        gz.finish().expect("en la prueba");
+        read_als(&path)
+    }
+
+    /// Un proyecto preparado no tumba la app: decenas de miles de niveles
+    /// desbordaban la pila al recorrer el árbol, y millones de elementos
+    /// pedían más de un gigabyte.
+    #[test]
+    fn a_crafted_project_is_broken_not_a_crash() {
+        let deep = 100_000;
+        let xml = format!("{}{}", "<a>".repeat(deep), "</a>".repeat(deep));
+        let why = read_xml(xml.as_bytes()).expect_err("no se lee");
+        assert_eq!(why.0, "el proyecto de Ableton está dañado");
+        let xml = format!("<Ableton>{}</Ableton>", "<a/>".repeat(3_000_000));
+        let why = read_xml(xml.as_bytes()).expect_err("no se lee");
+        assert_eq!(why.0, "el proyecto de Ableton está dañado");
+        // lo de verdad, poco hondo, se sigue leyendo
+        let xml = format!(
+            "<Ableton>{}<MasterTrack><Tempo><Manual Value=\"120\"/></Tempo></MasterTrack>{}</Ableton>",
+            "<b>".repeat(200),
+            "</b>".repeat(200)
+        );
+        let project = read_xml(xml.as_bytes()).expect("se lee");
+        assert!((project.tempo - 120.0).abs() < 1e-9, "{}", project.tempo);
     }
 }

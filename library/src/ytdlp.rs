@@ -343,6 +343,18 @@ pub fn marked_version(root: &Path) -> Result<Option<String>, NotUtf8> {
     Ok(Some(text.trim().to_owned()))
 }
 
+/// Si una versión (el `tag_name` de GitHub, o lo que dice `current`) vale
+/// como nombre de su carpeta: solo `[0-9A-Za-z._-]`, de 1 a 40, y sin
+/// «..». Se une a la carpeta de las versiones y luego se borra y se
+/// renombra lo que nombra: con «/» o «..» dentro, lo de fuera.
+pub fn valid_tag(tag: &str) -> bool {
+    (1..=40).contains(&tag.len())
+        && !tag.contains("..")
+        && tag
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
+}
+
 /// Si la descargada vale frente a la que viaja con la app: sin ninguna en
 /// la app, sí; si no, solo si es más nueva.
 pub fn usable(version: &str, bundled: &str) -> bool {

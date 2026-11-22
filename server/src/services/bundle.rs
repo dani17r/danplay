@@ -334,7 +334,7 @@ fn import_into(
         .collect();
     for part in &music {
         args.push("-i".into());
-        args.push(part.as_os_str().to_owned());
+        args.push(library::processes::ffmpeg_input(part));
     }
     args.push("-filter_complex".into());
     args.push(
