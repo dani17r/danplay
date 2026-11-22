@@ -561,6 +561,9 @@ pub struct Render {
     limiter: Limiter,
     inbox: Option<rtrb::Consumer<Msg>>,
     trash: Option<rtrb::Producer<Trash>>,
+    /// En las pruebas: la proxima vuelta hace *panic* (un fallo del render).
+    #[cfg(test)]
+    pub(crate) panic_next: bool,
 }
 
 impl Render {
@@ -618,6 +621,8 @@ impl Render {
             limiter: Limiter::new(rate, 2),
             inbox: None,
             trash: None,
+            #[cfg(test)]
+            panic_next: false,
         };
         r.music_bus[0] = true;
         r.set_output(out_rate, 2);
@@ -806,6 +811,8 @@ impl Render {
     /// Llena `out` (con `channels` canales intercalados, a la tasa de la
     /// salida) sin limitar: quien suma varias canciones limita despues.
     pub fn render_into(&mut self, out: &mut [f32], channels: usize) {
+        #[cfg(test)]
+        self.break_if_asked();
         self.process_mail();
         out.fill(0.0);
         if channels != self.channels {
@@ -818,6 +825,15 @@ impl Render {
         } else {
             self.stage(out);
         }
+    }
+
+    /// En las pruebas: el *panic* de un fallo del render, si se pidio.
+    #[cfg(test)]
+    fn break_if_asked(&mut self) {
+        assert!(
+            !std::mem::take(&mut self.panic_next),
+            "un fallo del render, en las pruebas"
+        );
     }
 
     /// A la tasa de las partes: musica, clic, voces y envolvente, por buses, y

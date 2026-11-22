@@ -19,15 +19,19 @@
 //! y se suman; despues, el limitador, por parejas de canales. Sin candados:
 //! cada render solo lo toca este hilo (`try_lock` nunca espera, porque nadie
 //! mas lo coge mientras suena: lo que cambia le llega por su buzon).
+//!
+//! Si algo de dentro hace *panic*, esa vuelta sale en silencio y la salida se
+//! vuelve a abrir (`Mixer::fill`); y si la salida deja de pedir muestras sin
+//! decir nada (unos cascos Bluetooth colgados), tambien (`Heartbeat`).
 use crate::render::{Limiter, MAX_CHANNELS, Render};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, SampleFormat, SizedSample, StreamConfig};
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Sender, channel};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError, TryLockError};
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// Que salida abrir y con cuantos canales.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -84,6 +88,138 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
+/// Si la salida sigue pidiendo muestras: cada vuelta del callback cuenta un
+/// latido. Una salida que se cuelga sin decir nada (unos cascos Bluetooth que
+/// se quedan a medias, un callback que se murio) no llama al de errores, y
+/// antes nada la volvia a abrir: «sonando» en silencio hasta reiniciar.
+struct Heartbeat {
+    /// El ultimo latido visto y cuando se vio (o cuando se abrio).
+    last: u64,
+    since: Instant,
+}
+
+/// Sin latidos tanto tiempo (ya habiendo sonado), la salida esta colgada.
+const HUNG: Duration = Duration::from_secs(1);
+/// Lo que se le da a una salida recien abierta para su primera vuelta: unos
+/// cascos Bluetooth tardan en arrancar, y darla por colgada antes de tiempo
+/// la volveria a abrir una y otra vez sin dejarla sonar nunca.
+const FIRST_BEAT: Duration = Duration::from_secs(3);
+
+impl Heartbeat {
+    fn new(now: Instant) -> Heartbeat {
+        Heartbeat {
+            last: 0,
+            since: now,
+        }
+    }
+
+    /// Con el latido de ahora: si la salida lleva demasiado sin pedir nada.
+    fn hung(&mut self, beat: u64, now: Instant) -> bool {
+        if beat != self.last {
+            self.last = beat;
+            self.since = now;
+            return false;
+        }
+        let wait = if beat == 0 { FIRST_BEAT } else { HUNG };
+        now.duration_since(self.since) >= wait
+    }
+}
+
+/// Lo que hace la salida en cada vuelta: pedir a cada cancion su trozo,
+/// sumarlos y limitar.
+struct Mixer {
+    decks: Vec<Arc<Mutex<Render>>>,
+    channels: usize,
+    mix: Vec<f32>,
+    one: Vec<f32>,
+    limiter: Limiter,
+    xruns: Arc<AtomicU64>,
+    broken: Arc<AtomicBool>,
+    beat: Arc<AtomicU64>,
+}
+
+impl Mixer {
+    fn new(
+        decks: &[Arc<Mutex<Render>>],
+        rate: u32,
+        channels: usize,
+        broken: &Arc<AtomicBool>,
+        beat: &Arc<AtomicU64>,
+        xruns: &Arc<AtomicU64>,
+    ) -> Mixer {
+        Mixer {
+            decks: decks.to_vec(),
+            channels,
+            mix: vec![0f32; MAX_FRAMES * channels],
+            one: vec![0f32; MAX_FRAMES * channels],
+            limiter: Limiter::new(rate, channels),
+            xruns: Arc::clone(xruns),
+            broken: Arc::clone(broken),
+            beat: Arc::clone(beat),
+        }
+    }
+
+    /// Llena lo que pide la salida. Si algo de dentro hace *panic* (un fallo
+    /// del render), esa vuelta sale en silencio y la salida se da por rota,
+    /// para volver a abrirla. Antes el *panic* mataba el hilo de cpal sin
+    /// avisar (en AAudio y CoreAudio, al cruzar a C, cerraba la app) y nada
+    /// la volvia a abrir; y el candado envenenado dejaba esa cancion muda
+    /// para siempre.
+    fn fill<T>(&mut self, data: &mut [T])
+    where
+        T: SizedSample + FromSample<f32>,
+    {
+        self.beat.fetch_add(1, Ordering::Relaxed);
+        let done =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.mix_into(data))).is_ok();
+        if !done {
+            data.fill(T::EQUILIBRIUM);
+            self.broken.store(true, Ordering::Release);
+        }
+    }
+
+    fn mix_into<T>(&mut self, data: &mut [T])
+    where
+        T: SizedSample + FromSample<f32>,
+    {
+        let channels = self.channels;
+        let frames = data.len() / channels;
+        let mut done = 0;
+        while done < frames {
+            let n = (frames - done).min(MAX_FRAMES);
+            let acc = &mut self.mix[..n * channels];
+            acc.fill(0.0);
+            for deck in &self.decks {
+                // nadie mas lo coge mientras suena; si alguien lo tuviera,
+                // esa cancion callaria un instante. Envenenado (un *panic*
+                // con el dentro) sigue valiendo: si no, callaba para siempre
+                let render = match deck.try_lock() {
+                    Ok(r) => Some(r),
+                    Err(TryLockError::Poisoned(p)) => Some(p.into_inner()),
+                    Err(TryLockError::WouldBlock) => None,
+                };
+                if let Some(mut r) = render {
+                    let buf = &mut self.one[..n * channels];
+                    r.render_into(buf, channels);
+                    for (a, b) in acc.iter_mut().zip(buf.iter()) {
+                        *a += *b;
+                    }
+                } else {
+                    self.xruns.fetch_add(1, Ordering::Relaxed);
+                }
+            }
+            self.limiter.process(acc);
+            for (o, v) in data[done * channels..(done + n) * channels]
+                .iter_mut()
+                .zip(acc.iter())
+            {
+                *o = T::from_sample(*v);
+            }
+            done += n;
+        }
+    }
+}
+
 impl Output {
     /// Abre la salida para `decks` (las canciones que pueden sonar a la vez).
     pub fn start(decks: Vec<Arc<Mutex<Render>>>, rate: u32, config: OutputConfig) -> Output {
@@ -96,9 +232,11 @@ impl Output {
             .spawn(move || {
                 loop {
                     let broken = Arc::new(AtomicBool::new(false));
-                    match open(&decks, rate, &config, &broken, &st, &xruns) {
+                    let beat = Arc::new(AtomicU64::new(0));
+                    match open(&decks, rate, &config, &broken, &beat, &st, &xruns) {
                         Ok(stream) => {
                             lock(&st).error = None;
+                            let mut heart = Heartbeat::new(Instant::now());
                             // hasta que se pida parar o la salida se caiga
                             loop {
                                 match rx.recv_timeout(Duration::from_millis(250)) {
@@ -110,6 +248,9 @@ impl Output {
                                     Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
                                 }
                                 lock(&st).xruns = xruns.load(Ordering::Relaxed);
+                                if heart.hung(beat.load(Ordering::Relaxed), Instant::now()) {
+                                    broken.store(true, Ordering::Release);
+                                }
                                 if broken.load(Ordering::Acquire) {
                                     break;
                                 }
@@ -338,6 +479,7 @@ fn open(
     rate: u32,
     config: &OutputConfig,
     broken: &Arc<AtomicBool>,
+    beat: &Arc<AtomicU64>,
     status: &Arc<Mutex<OutputStatus>>,
     xruns: &Arc<AtomicU64>,
 ) -> Result<cpal::Stream, String> {
@@ -381,11 +523,19 @@ fn open(
         st.rate = stream_config.sample_rate;
         st.fallback = fallback;
     }
+    let mixer = Mixer::new(
+        decks,
+        stream_config.sample_rate,
+        channels,
+        broken,
+        beat,
+        xruns,
+    );
     let stream = match format {
-        SampleFormat::F32 => build::<f32>(&device, &stream_config, decks, broken, xruns),
-        SampleFormat::I16 => build::<i16>(&device, &stream_config, decks, broken, xruns),
-        SampleFormat::I32 => build::<i32>(&device, &stream_config, decks, broken, xruns),
-        SampleFormat::U16 => build::<u16>(&device, &stream_config, decks, broken, xruns),
+        SampleFormat::F32 => build::<f32>(&device, &stream_config, mixer),
+        SampleFormat::I16 => build::<i16>(&device, &stream_config, mixer),
+        SampleFormat::I32 => build::<i32>(&device, &stream_config, mixer),
+        SampleFormat::U16 => build::<u16>(&device, &stream_config, mixer),
         other => {
             return Err(format!(
                 "la salida de audio pide un formato que no se sabe hacer ({other})"
@@ -456,54 +606,17 @@ fn choose(
 fn build<T>(
     device: &cpal::Device,
     config: &StreamConfig,
-    decks: &[Arc<Mutex<Render>>],
-    broken: &Arc<AtomicBool>,
-    xruns: &Arc<AtomicU64>,
+    mut mixer: Mixer,
 ) -> Result<cpal::Stream, String>
 where
     T: SizedSample + FromSample<f32>,
 {
-    let channels = usize::from(config.channels.max(1));
-    let decks: Vec<Arc<Mutex<Render>>> = decks.to_vec();
-    let broken = Arc::clone(broken);
-    let xruns = Arc::clone(xruns);
-    let tripped = Arc::clone(&xruns);
-    let mut mix = vec![0f32; MAX_FRAMES * channels];
-    let mut one = vec![0f32; MAX_FRAMES * channels];
-    let mut limiter = Limiter::new(config.sample_rate, channels);
+    let broken = Arc::clone(&mixer.broken);
+    let tripped = Arc::clone(&mixer.xruns);
     device
         .build_output_stream::<T, _, _>(
             config,
-            move |data: &mut [T], _| {
-                let frames = data.len() / channels;
-                let mut done = 0;
-                while done < frames {
-                    let n = (frames - done).min(MAX_FRAMES);
-                    let acc = &mut mix[..n * channels];
-                    acc.fill(0.0);
-                    for deck in &decks {
-                        // nadie mas lo coge mientras suena; si alguien lo
-                        // tuviera, esa cancion callaria un instante
-                        if let Ok(mut r) = deck.try_lock() {
-                            let buf = &mut one[..n * channels];
-                            r.render_into(buf, channels);
-                            for (a, b) in acc.iter_mut().zip(buf.iter()) {
-                                *a += *b;
-                            }
-                        } else {
-                            xruns.fetch_add(1, Ordering::Relaxed);
-                        }
-                    }
-                    limiter.process(acc);
-                    for (o, v) in data[done * channels..(done + n) * channels]
-                        .iter_mut()
-                        .zip(acc.iter())
-                    {
-                        *o = T::from_sample(*v);
-                    }
-                    done += n;
-                }
-            },
+            move |data: &mut [T], _| mixer.fill(data),
             move |e| {
                 // un tropiezo (xrun) no rompe la salida; lo demas, si
                 if matches!(e, cpal::StreamError::BufferUnderrun) {
@@ -519,7 +632,66 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{Bridge, SoundServer, is_physical, pick_pcm, server_in};
+    use super::{Bridge, Heartbeat, Mixer, SoundServer, is_physical, lock, pick_pcm, server_in};
+    use crate::render::{Controls, FreeClick, Render};
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+    use std::sync::{Arc, Mutex};
+    use std::time::{Duration, Instant};
+
+    /// Un plato con el metronomo suelto: suena sin cancion desde la primera
+    /// vuelta, y la salida que lo mezcla.
+    fn clicking() -> (Arc<Mutex<Render>>, Mixer, Arc<AtomicBool>, Arc<AtomicU64>) {
+        let mut render = Render::new(44_100, 44_100, Arc::new(Controls::default()));
+        render.set_free_click(Arc::new(FreeClick {
+            on: true,
+            bpm: 120.0,
+            ..FreeClick::default()
+        }));
+        let deck = Arc::new(Mutex::new(render));
+        let (broken, beat) = (
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(AtomicU64::new(0)),
+        );
+        let xruns = Arc::new(AtomicU64::new(0));
+        let mixer = Mixer::new(&[Arc::clone(&deck)], 44_100, 2, &broken, &beat, &xruns);
+        (deck, mixer, broken, beat)
+    }
+
+    #[test]
+    fn a_panic_in_the_audio_callback_comes_out_silent_and_the_next_turn_sounds() {
+        // un *panic* dentro del callback mataba el hilo de cpal sin avisar
+        // (en AAudio y CoreAudio cerraba la app) y el candado envenenado dejaba
+        // esa cancion muda para siempre
+        let (deck, mut mixer, broken, beat) = clicking();
+        let mut data = vec![0.5f32; 512 * 2];
+        lock(&deck).panic_next = true;
+        mixer.fill(&mut data);
+        assert!(data.iter().all(|v| *v == 0.0), "esa vuelta, en silencio");
+        assert!(broken.load(Ordering::Acquire), "y la salida, a reabrir");
+        // la siguiente suena, con el candado envenenado y todo
+        mixer.fill(&mut data);
+        let loud = data.iter().fold(0f32, |m, v| m.max(v.abs()));
+        assert!(loud > 0.1, "{loud}");
+        assert_eq!(beat.load(Ordering::Relaxed), 2, "cada vuelta, un latido");
+    }
+
+    #[test]
+    fn an_output_that_stops_asking_for_samples_is_taken_for_hung() {
+        let t0 = Instant::now();
+        let at = |ms: u64| t0 + Duration::from_millis(ms);
+        // recien abierta, tiene su tiempo para la primera vuelta
+        let mut heart = Heartbeat::new(t0);
+        assert!(!heart.hung(0, at(2_000)));
+        assert!(heart.hung(0, at(3_000)));
+        // sonando, mientras lata va bien; un segundo sin latir, colgada
+        let mut heart = Heartbeat::new(t0);
+        assert!(!heart.hung(5, at(250)));
+        assert!(!heart.hung(9, at(500)));
+        assert!(!heart.hung(9, at(1_250)));
+        assert!(heart.hung(9, at(1_500)));
+        // y si vuelve a latir, ya no
+        assert!(!heart.hung(10, at(1_750)));
+    }
 
     #[test]
     fn the_sound_server_by_its_socket() {
