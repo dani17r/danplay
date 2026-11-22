@@ -1716,7 +1716,7 @@ pub fn export_mix(app: &App, cid: i64, mix: &Mix, progress: &dyn Fn(f64, f64)) -
             .collect();
         for (p, _) in &chosen {
             cmd.push("-i".into());
-            cmd.push(p.into());
+            cmd.push(library::processes::ffmpeg_input(Path::new(p)));
         }
         if let Some(click) = mix.click.as_ref().filter(|_| !beats.is_empty()) {
             let file = work.join(".clic.wav");
@@ -1732,7 +1732,7 @@ pub fn export_mix(app: &App, cid: i64, mix: &Mix, progress: &dyn Fn(f64, f64)) -
             .map_err(|_| StemsError::Other("cannot convert float NaN to integer".into()))?;
             analysis::mix::write_wav(&file, &signal, analysis::click::RATE)?;
             cmd.push("-i".into());
-            cmd.push(file.into());
+            cmd.push(library::processes::ffmpeg_input(&file));
         }
         let mut guides = false;
         if let Some(cues) = &cues {
@@ -1764,7 +1764,7 @@ pub fn export_mix(app: &App, cid: i64, mix: &Mix, progress: &dyn Fn(f64, f64)) -
                 let file = work.join(".guias.wav");
                 analysis::mix::write_wav(&file, &signal, analysis::mix::GUIDES_RATE)?;
                 cmd.push("-i".into());
-                cmd.push(file.into());
+                cmd.push(library::processes::ffmpeg_input(&file));
                 guides = true;
             }
         }

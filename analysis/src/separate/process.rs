@@ -138,24 +138,23 @@ fn ffmpeg(program: &str) -> Command {
     c
 }
 
+/// Una ruta como entrada de ffmpeg (tras `-i`), con `file:` delante: sin él,
+/// un nombre como `concat:a|b` o `http:…` se lee como otra cosa. Es lo mismo
+/// que `library::processes::ffmpeg_input` (este crate no depende de él).
+fn file_input(path: &Path) -> std::ffi::OsString {
+    let mut input = std::ffi::OsString::from("file:");
+    input.push(path.as_os_str());
+    input
+}
+
 /// La canción entera, en estéreo a 44,1 kHz y en flotante: (2, N), un canal
 /// tras otro.
 pub fn decode(program: &str, path: &str) -> Result<Vec<f32>, Error> {
+    let input = file_input(Path::new(path));
     let r = ffmpeg(program)
-        .args([
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-nostdin",
-            "-i",
-            path,
-            "-vn",
-            "-f",
-            "f32le",
-            "-ac",
-            "2",
-            "-ar",
-        ])
+        .args(["-hide_banner", "-loglevel", "error", "-nostdin", "-i"])
+        .arg(&input)
+        .args(["-vn", "-f", "f32le", "-ac", "2", "-ar"])
         .arg(RATE.to_string())
         .arg("-")
         .output()?;
@@ -213,7 +212,7 @@ pub fn encoder(program: &str, dest: &Path) -> Result<Child, Error> {
 pub fn reader(program: &str, path: &Path) -> Result<Child, Error> {
     Ok(ffmpeg(program)
         .args(["-hide_banner", "-loglevel", "error", "-nostdin", "-i"])
-        .arg(path)
+        .arg(file_input(path))
         .args(["-f", "f32le", "-ac", "2", "-ar"])
         .arg(RATE.to_string())
         .arg("-")
@@ -316,7 +315,7 @@ pub fn compacted(program: &str, src: &Path, format: &str) -> Result<PathBuf, Err
     let dest = src.with_extension(ext);
     let r = ffmpeg(program)
         .args(["-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-i"])
-        .arg(src)
+        .arg(file_input(src))
         .args(args)
         .arg(&dest)
         .output()?;

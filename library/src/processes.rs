@@ -2,7 +2,7 @@
 //! escriben recogido, con un tope de tiempo pasado el cual se matan, y en
 //! Windows sin abrir una consola por cada uno (con la app analizando la
 //! biblioteca salían ventanas negras a decenas).
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::io::{Read, Write};
 use std::path::Path;
 use std::process::{Child, Command, ExitStatus, Stdio};
@@ -47,6 +47,16 @@ impl std::fmt::Display for Error {
             Error::TimedOut => write!(f, "tiempo agotado"),
         }
     }
+}
+
+/// Una ruta de archivo como entrada de ffmpeg (tras `-i`), con `file:`
+/// delante: sin él, ffmpeg lee la ruta como una dirección y un nombre como
+/// `concat:a|b`, `subfile:…` o `http:…` abriría otra cosa (otros archivos, la
+/// red). Con `file:` es siempre ese archivo, también una `C:\…` de Windows.
+pub fn ffmpeg_input(path: &Path) -> OsString {
+    let mut input = OsString::from("file:");
+    input.push(path.as_os_str());
+    input
 }
 
 /// Un programa con sus argumentos, sin consola en Windows.
@@ -180,6 +190,42 @@ fn launch(cmd: &mut Command, input: Option<Vec<u8>>, cap: Duration) -> Result<Ou
 mod tests {
     use super::*;
 
+    /// Un archivo que se llama como una dirección de ffmpeg (`concat:a|b`) se
+    /// lee como ese archivo: sin `file:`, ffmpeg juntaba los otros dos.
+    #[test]
+    fn a_file_named_like_an_ffmpeg_protocol_is_read_as_that_file() {
+        let Some(ffmpeg) = crate::testkit::ffmpeg() else {
+            return;
+        };
+        let dir = crate::testkit::Scratch::new("protocolo");
+        let wav = ["-c:a", "pcm_s16le"];
+        for (name, seconds) in [("a.wav", 1.0), ("b.wav", 1.0), ("concat:a.wav|b.wav", 0.25)] {
+            crate::testkit::make_audio(&dir.join(name), &wav, seconds, None).expect("audio");
+        }
+        // segundos que lee ffmpeg de esa entrada (mono, 8 kHz, 16 bits)
+        let seconds = |input: OsString| {
+            let mut cmd = order(&ffmpeg, &["-v", "error", "-nostdin", "-i"]);
+            cmd.arg(input)
+                .args(["-f", "s16le", "-ac", "1", "-ar", "8000", "-"])
+                .current_dir(dir.join(""));
+            let out = run(&mut cmd, Duration::from_secs(30)).expect("ffmpeg");
+            out.stdout.len() as f64 / 16000.0
+        };
+        let named = Path::new("concat:a.wav|b.wav");
+        let plain = seconds(named.as_os_str().to_owned());
+        // (los bytes de los dos WAV seguidos: lo que dice la cabecera del primero)
+        assert!(plain > 0.9, "sin file: lee {plain} s");
+        let read = seconds(ffmpeg_input(named));
+        assert!((read - 0.25).abs() < 0.05, "con file: lee {read} s");
+        // y una ruta absoluta, la de siempre, igual
+        let read = seconds(ffmpeg_input(&dir.join("a.wav")));
+        assert!((read - 1.0).abs() < 0.05, "{read} s");
+        assert_eq!(
+            ffmpeg_input(Path::new("/m/a.mp3")),
+            OsString::from("file:/m/a.mp3")
+        );
+    }
+
     #[test]
     fn collects_output_and_kills_at_the_cap() {
         let mut sh = order(Path::new("sh"), &["-c", "echo hola; echo mal >&2; exit 3"]);
@@ -223,5 +269,20 @@ mod tests {
         )
         .expect("arranca");
         assert!(s.succeeded());
+    }
+}
+
+/// En Windows la ruta de siempre (`C:\…`) sigue valiendo: la prueba del
+/// núcleo en Windows corre en la CI.
+#[cfg(all(test, windows))]
+mod windows_tests {
+    use super::*;
+
+    #[test]
+    fn a_windows_path_keeps_its_drive() {
+        assert_eq!(
+            ffmpeg_input(Path::new(r"C:\Musica\a.mp3")),
+            OsString::from(r"file:C:\Musica\a.mp3")
+        );
     }
 }

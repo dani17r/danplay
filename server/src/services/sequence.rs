@@ -98,7 +98,7 @@ fn duration(ffmpeg: &Path, path: &Path) -> f64 {
         return seconds;
     }
     let mut args = os(&["-v", "error", "-nostdin", "-i"]);
-    args.push(path.as_os_str().to_owned());
+    args.push(library::processes::ffmpeg_input(path));
     args.extend(os(&["-f", "null", "-"]));
     let mut cmd = library::processes::order(ffmpeg, &args);
     let Ok(out) = library::processes::run(&mut cmd, Duration::from_secs(600)) else {
@@ -125,7 +125,7 @@ fn duration(ffmpeg: &Path, path: &Path) -> f64 {
 fn wave(ffmpeg: &Path, path: &Path, seconds: f64) -> (Vec<f64>, Vec<f64>) {
     let rate = 4000;
     let mut args = os(&["-v", "error", "-nostdin", "-i"]);
-    args.push(path.as_os_str().to_owned());
+    args.push(library::processes::ffmpeg_input(path));
     args.extend(os(&["-ac", "1", "-ar", "4000", "-f", "f32le", "-"]));
     let mut cmd = library::processes::order(ffmpeg, &args);
     let raw: Vec<f32> = match library::processes::run(&mut cmd, Duration::from_secs(600)) {
@@ -254,7 +254,7 @@ pub fn import_sequence(app: &App, folder: &str, p: &Progress) -> Result<Value, J
                             dest
                         };
                         let mut args = os(&["-v", "error", "-nostdin", "-y", "-i"]);
-                        args.push(t.path.clone().into());
+                        args.push(library::processes::ffmpeg_input(Path::new(&t.path)));
                         args.extend(
                             lseq::offset_filter(starts[i])
                                 .into_iter()
@@ -323,7 +323,7 @@ pub fn import_sequence(app: &App, folder: &str, p: &Progress) -> Result<Value, J
         let mut args = os(&["-v", "error", "-nostdin", "-y"]);
         for t in &music {
             args.push("-i".into());
-            args.push(file_of(&t.key).into_os_string());
+            args.push(library::processes::ffmpeg_input(&file_of(&t.key)));
         }
         let tmp_mix = work.join("mezcla.flac");
         args.push("-filter_complex".into());

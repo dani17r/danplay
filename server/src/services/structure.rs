@@ -33,7 +33,7 @@ fn decode(app: &App, path: &str, rate: u32, longest: f64) -> Result<Vec<f32>, Jo
         .iter()
         .map(Into::into)
         .collect();
-    args.push(path.into());
+    args.push(library::processes::ffmpeg_input(std::path::Path::new(path)));
     for a in ["-t", &longest, "-ac", "1", "-ar", &rate, "-f", "f32le", "-"] {
         args.push(a.into());
     }
