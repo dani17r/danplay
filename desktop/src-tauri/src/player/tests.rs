@@ -1078,6 +1078,51 @@ fn the_announced_next_song_comes_in_by_itself_when_this_one_ends() {
     assert!(worst < 45.0, "entre una y otra hubo {worst:.1} ms de silencio");
 }
 
+/// Las veces que se miró en el disco si `path` estaba lista para entrar.
+fn times_looked_at(path: &str) -> usize {
+    super::engine::LOOKED_AT
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .iter()
+        .filter(|p| *p == path)
+        .count()
+}
+
+/// Mientras suena una canción, no se va al disco en cada vuelta del bucle a
+/// mirar si la siguiente está lista para entrar (eran 25 veces por segundo,
+/// y 500 en el último cuarto de segundo, justo cuando se mide el silencio
+/// entre las dos): una vez al leerla de antemano, y otra cuando la que suena
+/// acaba. Y entra igual.
+#[test]
+fn the_next_song_is_not_looked_at_on_every_turn_while_this_one_plays() {
+    let (m, rx, _card) = measured();
+    let first = tone("mirada-a", 3.0, false);
+    let second = tone("mirada-b", 0.5, true);
+    m.send(Command::Upcoming(Some(Upcoming {
+        ticket: 2,
+        path: second.clone(),
+        duration: 0.5,
+    })))
+    .unwrap();
+    m.send(Command::Play {
+        path: first.clone(),
+        duration: 3.0,
+    })
+    .unwrap();
+    let s = until(&m, |s| s.playing && s.position >= 2.0);
+    assert!(s.playing && s.position >= 2.0, "{s:?}");
+    let looks = times_looked_at(&second);
+    eprintln!("veces que se miró la siguiente en dos segundos sonando: {looks}");
+    assert!(looks <= 1, "se miró la siguiente {looks} veces en dos segundos");
+    assert!(
+        announced(&rx, |e| matches!(e, Event::Advanced { ticket: 2, .. })),
+        "no entró la siguiente"
+    );
+    for file in [first, second] {
+        let _ = std::fs::remove_file(file);
+    }
+}
+
 /// Sin anunciar nada, lo de siempre: se avisa del final y la cola decide.
 #[test]
 fn without_an_announced_next_song_the_queue_decides_at_the_end() {

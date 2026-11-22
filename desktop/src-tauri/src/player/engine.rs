@@ -1074,11 +1074,17 @@ impl Engine<'_> {
             && !st.failed
             && !self.was_finished
             && !self.carry.path.is_empty();
+        // si acabó, antes de mirar la siguiente en el disco: mirarla es
+        // abrirla, y esto se pregunta en cada vuelta del bucle (25 veces por
+        // segundo sonando, 500 en su último cuarto de segundo)
+        if !over {
+            return false;
+        }
         let ready = self
             .upcoming
             .as_ref()
             .is_some_and(|n| ready_file(&n.song.path).is_some());
-        if !over || !ready {
+        if !ready {
             return false;
         }
         let Some(next) = self.upcoming.take() else {
@@ -1222,9 +1228,19 @@ pub(super) fn clean_pitch(semitones: f32) -> f32 {
     (semitones.clamp(-12.0, 12.0) * 100.0).round() / 100.0
 }
 
+/// Las rutas que ha mirado `ready_file`, una vez por cada vez: las pruebas
+/// cuentan cuántas veces se va al disco por la siguiente.
+#[cfg(test)]
+pub(super) static LOOKED_AT: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
 /// El archivo que sonaría de `path` si se pidiera ahora mismo, sin esperar a
 /// nada: él, o su FLAC ya hecho.
 fn ready_file(path: &str) -> Option<PathBuf> {
+    #[cfg(test)]
+    LOOKED_AT
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .push(path.to_owned());
     let file = Path::new(path);
     if !file.is_file() {
         return None;
