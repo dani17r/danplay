@@ -211,8 +211,9 @@ describe('what plays and what gets repainted', () => {
         StudyClick,
         StudyWaveBar
       ]
-      const partTree = (C) => w.findComponent(C).vm.$.subTree
-      const partsBefore = parts.map(partTree)
+      // (StudyStems va dos veces: en la cabecera y en la fila del celular)
+      const partTrees = (C) => w.findAllComponents(C).map((c) => c.vm.$.subTree)
+      const partsBefore = parts.map(partTrees)
       const head = () => w.find('.tl-head').element.style.left
       const before = head()
       for (const k of Object.keys(counts)) delete counts[k]
@@ -229,8 +230,13 @@ describe('what plays and what gets repainted', () => {
       expect(counts.StudyTimeline || 0).toBe(0)
       expect(counts.BeatTools || 0).toBe(0)
       parts.forEach((C, i) => {
-        expect(partTree(C), `${C.__name} se repinta en cada aviso`).toBe(partsBefore[i])
+        const now = partTrees(C)
+        expect(now.length, `${C.__name} está montado`).toBeGreaterThan(0)
+        now.forEach((tree, k) => {
+          expect(tree, `${C.__name} se repinta en cada aviso`).toBe(partsBefore[i][k])
+        })
       })
+      expect(w.findAllComponents(StudyStems)).toHaveLength(2)
       // lo que tiene que moverse, se mueve
       expect(w.find('.study-time').text()).toBe('0:15 / 3:20')
       expect(head()).not.toBe(before)
