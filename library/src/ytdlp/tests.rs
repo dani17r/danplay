@@ -160,6 +160,30 @@ fn the_downloaded_version_is_used_only_if_newer() {
     assert!(!root.join("current").exists() && !root.join("2099.1.1").exists());
 }
 
+/// Lo que se une a la carpeta de las versiones no puede salirse de ella.
+#[test]
+fn only_a_plain_version_names_a_folder() {
+    for ok in ["2026.08.19", "2099.1.1", "nightly-2026_11", "v1"] {
+        assert!(valid_tag(ok), "{ok}");
+    }
+    for bad in [
+        "",
+        "..",
+        "2099.1.1/../x",
+        "../x",
+        "2099..1",
+        "a/b",
+        r"a\b",
+        "/etc",
+        "C:x",
+        "2026 08 19",
+        "versión",
+        &"1".repeat(41),
+    ] {
+        assert!(!valid_tag(bad), "{bad}");
+    }
+}
+
 #[test]
 fn pruning_keeps_only_the_new_one() {
     let dir = tempfile::tempdir().expect("en la prueba");

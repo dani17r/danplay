@@ -209,8 +209,13 @@ pub fn bundled_version(app: &App) -> String {
 pub fn marked(app: &App) -> Option<(String, PathBuf)> {
     let root = root(app);
     let version = y::marked_version(&root).ok().flatten()?;
+    // la marca es un archivo en disco: con «../» dentro nombraría (y luego
+    // `discard` borraría) una carpeta fuera de las versiones
+    if !y::valid_tag(&version) {
+        return None;
+    }
     let folder = root.join(&version);
-    (!version.is_empty() && folder.join(EXE).is_file()).then_some((version, folder))
+    folder.join(EXE).is_file().then_some((version, folder))
 }
 
 /// La descargada que toca usar: la que dice `current`, si está entera y es
@@ -988,6 +993,11 @@ pub fn update(app: &App, progress: &dyn Fn(i64, &str)) -> Result<Value, UpdateEr
         .to_owned();
     if latest.is_empty() {
         return fail("GitHub no dice cual es la ultima version de yt-dlp");
+    }
+    // va a ser el nombre de una carpeta que se borra y se reemplaza: con
+    // «../» dentro sería una de fuera
+    if !y::valid_tag(&latest) {
+        return fail("GitHub dice una versión de yt-dlp que no se entiende");
     }
     if !previous.is_empty() && y::version_tuple(&latest) <= y::version_tuple(&previous) {
         return Ok(json!({"previous": previous, "version": previous, "updated": false}));

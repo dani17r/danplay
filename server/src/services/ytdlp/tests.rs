@@ -509,6 +509,59 @@ fn update_refuses_what_does_not_match() {
     );
 }
 
+/// Un `tag_name` con «../» no nombra una carpeta fuera de las versiones (se
+/// borraba y se ponía ahí el ejecutable), ni una marca `current` con lo
+/// mismo hace usar lo que haya fuera.
+#[cfg(unix)]
+#[test]
+fn a_version_with_a_path_inside_does_not_leave_the_folder() {
+    let (app, tools) = app_with_tools();
+    script(&tools, "yt-dlp", &fake_version("2026.08.19"));
+    let tag = "2099.1.1/../../victim";
+    let new_exe = format!("#!/bin/sh\n{}\n", fake_version("2099.1.1"));
+    let sum = y::sha256_hex(new_exe.as_bytes());
+    let name = assets()[0];
+    let server = serve(move |base| {
+        let listing = json!({
+            "tag_name": tag,
+            "assets": [
+                {"name": name, "browser_download_url": format!("{base}/bin")},
+                {"name": SUMS, "browser_download_url": format!("{base}/sums")},
+            ],
+        });
+        vec![
+            (
+                "/r/latest".to_owned(),
+                200,
+                listing.to_string().into_bytes(),
+            ),
+            (
+                "/sums".to_owned(),
+                200,
+                format!("{sum}  {name}\n").into_bytes(),
+            ),
+            ("/bin".to_owned(), 200, new_exe.into_bytes()),
+        ]
+    });
+    point_to(&app, &tools, &format!("{server}/r"));
+    // con «2099.1.1» ya ahí, «2099.1.1/../../victim» es la vecina de `root`
+    std::fs::create_dir_all(root(&app).join("2099.1.1")).expect("carpeta");
+    let victim = root(&app).parent().expect("padre").join("victim");
+    std::fs::create_dir_all(&victim).expect("vecina");
+    std::fs::write(victim.join("keep"), "x").expect("archivo");
+    let e = update(&app, &|_, _| {}).expect_err("no se entiende");
+    assert_eq!(e.0, "GitHub dice una versión de yt-dlp que no se entiende");
+    assert!(victim.join("keep").is_file(), "se borró lo de fuera");
+    assert!(!victim.join(EXE).exists());
+    assert!(!root(&app).join("current").exists());
+    assert_eq!(version(&app), "2026.08.19");
+    // una marca que apunta fuera no se usa
+    script(&victim, EXE, &fake_version("2099.1.1"));
+    std::fs::write(root(&app).join("current"), "../victim").expect("marca");
+    assert_eq!(marked(&app), None);
+    assert!(installed(&app));
+}
+
 /// De los motores de JavaScript que hay, el primero que funciona en el
 /// orden de yt-dlp (deno antes que node), y es el que se le pasa. Los que
 /// son viejos, QuickJS y la pista de qué instalar se prueban
