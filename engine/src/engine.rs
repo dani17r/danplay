@@ -721,7 +721,15 @@ impl Engine {
 
     /// A donde va cada cosa. Si hacen falta mas canales de los que tiene la
     /// salida abierta, se vuelve a abrir con ellos.
+    ///
+    /// El mismo enrutado que ya hay no hace nada. Mandarlo otra vez sonando
+    /// era un cambio de enrutado entero: la envolvente abajo y arriba (unos
+    /// 6 ms de bajon) y los estiradores desde cero. El celular lo mandaba
+    /// con cada toque del mezclador, y la PC dos veces en cada carga.
     pub fn set_routing(&self, routing: Routing) {
+        if *lock(&self.session).routing == routing {
+            return;
+        }
         let routing = Arc::new(routing);
         let reopen = {
             let mut s = lock(&self.session);
@@ -1074,6 +1082,50 @@ mod tests {
         e.play();
         let out = pull_for(&e, 44_100);
         assert!(out.iter().any(|v| v.abs() > 0.1));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn sending_the_same_routing_again_while_it_plays_does_not_dip() {
+        // el celular mandaba el enrutado con cada toque del mezclador: aunque
+        // fuera el mismo, era un cambio de enrutado sonando (la envolvente
+        // abajo y arriba, unos 6 ms de bajon cada vez)
+        let (dir, parts) = files("mismo-enrutado");
+        let pass = |again: bool| {
+            let e = Engine::offline(44_100);
+            e.load_files("cancion", &parts[..1], 0.0).expect("carga");
+            settle_on(&e);
+            e.play();
+            let mut out = pull_steady(&e, 8_820);
+            if again {
+                e.set_routing(Routing::default());
+            }
+            out.extend(pull_steady(&e, 17_640));
+            out
+        };
+        let reference = pass(false);
+        let resent = pass(true);
+        // el nivel de cada ventana de 3 ms del canal izquierdo, tras la orden
+        let rms = |x: &[f32]| -> Vec<f32> {
+            let left: Vec<f32> = x.iter().step_by(2).copied().collect();
+            left[8_820..]
+                .as_chunks::<132>()
+                .0
+                .iter()
+                .map(|w| (w.iter().map(|v| v * v).sum::<f32>() / w.len() as f32).sqrt())
+                .collect()
+        };
+        let (want, got) = (rms(&reference), rms(&resent));
+        let worst = want
+            .iter()
+            .zip(&got)
+            .filter(|(w, _)| **w > 0.01)
+            .map(|(w, g)| g / w)
+            .fold(f32::INFINITY, f32::min);
+        assert!(
+            worst > 0.95,
+            "una ventana bajó a {worst:.2} del nivel de referencia"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
