@@ -20,6 +20,15 @@
  * archivo— y se va con ella si se borra. Al abrir se aplica lo guardado; al
  * ocultar no se toca nada; al salir del estudio se quita y la canción vuelve
  * a sonar normal.
+ *
+ * Cada parte va en su componente (StudyStems, StudyWaveBar, StudyTempo,
+ * StudyClick, StudyMarkers con StudyCueList, StudyNotes) y lo que hace, en su
+ * composable (useStudyDoc, useStudyStems, useStudyMarkers, useStudyLoops,
+ * useStudyClick, useStudyCues): aquí se arman y se dan a las partes con un
+ * solo contexto (studyContext.js). Aquí quedan la cabecera, leer lo guardado
+ * al cambiar de canción (`loadFor`), ocultar y salir, las pestañas, el
+ * recorrido, el encaje de la onda en el panel, los diálogos y la línea de
+ * tiempo.
  */
 import { ref, computed, watch, onMounted, onUnmounted, provide } from 'vue'
 // su CSS viene con él: es una isla y no se carga al arrancar (islands.js). Antes
@@ -123,8 +132,8 @@ const notesTab = ref('song')
 const timeline = ref(null)
 /**
  * Lo que comparten las partes del estudio (StudyNotes, StudyTempo…): un solo
- * objeto, que se va llenando según se arma cada una (studyContext.js).
- * @type {import('../composables/studyContext.js').StudyContext}
+ * objeto, que se va llenando según se arma cada una (studyContext.js). Cada
+ * composable se arma donde estaba su código (el orden de los `watch` cuenta).
  */
 const ctx = /** @type {import('../composables/studyContext.js').StudyContext} */ ({
   doc,
