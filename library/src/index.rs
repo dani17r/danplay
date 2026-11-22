@@ -27,9 +27,10 @@ pub mod tidy;
 use rusqlite::types::{Value as Sql, ValueRef};
 use rusqlite::{Connection, OpenFlags, Params};
 use serde_json::{Map, Number, Value};
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Condvar, Mutex, PoisonError};
+use std::sync::{Condvar, LazyLock, Mutex, PoisonError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 /// Las sentencias preparadas que se guardan por conexión: las de cada
@@ -128,12 +129,60 @@ pub fn get_str<'a>(d: &'a Dict, k: &str) -> &'a str {
     d.get(k).and_then(Value::as_str).unwrap_or("")
 }
 
+/// Las columnas de `songs` de cada base (por su ruta), y lo que se pide de
+/// ellas en una fila ligera (`search::light_columns`, por base y alias):
+/// solo cambian con las migraciones (`schema::prepare`, que las olvida), y
+/// se miraban con `PRAGMA table_info` en cada búsqueda.
+#[derive(Default)]
+pub(crate) struct ColumnsCache {
+    pub(crate) songs: HashMap<String, Vec<String>>,
+    pub(crate) light: HashMap<(String, String), String>,
+}
+
+pub(crate) static COLUMNS_CACHE: LazyLock<Mutex<ColumnsCache>> =
+    LazyLock::new(|| Mutex::new(ColumnsCache::default()));
+
+/// La ruta de la base de esa conexión, si tiene (una en memoria no).
+pub(crate) fn db_key(conn: &Connection) -> Option<String> {
+    conn.path().filter(|p| !p.is_empty()).map(str::to_owned)
+}
+
+/// Olvida lo recordado de las columnas de esa base (tras migrarla).
+pub(crate) fn forget_columns(conn: &Connection) {
+    if let Some(key) = db_key(conn) {
+        let mut cache = COLUMNS_CACHE.lock().unwrap_or_else(PoisonError::into_inner);
+        cache.songs.remove(&key);
+        cache.light.retain(|(db, _), _| *db != key);
+    }
+}
+
 /// Las columnas que tiene hoy la tabla `songs` (las que se añadieron
 /// después solo están si la migración las puso).
 pub fn song_columns(conn: &Connection) -> rusqlite::Result<Vec<String>> {
+    let key = db_key(conn);
+    if let Some(k) = &key
+        && let Some(cols) = COLUMNS_CACHE
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .songs
+            .get(k)
+    {
+        return Ok(cols.clone());
+    }
     let mut stmt = conn.prepare_cached("PRAGMA table_info(songs)")?;
     let rows = stmt.query_map([], |r| r.get::<_, String>(1))?;
-    rows.collect()
+    let cols: Vec<String> = rows.collect::<rusqlite::Result<_>>()?;
+    // sin tabla (una base a medio hacer) no se recuerda nada
+    if let Some(k) = key
+        && !cols.is_empty()
+    {
+        COLUMNS_CACHE
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .songs
+            .insert(k, cols.clone());
+    }
+    Ok(cols)
 }
 
 /// La hora: los segundos desde 1970, con decimales.

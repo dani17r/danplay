@@ -390,6 +390,8 @@ pub fn stop(app: &App) {
     crate::services::stems::cancel(app);
     watcher::stop(app);
     journal::stop(app);
+    // la última conexión: SQLite deja la base sin `-wal` (ver `app::Keeper`)
+    app.release_db();
 }
 
 #[cfg(test)]

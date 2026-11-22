@@ -130,6 +130,30 @@ pub const LIGHT_FLAGS: [(&str, &str); 5] = [
 /// El SELECT de una fila ligera: todo menos lo pesado, y en su lugar si
 /// lo tiene. Con `alias` vacío, sin prefijo de tabla.
 pub fn light_columns(conn: &Connection, alias: &str) -> rusqlite::Result<String> {
+    let key = super::db_key(conn).map(|db| (db, alias.to_owned()));
+    if let Some(k) = &key
+        && let Some(cols) = super::COLUMNS_CACHE
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .light
+            .get(k)
+    {
+        return Ok(cols.clone());
+    }
+    let cols = compose_light_columns(conn, alias)?;
+    if let Some(k) = key
+        && !cols.is_empty()
+    {
+        super::COLUMNS_CACHE
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .light
+            .insert(k, cols.clone());
+    }
+    Ok(cols)
+}
+
+fn compose_light_columns(conn: &Connection, alias: &str) -> rusqlite::Result<String> {
     let prefix = if alias.is_empty() {
         String::new()
     } else {

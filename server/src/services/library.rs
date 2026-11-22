@@ -534,6 +534,8 @@ mod tests {
 
             // se pierde el índice
             let db = app.config().database.clone();
+            // (en Windows una base abierta no se puede borrar)
+            app.release_db();
             for suffix in ["", "-wal", "-shm"] {
                 let _ = std::fs::remove_file(format!("{}{suffix}", db.display()));
             }

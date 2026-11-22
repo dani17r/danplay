@@ -528,7 +528,12 @@ where
     for extra in EXTRA_SCHEMAS {
         conn.execute_batch(extra)?;
     }
-    migrate(conn, fresh, migrations)
+    // las columnas recordadas de esta base ya no valen: las migraciones
+    // añaden (y antes de acabar, las de por medio tampoco)
+    super::forget_columns(conn);
+    let out = migrate(conn, fresh, migrations);
+    super::forget_columns(conn);
+    out
 }
 
 /// La base lleva el historial del chat y lo que escuchas: solo para su dueño

@@ -55,6 +55,8 @@ fn rescanning_reuses_files_that_have_not_changed() {
 }
 
 fn rebuild(app: &crate::App) -> Value {
+    // (en Windows una base abierta no se puede borrar)
+    app.release_db();
     std::fs::remove_file(&app.config().database).expect("borrar la base");
     let lib = app.config().library.clone();
     call(
