@@ -46,6 +46,17 @@ else
     cargo build --release -p danplay-app
 fi
 
+# El .deb, de gzip a xz: 21 MB menos con la 1.44.1 (de 145 a 124), con el
+# mismo contenido. Tauri no deja elegir la compresion. xz y no zstd: el dpkg
+# de Debian 11 no abre zstd. Lo mismo hace la CI (linux.yml).
+recompress_deb () {
+    raw="$TARGET/release/bundle/deb-raw"
+    rm -rf "$raw"
+    dpkg-deb -R "$1" "$raw"
+    dpkg-deb -Zxz -z6 --root-owner-group -b "$raw" "$1" >/dev/null
+    rm -rf "$raw"
+}
+
 if [ "${1:-}" = "--package" ]; then
     # (la foto del catalogo de modelos viaja la del repositorio, data/: se
     # saca al subir la version, con scripts/bump-version.sh, y asi es la
@@ -66,6 +77,9 @@ if [ "${1:-}" = "--package" ]; then
     # tragaba y luego se copiaban los paquetes VIEJOS con fecha nueva, que es
     # la peor forma de fallar: parece que funciono y arrancas la app de ayer.
     ( cd desktop && vp exec tauri bundle --bundles deb,appimage )
+    for f in "$BUNDLE"/deb/*.deb; do
+        [ -f "$f" ] && recompress_deb "$f"
+    done
 
     # Y fuera tambien los de la version anterior en el destino, por lo mismo.
     rm -f dist/installers/*.deb dist/installers/*.AppImage
@@ -101,6 +115,7 @@ if [ "${1:-}" = "--package" ]; then
                   usr/lib/DanPlay/tools/ffmpeg usr/lib/DanPlay/tools/yt-dlp; do
         printf '%s\n' "$CONTENTS" | grep -q "$wanted" || die "el .deb no lleva $wanted"
     done
+    ar t "$DEB" | grep -qx 'data.tar.xz' || die "el .deb no va en xz: $(ar t "$DEB" | tr '\n' ' ')"
     if printf '%s\n' "$CONTENTS" | grep -iqE 'python|\.pyc|/_internal/|libpython'; then
         die "el .deb lleva algo de Python: $(printf '%s\n' "$CONTENTS" | grep -iE 'python|\.pyc|/_internal/|libpython' | head -3)"
     fi

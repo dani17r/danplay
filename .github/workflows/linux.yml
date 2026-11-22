@@ -125,6 +125,19 @@ jobs:
           APPIMAGE_EXTRACT_AND_RUN: '1'
         run: vp exec tauri bundle --bundles deb,appimage
 
+      # Tauri lo deja en gzip; en xz pesa 21 MB menos (medido con la 1.44.1:
+      # de 145 a 124), con el mismo contenido. xz y no zstd: el dpkg de
+      # Debian 11 no abre zstd. Lo mismo que scripts/build.sh --package.
+      - name: el .deb, en xz
+        run: |
+          deb=$(ls target/release/bundle/deb/*.deb)
+          before=$(stat -c %s "$deb")
+          rm -rf deb-raw
+          dpkg-deb -R "$deb" deb-raw
+          dpkg-deb -Zxz -z6 --root-owner-group -b deb-raw "$deb"
+          rm -rf deb-raw
+          echo "de $before a $(stat -c %s "$deb") bytes: $(ar t "$deb" | tr '\n' ' ')"
+
       # con el nucleo, sus datos y sus programas, y sin nada de Python
       - name: qué lleva el .deb
         run: |
@@ -138,6 +151,7 @@ jobs:
           if echo "$contents" | grep -iE 'python|\.pyc|/_internal/|libpython'; then
             echo "el .deb lleva algo de Python"; exit 1
           fi
+          ar t target/release/bundle/deb/*.deb | grep -qx 'data.tar.xz' || { echo "el .deb no va en xz"; exit 1; }
           ls -la target/release/bundle/deb/*.deb target/release/bundle/appimage/*.AppImage
 
       # La ventana del paquete que se publica, abierta de verdad: el .deb
