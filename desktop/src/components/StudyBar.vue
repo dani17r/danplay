@@ -2629,6 +2629,28 @@ function fitTimeline() {
   // de dos en dos píxeles: que un redondeo no la tenga midiendo sin parar
   if (waveRoom.value == null || Math.abs(next - waveRoom.value) >= 2) waveRoom.value = next
 }
+/**
+ * Mientras el panel cambia de alto con su animación («Grande», 0,3 s) no se
+ * reparte el sitio: el observador avisaba en cada fotograma, y cada vez se
+ * medía todo, cambiaban los carriles y se repintaba la onda (unas 18 veces
+ * en 300 ms). Se reparte una vez, al acabar. Por si el final no llega (el
+ * panel se oculta a medias), un tope.
+ */
+let growing = false
+let growTimer = null
+function onGrowStart(e) {
+  if (e.target !== root.value || e.propertyName !== 'height') return
+  growing = true
+  clearTimeout(growTimer)
+  growTimer = setTimeout(onGrowEnd, 600)
+}
+function onGrowEnd(e) {
+  if (e && (e.target !== root.value || e.propertyName !== 'height')) return
+  clearTimeout(growTimer)
+  if (!growing) return
+  growing = false
+  fitTimeline()
+}
 onMounted(() => {
   // cuántos canales tiene la salida: los botones de cada carril son L y R, o
   // 1, 2, 3… con una interfaz de más salidas
@@ -2640,14 +2662,17 @@ onMounted(() => {
       const w = e.contentRect.width
       tabbed.value = w >= 680 && w < 1100
     }
-    fitTimeline()
+    if (!growing) fitTimeline()
   })
   sizeWatch.observe(root.value)
   // y lo de dentro de la línea de tiempo: otro carril de guías, el del clic
   const tl = timeline.value?.$el
   if (tl?.nodeType === 1) sizeWatch.observe(tl)
 })
-onUnmounted(() => sizeWatch?.disconnect())
+onUnmounted(() => {
+  sizeWatch?.disconnect()
+  clearTimeout(growTimer)
+})
 
 // el celular lo oculta también con «atrás» y deslizando hacia abajo
 defineExpose({ close: hide, hide, exit })
@@ -2671,6 +2696,9 @@ defineExpose({ close: hide, hide, exit })
     }"
     role="region"
     aria-label="Modo estudio"
+    @transitionrun="onGrowStart"
+    @transitionend="onGrowEnd"
+    @transitioncancel="onGrowEnd"
   >
     <!-- en el celular: «Modo estudio» pequeño encima, el título en grande y
          el artista debajo, cada uno en su línea -->

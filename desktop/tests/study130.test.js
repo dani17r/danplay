@@ -612,6 +612,51 @@ describe('the tour', () => {
   })
 })
 
+describe('«Grande» and its animation', () => {
+  // El observador del tamaño avisaba en cada fotograma de la animación del
+  // alto (0,3 s): cada vez se medía todo y se repartían los carriles.
+  it('while the panel changes height the room is shared out once, at the end', async () => {
+    let notify = null
+    const had = 'ResizeObserver' in globalThis
+    const before = globalThis.ResizeObserver
+    globalThis.ResizeObserver = class {
+      constructor(cb) {
+        notify = cb
+      }
+      observe() {}
+      disconnect() {}
+    }
+    const read = vi.spyOn(window, 'getComputedStyle')
+    try {
+      const w = await mountView()
+      const root = w.find('.study').element
+      Object.defineProperty(root, 'clientHeight', { configurable: true, value: 600 })
+      Object.defineProperty(w.find('.tl-box').element, 'offsetHeight', {
+        configurable: true,
+        value: 120
+      })
+      const fits = () => read.mock.calls.filter(([el]) => el === root).length
+      const transition = (type) => {
+        const e = new Event(type, { bubbles: true })
+        Object.defineProperty(e, 'propertyName', { value: 'height' })
+        root.dispatchEvent(e)
+      }
+      notify([])
+      expect(fits(), 'sin animación, se reparte').toBe(1)
+      read.mockClear()
+      transition('transitionrun')
+      for (let i = 0; i < 5; i++) notify([])
+      expect(fits(), 'se reparte en cada fotograma de la animación').toBe(0)
+      transition('transitionend')
+      expect(fits()).toBe(1)
+    } finally {
+      read.mockRestore()
+      if (had) globalThis.ResizeObserver = before
+      else delete globalThis.ResizeObserver
+    }
+  })
+})
+
 describe('the big data of the study', () => {
   it('the manual click beats and the cue waves are not made reactive one by one', async () => {
     const own = { beats: [0.5, 1, 1.5, 2], bars: [0], meter: 4 }
