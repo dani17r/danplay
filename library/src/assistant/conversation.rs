@@ -219,6 +219,10 @@ pub struct Call<O> {
     pub id: O,
     pub name: O,
     pub arguments: O,
+    /// Lo que el modelo manda con la llamada y hay que devolverle tal cual en
+    /// el turno siguiente (Gemini: `extra_content`, con la firma de
+    /// pensamiento; sin ella, la respuesta con el resultado se rechaza).
+    pub extra: Option<O>,
 }
 
 /// Por qué no contestó el modelo.

@@ -449,7 +449,8 @@ fn collect_stream(
     cancel: Option<&AtomicBool>,
 ) -> Result<(Value, Option<Value>), CallError> {
     let mut parts = String::new();
-    let mut calls: BTreeMap<i64, (String, String, String)> = BTreeMap::new();
+    // id, nombre, argumentos y lo que trae con ella (`extra_content`: Gemini)
+    let mut calls: BTreeMap<i64, (String, String, String, Value)> = BTreeMap::new();
     let mut usage: Option<Value> = None;
     let mut retracted = false;
     let mut canceled = false;
@@ -505,6 +506,9 @@ fn collect_stream(
             {
                 id.clone_into(&mut slot.0);
             }
+            if let Some(extra) = tc.get("extra_content").filter(|x| !x.is_null()) {
+                slot.3 = extra.clone();
+            }
             if let Some(f) = tc.get("function").filter(|f| !f.is_null()) {
                 if let Some(name) = f
                     .get("name")
@@ -542,12 +546,20 @@ fn collect_stream(
     // el turno siguiente, es «un documento vacío»: un 400. Siempre JSON.
     let tool_calls: Vec<Value> = calls
         .iter()
-        .map(|(i, (id, name, args))| {
-            json!({
+        .map(|(i, (id, name, args, extra))| {
+            let mut call = json!({
                 "id": if id.is_empty() { format!("call_{i}") } else { id.clone() },
                 "type": "function",
                 "function": {"name": name, "arguments": if args.is_empty() { "{}" } else { args.as_str() }},
-            })
+            });
+            // la firma de pensamiento de Gemini vuelve con la llamada, o el
+            // siguiente turno (el del resultado) se rechaza
+            if !extra.is_null()
+                && let Some(obj) = call.as_object_mut()
+            {
+                obj.insert("extra_content".into(), extra.clone());
+            }
+            call
         })
         .collect();
     let tool_calls = if tool_calls.is_empty() {

@@ -320,6 +320,50 @@ fn a_model_without_tools() {
     assert_eq!(r, Err(AiError::ToolsUnsupported("tiny".into())));
 }
 
+/// Gemini (su endpoint compatible con OpenAI) manda con cada llamada una firma
+/// de pensamiento en `extra_content`, y el turno siguiente, el del resultado,
+/// se rechaza («missing a thought_signature») si no vuelve con ella. Se
+/// comprueba que la firma llega, y que vuelve tal cual en la llamada.
+#[test]
+fn a_tool_call_keeps_the_signature_gemini_sends_with_it() {
+    let _s = SERIAL.lock().unwrap_or_else(PoisonError::into_inner);
+    let b = Bank::new("firma");
+    let sse = concat!(
+        "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"g1\",\"extra_content\":{\"google\":{\"thought_signature\":\"FIRMA-1\"}},\"function\":{\"name\":\"buscar\",\"arguments\":\"{}\"}}]}}]}\n\n",
+        "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":5,\"completion_tokens\":2}}\n\n",
+        "data: [DONE]\n\n",
+    );
+    let answer = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{sse}",
+        sse.len()
+    );
+    let (base, _seen) = serve(vec![answer]);
+    b.save(
+        json!({"provider": "custom", "id": "custom-f", "base_url": base, "model": "m"}),
+        true,
+    );
+    // con `on_text` la respuesta llega en trozos (streaming), como en el chat
+    let mut heard = |_: &str| {};
+    let r = b
+        .run(|ctx| {
+            complete(
+                ctx,
+                &chat("busca"),
+                CallRequest {
+                    on_text: Some(&mut heard),
+                    ..CallRequest::default()
+                },
+            )
+        })
+        .expect("respuesta");
+    let calls = r.message["tool_calls"].as_array().expect("herramientas");
+    assert_eq!(
+        calls[0]["extra_content"],
+        json!({"google": {"thought_signature": "FIRMA-1"}}),
+        "la firma viaja con la llamada"
+    );
+}
+
 #[test]
 fn streamed_with_preamble_and_tool() {
     let _s = SERIAL.lock().unwrap_or_else(PoisonError::into_inner);

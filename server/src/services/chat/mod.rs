@@ -272,11 +272,16 @@ impl Chat for ServerChat<'_, '_> {
         let list: Vec<Value> = calls
             .iter()
             .map(|c| {
-                json!({
+                let mut call = json!({
                     "id": c.id,
                     "type": "function",
                     "function": {"name": c.name, "arguments": c.arguments},
-                })
+                });
+                // lo que mandó el modelo con la llamada, tal cual (ver `Call::extra`)
+                if let (Some(extra), Some(obj)) = (&c.extra, call.as_object_mut()) {
+                    obj.insert("extra_content".into(), extra.clone());
+                }
+                call
             })
             .collect();
         self.history
@@ -338,6 +343,7 @@ impl Chat for ServerChat<'_, '_> {
                     id: c.get("id").cloned().unwrap_or(Value::Null),
                     name: function.get("name").cloned().unwrap_or(Value::Null),
                     arguments: function.get("arguments").cloned().unwrap_or(Value::Null),
+                    extra: c.get("extra_content").filter(|x| !x.is_null()).cloned(),
                 });
             }
         }
@@ -394,6 +400,7 @@ impl Chat for ServerChat<'_, '_> {
             id: id.into(),
             name: name.into(),
             arguments: arguments.into(),
+            extra: None,
         })
     }
 

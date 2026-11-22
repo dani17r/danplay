@@ -31,6 +31,7 @@ fn calling(name: &str, args: Value) -> Reply<Value> {
             id: json!("c1"),
             name: json!(name),
             arguments: json!(args.to_string()),
+            extra: None,
         }],
     }
 }
@@ -83,6 +84,7 @@ impl Chat for Fake {
             id: json!(id),
             name: json!(name),
             arguments: json!(arguments),
+            extra: None,
         })
     }
     fn parse_args(&mut self, arguments: &Value) -> Result<Value, String> {
@@ -356,6 +358,7 @@ fn too_many_calls_are_refused_and_the_budget_runs_out() {
             id: json!(format!("c{i}")),
             name: json!("search_songs"),
             arguments: json!("{}"),
+            extra: None,
         })
         .collect();
     let mut f = Fake {
