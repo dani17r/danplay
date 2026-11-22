@@ -46,6 +46,7 @@ import {
 } from '../utils/beatEdit.js'
 import { alignBeats, estimateTempo, fitReport, REACH_DEFAULT } from '../utils/beatAlign.js'
 import { formatBpm, gridToOwn, ownToGrid, ownTouched, touchedByEdit } from '../utils/beats.js'
+import { readPref, savePref } from '../utils/prefs.js'
 
 // ------------------------------------------------------------------ las palabras
 /** «3 pulsos» / «1 pulso» */
@@ -75,21 +76,6 @@ const PREF_HEAR = 'danplay.click.hearTrial'
 /** De cuántas canciones (y fuente) se guardan los golpes ya pedidos. */
 export const HITS_KEEP = 4
 
-function readPref(key, fallback) {
-  try {
-    const v = localStorage.getItem(key)
-    return v == null ? fallback : JSON.parse(v)
-  } catch {
-    return fallback
-  }
-}
-function savePref(key, value) {
-  try {
-    localStorage.setItem(key, JSON.stringify(value))
-  } catch {
-    /* modo privado */
-  }
-}
 /** Una preferencia de sí o no, recordada. */
 function boolPref(key, fallback) {
   const saved = readPref(key, fallback)

@@ -17,6 +17,10 @@
 // coma flotante, `0.52 - 0.5 >= 0.02` dice que no.
 
 import { normalMeter } from './beats.js'
+import { clamp, round3 } from './num.js'
+
+// (al milisegundo y sin devolver nunca un `-0`: ver num.js)
+export { round3 }
 
 /** @typedef {{beats: number[], bars: number[], meter: number}} Own */
 /** @typedef {Own & {selection: number[]}} Edited */
@@ -27,11 +31,8 @@ const MIN_GAP_MS = Math.round(MIN_GAP * 1000)
 /** Más cerca que esto de otro pulso, no se deja añadir uno (`addBeatAt`). */
 const ADD_GAP_MS = 30
 
-/** Al milisegundo (sin devolver nunca un `-0`). */
-export const round3 = (t) => Math.round(t * 1000) / 1000 + 0
 const toMs = (t) => Math.round(t * 1000)
 const mod = (a, n) => ((a % n) + n) % n
-const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v))
 
 // -------------------------------------------------------------- lo de dentro
 

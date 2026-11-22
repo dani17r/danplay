@@ -95,6 +95,8 @@ import { columnsFor, paintWave } from '../utils/wavePaint.js'
 import Icon from './Icon.vue'
 import SliderField from './ui/SliderField.vue'
 import ChannelPicker from './ChannelPicker.vue'
+import { clamp, pctText, round2, round3 } from '../utils/num.js'
+import { MAX_CUE_LANES, markerParts as partsOf } from '../utils/cues.js'
 
 const props = defineProps({
   songId: { type: Number, default: null },
@@ -248,8 +250,6 @@ const showClick = computed(() => !!props.clickLane && headModeBase.value && !isM
 /** Cada carril con su cabecera a la izquierda (los de las pistas o los de las guías). */
 const headModeBase = computed(() => laneMode.value || showGuides.value)
 const headMode = headModeBase
-/** Hasta cuántos carriles de guías. */
-const MAX_CUE_LANES = 6
 // alto de la onda (o de todos los carriles), en px
 const WAVE_H = computed(() =>
   laneMode.value ? props.lanes.length * props.laneHeight : props.height
@@ -260,10 +260,6 @@ const THRESHOLD = 4 // px de movimiento a partir de los que un clic pasa a ser a
 const SNAP = 6 // px: cerca de un marcador, el borde se pega a él
 const MIN_SPAN = 1.5 // segundos a la vista como mucho de cerca
 const FOLLOW_PAUSE = 4000 // ms sin seguir a la aguja tras mover la vista a mano
-
-const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v))
-const round2 = (v) => Math.round(v * 100) / 100
-const round3 = (v) => Math.round(v * 1000) / 1000
 
 // ------------------------------------------------------------ la vista
 /** El trozo de la canción que se ve: de `from` a `to`, en segundos. */
@@ -823,8 +819,6 @@ watch(
   () => wantLaneDetail()
 )
 
-/** El volumen de un carril, para leerlo: «80 %». */
-const pctText = (v) => Math.round((Number(v) || 0) * 100) + ' %'
 /** El panorama de un carril, para leerlo: «centro», «30 % izq.». */
 function panText(v) {
   const p = Math.round((Number(v) || 0) * 100)
@@ -1011,8 +1005,6 @@ const gaps = computed(() => {
 const isEditing = (i) =>
   !!(drag.mode && drag.moved) &&
   (drag.mode === 'select' ? i === shown.value.length - 1 : i === drag.index)
-/** Los trozos de un marcador: sus partes, su tramo, o nada si es un instante. */
-const partsOf = (m) => (m.parts?.length ? m.parts : m.end > m.t ? [[m.t, m.end]] : [])
 
 /** Cerca del principio o del final de un marcador, el borde se pega a el. */
 function snap(t, r = rectOf()) {

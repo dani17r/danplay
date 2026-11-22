@@ -704,3 +704,37 @@ describe('the pointer over the wave', () => {
     await flushPromises()
   })
 })
+
+describe('the bands of a marker', () => {
+  // La barra y la línea de tiempo tenían cada una su regla: con una sola parte
+  // guardada (datos de antes o escritos a mano), la barra usaba `t`..`end` y la
+  // línea de tiempo pintaba esa parte. Ahora las dos, `t`..`end`.
+  it('a marker with a single part is painted from its start to its end, like the bar uses it', async () => {
+    const w = await mountEdit({
+      editBeats: false,
+      markers: [{ t: 10, end: 20, parts: [[12, 14]], label: 'Coro' }]
+    })
+    const bands = w.findAll('.tl-region')
+    expect(bands).toHaveLength(1)
+    expect(bands[0].attributes('style')).toContain('left: 25%')
+    expect(bands[0].attributes('style')).toContain('width: 25%')
+  })
+
+  it('with several parts, one band per part', async () => {
+    const w = await mountEdit({
+      editBeats: false,
+      markers: [
+        {
+          t: 4,
+          end: 20,
+          parts: [
+            [4, 8],
+            [16, 20]
+          ],
+          label: 'Coro'
+        }
+      ]
+    })
+    expect(w.findAll('.tl-region')).toHaveLength(2)
+  })
+})

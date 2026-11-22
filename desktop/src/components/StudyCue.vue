@@ -22,6 +22,7 @@ import Icon from './Icon.vue'
 import TextField from './ui/TextField.vue'
 import SelectField from './ui/SelectField.vue'
 import SliderField from './ui/SliderField.vue'
+import { round2 } from '../utils/num.js'
 
 const props = defineProps({
   /**
@@ -136,7 +137,6 @@ const voiceOptions = computed(() =>
 )
 const canRecord = computed(() => typeof tauriApp.recordStart === 'function' && tauriApp.canRecord)
 
-const round2 = (v) => Math.round(v * 100) / 100
 /** Antes o después: medio segundo, o con el imán, al pulso de al lado. */
 function nudge(delta) {
   const beat = props.beats.length ? stepBeat(props.beats, at.value, delta < 0 ? -1 : 1) : null

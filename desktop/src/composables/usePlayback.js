@@ -19,6 +19,7 @@ import {
   normalizeRepeat,
   REPEAT_MODES
 } from '../playback/queueLogic.js'
+import { clamp } from '../utils/num.js'
 
 /** @typedef {import('../api.js').PlaybackState} PlaybackState */
 /** @typedef {import('../api.js').Track} Track */
@@ -118,8 +119,6 @@ export function toTrack(s) {
   if (typeof s.path === 'string' && s.path) t.path = s.path
   return t
 }
-
-const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v))
 
 /**
  * Hasta dónde sube el volumen de la canción: un 50 % por encima de como

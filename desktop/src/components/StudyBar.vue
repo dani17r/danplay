@@ -84,6 +84,9 @@ import StudyOutputs from './StudyOutputs.vue'
 import StudyCue from './StudyCue.vue'
 import StudyExport from './StudyExport.vue'
 import VoicePicker from './VoicePicker.vue'
+import { clamp, pctText, round2, round3 } from '../utils/num.js'
+import { readPref, savePref } from '../utils/prefs.js'
+import { MAX_CUE_LANES, markerParts as partsOf } from '../utils/cues.js'
 
 const props = defineProps({
   /** Se ve (la capa puede estar oculta y el estudio seguir puesto). */
@@ -130,8 +133,6 @@ function withRawOwn(metronome) {
   if (m.own && typeof m.own === 'object') m.own = markRaw(m.own)
   return m
 }
-/** Hasta cuántos carriles de guías (como el núcleo). */
-const MAX_CUE_LANES = 6
 // el clic: su rejilla, si carga, y el modo. Vive fuera del panel: con él
 // cerrado, al pasar de canción, sigue igual
 const click = useClick()
@@ -194,27 +195,7 @@ let saveTimer = null
  */
 let pending = null
 
-const round2 = (v) => Math.round(v * 100) / 100
-const round3 = (v) => Math.round(v * 1000) / 1000
 const isSpan = (m) => m.end > m.t
-const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v))
-
-/** Lo que esta barra recuerda en el navegador (el candado, el paso del tono…). */
-function readPref(key, fallback) {
-  try {
-    const v = localStorage.getItem(key)
-    return v == null ? fallback : JSON.parse(v)
-  } catch {
-    return fallback
-  }
-}
-function savePref(key, value) {
-  try {
-    localStorage.setItem(key, JSON.stringify(value))
-  } catch {
-    /* modo privado */
-  }
-}
 
 /** Lo guardado con la canción, si lo hay. */
 function parse(raw) {
@@ -570,8 +551,6 @@ async function clearLoop() {
   await player.clearLoop()
   scheduleSave()
 }
-/** Los tramos de un marcador: sus partes, su tramo, o nada (un instante). */
-const partsOf = (m) => (m.parts?.length > 1 ? m.parts : isSpan(m) ? [[m.t, m.end]] : [])
 /** Un marcador pasa a ser esos tramos (uno solo, o varios como partes). */
 function setMarkerParts(m, list) {
   m.t = list[0][0]
@@ -1183,7 +1162,6 @@ const CLICK_MORE_KEY = 'danplay.study.clickMore'
 const clickMore = ref(readPref(CLICK_MORE_KEY, false) === true)
 watch(clickMore, (v) => savePref(CLICK_MORE_KEY, v))
 const setSongVolume = (v) => player.setVolume(v)
-const pctText = (v) => Math.round((Number(v) || 0) * 100) + ' %'
 
 /**
  * Deja `own` como el clic manual de la canción `id`. Si sigue abierta, por el

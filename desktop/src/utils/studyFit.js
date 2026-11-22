@@ -9,6 +9,8 @@
  * columnas solo quedaba el título.
  */
 
+import { clamp } from './num.js'
+
 /** Lo que se le guarda al cuerpo como poco y como mucho, en px. */
 export const BODY_MIN = 200
 export const BODY_MAX = 300
@@ -33,8 +35,6 @@ export const TIGHT_BELOW = 800
  * @param {number} windowHeight  el alto de la ventana, en px (0: sin medir)
  */
 export const isTight = (windowHeight) => windowHeight > 0 && windowHeight < TIGHT_BELOW
-
-const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v))
 
 /**
  * El alto que se le guarda al cuerpo: un tercio largo del panel o, si es

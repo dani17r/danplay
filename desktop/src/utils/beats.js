@@ -9,6 +9,7 @@
 // onda: parecía que esos botones no hacían nada.
 
 import { formatTime } from './format.js'
+import { round3 } from './num.js'
 
 /** @typedef {import('../api.js').BeatGrid} BeatGrid */
 
@@ -342,7 +343,6 @@ export function stepBeat(beats, t, dir) {
 
 // ------------------------------------------------- lo que se movió a mano
 const ms = (t) => Math.round(t * 1000)
-const round3 = (t) => Math.round(t * 1000) / 1000
 
 /**
  * Unas zonas `[[desde, hasta], …]` en limpio: solo pares de segundos que

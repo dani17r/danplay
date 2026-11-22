@@ -31,6 +31,7 @@ import { effectScope, ref, shallowRef, watch } from 'vue'
 import { api, ApiError } from '../api.js'
 import { usePlayback } from './usePlayback.js'
 import { mergeWindows, ownToGrid } from '../utils/beats.js'
+import { readPref, savePref } from '../utils/prefs.js'
 
 const AUTO_KEY = 'danplay.click.auto'
 const MODE_KEY = 'danplay.click.mode'
@@ -66,21 +67,6 @@ function within(promise, ms) {
  */
 export const AHEAD = 60
 
-function readPref(key, fallback) {
-  try {
-    const v = localStorage.getItem(key)
-    return v == null ? fallback : JSON.parse(v)
-  } catch {
-    return fallback
-  }
-}
-function savePref(key, value) {
-  try {
-    localStorage.setItem(key, JSON.stringify(value))
-  } catch {
-    /* modo privado */
-  }
-}
 /** El tempo y el compás del modo a mano, con sus topes. @param {any} m */
 function cleanManual(m) {
   const bpm = Number(m?.bpm)
