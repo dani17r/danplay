@@ -19,7 +19,8 @@ import { inject } from 'vue'
  *   la pestaña de notas: 'song' (las de la canción) o 'marker' (las del elegido)
  * @property {ReturnType<typeof import('./useStudyMarkers.js').useStudyMarkers>} markers
  *   los marcadores: el elegido, los de la casilla, elegir, tocar, guardar…
- * @property {StudyLoops} loops  los tramos (StudyBar)
+ * @property {ReturnType<typeof import('./useStudyLoops.js').useStudyLoops>} loops
+ *   los tramos: uno o varios, qué pasa al acabar, el candado, las teclas A y B…
  * @property {ReturnType<typeof import('./useStudyCues.js').useStudyCues>} cues
  *   las guías habladas: sus carriles, ponerlas, moverlas, la guía automática…
  * @property {ReturnType<typeof import('./useStudyStems.js').useStudyStems>} stems
@@ -33,20 +34,15 @@ import { inject } from 'vue'
  * @property {import('vue').Ref<any>} timeline
  *   la línea de tiempo (StudyTimeline): su zoom, ir a una guía…
  * @property {() => boolean} visible  si el estudio se ve (puede estar oculto y seguir puesto)
+ * @property {() => Record<string, any>} waveStyleItem  el submenú «Estilo de la onda»
+ * @property {StudyView} view  la vista de la onda (StudyBar)
  */
 
 /**
- * @typedef {object} StudyLoops
- * @property {Array<{ v: string, n: string, icon: string, title: string }>} LOOP_ENDS
- * @property {import('vue').Ref<import('../api.js').LoopEnd>} loopEndWanted  qué pasa al acabar el último tramo
- * @property {(v: import('../api.js').LoopEnd) => Promise<void>} setLoopEnd
- * @property {import('vue').Ref<boolean>} multi           varios tramos a la vez
- * @property {import('vue').Ref<number>} lastTouched      el último tramo que se tocó
- * @property {import('vue').Ref<number | null>} pendingA  la A puesta, esperando a la B
- * @property {import('vue').ComputedRef<boolean>} hasLoop
- * @property {(list: any[], opts?: { mode?: string, index?: number }) => any} onLoops
- *   los tramos nuevos que manda la línea de tiempo
- * @property {(index?: number) => Promise<void>} playNow  ir ya a un tramo y que suene
+ * @typedef {object} StudyView
+ * @property {import('vue').Ref<boolean>} showMix     a la vista, la mezcla de cada carril
+ * @property {import('vue').Ref<boolean>} showRoutes  a la vista, los canales de cada carril
+ * @property {() => Promise<void>} tour               el recorrido por el modo estudio
  */
 
 /** @type {import('vue').InjectionKey<StudyContext>} */

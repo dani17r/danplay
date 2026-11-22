@@ -44,21 +44,12 @@ import { tourSeen } from '../composables/tourSeen.js'
 import { usePreferences } from '../composables/usePreferences.js'
 import { WAVE_STYLES } from '../utils/wavePaint.js'
 import { isMobileApp } from '../platform.js'
-import { useHotkeys } from '../composables/useHotkeys.js'
-import { formatTime } from '../utils/format.js'
-import {
-  cleanSegments,
-  segmentAt,
-  nextSegment,
-  segmentsLength,
-  snapToBeats
-} from '../utils/segments.js'
+import { cleanSegments } from '../utils/segments.js'
 import { openMenu } from '../composables/useContextMenu.js'
 import { useStudyDoc, blank, withRawOwn, parse } from '../composables/useStudyDoc.js'
 import Icon from './Icon.vue'
 import StudyTimeline from './StudyTimeline.vue'
 import BeatTools from './BeatTools.vue'
-import StudyClock from './StudyClock.vue'
 import StudyOutputs from './StudyOutputs.vue'
 import StudyCue from './StudyCue.vue'
 import StudyExport from './StudyExport.vue'
@@ -71,11 +62,13 @@ import { useStudyCues } from '../composables/useStudyCues.js'
 import { useStudyStems } from '../composables/useStudyStems.js'
 import StudyStems from './StudyStems.vue'
 import { useStudyClick } from '../composables/useStudyClick.js'
+import { useStudyLoops } from '../composables/useStudyLoops.js'
+import StudyWaveBar from './StudyWaveBar.vue'
 import StudyClick from './StudyClick.vue'
 import { STUDY } from '../composables/studyContext.js'
 import { clamp, round2 } from '../utils/num.js'
 import { readPref, savePref } from '../utils/prefs.js'
-import { MAX_CUE_LANES, markerParts as partsOf } from '../utils/cues.js'
+import { MAX_CUE_LANES } from '../utils/cues.js'
 
 const props = defineProps({
   /** Se ve (la capa puede estar oculta y el estudio seguir puesto). */
@@ -86,11 +79,11 @@ const props = defineProps({
 // cerraban antes (el celular)
 const emit = defineEmits(['hide', 'exit', 'close'])
 const player = usePlayback()
-const { track, position, duration, speed, pitch, metronome, playing } = player
+const { track, duration, speed, pitch, metronome, playing } = player
 
 // el estudio de la canción y su guardado (useStudyDoc.js)
 const doc = useStudyDoc()
-const { study, loadedFor, studyFor, saving, scheduleSave, flushSave, flushFile } = doc
+const { study, loadedFor, studyFor, saving, flushSave, flushFile } = doc
 /** Sin golpes a la vista: siempre la misma lista (una nueva repintaba la onda). */
 const NO_HITS = Object.freeze([])
 // el clic: su rejilla, si carga, y el modo. Vive fuera del panel: con él
@@ -139,7 +132,8 @@ const ctx = /** @type {import('../composables/studyContext.js').StudyContext} */
   timeline,
   click,
   routing,
-  visible: () => props.visible
+  visible: () => props.visible,
+  waveStyleItem
 })
 provide(STUDY, ctx)
 // las pistas separadas: aquí arriba porque `loadFor` las quita nada más empezar
@@ -165,7 +159,7 @@ const {
 // los marcadores: aquí arriba porque `loadFor` quita el elegido nada más empezar
 const markers = useStudyMarkers(ctx)
 ctx.markers = markers
-const { selected, checked, markerOf, loopSaved, saveMarker, selectMarker, jump } = markers
+const { selected, checked, markerOf, selectMarker, jump } = markers
 
 async function loadFor(id) {
   // lo pendiente es de la cancion que se deja: se guarda en ELLA ya, sin
@@ -248,327 +242,11 @@ watch(
   { immediate: true }
 )
 
-// ---- el candado de la onda
-// Puesto (lo normal), mientras suena un clic en la onda no mueve la cancion
-// y elegir un tramo no salta a el: el tramo entra cuando la cancion llega
-// (Rust lo espera). En pausa, la onda coloca como siempre.
-const LOCK_KEY = 'danplay.study.lock'
-const locked = ref(readPref(LOCK_KEY, true) !== false)
-watch(locked, (v) => savePref(LOCK_KEY, v))
-/** La onda no puede mover la cancion ahora. */
-const guarded = computed(() => locked.value && playing.value)
-
-// ---- los tramos: uno (el bucle A-B) o varios seguidos
-/**
- * Qué pasa al acabar el último tramo: 'repeat' (vuelta al primero),
- * 'stop' (se para al principio del primero: play lo vuelve a tocar) o
- * 'continue' (suenan una vez y la canción sigue). Es de quien toca: se
- * recuerda. Antes se repetían siempre, y el botón «Al acabar» quería decir
- * otra cosa (esperar al final de la canción): parecía no funcionar.
- */
-const END_KEY = 'danplay.study.atEnd'
-const LOOP_ENDS = [
-  {
-    v: 'repeat',
-    n: 'Repetir',
-    icon: 'repeat',
-    title: 'Al acabar el último tramo, vuelve al primero: en bucle hasta que lo quites'
-  },
-  {
-    v: 'stop',
-    n: 'Parar',
-    icon: 'stop',
-    title: 'Suena cada tramo una vez y se para al principio del primero (play, otra vez)'
-  },
-  {
-    v: 'continue',
-    n: 'Seguir',
-    icon: 'right',
-    title: 'Suena cada tramo una vez y la canción sigue desde ahí'
-  }
-]
-const savedEnd = readPref(END_KEY, 'stop')
-const loopEndWanted = ref(LOOP_ENDS.some((e) => e.v === savedEnd) ? savedEnd : 'stop')
-watch(loopEndWanted, (v) => savePref(END_KEY, v))
-async function setLoopEnd(v) {
-  loopEndWanted.value = v
-  await player.setLoops(study.value.loops, { end: v })
-}
-
-/** Varios tramos a la vez: cada arrastre en la onda añade otro. */
-const multi = ref(false)
-/** El último tramo que se tocó (al dejar «varios», se queda ese). */
-const lastTouched = ref(-1)
-const pendingA = ref(null)
-const hasLoop = computed(() => study.value.loops.length > 0)
-ctx.loops = {
-  LOOP_ENDS,
-  loopEndWanted,
-  setLoopEnd,
-  multi,
-  lastTouched,
-  pendingA,
-  hasLoop,
-  onLoops,
-  playNow
-}
-// ---- los mandos de la canción, encima de la onda (sin bajar al reproductor)
-/** Al principio: del tramo, si hay, o de la canción. */
-function toStart() {
-  player.seek(hasLoop.value ? study.value.loops[0][0] : 0)
-}
-/** Atrás o adelante unos segundos. @param {number} secs */
-function nudgeTime(secs) {
-  const d = duration.value || 0
-  player.seek(clamp(position.value + secs, 0, Math.max(0, d - 0.05)))
-}
-/** Detener: se para y vuelve al principio (del tramo, si hay). */
-async function stopHere() {
-  if (playing.value) await player.toggle()
-  toStart()
-}
-/**
- * «Al acabar: parar» (lo de fábrica) para la canción al final del tramo y la
- * deja al principio de él. Sin verlo, parece que se pausa sola: se dice.
- */
-let soundingAt = 0
-watch(position, (p) => {
-  if (playing.value) soundingAt = p
-})
-watch(playing, (now, before) => {
-  if (now || !before || !hasLoop.value || loopEndWanted.value !== 'stop') return
-  const list = study.value.loops
-  if (soundingAt < list[list.length - 1][1] - 1.5) return
-  notify(
-    'Se paró al acabar el tramo («Al acabar: parar»). Para que vuelva a empezar solo, elige «Repetir».',
-    'info',
-    6
-  )
-})
-/**
- * Lo que se puede hacer con el ratón sobre la onda: en el botón de ayuda de
- * la barra (antes, una línea de texto siempre a la vista).
- */
-const waveHelp = computed(() => {
-  if (editingBeats.value) {
-    return 'Ajustando tu clic: clic en un pulso lo elige (Ctrl suma, Mayús elige hasta ahí) · arrastra sobre la franja de arriba para elegir una zona · arrastrar un pulso elegido los lleva todos · doble clic añade uno · clic derecho lo quita o lo hace el «1» · flechas: 5 ms · Ctrl + Z deshace · Ctrl + rueda acerca'
-  }
-  const pick = multi.value
-    ? 'Arrastra para añadir tramos (suenan seguidos, saltándose lo de en medio) · clic sobre uno para quitarlo'
-    : 'Arrastra sobre la onda para elegir un tramo · ' +
-      (locked.value
-        ? 'con el candado, sonando, un clic no mueve la canción'
-        : 'clic para ir a un punto')
-  return (
-    pick +
-    ' · Ctrl + rueda: acercar · Mayús + rueda: recorrer · clic derecho: opciones · teclas A y B · en las guías: doble clic pone una, arrástralas para moverlas'
-  )
-})
-
-const loopLabel = computed(() => {
-  const list = study.value.loops
-  if (list.length === 1) return `${formatTime(list[0][0])} – ${formatTime(list[0][1])}`
-  if (list.length > 1) return `${list.length} tramos · ${formatTime(segmentsLength(list))}`
-  if (pendingA.value != null) return `A en ${formatTime(pendingA.value)} · pulsa B donde acabe`
-  return 'sin tramo: arrastra sobre la onda'
-})
-// al dejar «varios» se queda un solo tramo: el último que se tocó
-watch(multi, (on) => {
-  const list = study.value.loops
-  if (on || list.length <= 1) return
-  const keep = list[clamp(lastTouched.value, 0, list.length - 1)] || list.at(-1)
-  lastTouched.value = 0
-  applyLoops([keep], { jump: 'never' })
-})
-
-/**
- * Deja los tramos. `jump` dice si la cancion va a ellos: 'outside' si va
- * por fuera de todos (lo de siempre: al siguiente que venga), 'never' para
- * dejarla donde va (la onda con candado), o un segundo concreto (la tecla
- * B vuelve a su A).
- */
-async function applyLoops(list, { jump = 'outside' } = {}) {
-  const clean = cleanSegments(list)
-  if (clean.some(([a, b]) => b - a < 0.5)) {
-    notify('El bucle tiene que durar al menos medio segundo')
-    return
-  }
-  pendingA.value = null
-  study.value.loops = clean
-  await player.setLoops(clean, { end: loopEndWanted.value })
-  if (typeof jump === 'number') await player.seek(jump)
-  else if (jump === 'outside' && clean.length && segmentAt(clean, position.value) < 0) {
-    await player.seek(clean[nextSegment(clean, position.value)][0])
-  }
-  scheduleSave()
-}
-async function clearLoop() {
-  pendingA.value = null
-  study.value.loops = []
-  lastTouched.value = -1
-  await player.clearLoop()
-  scheduleSave()
-}
-/** Un marcador pasa a ser esos tramos (uno solo, o varios como partes). */
-function setMarkerParts(m, list) {
-  m.t = list[0][0]
-  m.end = list.at(-1)[1]
-  if (list.length > 1) m.parts = list.map((x) => [...x])
-  else delete m.parts
-  study.value.markers = [...study.value.markers].sort((x, y) => x.t - y.t)
-}
-/** El índice en `after` del tramo que no estaba en `before` (el que se añadió). */
-function addedIndex(before, after) {
-  const i = after.findIndex(
-    ([a, b]) => !before.some(([x, y]) => Math.abs(x - a) < 0.011 && Math.abs(y - b) < 0.011)
-  )
-  return i < 0 ? after.length - 1 : i
-}
-/**
- * Lo que manda la linea de tiempo. Un tramo nuevo dibujado de cero (o uno
- * que se añade o se quita) deja de apuntar al marcador que hubiera elegido;
- * mover un borde con un marcador elegido cambia el tramo DEL marcador, que es
- * lo que uno espera al estirarlo.
- */
-function onLoops(list, { mode, index } = {}) {
-  if (!list.length) return clearLoop()
-  const m = selected.value
-  const clean = cleanSegments(list)
-  if (mode === 'edit' && m && partsOf(m).length) setMarkerParts(m, clean)
-  else if (mode === 'select' || mode === 'add' || mode === 'remove') selected.value = null
-  if (mode === 'add') lastTouched.value = addedIndex(study.value.loops, clean)
-  else if (mode === 'edit' && Number.isInteger(index)) lastTouched.value = index
-  else if (mode === 'select') lastTouched.value = 0
-  else lastTouched.value = Math.min(lastTouched.value, clean.length - 1)
-  return applyLoops(list, { jump: guarded.value || mode === 'remove' ? 'never' : 'outside' })
-}
-function markA() {
-  if (!track.value || !props.visible) return
-  const at = round2(position.value)
-  selected.value = null
-  const list = study.value.loops
-  // con un solo tramo, A lo acorta por delante
-  if (!multi.value && list.length === 1 && at < list[0][1] - 0.5) {
-    return applyLoops([[at, list[0][1]]])
-  }
-  if (!multi.value && list.length) clearLoop()
-  pendingA.value = at
-}
-function markB() {
-  if (!track.value || !props.visible) return
-  const at = round2(position.value)
-  const list = study.value.loops
-  const single = !multi.value && list.length === 1
-  // B sin A (y sin un tramo que alargar) hacía el tramo desde 0:00 y mandaba
-  // la canción al principio: un dedo en la tecla de al lado, a media
-  // práctica, y se perdía por dónde se iba
-  if (pendingA.value == null && !single) {
-    notify('Marca primero dónde empieza el tramo, con A')
-    return
-  }
-  const from = pendingA.value ?? list[0][0]
-  if (at - from < 0.5) {
-    notify('El bucle tiene que durar al menos medio segundo')
-    return
-  }
-  selected.value = null
-  // B cierra el tramo donde va la cancion y vuelve a A: es la repeticion
-  // A-B. Con «varios», el tramo se añade a los que hubiera.
-  const next = multi.value ? [...list, [from, at]] : [[from, at]]
-  if (multi.value) lastTouched.value = addedIndex(list, cleanSegments(next))
-  return applyLoops(next, { jump: from })
-}
-
-// ---- las opciones de un tramo (el boton ⋯ de la onda, o el clic derecho)
-/** Ir ya a ese tramo y que suene. */
-async function playNow(index = 0) {
-  const seg = study.value.loops[index]
-  if (!seg) return
-  await player.seek(seg[0])
-  if (!playing.value) await player.toggle()
-}
-/** Los bordes de los tramos, al pulso mas cercano: para que entren a tiempo. */
-function snapLoops() {
-  const beats = soundingGrid.value?.beats
-  if (!beats?.length || !hasLoop.value) return
-  const snapped = snapToBeats(study.value.loops, beats)
-  const m = selected.value
-  if (m && partsOf(m).length) setMarkerParts(m, snapped)
-  return applyLoops(snapped, { jump: 'never' })
-}
-function removeSegment(index) {
-  return onLoops(
-    study.value.loops.filter((_, i) => i !== index),
-    { mode: 'remove' }
-  )
-}
-/**
- * Lo que se puede hacer con un tramo de la onda (o, con `index` -1, en ese
- * punto de ella). Las que mueven la cancion son a proposito, asi que valen
- * tambien con el candado puesto.
- */
-function showOptions({ index, t, x, y, event }) {
-  const list = study.value.loops
-  const seg = list[index]
-  const items = []
-  if (seg) {
-    items.push({
-      label: 'Reproducir ahora',
-      icon: 'play',
-      note: formatTime(seg[0]),
-      action: () => playNow(index)
-    })
-    for (const e of LOOP_ENDS) {
-      items.push({
-        label: `Al acabar: ${e.n.toLowerCase()}`,
-        icon: e.icon,
-        active: loopEndWanted.value === e.v,
-        action: () => setLoopEnd(e.v)
-      })
-    }
-  }
-  items.push({ label: 'Ir aquí', icon: 'right', note: formatTime(t), action: () => player.seek(t) })
-  if (!isMobileApp) {
-    items.push({
-      label: 'Guía aquí…',
-      icon: 'mic',
-      note: playing.value ? 'para la canción' : formatTime(t),
-      disabled: playing.value,
-      action: () => addCue(t)
-    })
-  }
-  if (seg) {
-    items.push({
-      label: 'Ajustar a los pulsos',
-      icon: 'note',
-      disabled: !soundingGrid.value?.beats?.length,
-      action: snapLoops
-    })
-    if (!loopSaved.value)
-      items.push({ label: 'Guardar como marcador', icon: 'save', action: saveMarker })
-  }
-  items.push(
-    multi.value
-      ? { label: 'Volver a un solo tramo', icon: 'repeat', action: () => (multi.value = false) }
-      : { label: 'Añadir más tramos', icon: 'plus', action: () => (multi.value = true) }
-  )
-  if (list.length) {
-    items.push({ separator: true })
-    if (seg && list.length > 1) {
-      items.push({ label: 'Quitar este tramo', icon: 'close', action: () => removeSegment(index) })
-    }
-    items.push({
-      label: list.length > 1 ? 'Quitar todos los tramos' : 'Quitar la selección',
-      icon: 'trash',
-      danger: true,
-      action: clearLoop
-    })
-  }
-  const title = seg ? (list.length > 1 ? `Tramo ${index + 1}` : 'El tramo') : 'La onda'
-  if (!isMobileApp) items.push({ separator: true }, waveStyleItem())
-  openMenu(event ?? { clientX: x, clientY: y }, items, title)
-}
-useHotkeys({ a: markA, b: markB })
+// ---- los tramos, el candado y los mandos de encima de la onda (useStudyLoops.js)
+const loopsPart = useStudyLoops(ctx)
+ctx.loops = loopsPart
+const { locked, guarded, loopEndWanted, multi, lastTouched, hasLoop, onLoops, showOptions } =
+  loopsPart
 
 // ---- velocidad y tono (StudyTempo.vue)
 
@@ -588,21 +266,12 @@ watch(showRoutes, (v) => savePref(ROUTES_KEY, v))
 const SEEK_KEY = 'danplay.study.seekClick'
 const seekClick = ref(readPref(SEEK_KEY, false) === true)
 watch(seekClick, (v) => savePref(SEEK_KEY, v))
+ctx.view = { showMix, showRoutes, tour }
 
 // ---- el clic (useStudyClick.js, StudyClick.vue)
 const metro = useStudyClick(ctx)
 ctx.metro = metro
-const {
-  soundingGrid,
-  clickLoading,
-  clickLane,
-  weakRegions,
-  onClickLane,
-  editingBeats,
-  edit,
-  onOwnGrid
-} = metro
-// ---- marcadores: tramos con nombre y notas (useStudyMarkers.js, StudyMarkers.vue)
+const { clickLoading, clickLane, weakRegions, onClickLane, editingBeats, edit, onOwnGrid } = metro
 
 // ---- las guías habladas (useStudyCues.js, StudyCueList.vue)
 const cues = useStudyCues(ctx)
@@ -614,10 +283,7 @@ const {
   audibleCues,
   sendCues,
   cueEdit,
-  STOP_FIRST,
-  snapCues,
   snapBeats,
-  magnetTitle,
   cueWaves,
   cueDraft,
   addCue,
@@ -632,7 +298,6 @@ const {
   onVoicePicked,
   onVoiceClosed,
   autoBusy,
-  autoStage,
   autoGuide,
   goToCue,
   onCueMade,
@@ -1047,248 +712,7 @@ defineExpose({ close: hide, hide, exit })
 
     <!-- encima de la onda: la canción (sin bajar al reproductor), los tramos y
          la vista -->
-    <div
-      v-if="!isMobileApp || hasLoop"
-      class="study-bar"
-      role="toolbar"
-      aria-label="La canción, los tramos y la vista de la onda"
-    >
-      <span v-if="!isMobileApp" class="study-bar-group study-transport">
-        <button
-          class="btn mini icon-btn"
-          type="button"
-          aria-label="Al principio"
-          :title="hasLoop ? 'Al principio del tramo' : 'Al principio de la canción'"
-          :disabled="!track"
-          @click="toStart"
-        >
-          <Icon n="previous" :t="13" />
-        </button>
-        <button
-          class="btn mini icon-btn"
-          type="button"
-          aria-label="5 segundos atrás"
-          title="5 segundos atrás"
-          :disabled="!track"
-          @click="nudgeTime(-5)"
-        >
-          <Icon n="back10" :t="13" />
-        </button>
-        <button
-          class="btn mini icon-btn study-play"
-          type="button"
-          :class="{ on: playing }"
-          :aria-label="playing ? 'Pausar' : 'Reproducir'"
-          :title="playing ? 'Pausar (espacio)' : 'Reproducir (espacio)'"
-          :disabled="!track"
-          @click="player.toggle()"
-        >
-          <!-- en un span: Icon lleva comentarios y la transición no lo animaría -->
-          <Transition name="icon-swap" mode="out-in">
-            <span :key="playing ? 'pause' : 'play'" class="icon-swap"
-              ><Icon :n="playing ? 'pause' : 'play'" :t="14"
-            /></span>
-          </Transition>
-        </button>
-        <button
-          class="btn mini icon-btn"
-          type="button"
-          aria-label="Detener"
-          :title="
-            hasLoop ? 'Detener y volver al principio del tramo' : 'Detener y volver al principio'
-          "
-          :disabled="!track"
-          @click="stopHere"
-        >
-          <Icon n="stop" :t="13" />
-        </button>
-        <button
-          class="btn mini icon-btn"
-          type="button"
-          aria-label="5 segundos adelante"
-          title="5 segundos adelante"
-          :disabled="!track"
-          @click="nudgeTime(5)"
-        >
-          <Icon n="forward10" :t="13" />
-        </button>
-        <StudyClock />
-      </span>
-      <span class="study-bar-group study-loop-group">
-        <span
-          class="study-loop mono"
-          :class="{ off: !hasLoop && pendingA == null }"
-          :title="hasLoop || pendingA != null ? '' : 'Arrastra sobre la onda para elegir un tramo'"
-          ><Icon v-if="!isMobileApp" n="repeat" :t="11" /> {{ loopLabel }}</span
-        >
-        <Transition name="fade">
-          <span v-if="hasLoop" class="study-loop-tools">
-            <span class="study-ends" role="radiogroup" aria-label="Al acabar el tramo">
-              <span v-if="isMobileApp" class="study-ends-label">Al acabar el tramo</span>
-              <button
-                v-for="e in LOOP_ENDS"
-                :key="e.v"
-                type="button"
-                role="radio"
-                class="btn mini study-end"
-                :class="{ on: loopEndWanted === e.v, 'icon-btn': !isMobileApp }"
-                :aria-checked="loopEndWanted === e.v"
-                :aria-label="e.n"
-                :title="'Al acabar: ' + e.n.toLowerCase() + ' · ' + e.title"
-                @click="setLoopEnd(e.v)"
-              >
-                <Icon :n="e.icon" :t="12" /><template v-if="isMobileApp"> {{ e.n }}</template>
-              </button>
-            </span>
-            <button
-              class="btn mini"
-              :class="{ 'icon-btn': !isMobileApp }"
-              type="button"
-              aria-label="Ahora"
-              title="Ir ya al tramo (al primero, si hay varios) y ponerlo a sonar"
-              @click="playNow(0)"
-            >
-              <Icon n="play" :t="12" /><template v-if="isMobileApp"> Ahora</template>
-            </button>
-            <button
-              v-if="!loopSaved"
-              class="btn mini icon-btn study-save-loop"
-              type="button"
-              aria-label="Guardar"
-              title="Guardar como marcador, con nombre y notas (varios tramos, juntos en uno)"
-              @click="saveMarker"
-            >
-              <Icon n="save" :t="12" />
-            </button>
-            <button
-              class="btn mini icon-btn study-clear"
-              type="button"
-              aria-label="Quitar"
-              title="Quitar el tramo (la canción sigue de largo)"
-              @click="clearLoop"
-            >
-              <Icon n="close" :t="12" />
-            </button>
-          </span>
-        </Transition>
-      </span>
-      <span v-if="!isMobileApp" class="study-bar-group study-view">
-        <button
-          class="btn mini study-add-cue"
-          type="button"
-          :disabled="!cueEdit"
-          aria-label="Guía"
-          :title="
-            !track
-              ? ''
-              : cueEdit
-                ? 'Una guía aquí: escríbela (la dice una voz), grábala o importa un audio, y sonará al pasar'
-                : STOP_FIRST
-          "
-          @click="addCue()"
-        >
-          <Icon n="mic" :t="13" /> Guía
-        </button>
-        <button
-          class="btn mini icon-btn study-auto-guide"
-          type="button"
-          :class="{ busy: autoBusy }"
-          :disabled="!cueEdit || autoBusy"
-          aria-label="Guía automática"
-          :title="
-            !track
-              ? ''
-              : autoBusy
-                ? autoStage || 'Buscando las partes de la canción…'
-                : cueEdit
-                  ? 'Guía automática: DanPlay busca las partes (intro, estrofas, coros, puente, solos…) y las dice justo antes de cada una'
-                  : STOP_FIRST
-          "
-          @click="autoGuide"
-        >
-          <Icon n="sparkles" :t="13" />
-        </button>
-        <button
-          class="btn mini icon-btn study-magnet"
-          type="button"
-          :class="{ on: snapCues }"
-          :aria-pressed="snapCues"
-          aria-label="Imán"
-          :title="magnetTitle"
-          @click="snapCues = !snapCues"
-        >
-          <Icon n="magnet" :t="14" />
-        </button>
-        <span class="study-head-sep" aria-hidden="true"></span>
-        <button
-          class="btn mini icon-btn study-show-mix"
-          type="button"
-          :class="{ on: showMix }"
-          :aria-pressed="showMix"
-          aria-label="Mezcla"
-          :title="
-            showMix
-              ? 'Ocultar la mezcla de cada carril (M, S, volumen): más sitio para la onda'
-              : 'Ver la mezcla de cada carril: callar, dejar solo y el volumen'
-          "
-          @click="showMix = !showMix"
-        >
-          <Icon n="adjust" :t="13" />
-        </button>
-        <button
-          class="btn mini icon-btn study-show-routes"
-          type="button"
-          :class="{ on: showRoutes }"
-          :aria-pressed="showRoutes"
-          aria-label="Canales"
-          :title="
-            showRoutes
-              ? 'Ocultar los canales de cada carril (L, R, estéreo o mono)'
-              : 'Ver los canales de cada carril: por qué lado sale cada cosa, en estéreo o en mono'
-          "
-          @click="showRoutes = !showRoutes"
-        >
-          <Icon n="outputs" :t="13" />
-        </button>
-        <span class="study-head-sep" aria-hidden="true"></span>
-        <button
-          class="btn mini icon-btn study-zoom"
-          type="button"
-          title="Alejar (o Ctrl + rueda sobre la onda)"
-          aria-label="Alejar"
-          @click="timeline?.zoomBy?.(0.5)"
-        >
-          <Icon n="zoomOut" :t="13" />
-        </button>
-        <button
-          class="btn mini icon-btn study-zoom"
-          type="button"
-          title="Acercar (o Ctrl + rueda sobre la onda)"
-          aria-label="Acercar"
-          @click="timeline?.zoomBy?.(2)"
-        >
-          <Icon n="zoomIn" :t="13" />
-        </button>
-        <button
-          class="btn mini icon-btn"
-          type="button"
-          title="Toda la canción a la vista"
-          aria-label="Ver toda la canción"
-          @click="timeline?.zoomFit?.()"
-        >
-          <Icon n="fit" :t="13" />
-        </button>
-        <button
-          class="btn mini icon-btn study-help"
-          type="button"
-          aria-label="Cómo se usa"
-          :title="waveHelp + ' · Pulsa para un recorrido por el modo estudio'"
-          @click="tour"
-        >
-          <Icon n="help" :t="14" />
-        </button>
-      </span>
-    </div>
+    <StudyWaveBar />
 
     <!-- la onda, la regla, los tramos, los marcadores, las guías y la rejilla -->
     <StudyTimeline
