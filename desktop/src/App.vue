@@ -52,7 +52,7 @@ import { useDownloads } from './composables/useDownloads.js'
 import { useSequence } from './composables/useSequence.js'
 import { useBundle } from './composables/useBundle.js'
 import { connectChat } from './composables/chatLink.js'
-import { groupedOrder } from './utils/groups.js'
+import { groupSongs } from './utils/groups.js'
 import { useRouter } from 'vue-router'
 import { routeFor } from './router.js'
 import { DENSITIES, SIZES, KIND_LABEL, allThemes } from './themes.js'
@@ -256,8 +256,14 @@ const effectiveGroupBy = computed(() =>
 // ve entre las dos pulsadas y la cola sigue ese orden. Con el de la lista sin
 // agrupar, en «Artistas» ordenada por título Mayús se llevaba canciones de
 // otros grupos y «siguiente» saltaba de un artista a otro.
+// Los grupos se hacen aquí una vez y la lista agrupada los recibe hechos: los
+// hacía cada uno por su lado, dos agrupaciones y dos ordenaciones por cada
+// página que llegaba y por cada canción que cambiaba.
+const grouped = computed(() =>
+  effectiveGroupBy.value ? groupSongs(songs.value, effectiveGroupBy.value) : null
+)
 const shown = computed(() =>
-  effectiveGroupBy.value ? groupedOrder(songs.value, effectiveGroupBy.value) : songs.value
+  grouped.value ? grouped.value.flatMap(([, list]) => list) : songs.value
 )
 // Solo en los repertorios que uno crea se cambia el orden arrastrando: en
 // «Todas», Favoritos o una búsqueda el orden lo dan las columnas, y en la
@@ -1525,6 +1531,7 @@ function onUpdated(song) {
             v-if="effectiveGroupBy && shownLayout"
             :songs="songs"
             :by="effectiveGroupBy"
+            :groups="grouped"
             :layout="shownLayout"
             :sort="sort"
             :desc="sortDesc"

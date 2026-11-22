@@ -213,6 +213,26 @@ describe('sorting', () => {
   })
 })
 
+describe('the grouped list', () => {
+  it('is grouped once for each list that arrives: the app and the list share the groups', async () => {
+    const { core } = await import('../src/api.js')
+    const w = await mountView()
+    await clickButton(w, 'Artistas')
+    expect(w.findAll('[data-group-row]').length).toBeGreaterThan(0)
+    // con una elegida (la de la ficha), como casi siempre
+    await w.findAll('[data-song-row]')[0].trigger('click')
+    await flushPromises()
+    held.groupings = 0
+    // algo cambió en el núcleo: llega la lista otra vez
+    const searches = api.search.mock.calls.length
+    core.onChanged.mock.calls.at(-1)[0]()
+    await new Promise((r) => setTimeout(r, 300))
+    await flushPromises()
+    expect(api.search.mock.calls.length).toBeGreaterThan(searches)
+    expect(held.groupings, 'la app y la lista agrupan cada una por su lado').toBe(1)
+  })
+})
+
 describe('the search box', () => {
   // Con temporizadores de verdad: los falsos adelantan `Date.now()` y Vue
   // descarta despues los clics sobre lo que se monto «en el futuro».
