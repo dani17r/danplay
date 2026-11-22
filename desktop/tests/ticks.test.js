@@ -41,6 +41,7 @@ import StudyNotes from '../src/components/StudyNotes.vue'
 import StudyTempo from '../src/components/StudyTempo.vue'
 import StudyMarkers from '../src/components/StudyMarkers.vue'
 import StudyCueList from '../src/components/StudyCueList.vue'
+import StudyStems from '../src/components/StudyStems.vue'
 import { renderMarkdown } from '../src/utils/markdown.js'
 import { resetPlayback } from '../src/composables/usePlayback.js'
 import { resetPreferences } from '../src/composables/usePreferences.js'
@@ -199,7 +200,7 @@ describe('what plays and what gets repainted', () => {
       const bar = w.vm.$.subTree
       const timeline = w.findComponent(StudyTimeline).vm.$.subTree
       // y las partes en que se partió StudyBar (lote 9): tampoco
-      const parts = [StudyNotes, StudyTempo, StudyMarkers, StudyCueList]
+      const parts = [StudyNotes, StudyTempo, StudyMarkers, StudyCueList, StudyStems]
       const partTree = (C) => w.findComponent(C).vm.$.subTree
       const partsBefore = parts.map(partTree)
       const head = () => w.find('.tl-head').element.style.left

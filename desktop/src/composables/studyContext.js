@@ -22,8 +22,8 @@ import { inject } from 'vue'
  * @property {StudyLoops} loops  los tramos (StudyBar)
  * @property {ReturnType<typeof import('./useStudyCues.js').useStudyCues>} cues
  *   las guías habladas: sus carriles, ponerlas, moverlas, la guía automática…
- * @property {{ stems: import('vue').ShallowRef<any> }} stems
- *   las pistas separadas: lo que dice el núcleo de las de la canción (StudyBar)
+ * @property {ReturnType<typeof import('./useStudyStems.js').useStudyStems>} stems
+ *   las pistas separadas: las de la canción, su mezcla, separarla, exportar…
  * @property {StudyMetro} metro  el clic (StudyBar)
  * @property {ReturnType<typeof import('./useClick.js').useClick>} click
  *   el clic de la canción que suena: su rejilla, si carga, y el modo
@@ -36,6 +36,7 @@ import { inject } from 'vue'
 /**
  * @typedef {object} StudyMetro
  * @property {import('vue').ComputedRef<any>} soundingGrid  la rejilla del clic tal como suena
+ * @property {import('vue').ComputedRef<any>} shownGrid  la de la onda (con el doble o la mitad)
  * @property {import('vue').ComputedRef<boolean>} hasOwn   la canción tiene su clic manual
  * @property {import('vue').ComputedRef<number[]>} clickBeats  los pulsos del clic (los del imán)
  */
