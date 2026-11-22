@@ -112,6 +112,16 @@ pub struct Feeder {
     /// En las pruebas: saltar a esa muestra hace *panic*.
     #[cfg(test)]
     break_seek: Option<u64>,
+    /// En las pruebas: saltar a esa muestra tarda (un disco dormido).
+    #[cfg(test)]
+    pub(crate) stall_seek: Option<u64>,
+}
+
+#[cfg(test)]
+thread_local! {
+    /// En las pruebas: el `stall_seek` de los alimentadores que ponga en
+    /// marcha este hilo (el motor los crea por dentro).
+    pub(crate) static STALL_SEEK: std::cell::Cell<Option<u64>> = const { std::cell::Cell::new(None) };
 }
 
 impl Feeder {
@@ -136,6 +146,8 @@ impl Feeder {
             break_at: None,
             #[cfg(test)]
             break_seek: None,
+            #[cfg(test)]
+            stall_seek: None,
         }
     }
 
@@ -163,6 +175,10 @@ impl Feeder {
 
     /// Ir a `frame`, con una generacion nueva.
     pub fn seek(&mut self, frame: u64) {
+        #[cfg(test)]
+        if self.stall_seek == Some(frame) {
+            std::thread::sleep(Duration::from_millis(1_500));
+        }
         let frame = frame.min(self.len);
         self.generation = self.shared.generation.fetch_add(1, Ordering::AcqRel) + 1;
         self.shared.target.store(frame, Ordering::Release);

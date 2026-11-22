@@ -33,7 +33,6 @@ use std::path::Path;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{Sender, channel};
 use std::sync::{Arc, Mutex, PoisonError};
-use std::thread::JoinHandle;
 
 /// La tasa del motor (la de las partes; lo que va a otra se convierte).
 pub const RATE: u32 = 44_100;
@@ -99,7 +98,6 @@ struct Song {
     asked_order: AtomicU64,
     shared: Arc<feeder::Shared>,
     gains: Arc<Gains>,
-    thread: Option<JoinHandle<()>>,
 }
 
 impl Song {
@@ -131,13 +129,12 @@ impl Song {
         let _ = self.orders.send(Order::Segments(frames, end));
     }
 
-    /// Suelta el hilo que decodifica (acaba al soltar las ordenes).
-    fn close(mut self) {
-        let thread = self.thread.take();
+    /// Suelta el hilo que decodifica: acaba solo en cuanto ve que ya no hay
+    /// quien le mande ordenes. No se le espera: con el archivo en un disco
+    /// dormido o de red, esperar a que acabara su lectura dejaba sin
+    /// responder al que cambia de cancion (ni pausa ni siguiente).
+    fn close(self) {
         drop(self);
-        if let Some(t) = thread {
-            let _ = t.join();
-        }
     }
 }
 
@@ -870,11 +867,14 @@ fn spawn_song(id: &str, parts: Vec<Part>, declared: f64, from: u64) -> (Song, Ri
     for _ in 0..POOL {
         let _ = free_tx.push(Box::new(Block::new(n_parts)));
     }
+    #[cfg(test)]
+    {
+        feeder.stall_seek = feeder::STALL_SEEK.get();
+    }
     let (orders, rx) = channel();
-    let thread = std::thread::Builder::new()
+    let _ = std::thread::Builder::new()
         .name("danplay-parts".into())
-        .spawn(move || feeder::run(feeder, free_rx, full_tx, &rx))
-        .ok();
+        .spawn(move || feeder::run(feeder, free_rx, full_tx, &rx));
     let gains = Arc::new(Gains::default());
     let ring = Ring {
         full: full_rx,
@@ -891,7 +891,6 @@ fn spawn_song(id: &str, parts: Vec<Part>, declared: f64, from: u64) -> (Song, Ri
         asked_order: AtomicU64::new(0),
         shared,
         gains,
-        thread,
     };
     (song, ring)
 }
@@ -1125,6 +1124,30 @@ mod tests {
         assert!(
             worst > 0.95,
             "una ventana bajó a {worst:.2} del nivel de referencia"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn changing_song_does_not_wait_for_the_thread_that_was_reading_the_one_before() {
+        // con el archivo en un disco dormido o de red, el hilo que decodifica
+        // la de antes puede tardar en acabar lo que estaba leyendo: cerrarla
+        // lo esperaba, y quien cambia de cancion se quedaba sin responder
+        let dir = folder("dormido");
+        let e = Engine::offline(44_100);
+        // su salto a 1,25 s tarda un segundo y medio
+        crate::feeder::STALL_SEEK.set(Some(55_125));
+        e.load(&dir).expect("carga");
+        crate::feeder::STALL_SEEK.set(None);
+        e.seek(1.25);
+        std::thread::sleep(Duration::from_millis(100));
+        let t = Instant::now();
+        e.load(&dir).expect("otra");
+        let took = t.elapsed();
+        assert!(took < Duration::from_millis(500), "tardó {took:?}");
+        assert_eq!(
+            e.state().loaded.as_deref(),
+            dir.file_name().and_then(|n| n.to_str())
         );
         let _ = std::fs::remove_dir_all(&dir);
     }
