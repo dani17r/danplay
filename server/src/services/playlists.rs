@@ -241,6 +241,11 @@ pub fn export_m3u(app: &App, lid: i64, target: Option<&Path>) -> Result<String, 
     }
     let mut lines = vec!["#EXTM3U".to_owned()];
     let base = parent.to_string_lossy().into_owned();
+    // una etiqueta con un salto de línea partía su `#EXTINF` en dos, y lo de
+    // detrás se leía como otra canción (o como otra directiva)
+    let one_line = |c: &Dict, key: &str| {
+        library::value::str_of(c.get(key).unwrap_or(&Value::Null)).replace(['\r', '\n'], " ")
+    };
     for c in songs(app, lid, false, true)? {
         let duration = c
             .get("duration")
@@ -249,8 +254,8 @@ pub fn export_m3u(app: &App, lid: i64, target: Option<&Path>) -> Result<String, 
         lines.push(format!(
             "#EXTINF:{},{} - {}",
             duration.trunc() as i64,
-            library::value::str_of(c.get("artist").unwrap_or(&Value::Null)),
-            library::value::str_of(c.get("title").unwrap_or(&Value::Null)),
+            one_line(&c, "artist"),
+            one_line(&c, "title"),
         ));
         let path = library::value::str_of(c.get("path").unwrap_or(&Value::Null));
         lines.push(library::paths::relative(&path, &base).unwrap_or(path));
