@@ -4,6 +4,7 @@
 // CHANGELOG.md; una prueba comprueba que cada versión de allí está aquí.
 //
 // `date` vacía: la versión aún no se ha publicado.
+import { compareVersions } from '../utils/version.js'
 
 /**
  * @typedef {Object} Release
@@ -270,23 +271,8 @@ export const RELEASES = [
   }
 ]
 
-/**
- * Compara dos versiones «1.2.3». Negativo si `a` es anterior.
- * @param {string} a @param {string} b
- */
-export function compareVersions(a, b) {
-  const pa = String(a || '0')
-    .split('.')
-    .map(Number)
-  const pb = String(b || '0')
-    .split('.')
-    .map(Number)
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const d = (pa[i] || 0) - (pb[i] || 0)
-    if (d) return d
-  }
-  return 0
-}
+// Una sola copia: la que carga el arranque sin las novedades.
+export { compareVersions }
 
 /**
  * Las versiones que trajo una actualización: las posteriores a `seen` hasta
