@@ -9,9 +9,10 @@ description = "El motor de audio de DanPlay, en el escritorio y en el celular: l
 [features]
 default = ["engine"]
 # Todo el motor: abrir el .danpista, decodificar, mezclar, estirar y sonar.
-# Sin ella queda lo que comparte con la app de escritorio (el pulso y su
-# rejilla, el metronomo, la cola y el sonido del clic): asi la PC y el
-# celular hacen y cuentan lo mismo, y la PC no compila nada del resto.
+# Lo usan entero las dos apps (la de escritorio y la del celular). Sin el
+# queda lo que comparte con el analisis (`danplay-analysis`: el pulso y su
+# rejilla, el metronomo, la cola y el sonido del clic), que asi cuenta lo
+# mismo que las apps sin compilar nada del resto.
 engine = ["dep:symphonia", "dep:cpal", "dep:rtrb", "dep:zip", "dep:cc"]
 
 [dependencies]

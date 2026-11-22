@@ -1,5 +1,5 @@
-// Envoltorio de C sobre Signalsmith Stretch para el motor del celular
-// (src/stretch.rs). Audio intercalado en estereo, como lo mezcla el motor.
+// Envoltorio de C sobre Signalsmith Stretch para el motor de audio, el de la
+// PC y el del celular (src/stretch.rs). Audio intercalado en estereo, como lo mezcla el motor.
 #include "signalsmith-stretch/signalsmith-stretch.h"
 
 #include <cstddef>

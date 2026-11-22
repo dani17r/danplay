@@ -1,6 +1,6 @@
-//! Como suena el clic del metronomo. Lo comparten la app de escritorio
-//! (`metronome.rs`, en una fuente de rodio) y el motor del celular, para que
-//! un golpe suene igual en los dos sitios.
+//! Como suena el clic del metronomo. Lo usan el motor (el de la PC y el del
+//! celular) y el clic de la mezcla que se guarda (`analysis::click`), para que
+//! un golpe suene igual en todos los sitios.
 //!
 //! Se sintetiza muestra a muestra, a la tasa que se pida: unos pocos
 //! parciales senoidales que se apagan, con un ataque de medio milisegundo

@@ -4,8 +4,8 @@
 //! `danplay://state`, para que la interfaz de la PC (`usePlayback.js`, el
 //! reproductor, el estudio) funcione aqui sin cambiar nada.
 //!
-//! Lo que cambia es lo de debajo: en vez de rodio y ffmpeg, el motor de
-//! pistas (`danplay-engine`). En el celular no hay cancion entera: lo que
+//! Lo que cambia es lo de debajo: el mismo motor (`danplay-engine`), pero
+//! sin ffmpeg. En el celular no hay cancion entera: lo que
 //! suena son siempre sus partes. «La cancion» es todas a la vez y tal cual
 //! (la suma es la cancion: «Otros» es lo que queda); «las pistas», con la
 //! mezcla del estudio.

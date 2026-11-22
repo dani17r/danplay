@@ -4,8 +4,8 @@
 #                       en pistas (Demucs, el Mega53), en ONNX Runtime; el clic
 #                       de la mezcla y los pesos de los modelos
 #   desktop/src-tauri/  la app de escritorio (Tauri): cola, audio, bandeja, MPRIS
-#   engine/             el motor de pistas de la app del celular (y lo que
-#                       comparte con la de escritorio: el pulso, el
+#   engine/             el motor de audio de las dos apps (y, sin su rasgo
+#                       `engine`, lo que usa el analisis: el pulso, el
 #                       metronomo, la cola y el sonido del clic)
 #   library/            la biblioteca: el indice, las etiquetas, los nombres,
 #                       el asistente, la configuracion

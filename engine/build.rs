@@ -1,6 +1,7 @@
 //! Compila Signalsmith Stretch (solo cabeceras de C++, en `cpp/`) con su
-//! envoltorio de C. Solo con el motor entero: la app de escritorio usa este
-//! crate sin el, solo por el sonido del clic.
+//! envoltorio de C. Solo con el motor entero (el rasgo `engine`, el de por
+//! defecto: el de las dos apps); el analisis (`danplay-analysis`) usa este
+//! crate sin el, por el pulso y el sonido del clic.
 fn main() {
     println!("cargo::rerun-if-changed=cpp");
     #[cfg(feature = "engine")]
