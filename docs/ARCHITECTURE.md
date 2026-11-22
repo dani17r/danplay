@@ -2098,6 +2098,15 @@ al de la app; y no se cambia de versión a mitad de una descarga. (Hasta la
 1.30 era el paquete de Python dentro del núcleo de PyInstaller, y se ponía
 al día con la rueda de PyPI.)
 
+**Qué garantiza la comprobación.** El sha256 se coteja con el `SHA2-256SUMS`
+de **la misma versión**, bajado del mismo sitio: eso es integridad (la
+descarga llegó entera y es la que GitHub publica), no autenticidad. La firma
+de yt-dlp (`SHA2-256SUMS.sig`) no se verifica: la confianza descansa en el TLS
+de GitHub. La versión que dice GitHub (`tag_name`) es el nombre de una
+carpeta que se borra y se reemplaza, así que solo vale con
+`[0-9A-Za-z._-]`, de 1 a 40 y sin «..» (`library::ytdlp::valid_tag`); lo
+mismo la marca `current` al leerla.
+
 YouTube exige además un **motor de JavaScript** para resolver sus retos (sin él
 yt-dlp avisa de que «faltarán formatos»). Se busca, con las versiones mínimas
 que pide yt-dlp, Deno, Node, QuickJS o Bun, en la carpeta de herramientas y en
