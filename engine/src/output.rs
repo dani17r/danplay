@@ -125,6 +125,19 @@ impl Heartbeat {
     }
 }
 
+/// Lo que se espera antes de volver a abrir la salida. Tras caerse, nada:
+/// al desenchufar unos cascos USB, la musica tardaba hasta 750 ms en volver
+/// por los altavoces (los 250 de mirar si se cayo, mas 500 de espera), en
+/// silencio. Solo si no se pudo abrir se espera medio segundo, para no
+/// insistir sin parar con una salida que no esta.
+fn next_wait(failed_to_open: bool) -> Duration {
+    if failed_to_open {
+        Duration::from_millis(500)
+    } else {
+        Duration::ZERO
+    }
+}
+
 /// Lo que hace la salida en cada vuelta: pedir a cada cancion su trozo,
 /// sumarlos y limitar.
 struct Mixer {
@@ -233,7 +246,9 @@ impl Output {
                 loop {
                     let broken = Arc::new(AtomicBool::new(false));
                     let beat = Arc::new(AtomicU64::new(0));
-                    match open(&decks, rate, &config, &broken, &beat, &st, &xruns) {
+                    let opened = open(&decks, rate, &config, &broken, &beat, &st, &xruns);
+                    let failed = opened.is_err();
+                    match opened {
                         Ok(stream) => {
                             lock(&st).error = None;
                             let mut heart = Heartbeat::new(Instant::now());
@@ -259,9 +274,9 @@ impl Output {
                         }
                         Err(e) => lock(&st).error = Some(e),
                     }
-                    // otra vez dentro de un momento (o parar si se pide)
+                    // otra vez (o parar si se pide)
                     if !matches!(
-                        rx.recv_timeout(Duration::from_millis(500)),
+                        rx.recv_timeout(next_wait(failed)),
                         Err(std::sync::mpsc::RecvTimeoutError::Timeout)
                     ) {
                         return;
@@ -632,7 +647,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{Bridge, Heartbeat, Mixer, SoundServer, is_physical, lock, pick_pcm, server_in};
+    use super::{
+        Bridge, Heartbeat, Mixer, SoundServer, is_physical, lock, next_wait, pick_pcm, server_in,
+    };
     use crate::render::{Controls, FreeClick, Render};
     use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
     use std::sync::{Arc, Mutex};
@@ -673,6 +690,13 @@ mod tests {
         let loud = data.iter().fold(0f32, |m, v| m.max(v.abs()));
         assert!(loud > 0.1, "{loud}");
         assert_eq!(beat.load(Ordering::Relaxed), 2, "cada vuelta, un latido");
+    }
+
+    #[test]
+    fn a_fallen_output_is_reopened_at_once_and_one_that_will_not_open_is_waited_for() {
+        // tras caerse se esperaban 500 ms tambien la primera vez
+        assert_eq!(next_wait(false), Duration::ZERO);
+        assert_eq!(next_wait(true), Duration::from_millis(500));
     }
 
     #[test]
