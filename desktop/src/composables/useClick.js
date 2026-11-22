@@ -36,7 +36,7 @@ const AUTO_KEY = 'danplay.click.auto'
 const MODE_KEY = 'danplay.click.mode'
 const MANUAL_KEY = 'danplay.click.manual'
 /** Lo menos que dura una zona dudosa para enseñarla (s). */
-export const WEAK_MIN_S = 5
+const WEAK_MIN_S = 5
 /** Cada cuánto se pregunta por la rejilla que se está calculando. */
 export const POLL_MS = 700
 /**

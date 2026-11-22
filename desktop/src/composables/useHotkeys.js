@@ -9,7 +9,7 @@
 import { onMounted, onUnmounted } from 'vue'
 
 /** Con el foco en uno de estos, los atajos no actúan: el control manda. */
-export const HOTKEY_IGNORE =
+const HOTKEY_IGNORE =
   'button, [role], input, textarea, select, [contenteditable], .modal, .ctx, .select-box'
 
 /** Mientras haya uno de estos abierto, los atajos tampoco. */

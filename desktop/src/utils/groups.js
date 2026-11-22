@@ -54,12 +54,3 @@ export function groupSongs(songs, by) {
   }
   return [...groups.entries()].sort((a, b) => collator.compare(a[0], b[0]))
 }
-
-/**
- * Las canciones en el orden en que se ven agrupadas.
- * @param {Song[]} songs
- * @param {string} by
- */
-export function groupedOrder(songs, by) {
-  return groupSongs(songs, by).flatMap(([, list]) => list)
-}

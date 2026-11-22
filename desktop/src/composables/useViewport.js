@@ -14,7 +14,7 @@ export const TABLET_MAX = 1000
 export const BAR_MAX_H = 200
 /** Mas pequeña que esto por los dos lados, solo el reproductor: el «cuadrito». */
 export const SQUARE_MAX_W = 440
-export const SQUARE_MAX_H = 460
+const SQUARE_MAX_H = 460
 
 const width = ref(typeof window !== 'undefined' ? window.innerWidth : 1400)
 const height = ref(typeof window !== 'undefined' ? window.innerHeight : 900)

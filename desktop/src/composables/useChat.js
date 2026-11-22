@@ -1573,7 +1573,7 @@ function setVisible(on) {
 const ADDABLE = ['found', 'other_version', 'ambiguous']
 
 /** Las canciones de la tabla que se tienen, en su orden y sin repetir. @param {ChatSetlist} s */
-export function tableIds(s) {
+function tableIds(s) {
   /** @type {number[]} */
   const out = []
   for (const r of s?.rows || []) {

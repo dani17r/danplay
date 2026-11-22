@@ -970,7 +970,7 @@ export const core = {
 }
 
 /** Cada cuánto se pregunta por una tarea larga. */
-export const JOB_POLL_MS = 500
+const JOB_POLL_MS = 500
 
 /** Los nombres de las tareas largas del núcleo (contrato A). */
 export const JOBS = {

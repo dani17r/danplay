@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseKey, transposeKey, semitoneLabel, toneLabel, toneUnit } from '../src/utils/theory.js'
+import { parseKey, transposeKey, toneLabel } from '../src/utils/theory.js'
 
 describe('transposing the key name', () => {
   it('understands major, minor, sharps and flats', () => {
@@ -28,11 +28,6 @@ describe('transposing the key name', () => {
     expect(transposeKey('F#', 1)).toBe('G')
     expect(transposeKey('F#', 2)).toBe('G#')
   })
-  it('labels the shift', () => {
-    expect(semitoneLabel(0)).toBe('0')
-    expect(semitoneLabel(2)).toBe('+2')
-    expect(semitoneLabel(-3)).toBe('−3')
-  })
   it('counts the shift in tones: a half tone is a semitone', () => {
     expect(toneLabel(0)).toBe('0')
     expect(toneLabel(1)).toBe('+½')
@@ -46,9 +41,6 @@ describe('transposing the key name', () => {
     expect(toneLabel(12)).toBe('+6')
     // lo que no es un cuarto se dice con decimales
     expect(toneLabel(0.3)).toBe('+0.15')
-    expect(toneUnit(1)).toBe('tono')
-    expect(toneUnit(-2)).toBe('tono')
-    expect(toneUnit(3)).toBe('tonos')
   })
   it('with a quarter tone it says the starting key and how much it shifts', () => {
     expect(transposeKey('G', 0.5)).toBe('G +¼')

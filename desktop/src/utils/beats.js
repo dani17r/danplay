@@ -157,7 +157,7 @@ export function effectiveGrid(base, { mult = 0, meter = null, shift = 0 } = {}) 
  * This!), contando desde el último «1» antes de `i`, como Rust (`beat_in_bar`).
  * @param {BeatGrid} g @param {number} i
  */
-export function beatInBar(g, i) {
+function beatInBar(g, i) {
   let from = g.first_downbeat
   if (g.bars?.length) {
     from = g.bars[0]
@@ -248,7 +248,7 @@ export function parseBpm(text) {
  * La mediana de los intervalos, en bpm.
  * @param {ReadonlyArray<number>} beats
  */
-export function medianBpm(beats) {
+function medianBpm(beats) {
   const gaps = []
   for (let i = 1; i < beats.length; i++) gaps.push(beats[i] - beats[i - 1])
   if (!gaps.length) return 120

@@ -102,7 +102,7 @@ function boolPref(key, fallback) {
 const sameNumbers = (a, b) =>
   a.length === b.length && a.every((v, i) => Math.round(v * 1000) === Math.round(b[i] * 1000))
 /** ¿Son lo mismo dos clics propios (pulsos, «1» y compás)? */
-export function sameOwn(a, b) {
+function sameOwn(a, b) {
   if (!a || !b) return !a && !b
   return (
     sameNumbers(a.beats || [], b.beats || []) &&
@@ -311,7 +311,7 @@ export function describePlan(plan, { loading = false, error = '' } = {}) {
  * «pegan 31 de 38»).
  * @param {[number, number]} span @param {number} bpm
  */
-export function combPoints(span, bpm) {
+function combPoints(span, bpm) {
   return Math.max(1, Math.floor(((span[1] - span[0]) * bpm) / 60 + 1e-9) + 1)
 }
 /**
@@ -335,7 +335,7 @@ export function findTempo(hits, span, around = 0) {
 /** Menos de esto de `excess` (lo que pega de más sobre el azar) es que ahí no hay nada. */
 export const NOTHING_EXCESS = 0.4
 /** Una alternativa solo merece enseñarse si pega casi tanto sobre el azar como lo elegido. */
-export const ALTERNATIVE_KEEP = 0.85
+const ALTERNATIVE_KEEP = 0.85
 /**
  * Lo que se ofrece tras buscar: el elegido y sus alternativas que pegan sobre
  * el azar al menos el 85 % de lo que pega lo elegido, para saltar de uno a

@@ -84,7 +84,7 @@ export const pages = {
  * fotograma.
  * @param {() => void} fn
  */
-export function whenIdle(fn) {
+function whenIdle(fn) {
   if (typeof requestIdleCallback === 'function') requestIdleCallback(fn, { timeout: 2000 })
   else requestAnimationFrame(() => setTimeout(fn, 120))
 }

@@ -330,4 +330,3 @@ export function savedDensity() {
     return 'comfortable'
   }
 }
-export const THEMES = CATALOG // compatibilidad

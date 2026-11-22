@@ -11,7 +11,7 @@
 // sobre la ventana de la IA): manda solo el de arriba.
 import { watch, nextTick, onUnmounted, unref } from 'vue'
 
-export const FOCUSABLE =
+const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), ' +
   'select:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
@@ -23,7 +23,7 @@ const stack = []
  * @param {Element | null | undefined} root
  * @returns {HTMLElement[]}
  */
-export function focusables(root) {
+function focusables(root) {
   if (!root) return []
   return /** @type {HTMLElement[]} */ ([...root.querySelectorAll(FOCUSABLE)]).filter(
     (el) => el instanceof HTMLElement && !el.hidden && el.getAttribute('aria-hidden') !== 'true'
