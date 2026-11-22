@@ -282,3 +282,36 @@ describe('the lanes appear or change', () => {
     expect(asked()).toHaveLength(2)
   })
 })
+
+describe('painting the wave', () => {
+  it('several view changes in one frame (a pinch) paint once, in the next frame', async () => {
+    const w = await mountLanes([lane('drums')])
+    await settled()
+    held.paint = []
+    // tres giros, cada uno en su evento (Vue ya juntaba los de un mismo evento)
+    for (let i = 0; i < 3; i++) {
+      w.vm.zoomBy(1.2, 100)
+      await flushPromises()
+    }
+    expect(held.paint, 'se pinta en cada giro de la rueda').toHaveLength(0)
+    await vi.advanceTimersByTimeAsync(20)
+    expect(held.paint).toHaveLength(1)
+  })
+
+  it('the colors are read from the theme once, not on every paint', async () => {
+    const w = await mountLanes([lane('drums')])
+    await settled()
+    const read = vi.spyOn(window, 'getComputedStyle')
+    try {
+      for (let i = 0; i < 3; i++) {
+        w.vm.zoomBy(1.5, 100)
+        await vi.advanceTimersByTimeAsync(20)
+      }
+      expect(held.paint.length).toBeGreaterThan(2)
+      const canvas = w.find('canvas.tl-wave').element
+      expect(read.mock.calls.filter(([el]) => el === canvas)).toHaveLength(0)
+    } finally {
+      read.mockRestore()
+    }
+  })
+})

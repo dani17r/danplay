@@ -34,6 +34,7 @@ const open = ref(false)
 const root = useTemplateRef('root')
 // lo escrito, aparte del valor: asi la lista se filtra al momento aunque el
 // padre tarde en devolver el v-model
+// eslint-disable-next-line vue/no-ref-object-reactivity-loss -- lo escrito arranca con el valor y lo sigue el watch de abajo
 const text = ref(model.value || '')
 watch(model, (v) => {
   text.value = v || ''
@@ -42,6 +43,7 @@ const highlighted = ref(0)
 const uid = useId()
 const ids = { label: `${uid}-label`, list: `${uid}-list` }
 const optionId = (i) => `${uid}-opt-${i}`
+// eslint-disable-next-line vue/no-setup-props-reactivity-loss -- el filtro arranca así y luego lo cambia quien lo usa
 const onlyTools = ref(props.needTools)
 const hideOld = ref(true)
 const sort = ref('new') // new | cheap | name

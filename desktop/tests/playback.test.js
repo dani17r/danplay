@@ -229,6 +229,39 @@ describe('usePlayback', () => {
     expect(held.playback.bridge.setRepeat).toHaveBeenCalledWith('one')
   })
 
+  it('the volume and repeat are written when they change, not on every tick, and only by the main window', async () => {
+    const writes = vi.spyOn(Storage.prototype, 'setItem')
+    try {
+      const written = (key) => writes.mock.calls.filter(([k]) => k === key).length
+      window.history.replaceState(null, '', '/')
+      await usePlayback().ready()
+      writes.mockClear()
+      for (let i = 1; i <= 20; i++) held.playback.emit({ position: i * 0.25, volume: 0.9 })
+      await flushPromises()
+      expect(written('danplay.vol'), 'cuatro escrituras por segundo sonando').toBeLessThanOrEqual(1)
+      expect(written('danplay.repeat')).toBeLessThanOrEqual(1)
+      // lo que cambia, sí
+      held.playback.emit({ volume: 0.5 })
+      expect(localStorage.getItem('danplay.vol')).toBe('0.5')
+
+      // el mini y la proyección no escriben lo que se recuerda
+      for (const search of ['?mini=1', '?projection=1']) {
+        resetPlayback()
+        held.playback.reset()
+        localStorage.clear()
+        window.history.replaceState(null, '', '/' + search)
+        await usePlayback().ready()
+        held.playback.emit({ volume: 0.2, repeat: 'one' })
+        await flushPromises()
+        expect(localStorage.getItem('danplay.vol'), search).toBe(null)
+        expect(localStorage.getItem('danplay.repeat'), search).toBe(null)
+      }
+    } finally {
+      writes.mockRestore()
+      window.history.replaceState(null, '', '/')
+    }
+  })
+
   it('the crossfade between songs is chosen, remembered and sent on startup', async () => {
     let player = usePlayback()
     await player.ready()

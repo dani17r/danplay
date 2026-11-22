@@ -13,7 +13,7 @@ import { notify } from '../composables/useNotices.js'
 import { addFolder } from './folders.js'
 
 /** Las subcarpetas que usa lo descargado (las de `youtube.SUBFOLDERS` y Entrada/). */
-export const SUBFOLDERS = ['Artistas', 'Pistas', 'Secuencias', 'Tutoriales y Play Along', 'Entrada']
+const SUBFOLDERS = ['Artistas', 'Pistas', 'Secuencias', 'Tutoriales y Play Along', 'Entrada']
 
 /** @type {Record<string, string>} por qué hay que (volver a) elegirla */
 const WHY = {

@@ -1,11 +1,25 @@
 import { describe, it, expect, vi, beforeEach, afterEach, onTestFinished } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
+import { isReactive } from 'vue'
 
 // El modo estudio de la 1.30: cada cosa por su lado (L, R, estéreo o mono,
 // en su carril), «ir con un clic» con la onda bloqueada, ocultar la mezcla y
 // los canales, el carril del clic, la guía automática y la voz de las guías,
 // los menús cortos (lo puesto, marcado) y el recorrido.
-const held = vi.hoisted(() => ({ playback: null, api: null, state: null, savePath: null }))
+const held = vi.hoisted(() => ({
+  playback: null,
+  api: null,
+  state: null,
+  savePath: null,
+  driver: false
+}))
+
+// El recorrido trae driver.js con su CSS y sale una vez en la vida: no viaja
+// con el estudio, llega al pedirlo. Se apunta si llega a cargarse.
+vi.mock('driver.js', async (importOriginal) => {
+  held.driver = true
+  return importOriginal()
+})
 
 vi.mock('../src/api.js', async (importOriginal) => {
   const actual = await importOriginal()
@@ -36,8 +50,10 @@ import {
   sideOf,
   targetOf
 } from '../src/composables/useRouting.js'
-import { stopStudyTour } from '../src/composables/useStudyTour.js'
 import { song } from './support/backend.js'
+
+// con todo lo de arriba ya importado, antes de que ninguna prueba pida el recorrido
+const driverWithTheStudy = held.driver
 
 const base = {
   index: 0,
@@ -91,7 +107,7 @@ const mountView = async () => {
   return w
 }
 afterEach(() => {
-  stopStudyTour()
+  // (desmontarlo cierra el recorrido, si se abrió)
   for (const w of mounted.splice(0)) {
     try {
       w.unmount()
@@ -571,14 +587,20 @@ describe('the automatic cue', () => {
 })
 
 describe('the tour', () => {
+  it('does not travel with the study: driver.js arrives when it is asked for', () => {
+    expect(driverWithTheStudy, 'StudyBar.vue importa driver.js al abrirse').toBe(false)
+  })
+
   it('«?» opens it, with its steps and animations', async () => {
     const w = await mountView()
     await w.find('.study-help').trigger('click')
+    await vi.dynamicImportSettled()
     await flushPromises()
     const pop = document.querySelector('.driver-popover')
     expect(pop).not.toBeNull()
     expect(pop.textContent).toContain('El modo estudio')
     expect(pop.querySelector('.tour-demo')).not.toBeNull()
+    const { stopStudyTour } = await import('../src/composables/useStudyTour.js')
     stopStudyTour()
     expect(localStorage.getItem('danplay.study.tourSeen')).toBe('true')
   })
@@ -587,5 +609,64 @@ describe('the tour', () => {
     await mountView()
     await new Promise((r) => setTimeout(r, 1000))
     expect(document.querySelector('.driver-popover')).toBeNull()
+  })
+})
+
+describe('«Grande» and its animation', () => {
+  // El observador del tamaño avisaba en cada fotograma de la animación del
+  // alto (0,3 s): cada vez se medía todo y se repartían los carriles.
+  it('while the panel changes height the room is shared out once, at the end', async () => {
+    let notify = null
+    const had = 'ResizeObserver' in globalThis
+    const before = globalThis.ResizeObserver
+    globalThis.ResizeObserver = class {
+      constructor(cb) {
+        notify = cb
+      }
+      observe() {}
+      disconnect() {}
+    }
+    const read = vi.spyOn(window, 'getComputedStyle')
+    try {
+      const w = await mountView()
+      const root = w.find('.study').element
+      Object.defineProperty(root, 'clientHeight', { configurable: true, value: 600 })
+      Object.defineProperty(w.find('.tl-box').element, 'offsetHeight', {
+        configurable: true,
+        value: 120
+      })
+      const fits = () => read.mock.calls.filter(([el]) => el === root).length
+      const transition = (type) => {
+        const e = new Event(type, { bubbles: true })
+        Object.defineProperty(e, 'propertyName', { value: 'height' })
+        root.dispatchEvent(e)
+      }
+      notify([])
+      expect(fits(), 'sin animación, se reparte').toBe(1)
+      read.mockClear()
+      transition('transitionrun')
+      for (let i = 0; i < 5; i++) notify([])
+      expect(fits(), 'se reparte en cada fotograma de la animación').toBe(0)
+      transition('transitionend')
+      expect(fits()).toBe(1)
+    } finally {
+      read.mockRestore()
+      if (had) globalThis.ResizeObserver = before
+      else delete globalThis.ResizeObserver
+    }
+  })
+})
+
+describe('the big data of the study', () => {
+  it('the manual click beats and the cue waves are not made reactive one by one', async () => {
+    const own = { beats: [0.5, 1, 1.5, 2], bars: [0], meter: 4 }
+    held.state.songs = [
+      song(7, { title: 'Mi Gozo', study: JSON.stringify({ metronome: { own } }) })
+    ]
+    const w = await mountView()
+    expect(w.vm.study.metronome.own.beats).toEqual(own.beats)
+    expect(isReactive(w.vm.study.metronome.own), 'los pulsos, reactivos uno a uno').toBe(false)
+    w.vm.cueWaves = { 'a.wav': { peaks: [1, 2, 3], seconds: 1 } }
+    expect(isReactive(w.vm.cueWaves['a.wav'])).toBe(false)
   })
 })

@@ -50,8 +50,14 @@ export default defineConfig(({ command, mode }) => ({
   },
   // `--mode mobile`: la app del celular (mobile.html, ver src/mobile/), en su
   // propia carpeta, que es la que empaqueta mobile/tauri.conf.json
+  // (sin calcular el gzip de cada trozo al compilar: nadie lo lee y tarda)
   build:
     mode === 'mobile'
-      ? { target: 'esnext', outDir: 'dist-mobile', rollupOptions: { input: 'mobile.html' } }
-      : { target: 'esnext', outDir: 'dist' }
+      ? {
+          target: 'esnext',
+          outDir: 'dist-mobile',
+          reportCompressedSize: false,
+          rollupOptions: { input: 'mobile.html' }
+        }
+      : { target: 'esnext', outDir: 'dist', reportCompressedSize: false }
 }))

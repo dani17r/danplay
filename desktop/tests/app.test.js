@@ -6,7 +6,37 @@ import { settle } from './support/pages.js'
 // buscaban antes texto en App.vue («¿aparece `<transition` antes del menu?»,
 // «¿dice `play(song, quick.value`?»), y un texto puede estar y el
 // comportamiento no.
-const held = vi.hoisted(() => ({ state: null, api: null, playback: null }))
+const held = vi.hoisted(() => ({
+  state: null,
+  api: null,
+  playback: null,
+  releases: false,
+  groupings: 0
+}))
+
+// Cuántas veces se agrupa la lista (lo que se pide a utils/groups.js)
+vi.mock('../src/utils/groups.js', async (importOriginal) => {
+  const actual = await importOriginal()
+  const counted = (fn) => (songs, by) => {
+    held.groupings++
+    return fn(songs, by)
+  }
+  return {
+    ...actual,
+    ...Object.fromEntries(
+      Object.entries(actual)
+        .filter(([k, v]) => typeof v === 'function' && k !== 'groupKey')
+        .map(([k, v]) => [k, counted(v)])
+    )
+  }
+})
+
+// Las novedades (300 líneas) solo hacen falta en «Acerca de»: si la app las
+// importa, viajan en el trozo del arranque. Se apunta si llegan a cargarse.
+vi.mock('../src/data/releases.js', async (importOriginal) => {
+  held.releases = true
+  return importOriginal()
+})
 
 vi.mock('../src/api.js', async (importOriginal) => {
   const actual = await importOriginal()
@@ -38,6 +68,8 @@ import { clearNotices, notify } from '../src/composables/useNotices.js'
 import { allCss } from './support/css.js'
 import { SEARCH_DELAY } from '../src/composables/useSearch.js'
 
+// con todo lo de arriba ya importado, antes de que ninguna prueba abra «Acerca de»
+const releasesWithTheApp = held.releases
 const api = held.api
 const state = held.state
 const playback = held.playback
@@ -178,6 +210,26 @@ describe('sorting', () => {
       'duration',
       true
     ])
+  })
+})
+
+describe('the grouped list', () => {
+  it('is grouped once for each list that arrives: the app and the list share the groups', async () => {
+    const { core } = await import('../src/api.js')
+    const w = await mountView()
+    await clickButton(w, 'Artistas')
+    expect(w.findAll('[data-group-row]').length).toBeGreaterThan(0)
+    // con una elegida (la de la ficha), como casi siempre
+    await w.findAll('[data-song-row]')[0].trigger('click')
+    await flushPromises()
+    held.groupings = 0
+    // algo cambió en el núcleo: llega la lista otra vez
+    const searches = api.search.mock.calls.length
+    core.onChanged.mock.calls.at(-1)[0]()
+    await new Promise((r) => setTimeout(r, 300))
+    await flushPromises()
+    expect(api.search.mock.calls.length).toBeGreaterThan(searches)
+    expect(held.groupings, 'la app y la lista agrupan cada una por su lado').toBe(1)
   })
 })
 
@@ -927,5 +979,24 @@ describe('selecting several', () => {
     await flushPromises()
     expect(selectedCount(w)).toBe(1)
     expect(bar(w).find('.sel-status').text()).toBe('1 seleccionada')
+  })
+})
+
+describe('starting up', () => {
+  it('the release notes do not travel with the app: they come with «Acerca de»', () => {
+    expect(releasesWithTheApp, 'App.vue arrastra data/releases.js al arranque').toBe(false)
+  })
+
+  it('a .danpista opened at launch does not wait for the library to arrive', async () => {
+    state.openedBundles = ['/usb/Shekinah.danpista']
+    // la lista no llega nunca (un núcleo lento con una biblioteca enorme)
+    api.search.mockImplementation(() => new Promise(() => {}))
+    await mountView()
+    expect(api.takeOpenedBundles).toHaveBeenCalled()
+    expect(api.importBundle).toHaveBeenCalledWith('/usb/Shekinah.danpista')
+    // y lo que llega de fuera se escucha ya
+    expect(api.onExternal).toHaveBeenCalled()
+    expect(api.onSequence).toHaveBeenCalled()
+    expect(api.onBundle).toHaveBeenCalled()
   })
 })

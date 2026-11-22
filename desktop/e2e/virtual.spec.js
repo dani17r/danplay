@@ -89,3 +89,21 @@ test('the grouped grid is windowed too and reaches the end', async ({ page }) =>
   expect(await rows(page).count()).toBeLessThan(TOTAL)
   await toTheEnd(page, scroller, 'Shekinah')
 })
+
+// La lista virtual recicla las filas: la que suena se desmonta al bajar y es
+// OTRA al volver. El botón «ir a lo que suena» miraba la de antes y se
+// quedaba puesto con la canción a la vista (INT-12).
+test('«go to what plays» goes away when the playing row is back in view', async ({ page }) => {
+  await page.goto('/')
+  await expect(page.locator('.filters .chip').first()).toHaveText(String(TOTAL))
+  await rows(page).first().dblclick()
+  await expect(page.locator('.player .title')).toHaveText('Mi Gozo')
+  const scroller = await panel(page, '.center .table-wrap')
+  const fab = page.locator('.jump-fab')
+  await expect(fab).toBeHidden()
+  await scroller.evaluate((el) => el.scrollTo(0, el.scrollHeight))
+  await expect(fab).toBeVisible()
+  await scroller.evaluate((el) => el.scrollTo(0, 0))
+  await expect(scroller.locator('[data-song-row].playing').first()).toBeInViewport()
+  await expect(fab).toBeHidden()
+})

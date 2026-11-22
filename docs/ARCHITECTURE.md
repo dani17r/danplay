@@ -2345,7 +2345,17 @@ una nota. Lo que tiene muchas formas (exportar) va en una ventana
 con una frase y, donde ayuda, una animación de CSS que se mueve sola
 (`tour.css`). Sale la primera vez que se abre el estudio en el escritorio
 (si tiene medidas: en las pruebas no) y con «?». Los pasos sin sitio a la
-vista se saltan.
+vista se saltan. Se carga con `import()` al pedirlo (driver.js, su CSS y
+`tour.css` van en su propio trozo, no en el del estudio): el estudio solo
+pregunta `tourSeen()` (`tourSeen.js`).
+
+**La aguja, sin Vue.** La posición llega cuatro veces por segundo y ninguna
+plantilla grande la lee: el reloj es `StudyClock.vue` y las agujas de la
+línea de tiempo las pinta `usePlayhead.js` a mano (`style.left`), en cada
+fotograma mientras suena, con lo que va de canción desde el último aviso
+(a la velocidad puesta, como mucho 0,3 s por delante, sin pasar del final
+del tramo). Oculto el estudio, no pinta. `tests/ticks.test.js` comprueba
+que StudyBar y StudyTimeline no se repintan con los avisos.
 
 **La guía, por la letra (1.41).** Las partes salían solo de cómo suena
 (`analysis/src/structure.rs`), y con estrofa y coro sobre los mismos

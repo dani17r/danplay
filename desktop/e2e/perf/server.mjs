@@ -9,8 +9,9 @@
 //   analiza; cuando su Vite contesta, todo eso está listo. Ese Vite no se usa.
 // - Aquí se genera la carpeta «Rendimiento» (DANPLAY_PERF_SONGS canciones de
 //   un segundo; 2000 si no se dice), se da de alta y se analiza.
-// - `vite preview` sirve la carpeta compilada (DANPLAY_PERF_DIST, o dist/)
-//   con el proxy de /api al núcleo (el de vite.config.js).
+// - `vp preview` (el `vite preview` de Vite+) sirve la carpeta compilada
+//   (DANPLAY_PERF_DIST, o dist/) con el proxy de /api al núcleo (el de
+//   vite.config.js).
 //
 // Al acabar, Playwright lo para con SIGTERM: se para todo y e2e/server.mjs
 // borra el temporal.
@@ -29,6 +30,8 @@ const COUNT = Number(process.env.DANPLAY_PERF_SONGS) || 2000
 const DIST = resolve(DESKTOP, process.env.DANPLAY_PERF_DIST || 'dist')
 
 const children = []
+/** Los que van en su propio grupo de procesos: se paran con todo el grupo. */
+const groups = new Set()
 let stopping = false
 
 function log(...args) {
@@ -40,7 +43,8 @@ function stop(code = 0) {
   stopping = true
   for (const c of children) {
     try {
-      c.kill('SIGTERM')
+      if (groups.has(c)) process.kill(-c.pid, 'SIGTERM')
+      else c.kill('SIGTERM')
     } catch {
       /* ya había terminado */
     }
@@ -130,10 +134,13 @@ async function main() {
   const { stats } = await core('GET', '/api/status')
   log(`biblioteca lista: ${stats.total} canciones; sirvo ${DIST}`)
 
+  // Desde Vite+ ya no hay node_modules/vite/bin/vite.js: es `vp preview`, y
+  // `vp` arranca Vite en otro proceso sin pasarle el SIGTERM. Como en
+  // e2e/server.mjs, en su propio grupo, y `stop()` para el grupo entero.
   const preview = spawn(
     process.execPath,
     [
-      join(DESKTOP, 'node_modules', 'vite', 'bin', 'vite.js'),
+      join(DESKTOP, 'node_modules', 'vite-plus', 'bin', 'vp'),
       'preview',
       '--host',
       '127.0.0.1',
@@ -143,12 +150,13 @@ async function main() {
       '--outDir',
       DIST
     ],
-    { cwd: DESKTOP, env: { ...process.env, DANPLAY_API: CORE }, stdio: 'inherit' }
+    { cwd: DESKTOP, detached: true, env: { ...process.env, DANPLAY_API: CORE }, stdio: 'inherit' }
   )
   children.push(preview)
+  groups.add(preview)
   preview.on('exit', (code) => {
     if (!stopping) {
-      console.error(`[perf] vite preview se ha parado (código ${code})`)
+      console.error(`[perf] vp preview se ha parado (código ${code})`)
       stop(1)
     }
   })

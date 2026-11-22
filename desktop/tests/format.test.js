@@ -10,7 +10,7 @@ import {
   formatGigabytes,
   fullName
 } from '../src/utils/format.js'
-import { groupKey, groupSongs, groupedOrder } from '../src/utils/groups.js'
+import { groupKey, groupSongs } from '../src/utils/groups.js'
 import { song } from './support/backend.js'
 
 describe('formatting', () => {
@@ -70,7 +70,7 @@ describe('grouping', () => {
       ['New Wine', [1]],
       ['Sin artista', [5]]
     ])
-    expect(groupedOrder(list, 'artist').map((s) => s.id)).toEqual([2, 4, 3, 1, 5])
+    expect(groups.flatMap(([, l]) => l).map((s) => s.id)).toEqual([2, 4, 3, 1, 5])
   })
 
   it('items without data go to their own named group', () => {

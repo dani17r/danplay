@@ -1,3 +1,4 @@
+// @ts-check
 // Editar el clic manual de una canción, de muchos pulsos a la vez: lo que une
 // la lógica pura (`utils/beatEdit.js`, `beatAlign.js`, `beatHistory.js`) con
 // el modo estudio.
@@ -13,7 +14,17 @@
 // fondo, las preferencias de la barra y las teclas (deshacer, rehacer, borrar,
 // mover con las flechas), que se escuchan en la fase de captura para ganarle
 // al reproductor, que con las flechas adelanta o atrasa la canción.
-import { computed, onMounted, onUnmounted, reactive, ref, shallowRef, toValue, watch } from 'vue'
+import {
+  computed,
+  markRaw,
+  onMounted,
+  onUnmounted,
+  reactive,
+  ref,
+  shallowRef,
+  toValue,
+  watch
+} from 'vue'
 import { api, errorMessage } from '../api.js'
 import { notify } from './useNotices.js'
 import { HOTKEY_BLOCKERS } from './useHotkeys.js'
@@ -36,6 +47,7 @@ import {
 } from '../utils/beatEdit.js'
 import { alignBeats, estimateTempo, fitReport, REACH_DEFAULT } from '../utils/beatAlign.js'
 import { formatBpm, gridToOwn, ownToGrid, ownTouched, touchedByEdit } from '../utils/beats.js'
+import { readPref, savePref } from '../utils/prefs.js'
 
 // ------------------------------------------------------------------ las palabras
 /** «3 pulsos» / «1 pulso» */
@@ -62,21 +74,9 @@ const PREF_SNAP = 'danplay.click.snapHits'
 const PREF_GHOST = 'danplay.click.ghostAuto'
 const PREF_HEAR = 'danplay.click.hearTrial'
 
-function readPref(key, fallback) {
-  try {
-    const v = localStorage.getItem(key)
-    return v == null ? fallback : JSON.parse(v)
-  } catch {
-    return fallback
-  }
-}
-function savePref(key, value) {
-  try {
-    localStorage.setItem(key, JSON.stringify(value))
-  } catch {
-    /* modo privado */
-  }
-}
+/** De cuántas canciones (y fuente) se guardan los golpes ya pedidos. */
+export const HITS_KEEP = 4
+
 /** Una preferencia de sí o no, recordada. */
 function boolPref(key, fallback) {
   const saved = readPref(key, fallback)
@@ -89,7 +89,7 @@ function boolPref(key, fallback) {
 const sameNumbers = (a, b) =>
   a.length === b.length && a.every((v, i) => Math.round(v * 1000) === Math.round(b[i] * 1000))
 /** ¿Son lo mismo dos clics propios (pulsos, «1» y compás)? */
-export function sameOwn(a, b) {
+function sameOwn(a, b) {
   if (!a || !b) return !a && !b
   return (
     sameNumbers(a.beats || [], b.beats || []) &&
@@ -142,6 +142,7 @@ export function planAlign(own, span, settings = {}, hits = []) {
   const [t0, t1] = span
   // los pulsos que salen de un tempo escrito pueden caer unos ms fuera del tramo
   const pad = 0.006
+  /** @type {[number, number]} */
   const area = [t0 - pad, t1 + pad]
   const reach = fit.reach ?? REACH_DEFAULT
   const bpm = Number(tempo.bpm)
@@ -298,7 +299,7 @@ export function describePlan(plan, { loading = false, error = '' } = {}) {
  * «pegan 31 de 38»).
  * @param {[number, number]} span @param {number} bpm
  */
-export function combPoints(span, bpm) {
+function combPoints(span, bpm) {
   return Math.max(1, Math.floor(((span[1] - span[0]) * bpm) / 60 + 1e-9) + 1)
 }
 /**
@@ -322,7 +323,7 @@ export function findTempo(hits, span, around = 0) {
 /** Menos de esto de `excess` (lo que pega de más sobre el azar) es que ahí no hay nada. */
 export const NOTHING_EXCESS = 0.4
 /** Una alternativa solo merece enseñarse si pega casi tanto sobre el azar como lo elegido. */
-export const ALTERNATIVE_KEEP = 0.85
+const ALTERNATIVE_KEEP = 0.85
 /**
  * Lo que se ofrece tras buscar: el elegido y sus alternativas que pegan sobre
  * el azar al menos el 85 % de lo que pega lo elegido, para saltar de uno a
@@ -351,21 +352,23 @@ const ARROW_OWNERS = `${EDITABLE}, input[type="range"], input[type="radio"], [ro
 const inside = (el, selector) => el instanceof Element && !!el.closest(selector)
 
 /**
- * @param {{
- *   songId: any,        la canción abierta (ref o función): la historia es de cada una
- *   study: any,         el estudio de la canción (ref): `metronome.own`, `loops`…
- *   grid: any,          la rejilla que se ve y suena (`soundingGrid`)
- *   duration: any,
- *   editing: any,       ref: se están ajustando los pulsos
- *   visible?: any,      el estudio se ve (si no, las teclas no son suyas)
- *   click: any,         `useClick()`
- *   player: any,        `usePlayback()`
- *   scheduleSave: () => void,
- *   flushSave: () => Promise<void>,
- *   hasDrums?: any,     la canción tiene la batería separada
- *   hear?: (a: number, b: number) => Promise<any>,  poner ese tramo en bucle y que suene
- *   now?: () => number, el reloj de la historia (pruebas)
- * }} deps
+ * @typedef {Object} BeatEditDeps
+ * @property {any} songId    la canción abierta (ref o función): la historia es de cada una
+ * @property {any} study     el estudio de la canción (ref): `metronome.own`, `loops`…
+ * @property {any} grid      la rejilla que se ve y suena (`soundingGrid`)
+ * @property {any} duration
+ * @property {any} editing   ref: se están ajustando los pulsos
+ * @property {any} [visible] el estudio se ve (si no, las teclas no son suyas)
+ * @property {any} click     `useClick()`
+ * @property {any} player    `usePlayback()`
+ * @property {() => void} [scheduleSave]
+ * @property {() => Promise<void>} [flushSave]
+ * @property {any} [hasDrums] la canción tiene la batería separada
+ * @property {(a: number, b: number) => Promise<any>} [hear]  poner ese tramo en bucle y que suene
+ * @property {() => number} [now]  el reloj de la historia (pruebas)
+ */
+/**
+ * @param {BeatEditDeps} deps
  */
 export function useBeatEdit(deps) {
   const { study, editing, click, player } = deps
@@ -464,11 +467,15 @@ export function useBeatEdit(deps) {
     return syncing
   }
 
-  /** Deja `own` en el estudio de la canción (null: se quita el manual). */
+  /**
+   * Deja `own` en el estudio de la canción (null: se quita el manual). Sin
+   * hacerlo reactivo (miles de pulsos que nadie cambia en su sitio: cada
+   * cambio es otro `own`).
+   */
   function writeOwn(own) {
     const m = { ...(study.value.metronome || {}) }
     if (own) {
-      m.own = own
+      m.own = markRaw(own)
       delete m.shift
       delete m.mult
     } else {
@@ -585,7 +592,12 @@ export function useBeatEdit(deps) {
   const hitsRef = ref(0)
   const hitsStatus = ref(/** @type {'idle'|'loading'|'ready'|'error'} */ ('idle'))
   const hitsError = ref('')
-  /** Los golpes ya pedidos, por canción y fuente (también los que están llegando). */
+  /**
+   * Los golpes ya pedidos, por canción y fuente (también los que están
+   * llegando): los de las últimas HITS_KEEP. Son miles de pares por canción y
+   * el estudio vive toda la sesión: sin tope se quedaban los de cada canción
+   * ajustada desde que se abrió la app.
+   */
   const hitsCache = new Map()
   const hasDrums = computed(() => !!toValue(deps.hasDrums))
   watch(hasDrums, (has) => {
@@ -598,10 +610,17 @@ export function useBeatEdit(deps) {
     if (id == null) return null
     const key = `${id}:${source}`
     let pending = hitsCache.get(key)
-    if (!pending) {
+    if (pending) {
+      // la usada pasa al final: se tira la que lleva más sin usarse
+      hitsCache.delete(key)
+      hitsCache.set(key, pending)
+    } else {
       pending = api.beatHits(id, source)
       hitsCache.set(key, pending)
-      pending.catch(() => hitsCache.delete(key))
+      pending.catch(() => {
+        if (hitsCache.get(key) === pending) hitsCache.delete(key)
+      })
+      while (hitsCache.size > HITS_KEEP) hitsCache.delete(hitsCache.keys().next().value)
     }
     const mine = source === hitsSource.value
     if (mine) {
@@ -725,7 +744,12 @@ export function useBeatEdit(deps) {
   })
 
   // ---------------------------------------------------------------- las herramientas
-  /** Una herramienta: actúa sobre el objetivo y deja una sola entrada en la historia. */
+  /**
+   * Una herramienta: actúa sobre el objetivo y deja una sola entrada en la historia.
+   * @param {any} label
+   * @param {(own: any, sel: number[]) => any} make
+   * @param {{ key?: string, needs?: number }} [opts]
+   */
   async function tool(label, make, { key, needs = 1 } = {}) {
     const sel = target.value
     const own = currentOwn()
@@ -830,7 +854,7 @@ export function useBeatEdit(deps) {
       notify(`No se pudo traer el automático: ${errorMessage(e)}`)
       return false
     }
-    const r = revertToAuto(currentOwn() ?? own, auto, sp)
+    const r = revertToAuto(currentOwn() ?? own, auto, /** @type {[number, number]} */ (sp))
     const done = await commitOwn(r, 'volver al automático en el tramo')
     if (done) selection.value = [...r.selection]
     return done

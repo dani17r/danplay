@@ -74,6 +74,7 @@ import {
 } from 'vue'
 import { api, errorMessage } from '../api.js'
 import { usePreferences } from '../composables/usePreferences.js'
+import { usePlayhead } from '../composables/usePlayhead.js'
 import { openMenu } from '../composables/useContextMenu.js'
 import { formatTime } from '../utils/format.js'
 import { isDownbeat, nearestBeat, gridToOwn, ownToGrid, formatBpm } from '../utils/beats.js'
@@ -94,11 +95,17 @@ import { columnsFor, paintWave } from '../utils/wavePaint.js'
 import Icon from './Icon.vue'
 import SliderField from './ui/SliderField.vue'
 import ChannelPicker from './ChannelPicker.vue'
+import { clamp, pctText, round2, round3 } from '../utils/num.js'
+import { MAX_CUE_LANES, markerParts as partsOf } from '../utils/cues.js'
 
 const props = defineProps({
   songId: { type: Number, default: null },
   duration: { type: Number, default: 0 },
-  position: { type: Number, default: 0 },
+  /**
+   * Se ve: oculto, la aguja no se pinta. (La posición ya no es una prop: la
+   * aguja la lee del reproductor y se pinta sola, ver usePlayhead.)
+   */
+  visible: { type: Boolean, default: true },
   /** los tramos que se repiten: [[a, b], …] en segundos (uno solo, el bucle A-B) */
   loops: { type: Array, default: () => [] },
   /** varios tramos a la vez: arrastrar añade otro en vez de sustituir */
@@ -189,8 +196,8 @@ const props = defineProps({
 // («mover 5 pulsos»), para el historial de deshacer; `update:selection`, los
 // pulsos elegidos cuando cambian. `cue`, la guía que se pulsó. Las de los
 // carriles de guías: `add-cue` (segundo, carril), `move-cue` (guía, segundo),
-// `cue-lane` (carril, cambios), `add-cue-lane`, `remove-cue-lane` y
-// `rename-cue-lane` (carril); `cue-lane-menu` (carril, evento, segundo o
+// `cue-lane` (carril, cambios), `add-cue-lane` y `rename-cue-lane`
+// (carril) —quitar un carril va por su menú—; `cue-lane-menu` (carril, evento, segundo o
 // null), las opciones de un carril (su botón ⋯ o un clic derecho en él), y
 // `cue-menu` (guía, evento), las de una guía (clic derecho en ella).
 const emit = defineEmits([
@@ -208,7 +215,6 @@ const emit = defineEmits([
   'move-cue',
   'cue-lane',
   'add-cue-lane',
-  'remove-cue-lane',
   'rename-cue-lane',
   'cue-lane-menu',
   'cue-menu',
@@ -244,8 +250,6 @@ const showClick = computed(() => !!props.clickLane && headModeBase.value && !isM
 /** Cada carril con su cabecera a la izquierda (los de las pistas o los de las guías). */
 const headModeBase = computed(() => laneMode.value || showGuides.value)
 const headMode = headModeBase
-/** Hasta cuántos carriles de guías. */
-const MAX_CUE_LANES = 6
 // alto de la onda (o de todos los carriles), en px
 const WAVE_H = computed(() =>
   laneMode.value ? props.lanes.length * props.laneHeight : props.height
@@ -256,10 +260,6 @@ const THRESHOLD = 4 // px de movimiento a partir de los que un clic pasa a ser a
 const SNAP = 6 // px: cerca de un marcador, el borde se pega a él
 const MIN_SPAN = 1.5 // segundos a la vista como mucho de cerca
 const FOLLOW_PAUSE = 4000 // ms sin seguir a la aguja tras mover la vista a mano
-
-const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v))
-const round2 = (v) => Math.round(v * 100) / 100
-const round3 = (v) => Math.round(v * 1000) / 1000
 
 // ------------------------------------------------------------ la vista
 /** El trozo de la canción que se ve: de `from` a `to`, en segundos. */
@@ -289,7 +289,7 @@ function setView(from, to, byHand = true) {
 function zoomBy(factor, at = null) {
   const d = props.duration
   if (!d) return
-  const center = at ?? (zoomed.value ? (view.from + view.to) / 2 : props.position)
+  const center = at ?? (zoomed.value ? (view.from + view.to) / 2 : playhead.now())
   const len = clamp(span.value / factor, Math.min(MIN_SPAN, d), d)
   const rel = span.value > 0 ? (center - view.from) / span.value : 0.5
   setView(center - rel * len, center - rel * len + len)
@@ -302,7 +302,8 @@ function zoomToBeats() {
   const g = props.grid
   const period = g?.bpm ? 60 / g.bpm : 0.5
   const len = clamp(period * 32, 6, props.duration || 6)
-  setView(props.position - len * 0.2, props.position - len * 0.2 + len)
+  const t = playhead.now()
+  setView(t - len * 0.2, t - len * 0.2 + len)
 }
 /**
  * Acercar la vista a un trozo: de `t0` a `t1` llena la onda, con un poco de
@@ -319,17 +320,63 @@ function zoomToSpan(t0, t1) {
 }
 defineExpose({ zoomBy, zoomFit, zoomToBeats, zoomToSpan, view, focusCue: (c) => focusCue(c) })
 
-// acercada, la vista sigue a la aguja cuando se va de ella
-watch(
-  () => props.position,
-  (t) => {
-    if (!zoomed.value || drag.mode || beatDrag.kind) return
-    if (Date.now() - movedAt < FOLLOW_PAUSE) return
-    if (t < view.from || t > view.from + span.value * 0.92) {
-      setView(t - span.value * 0.1, t - span.value * 0.1 + span.value, false)
-    }
+// ------------------------------------------------------------ la aguja
+// Se pinta a mano en cada fotograma mientras suena (usePlayhead): leída en
+// la plantilla, cada aviso de Rust (4 por segundo) volvía a ejecutar la
+// plantilla entera (carriles, pulsos, la regla).
+const head = useTemplateRef('head')
+const clickNeedle = useTemplateRef('clickNeedle')
+const guideNeedle = useTemplateRef('guideNeedle')
+const overviewHead = useTemplateRef('overviewHead')
+const playhead = usePlayhead(paintHead, () => props.visible)
+/** Pone la aguja (y las de los carriles y la vista de toda la canción) en `t`. */
+function paintHead(t) {
+  followHead(t)
+  const shown = !!props.duration && inView(t)
+  // Solo se toca el DOM cuando la aguja cambia de píxel: con la canción
+  // entera a la vista avanza unos pocos píxeles por segundo, y moverla en
+  // cada fotograma obligaba al navegador a recalcular y pintar 60 veces por
+  // segundo lo que antes eran 4 (medido: más ocupado que repintar la
+  // plantilla). Acercada, sí se mueve en cada fotograma.
+  // (sin maquetación, como en las pruebas, a una resolución fina)
+  const w = (box.value?.clientWidth || 10000) * (window.devicePixelRatio || 1)
+  const at = props.duration ? Math.round(((t - view.from) / span.value) * w) : 0
+  const whole = props.duration ? Math.round((t / props.duration) * w) : 0
+  const key = `${shown}:${at}:${whole}`
+  if (key === headKey) return
+  headKey = key
+  const left = pct(t)
+  for (const el of [head.value, clickNeedle.value, guideNeedle.value]) {
+    if (!el) continue
+    el.style.left = left
+    el.style.display = shown ? '' : 'none'
   }
+  if (overviewHead.value && props.duration) {
+    overviewHead.value.style.left = (t / props.duration) * 100 + '%'
+  }
+}
+/** Dónde se pintó la aguja la última vez (se vacía si cambia lo que la lleva). */
+let headKey = ''
+/** Pintarla otra vez sí o sí: una aguja nueva (un carril que aparece) va sin poner. */
+function repaintHead() {
+  headKey = ''
+  playhead.repaint()
+}
+// acercada, la vista sigue a la aguja cuando se va de ella
+function followHead(t) {
+  if (!zoomed.value || drag.mode || beatDrag.kind) return
+  if (Date.now() - movedAt < FOLLOW_PAUSE) return
+  if (t < view.from || t > view.from + span.value * 0.92) {
+    setView(t - span.value * 0.1, t - span.value * 0.1 + span.value, false)
+  }
+}
+// lo que cambia dónde cae la aguja o si está (otra vista, otra canción, un
+// carril o la vista entera que aparece): se vuelve a poner, ya pintado
+watch(
+  () => [view.from, view.to, props.duration, zoomed.value, showClick.value, showGuides.value],
+  () => nextTick(repaintHead)
 )
+onMounted(repaintHead)
 
 /**
  * La rueda, como en un editor de música: con Ctrl o ⌘ (o pellizcando el
@@ -590,14 +637,69 @@ function wantLaneDetail() {
 watch(
   () => [view.from, view.to],
   () => {
-    draw()
+    scheduleDraw()
     wantDetail()
     wantLaneDetail()
   }
 )
 
 const { theme, waveStyle } = usePreferences()
-watch([theme, waveStyle], () => nextTick(draw))
+watch([theme, waveStyle], () => {
+  colors = null
+  nextTick(draw)
+})
+
+/**
+ * Pintar en el próximo fotograma, una vez aunque se pida varias: un pellizco
+ * manda varios giros de rueda por fotograma, y al cambiar el tamaño el
+ * observador avisa en ráfaga. Pintar en cada uno era tirar el trabajo.
+ */
+let drawFrame = 0
+function scheduleDraw() {
+  if (typeof requestAnimationFrame !== 'function') return draw()
+  if (drawFrame) return
+  drawFrame = requestAnimationFrame(() => {
+    drawFrame = 0
+    draw()
+  })
+}
+
+/**
+ * Los colores de la onda (los del tema), leídos una vez: `getComputedStyle`
+ * obliga al navegador a recalcular estilos si algo cambió en la página, y se
+ * hacía dos veces por pintada. Se vuelven a leer al cambiar de tema o al
+ * probar uno en el editor (cambia el estilo de la raíz).
+ * @type {{ key: string, text: string, accent: string } | null}
+ */
+let colors = null
+function waveColors(c) {
+  const root = document.documentElement
+  const key = (root.getAttribute('style') || '') + '|' + (root.dataset.theme || '')
+  if (colors?.key !== key) {
+    const styles = getComputedStyle(c)
+    const text = styles.getPropertyValue('--text').trim() || styles.color || 'gray'
+    const accent = styles.getPropertyValue('--accent').trim() || text
+    colors = { key, text, accent }
+  }
+  return colors
+}
+
+/**
+ * El RMS más alto de una onda, al que se estira el suyo. Una vez por onda
+ * (son miles de valores): se calculaba en cada pintada.
+ * @type {WeakMap<object, number>}
+ */
+const rmsTops = new WeakMap()
+function rmsTopOf(w) {
+  if (!w) return 1e-6
+  let top = rmsTops.get(w)
+  if (top == null) {
+    top = 1e-6
+    for (const v of w.rms || []) if (v > top) top = v
+    rmsTops.set(w, top)
+  }
+  return top
+}
 
 /**
  * Las columnas de lo que se ve, de una onda de toda la canción (o de su
@@ -639,16 +741,19 @@ function draw() {
   const H = WAVE_H.value
   if (!W) return
   const dpr = window.devicePixelRatio || 1
-  c.width = Math.round(W * dpr)
-  c.height = Math.round(H * dpr)
-  c.style.width = W + 'px'
-  c.style.height = H + 'px'
+  // cambiar el tamaño del lienzo lo vuelve a crear: solo si cambió
+  const cw = Math.round(W * dpr)
+  const ch = Math.round(H * dpr)
+  if (c.width !== cw || c.height !== ch) {
+    c.width = cw
+    c.height = ch
+    c.style.width = W + 'px'
+    c.style.height = H + 'px'
+  }
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
   ctx.clearRect(0, 0, W, H)
   // los colores salen del tema; si por lo que sea no estan, el del texto
-  const styles = getComputedStyle(c)
-  const text = styles.getPropertyValue('--text').trim() || styles.color || 'gray'
-  const accent = styles.getPropertyValue('--accent').trim() || text
+  const { text, accent } = waveColors(c)
   if (laneMode.value) {
     drawLanes(ctx, W, text, accent)
     drawGrid(ctx, W, H)
@@ -667,7 +772,7 @@ function draw() {
   // En un mp3 de hoy los picos van casi todos a tope y el RMS ronda el
   // tercio: el RMS se estira hasta su propio maximo (el de toda la canción,
   // tambien de cerca); el estilo lo elige quien toca (utils/wavePaint.js)
-  const rmsTop = Math.max(1e-6, ...(w.rms || [0]))
+  const rmsTop = rmsTopOf(w)
   const style = waveStyle.value
   const cols = columnsFor(style, W)
   const d = detail.value
@@ -685,9 +790,7 @@ function draw() {
 function drawLanes(ctx, W, text, accent) {
   const lh = props.laneHeight
   let rmsTop = 1e-6
-  for (const lane of props.lanes) {
-    for (const v of lane.wave?.rms || []) if (v > rmsTop) rmsTop = v
-  }
+  for (const lane of props.lanes) rmsTop = Math.max(rmsTop, rmsTopOf(lane.wave))
   const style = waveStyle.value
   const cols = columnsFor(style, W)
   props.lanes.forEach((lane, li) => {
@@ -735,8 +838,6 @@ watch(
   () => wantLaneDetail()
 )
 
-/** El volumen de un carril, para leerlo: «80 %». */
-const pctText = (v) => Math.round((Number(v) || 0) * 100) + ' %'
 /** El panorama de un carril, para leerlo: «centro», «30 % izq.». */
 function panText(v) {
   const p = Math.round((Number(v) || 0) * 100)
@@ -751,8 +852,7 @@ function panText(v) {
 function drawGrid(ctx, W, H) {
   const g = props.grid
   if (!g || !g.beats?.length || !props.duration || props.editBeats) return
-  const styles = getComputedStyle(canvas.value)
-  const text = styles.getPropertyValue('--text').trim() || styles.color || 'gray'
+  const { text } = waveColors(canvas.value)
   ctx.fillStyle = text
   const close = (span.value / props.duration) * g.beats.length < W / 6
   for (let i = 0; i < g.beats.length; i++) {
@@ -780,13 +880,14 @@ onMounted(() => {
   if (typeof ResizeObserver === 'function' && box.value) {
     observer = new ResizeObserver(() => {
       measure()
-      draw()
+      scheduleDraw()
     })
     observer.observe(box.value)
   }
 })
 onUnmounted(() => {
   observer?.disconnect()
+  if (drawFrame) cancelAnimationFrame(drawFrame)
   clearTimeout(detailTimer)
   laneRun++
   clearTimeout(laneTimer)
@@ -801,15 +902,19 @@ const pct = (t) => (props.duration ? ((t - view.from) / span.value) * 100 + '%' 
 const pctLen = (len) => (props.duration ? (len / span.value) * 100 + '%' : '0%')
 /** Si algo de `a` a `b` se ve. */
 const inView = (a, b = a) => b >= view.from - 1e-6 && a <= view.to + 1e-6
+/**
+ * Dónde está la caja de la onda. Medirla obliga al navegador a maquetar: los
+ * manejadores del puntero la miden UNA vez y pasan `r` a lo de abajo (antes
+ * se medía en cada llamada, dentro de bucles por tramo y por marcador).
+ */
+const rectOf = () => box.value.getBoundingClientRect()
 /** El segundo que cae bajo esa x de pantalla. */
-function timeAt(clientX) {
-  const r = box.value.getBoundingClientRect()
+function timeAt(clientX, r = rectOf()) {
   const f = r.width > 0 ? clamp((clientX - r.left) / r.width, 0, 1) : 0
   return clamp(view.from + f * span.value, 0, props.duration)
 }
 /** Y al reves: en que x (dentro de la caja) cae ese segundo. */
-function xOf(t) {
-  const r = box.value.getBoundingClientRect()
+function xOf(t, r = rectOf()) {
   return props.duration ? ((t - view.from) / span.value) * r.width : 0
 }
 
@@ -919,14 +1024,13 @@ const gaps = computed(() => {
 const isEditing = (i) =>
   !!(drag.mode && drag.moved) &&
   (drag.mode === 'select' ? i === shown.value.length - 1 : i === drag.index)
-/** Los trozos de un marcador: sus partes, su tramo, o nada si es un instante. */
-const partsOf = (m) => (m.parts?.length ? m.parts : m.end > m.t ? [[m.t, m.end]] : [])
 
 /** Cerca del principio o del final de un marcador, el borde se pega a el. */
-function snap(t) {
+function snap(t, r = rectOf()) {
+  const x = xOf(t, r)
   for (const m of props.markers || []) {
-    if (Math.abs(xOf(m.t) - xOf(t)) <= SNAP) return m.t
-    if (m.end > m.t && Math.abs(xOf(m.end) - xOf(t)) <= SNAP) return m.end
+    if (Math.abs(xOf(m.t, r) - x) <= SNAP) return m.t
+    if (m.end > m.t && Math.abs(xOf(m.end, r) - x) <= SNAP) return m.end
   }
   return t
 }
@@ -935,22 +1039,22 @@ function snap(t) {
  * Que hay bajo esa x (dentro de la caja): el borde de un tramo, su interior o
  * nada. Los bordes mandan sobre el interior de otro, y el mas cercano gana.
  */
-function hitAt(x) {
+function hitAt(x, r = rectOf()) {
   let edge = null
   saved.value.forEach(([a, b], i) => {
     for (const [side, t] of [
       ['a', a],
       ['b', b]
     ]) {
-      const d = Math.abs(x - xOf(t))
+      const d = Math.abs(x - xOf(t, r))
       if (d <= HANDLE && (!edge || d < edge.d)) edge = { mode: side, index: i, d }
     }
   })
   if (edge) return edge
-  const inside = saved.value.findIndex(([a, b]) => x > xOf(a) && x < xOf(b))
+  const inside = saved.value.findIndex(([a, b]) => x > xOf(a, r) && x < xOf(b, r))
   return inside >= 0 ? { mode: 'move', index: inside } : { mode: 'select', index: -1 }
 }
-const xIn = (clientX) => clientX - box.value.getBoundingClientRect().left
+const xIn = (clientX, r = rectOf()) => clientX - r.left
 
 function listen(on) {
   const f = on ? window.addEventListener : window.removeEventListener
@@ -960,8 +1064,9 @@ function listen(on) {
 }
 function onDown(e) {
   if (e.button || !props.duration) return
-  const t = timeAt(e.clientX)
-  const hit = hitAt(xIn(e.clientX))
+  const r = rectOf()
+  const t = timeAt(e.clientX, r)
+  const hit = hitAt(xIn(e.clientX, r), r)
   const cur = hit.index >= 0 ? saved.value[hit.index] : null
   Object.assign(drag, {
     mode: hit.mode,
@@ -981,13 +1086,14 @@ function onMove(e) {
   if (!drag.mode) return
   if (!drag.moved && Math.abs(e.clientX - drag.startX) < THRESHOLD) return
   drag.moved = true
-  const t = snap(timeAt(e.clientX))
+  const r = rectOf()
+  const t = snap(timeAt(e.clientX, r), r)
   if (drag.mode === 'select') drag.a = t
   else if (drag.mode === 'a') drag.a = clamp(t, 0, drag.b - MIN_LOOP)
   else if (drag.mode === 'b') drag.b = clamp(t, drag.a + MIN_LOOP, props.duration)
   else if (drag.mode === 'move') {
     const len = drag.b0 - drag.a0
-    const a = clamp(drag.a0 + (timeAt(e.clientX) - drag.from), 0, props.duration - len)
+    const a = clamp(drag.a0 + (timeAt(e.clientX, r) - drag.from), 0, props.duration - len)
     drag.a = a
     drag.b = a + len
   }
@@ -1060,10 +1166,11 @@ function stopDrag() {
 /** El clic derecho: las opciones del tramo de debajo (o de ese punto). */
 function onContext(e) {
   if (!props.duration) return
-  const hit = hitAt(xIn(e.clientX))
+  const r = rectOf()
+  const hit = hitAt(xIn(e.clientX, r), r)
   emit('options', {
     index: hit.mode === 'select' ? -1 : hit.index,
-    t: round2(timeAt(e.clientX)),
+    t: round2(timeAt(e.clientX, r)),
     x: e.clientX,
     y: e.clientY,
     event: e
@@ -1091,7 +1198,8 @@ function onHover(e) {
     hover.value = ''
     return
   }
-  const hit = hitAt(xIn(e.clientX))
+  const r = rectOf()
+  const hit = hitAt(xIn(e.clientX, r), r)
   hover.value = hit.mode === 'a' || hit.mode === 'b' ? 'edge' : hit.mode === 'move' ? 'inside' : ''
 }
 
@@ -1948,11 +2056,7 @@ const lockTitle = computed(() =>
         :class="{ one: b.one }"
         :style="{ left: pct(b.t) }"
       ></span>
-      <span
-        v-show="inView(position)"
-        class="tl-guide-needle"
-        :style="{ left: pct(position) }"
-      ></span>
+      <span ref="clickNeedle" class="tl-guide-needle" style="display: none"></span>
     </div>
     <!-- en el celular, «varios» y el candado van en su fila, encima de la
          onda y no sobre ella -->
@@ -2237,11 +2341,7 @@ const lockTitle = computed(() =>
         </div>
       </template>
 
-      <div
-        v-if="duration && inView(position)"
-        class="tl-head"
-        :style="{ left: pct(position) }"
-      ></div>
+      <div v-if="duration" ref="head" class="tl-head" style="display: none"></div>
 
       <!-- varios tramos a la vez: cada arrastre añade otro -->
       <button
@@ -2473,9 +2573,9 @@ const lockTitle = computed(() =>
         </TransitionGroup>
       </div>
       <span
-        v-show="inView(position)"
+        ref="guideNeedle"
         class="tl-guide-needle"
-        :style="{ left: pct(position) }"
+        style="display: none"
         aria-hidden="true"
       ></span>
     </div>
@@ -2514,7 +2614,7 @@ const lockTitle = computed(() =>
           width: (span / duration) * 100 + '%'
         }"
       ></span>
-      <span class="tl-overview-head" :style="{ left: (position / duration) * 100 + '%' }"></span>
+      <span ref="overviewHead" class="tl-overview-head"></span>
     </div>
   </div>
 </template>

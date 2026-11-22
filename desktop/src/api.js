@@ -451,11 +451,28 @@ async function request(method, path, body) {
   return r.json()
 }
 
+/**
+ * Las fichas que se están pidiendo ahora mismo (id → promesa). Al poner una
+ * canción la pedían a la vez la ficha, el clic y el estudio: tres viajes al
+ * núcleo por lo mismo. Quien llega mientras va una se suma a ella.
+ * @type {Map<number, Promise<any>>}
+ */
+const songsInFlight = new Map()
+/**
+ * Lo que escribe olvida las que van de camino: una ficha pedida antes de un
+ * cambio no le sirve a quien la pide después (vería lo de antes).
+ * @param {'POST'|'PUT'|'PATCH'|'DELETE'} method @param {string} path @param {Object} [body]
+ */
+const write = (method, path, body) => {
+  songsInFlight.clear()
+  return request(method, path, body)
+}
+
 const GET = (r) => request('GET', r)
-const POST = (r, c) => request('POST', r, c)
-const PATCH = (r, c) => request('PATCH', r, c)
-const PUT = (r, c) => request('PUT', r, c)
-const DEL = (r) => request('DELETE', r)
+const POST = (r, c) => write('POST', r, c)
+const PATCH = (r, c) => write('PATCH', r, c)
+const PUT = (r, c) => write('PUT', r, c)
+const DEL = (r) => write('DELETE', r)
 
 // La portada no viaja por el puente: la sirve Rust con un protocolo propio
 // (`danplay://cover/<id>`). El audio, dentro de la app, ni eso: lo reproduce
@@ -953,7 +970,7 @@ export const core = {
 }
 
 /** Cada cuánto se pregunta por una tarea larga. */
-export const JOB_POLL_MS = 500
+const JOB_POLL_MS = 500
 
 /** Los nombres de las tareas largas del núcleo (contrato A). */
 export const JOBS = {
@@ -1117,8 +1134,22 @@ export const api = {
   quickSearch: (q, limit = 40) =>
     GET('/search?' + new URLSearchParams({ q, limit: String(limit) })),
   facets: () => GET('/facets'),
-  /** @param {number} id @returns {Promise<Song>} */
-  song: (id) => GET(`/song/${id}`),
+  /**
+   * La ficha entera. Las peticiones a la vez por la misma se juntan en una
+   * (`songsInFlight`); cada quien recibe su copia, para que lo que uno cambie
+   * en la suya no lo vea otro.
+   * @param {number} id @returns {Promise<Song>}
+   */
+  song: (id) => {
+    let p = songsInFlight.get(id)
+    if (!p) {
+      p = GET(`/song/${id}`).finally(() => {
+        if (songsInFlight.get(id) === p) songsInFlight.delete(id)
+      })
+      songsInFlight.set(id, p)
+    }
+    return p.then((s) => (s && typeof s === 'object' ? { ...s } : s))
+  },
   /** Solo `artist, title, album, year, genre, key, bpm, lyrics`; otras claves dan 422 (§2). */
   edit: (id, d) => PATCH(`/song/${id}`, d),
   setStars: (id, n) => POST(`/song/${id}/stars`, { stars: n }),
@@ -1246,7 +1277,7 @@ export const api = {
    * clic con los golpes antes y después.
    * @param {number} id
    * @param {{mode: 'repair'|'steady'|'drums'|'mix'|'fill', start?: number, end?: number, wait?: boolean, own?: {beats: number[], bars: number[], meter: number, touched?: Array<[number, number]>}}} opts
-   * @returns {Promise<{grid: BeatGrid, own?: {beats: number[], bars: number[], meter: number, touched: Array<[number, number]>}, report: {fixed: number, bpm: number, notes: string[], weak?: Array<[number, number]>, fit?: {before: {offset_ms: number, spread_ms: number, supported: number}, after: {offset_ms: number, spread_ms: number, supported: number}}}}>}
+   * @returns {Promise<{grid: BeatGrid, pending?: boolean, progress?: number, own?: {beats: number[], bars: number[], meter: number, touched: Array<[number, number]>}, report: {fixed: number, bpm: number, notes: string[], weak?: Array<[number, number]>, fit?: {before: {offset_ms: number, spread_ms: number, supported: number}, after: {offset_ms: number, spread_ms: number, supported: number}}}}>}
    */
   reanalyzeBeats: (id, opts) => POST(`/song/${id}/beats/reanalyze`, opts),
   /**

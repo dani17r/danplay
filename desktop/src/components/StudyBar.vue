@@ -21,9 +21,9 @@
  * ocultar no se toca nada; al salir del estudio se quita y la canción vuelve
  * a sonar normal.
  */
-import { ref, computed, watch, onMounted, onUnmounted, shallowRef } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, shallowRef, markRaw } from 'vue'
 // su CSS viene con él: es una isla y no se carga al arrancar (islands.js). Antes
-// que lo demás, como iba antes que el de driver.js (useStudyTour.js)
+// que lo demás; el de driver.js (useStudyTour.js) llega después, con el recorrido
 import '../styles/study.css'
 // y el de ajustar los pulsos de muchos en muchos, que es parte del estudio
 import '../styles/beat-tools.css'
@@ -42,7 +42,7 @@ import { useSeparation } from '../composables/useSeparation.js'
 import { useClick } from '../composables/useClick.js'
 import { useRouting } from '../composables/useRouting.js'
 import { vTips } from '../composables/useTooltips.js'
-import { startStudyTour, stopStudyTour, tourSeen } from '../composables/useStudyTour.js'
+import { tourSeen } from '../composables/tourSeen.js'
 import { usePreferences } from '../composables/usePreferences.js'
 import { WAVE_STYLES } from '../utils/wavePaint.js'
 import { takeToPhone } from '../composables/usePhone.js'
@@ -79,10 +79,14 @@ import TextField from './ui/TextField.vue'
 import SliderField from './ui/SliderField.vue'
 import StudyTimeline from './StudyTimeline.vue'
 import BeatTools from './BeatTools.vue'
+import StudyClock from './StudyClock.vue'
 import StudyOutputs from './StudyOutputs.vue'
 import StudyCue from './StudyCue.vue'
 import StudyExport from './StudyExport.vue'
 import VoicePicker from './VoicePicker.vue'
+import { clamp, pctText, round2, round3 } from '../utils/num.js'
+import { readPref, savePref } from '../utils/prefs.js'
+import { MAX_CUE_LANES, markerParts as partsOf } from '../utils/cues.js'
 
 const props = defineProps({
   /** Se ve (la capa puede estar oculta y el estudio seguir puesto). */
@@ -95,6 +99,8 @@ const emit = defineEmits(['hide', 'exit', 'close'])
 const player = usePlayback()
 const { track, position, duration, speed, pitch, metronome, playing, volume } = player
 
+// Las velocidades de ensayar, a la vista en el estudio. Son menos que las del
+// reproductor (usePlayback.js) y todas están en aquella lista.
 const SPEEDS = [0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.1, 1.25]
 // `loops`: los tramos que se repiten, [[a, b], …] (uno solo es el bucle A-B);
 // `mixer`: las pistas separadas, si suenan (`on`) y cómo va cada una;
@@ -113,8 +119,20 @@ const blank = () => ({
   mixer: { on: false, tracks: {} }
 })
 const study = ref(blank())
-/** Hasta cuántos carriles de guías (como el núcleo). */
-const MAX_CUE_LANES = 6
+/** Sin golpes a la vista: siempre la misma lista (una nueva repintaba la onda). */
+const NO_HITS = Object.freeze([])
+/**
+ * El clic manual (`metronome.own`) va sin hacer reactivo: son miles de
+ * pulsos y nadie los cambia en su sitio (cada cambio es un `own` nuevo, que
+ * sí avisa al sustituir el `metronome`). Hacerlo reactivo envolvía cada
+ * número al leerlo.
+ * @param {Record<string, any>} metronome
+ */
+function withRawOwn(metronome) {
+  const m = { ...metronome }
+  if (m.own && typeof m.own === 'object') m.own = markRaw(m.own)
+  return m
+}
 // el clic: su rejilla, si carga, y el modo. Vive fuera del panel: con él
 // cerrado, al pasar de canción, sigue igual
 const click = useClick()
@@ -177,27 +195,7 @@ let saveTimer = null
  */
 let pending = null
 
-const round2 = (v) => Math.round(v * 100) / 100
-const round3 = (v) => Math.round(v * 1000) / 1000
 const isSpan = (m) => m.end > m.t
-const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v))
-
-/** Lo que esta barra recuerda en el navegador (el candado, el paso del tono…). */
-function readPref(key, fallback) {
-  try {
-    const v = localStorage.getItem(key)
-    return v == null ? fallback : JSON.parse(v)
-  } catch {
-    return fallback
-  }
-}
-function savePref(key, value) {
-  try {
-    localStorage.setItem(key, JSON.stringify(value))
-  } catch {
-    /* modo privado */
-  }
-}
 
 /** Lo guardado con la canción, si lo hay. */
 function parse(raw) {
@@ -236,7 +234,7 @@ async function loadFor(id) {
       speed: s.speed || 1,
       // en semitonos, con fracciones (un cuarto de tono es medio semitono)
       pitch: Number.isFinite(s.pitch) ? round2(clamp(s.pitch, -12, 12)) : 0,
-      metronome: typeof s.metronome === 'object' && s.metronome ? { ...s.metronome } : {},
+      metronome: typeof s.metronome === 'object' && s.metronome ? withRawOwn(s.metronome) : {},
       markers: (s.markers || []).map((m) => ({ ...m })),
       cues: (Array.isArray(s.cues) ? s.cues : []).map((c) => ({ ...c })),
       cueLanes: (Array.isArray(s.cueLanes) ? s.cueLanes : [])
@@ -553,8 +551,6 @@ async function clearLoop() {
   await player.clearLoop()
   scheduleSave()
 }
-/** Los tramos de un marcador: sus partes, su tramo, o nada (un instante). */
-const partsOf = (m) => (m.parts?.length > 1 ? m.parts : isSpan(m) ? [[m.t, m.end]] : [])
 /** Un marcador pasa a ser esos tramos (uno solo, o varios como partes). */
 function setMarkerParts(m, list) {
   m.t = list[0][0]
@@ -877,6 +873,16 @@ const clickLoading = computed(() => click.auto.value && click.loading.value)
 /** Esta canción tiene su clic manual guardado. */
 const hasOwn = computed(() => !!study.value.metronome?.own?.beats?.length)
 /**
+ * El carril del clic de la línea de tiempo (en el escritorio). Un `computed`:
+ * escrito en la plantilla era un objeto nuevo en cada pintada, y la línea de
+ * tiempo se repintaba entera aunque dijera lo mismo.
+ */
+const clickLane = computed(() =>
+  !isMobileApp && track.value
+    ? { on: !!metronome.value.on, volume: metronome.value.volume ?? 0.8 }
+    : null
+)
+/**
  * Dónde el clic es una suposición, para la onda: lo que dijo el último
  * análisis de esta canción (nada si no lo dijo, o si el clic no sigue a la
  * canción).
@@ -1156,7 +1162,6 @@ const CLICK_MORE_KEY = 'danplay.study.clickMore'
 const clickMore = ref(readPref(CLICK_MORE_KEY, false) === true)
 watch(clickMore, (v) => savePref(CLICK_MORE_KEY, v))
 const setSongVolume = (v) => player.setVolume(v)
-const pctText = (v) => Math.round((Number(v) || 0) * 100) + ' %'
 
 /**
  * Deja `own` como el clic manual de la canción `id`. Si sigue abierta, por el
@@ -1165,7 +1170,7 @@ const pctText = (v) => Math.round((Number(v) || 0) * 100) + ' %'
  */
 async function saveOwnOf(id, own) {
   if (studyFor.value === id) {
-    study.value.metronome = { ...(study.value.metronome || {}), own }
+    study.value.metronome = { ...(study.value.metronome || {}), own: markRaw(own) }
     scheduleSave()
     await flushSave()
     return
@@ -1607,8 +1612,12 @@ const magnetTitle = computed(() =>
       ? 'Imán puesto: las guías se pegan a los pulsos del clic (pulsa para moverlas libres)'
       : 'Imán puesto, pero esta canción aún no tiene los pulsos del clic: pon el clic o espera a que cargue'
 )
-/** La onda y lo que dura cada guía (por su archivo), para verlas en sus bloques. */
-const cueWaves = ref({})
+/**
+ * La onda y lo que dura cada guía (por su archivo), para verlas en sus
+ * bloques. Superficial: se sustituye entera y son miles de picos que solo se
+ * leen para pintar.
+ */
+const cueWaves = shallowRef({})
 const askedWaves = new Set()
 watch(
   () => (isMobileApp ? [] : (study.value.cues || []).map((c) => c.file).filter(Boolean)),
@@ -2456,7 +2465,7 @@ function stemsMenu(ev) {
  * solo quería ver la lista se quedaba sin clic.
  */
 async function hide() {
-  stopStudyTour()
+  stopTour()
   await flushSave()
   emit('hide')
   emit('close')
@@ -2535,10 +2544,19 @@ const PANELS = [
 const savedPanel = readPref(PANEL_KEY, 'click')
 const panel = ref(PANELS.some((p) => p.v === savedPanel) ? savedPanel : 'click')
 watch(panel, (v) => savePref(PANEL_KEY, v))
+/**
+ * El recorrido (useStudyTour.js), cargado la primera vez que se pide: trae
+ * driver.js y su CSS, y sale una vez en la vida. `null` hasta entonces.
+ * @type {typeof import('../composables/useStudyTour.js') | null}
+ */
+let tourModule = null
 /** El recorrido por el modo estudio (con «?» o desde el menú). */
-function tour() {
-  if (root.value) startStudyTour(root.value)
+async function tour() {
+  tourModule ??= await import('../composables/useStudyTour.js')
+  // mientras llegaba su trozo se pudo ocultar el estudio
+  if (root.value && props.visible) tourModule.startStudyTour(root.value)
 }
+const stopTour = () => tourModule?.stopStudyTour()
 // la primera vez que se abre en el escritorio, solo (y ya no más: se recuerda)
 let tourTimer = null
 watch(
@@ -2555,7 +2573,7 @@ watch(
 )
 onUnmounted(() => {
   clearTimeout(tourTimer)
-  stopStudyTour()
+  stopTour()
 })
 let sizeWatch = null
 /**
@@ -2604,6 +2622,28 @@ function fitTimeline() {
   // de dos en dos píxeles: que un redondeo no la tenga midiendo sin parar
   if (waveRoom.value == null || Math.abs(next - waveRoom.value) >= 2) waveRoom.value = next
 }
+/**
+ * Mientras el panel cambia de alto con su animación («Grande», 0,3 s) no se
+ * reparte el sitio: el observador avisaba en cada fotograma, y cada vez se
+ * medía todo, cambiaban los carriles y se repintaba la onda (unas 18 veces
+ * en 300 ms). Se reparte una vez, al acabar. Por si el final no llega (el
+ * panel se oculta a medias), un tope.
+ */
+let growing = false
+let growTimer = null
+function onGrowStart(e) {
+  if (e.target !== root.value || e.propertyName !== 'height') return
+  growing = true
+  clearTimeout(growTimer)
+  growTimer = setTimeout(onGrowEnd, 600)
+}
+function onGrowEnd(e) {
+  if (e && (e.target !== root.value || e.propertyName !== 'height')) return
+  clearTimeout(growTimer)
+  if (!growing) return
+  growing = false
+  fitTimeline()
+}
 onMounted(() => {
   // cuántos canales tiene la salida: los botones de cada carril son L y R, o
   // 1, 2, 3… con una interfaz de más salidas
@@ -2615,14 +2655,17 @@ onMounted(() => {
       const w = e.contentRect.width
       tabbed.value = w >= 680 && w < 1100
     }
-    fitTimeline()
+    if (!growing) fitTimeline()
   })
   sizeWatch.observe(root.value)
   // y lo de dentro de la línea de tiempo: otro carril de guías, el del clic
   const tl = timeline.value?.$el
   if (tl?.nodeType === 1) sizeWatch.observe(tl)
 })
-onUnmounted(() => sizeWatch?.disconnect())
+onUnmounted(() => {
+  sizeWatch?.disconnect()
+  clearTimeout(growTimer)
+})
 
 // el celular lo oculta también con «atrás» y deslizando hacia abajo
 defineExpose({ close: hide, hide, exit })
@@ -2646,6 +2689,9 @@ defineExpose({ close: hide, hide, exit })
     }"
     role="region"
     aria-label="Modo estudio"
+    @transitionrun="onGrowStart"
+    @transitionend="onGrowEnd"
+    @transitioncancel="onGrowEnd"
   >
     <!-- en el celular: «Modo estudio» pequeño encima, el título en grande y
          el artista debajo, cada uno en su línea -->
@@ -2979,10 +3025,7 @@ defineExpose({ close: hide, hide, exit })
         >
           <Icon n="forward10" :t="13" />
         </button>
-        <span class="study-time mono" title="Dónde va la canción / lo que dura"
-          >{{ formatTime(position)
-          }}<span class="study-time-total"> / {{ formatTime(duration) }}</span></span
-        >
+        <StudyClock />
       </span>
       <span class="study-bar-group study-loop-group">
         <span
@@ -3165,7 +3208,7 @@ defineExpose({ close: hide, hide, exit })
       ref="timeline"
       :song-id="track?.id ?? null"
       :duration="duration"
-      :position="position"
+      :visible="visible"
       :loops="study.loops"
       :multi="multi"
       :markers="study.markers"
@@ -3177,15 +3220,13 @@ defineExpose({ close: hide, hide, exit })
       :selection="edit.selection"
       :preview="edit.preview"
       :ghost-beats="edit.ghostBeats"
-      :hits="edit.showHits || edit.snapHits ? edit.hits : []"
+      :hits="edit.showHits || edit.snapHits ? edit.hits : NO_HITS"
       :hits-ref="edit.hitsRef"
       :show-hits="edit.showHits"
       :snap-hits="edit.snapHits"
       :show-mix="showMix"
       :show-routes="showRoutes"
-      :click-lane="
-        !isMobileApp && track ? { on: !!metronome.on, volume: metronome.volume ?? 0.8 } : null
-      "
+      :click-lane="clickLane"
       :seek-click="seekClick"
       :click-loading="clickLoading ? click.progress.value : click.reanalyzing.value"
       :height="waveHeight"
@@ -3203,7 +3244,6 @@ defineExpose({ close: hide, hide, exit })
       @move-cue="moveCue"
       @cue-lane="setCueLane"
       @add-cue-lane="addCueLane"
-      @remove-cue-lane="removeCueLane"
       @rename-cue-lane="renameCueLane"
       @cue-lane-menu="cueLaneMenu"
       @click-lane="onClickLane"
@@ -3220,41 +3260,18 @@ defineExpose({ close: hide, hide, exit })
       @options="showOptions"
     />
     <!-- ajustando los pulsos: sus herramientas, y «Tempo y onda» debajo -->
-    <BeatTools
-      v-if="editingBeats && !isMobileApp"
-      :edit="edit"
-      :position="position"
-      :has-loop="hasLoop"
-    />
+    <BeatTools v-if="editingBeats && !isMobileApp" :edit="edit" :has-loop="hasLoop" />
+    <!-- en el celular se toca, no hay ratón ni teclas (en el escritorio, lo
+         mismo va en el título de la onda) -->
     <p v-if="isMobileApp" class="study-hint">
-      <!-- en el celular se toca, no hay ratón ni teclas -->
-      <template v-if="isMobileApp">
-        <template v-if="multi">
-          Desliza el dedo sobre la onda para añadir tramos · toca uno para quitarlo ·
-          <b>⋯</b> opciones
-        </template>
-        <template v-else>
-          Desliza el dedo sobre la onda para elegir el tramo ·
-          {{ locked ? 'con el candado, tocar no mueve la canción' : 'toca para ir a un punto' }}
-          · <b>⋯</b> opciones
-        </template>
-      </template>
-      <template v-else-if="editingBeats">
-        Ajustando tu clic: <b>arrastra</b> un pulso para moverlo · <b>doble clic</b> añade uno ·
-        <b>clic derecho</b> lo quita o lo hace el «1» · la <b>rueda</b> acerca
-      </template>
-      <template v-else-if="multi">
-        Arrastra para añadir tramos: suenan seguidos, saltándose lo de en medio · clic sobre uno
-        para quitarlo · <b>rueda</b>: zoom · <b>⋯</b> o clic derecho: opciones
+      <template v-if="multi">
+        Desliza el dedo sobre la onda para añadir tramos · toca uno para quitarlo ·
+        <b>⋯</b> opciones
       </template>
       <template v-else>
-        Arrastra sobre la onda para elegir el tramo ·
-        {{
-          locked
-            ? 'con el candado, sonando, un clic no mueve la canción'
-            : 'clic para ir a un punto'
-        }}
-        · <b>rueda</b>: zoom · <b>⋯</b> o clic derecho: opciones · teclas <b>A</b> y <b>B</b>
+        Desliza el dedo sobre la onda para elegir el tramo ·
+        {{ locked ? 'con el candado, tocar no mueve la canción' : 'toca para ir a un punto' }}
+        · <b>⋯</b> opciones
       </template>
     </p>
 

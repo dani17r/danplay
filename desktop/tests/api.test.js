@@ -88,6 +88,40 @@ describe('browser requests', () => {
   })
 })
 
+describe('the full song card', () => {
+  it('asked for twice at once, a single request; each one gets its own copy', async () => {
+    let answer
+    respond(() => new Promise((r) => (answer = r)))
+    const a = api.song(5)
+    const b = api.song(5)
+    expect(calls).toHaveLength(1)
+    answer({ body: { id: 5, title: 'Mi Gozo' } })
+    const [x, y] = await Promise.all([a, b])
+    expect(x).toEqual({ id: 5, title: 'Mi Gozo' })
+    expect(y).toEqual(x)
+    expect(y).not.toBe(x)
+    // ya llegó: la siguiente vuelve a preguntar
+    respond(() => ({ body: { id: 5, title: 'Mi Gozo (en vivo)' } }))
+    expect((await api.song(5)).title).toBe('Mi Gozo (en vivo)')
+    expect(calls).toHaveLength(2)
+  })
+
+  it('a change in between: whoever asks after it does not get the card from before', async () => {
+    const answers = []
+    respond((url, init) =>
+      init.method === 'GET' ? new Promise((r) => answers.push(r)) : { body: {} }
+    )
+    const before = api.song(5)
+    await api.setStars(5, 4)
+    const after = api.song(5)
+    expect(calls.map((c) => c.method)).toEqual(['GET', 'POST', 'GET'])
+    answers[0]({ body: { id: 5, stars: 0 } })
+    answers[1]({ body: { id: 5, stars: 4 } })
+    expect((await before).stars).toBe(0)
+    expect((await after).stars).toBe(4)
+  })
+})
+
 describe('long-running jobs (runJob)', () => {
   const job = (extra) => ({
     name: 'scan',

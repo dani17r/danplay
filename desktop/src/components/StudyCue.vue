@@ -22,6 +22,7 @@ import Icon from './Icon.vue'
 import TextField from './ui/TextField.vue'
 import SelectField from './ui/SelectField.vue'
 import SliderField from './ui/SliderField.vue'
+import { round2 } from '../utils/num.js'
 
 const props = defineProps({
   /**
@@ -38,12 +39,16 @@ const props = defineProps({
 const emit = defineEmits(['made', 'remove', 'close'])
 const player = usePlayback()
 
+// el diálogo arranca con lo de la guía y luego es un borrador propio: copiar
+// al abrir es a propósito
+/* eslint-disable vue/no-setup-props-reactivity-loss */
 const ownAudio =
   props.draft.file || (props.draft.cue && !props.draft.cue.text && props.draft.cue.file)
 const at = ref(props.draft.t || 0)
 const text = ref(props.draft.text || '')
 const voice = ref(props.draft.voice || '')
 const tab = ref(ownAudio ? 'audio' : 'write')
+/* eslint-enable vue/no-setup-props-reactivity-loss */
 const voices = ref([])
 const busy = ref(false)
 const recording = ref(false)
@@ -136,7 +141,6 @@ const voiceOptions = computed(() =>
 )
 const canRecord = computed(() => typeof tauriApp.recordStart === 'function' && tauriApp.canRecord)
 
-const round2 = (v) => Math.round(v * 100) / 100
 /** Antes o después: medio segundo, o con el imán, al pulso de al lado. */
 function nudge(delta) {
   const beat = props.beats.length ? stepBeat(props.beats, at.value, delta < 0 ? -1 : 1) : null
@@ -186,6 +190,7 @@ function runHead(from, to, secs) {
 }
 // ---- lo grabado o importado: su onda y lo que se le hace
 /** El audio de la guía ({file, seconds}): lo grabado, lo importado o el que ya tenía. */
+// eslint-disable-next-line vue/no-setup-props-reactivity-loss -- el borrador, como arriba
 const clip = ref(ownAudio ? { file: ownAudio, seconds: props.draft.seconds || 0 } : null)
 /** Su onda (de 0 a 1), para verla y recortarla. */
 const peaks = ref([])

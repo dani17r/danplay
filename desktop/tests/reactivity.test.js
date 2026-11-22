@@ -306,6 +306,7 @@ describe('something changes in the core behind the scenes', () => {
     await mountView()
     api.search.mockClear()
     api.playlists.mockClear()
+    api.status.mockClear()
     held.changeListener?.({ revision: 1 })
     held.changeListener?.({ revision: 2 })
     held.changeListener?.({ revision: 3 })
@@ -313,6 +314,8 @@ describe('something changes in the core behind the scenes', () => {
     await flushPromises()
     expect(api.search).toHaveBeenCalledTimes(1)
     expect(api.playlists).toHaveBeenCalledTimes(1)
+    // y una sola pregunta por el estado: la pedían el estado y la lista
+    expect(api.status).toHaveBeenCalledTimes(1)
     vi.useRealTimers()
   })
 })
@@ -1683,7 +1686,7 @@ describe('the whole list', () => {
     const w = await mountLight()
     const requested = api.search.mock.calls.map(([p]) => [p.limit, p.from_key])
     expect(requested[0]).toEqual([400, 0])
-    expect(requested.at(-1)).toEqual([5000, 400])
+    expect(requested.at(-1)).toEqual([20000, 400])
     expect(inTable(w)).toHaveLength(1200)
     expect(inTable(w).at(-1).id).toBe(1200)
     expect(w.find('.filters .chip').text()).toBe('1200')
@@ -1692,6 +1695,20 @@ describe('the whole list', () => {
     expect(first.count).toBe(1200)
     expect(first.songs[0]).not.toHaveProperty('lyrics')
     expect(first.songs[0]).toHaveProperty('has_lyrics', false)
+  })
+
+  it('a big library arrives in two requests: the first page and all the rest', async () => {
+    // de 5 000 en 5 000 eran cinco, y el núcleo ordena la biblioteca entera
+    // en cada una
+    state.status.configured = true
+    state.songs = Array.from({ length: 20_400 }, (_, i) => song(i + 1))
+    const w = await mountLight()
+    const requested = api.search.mock.calls.map(([p]) => [p.limit, p.from_key])
+    expect(requested).toEqual([
+      [400, 0],
+      [20000, 400]
+    ])
+    expect(inTable(w)).toHaveLength(20_400)
   })
 
   it('if the core ignored the offset, songs would still not repeat', async () => {
@@ -1747,7 +1764,7 @@ describe('the whole list', () => {
       // ya se pidió la primera página y se espera a la de detrás
       expect(api.search.mock.calls.map(([p]) => [p.limit, p.from_key])).toEqual([
         [400, 0],
-        [5000, 400]
+        [20000, 400]
       ])
       // la lista de antes sigue entera, y no dice que esté cargando nada
       expect(inTable(w)).toHaveLength(1000)

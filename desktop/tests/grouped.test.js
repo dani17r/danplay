@@ -23,6 +23,24 @@ const five = () => [
 ]
 
 describe('a single list with headers', () => {
+  it('with the groups already made (by the app), it paints those and does not group again', () => {
+    const [a, b, c] = five()
+    // en un orden que agrupando aquí no saldría: así se ve de quién son
+    const groups = [
+      ['New Wine', [a]],
+      ['Barak', [b]],
+      ['Miel San Marcos', [c]]
+    ]
+    const w = mount(GroupedSongs, {
+      props: { songs: [a, b, c], by: 'artist', groups, layout: 'table' }
+    })
+    expect(w.findAll('[data-group-row] .group-name').map((g) => g.text())).toEqual([
+      'New Wine',
+      'Barak',
+      'Miel San Marcos'
+    ])
+  })
+
   for (const layout of ['table', 'rows', 'cards', 'grid']) {
     it(`${layout}: headers go between the rows, in group order`, () => {
       const w = mount(GroupedSongs, { props: { songs: five(), by: 'artist', layout } })

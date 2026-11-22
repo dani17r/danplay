@@ -233,11 +233,6 @@ html[data-app='mobile'] :focus:not(:focus-visible) {
   gap: 4px;
   padding: 0 var(--m-pad) 28px;
 }
-.m-main .empty-state {
-  padding-left: var(--m-pad);
-  padding-right: var(--m-pad);
-}
-
 /* ------------------------------------------------- la lista de canciones */
 .m-songs {
   list-style: none;
@@ -1333,11 +1328,6 @@ html[data-app='mobile'] .modal-actions .btn {
 }
 .m-app .toast {
   font-size: calc(14px * var(--scale));
-}
-
-/* los interruptores de los ajustes */
-.m-settings .toggle-field {
-  padding: 10px 0;
 }
 
 /* ---------------------------------------------------- el modo estudio

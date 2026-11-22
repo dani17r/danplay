@@ -772,7 +772,6 @@ async function transpose() {
       <SyncedLyrics
         v-if="lrcLines && follow"
         :lines="lrcLines"
-        :position="player.position.value"
         :active="isPlayingThis"
         @seek="(t) => player.seek(t)"
       />

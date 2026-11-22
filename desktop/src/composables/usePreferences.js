@@ -32,7 +32,7 @@ export const VIEW_ICONS = {
 }
 // El nombre viejo «list»/«compact» se traduce solo, para no perder la
 // preferencia de quien ya tenía una elegida.
-export const LEGACY_VIEWS = { list: 'table', compact: 'rows' }
+const LEGACY_VIEWS = { list: 'table', compact: 'rows' }
 
 export const GROUPINGS = [
   { v: '', n: 'Sin agrupar' },

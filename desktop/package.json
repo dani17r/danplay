@@ -28,7 +28,7 @@
     "format:check": "vp fmt --check --threads 4",
     "typecheck": "vue-tsc --noEmit -p jsconfig.json",
     "icons": "node scripts/icons.mjs",
-    "check": "vp run lint && vp run lint:css && vp run format:check && vp test run"
+    "check": "vp run lint && vp run lint:css && vp run format:check && vp run typecheck && vp test run"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.4",

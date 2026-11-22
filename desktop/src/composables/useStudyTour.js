@@ -8,10 +8,14 @@
 // Sale solo la primera vez que se abre el estudio en el escritorio (se
 // recuerda) y siempre con el botón «?» de la barra de la onda. Los pasos
 // cuyo sitio no está a la vista (sin guías, sin pistas…) se saltan.
+//
+// El estudio lo carga al pedirlo (`import()`), no al abrirse: driver.js y
+// los dos CSS viajan en su propio trozo. El suyo (tour.css) después del de
+// driver.js, que es el que afina.
 import { driver } from 'driver.js'
 import 'driver.js/dist/driver.css'
-
-export const TOUR_KEY = 'danplay.study.tourSeen'
+import '../styles/tour.css'
+import { TOUR_KEY } from './tourSeen.js'
 
 /** Una onda de mentira (barras), para las animaciones. */
 function wave(n = 28) {
@@ -184,15 +188,6 @@ export function startStudyTour(root) {
   }
   current.drive()
   return current
-}
-
-/** Si ya se vio (o se cerró) alguna vez. */
-export function tourSeen() {
-  try {
-    return localStorage.getItem(TOUR_KEY) === 'true'
-  } catch {
-    return true
-  }
 }
 
 /** Cierra el recorrido si está abierto (al ocultar el estudio). */
