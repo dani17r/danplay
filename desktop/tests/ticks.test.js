@@ -35,6 +35,8 @@ vi.mock('../src/utils/markdown.js', async (importOriginal) => {
 
 import App from '../src/App.vue'
 import DetailsPanel from '../src/components/DetailsPanel.vue'
+import StudyBar from '../src/components/StudyBar.vue'
+import StudyTimeline from '../src/components/StudyTimeline.vue'
 import { renderMarkdown } from '../src/utils/markdown.js'
 import { resetPlayback } from '../src/composables/usePlayback.js'
 import { resetPreferences } from '../src/composables/usePreferences.js'
@@ -172,5 +174,50 @@ describe('what plays and what gets repainted', () => {
     expect(w.find('.lrc-line.current').text()).toBe('coro')
     expect(counts.SyncedLyrics).toBeGreaterThan(0)
     w.unmount()
+  })
+
+  it('with the study open, StudyBar and its timeline are not repainted: the clock and the playhead move', async () => {
+    vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'cancelAnimationFrame'] })
+    try {
+      held.state.songs = [song(7, { title: 'Mi Gozo', study: '' })]
+      held.playback.emit({
+        track: { id: 7, title: 'Mi Gozo', artist: 'Barak', duration: 200, blur: false },
+        playing: true,
+        position: 10,
+        duration: 200,
+        path: '/musica/cancion-7.mp3'
+      })
+      const counts = {}
+      const w = mount(StudyBar, { attachTo: document.body, global: { mixins: [counting(counts)] } })
+      await flushPromises()
+      await flushPromises()
+      vi.advanceTimersByTime(20)
+      const bar = w.vm.$.subTree
+      const timeline = w.findComponent(StudyTimeline).vm.$.subTree
+      const head = () => w.find('.tl-head').element.style.left
+      const before = head()
+      for (const k of Object.keys(counts)) delete counts[k]
+      for (let i = 1; i <= 20; i++) {
+        held.playback.emit({ position: 10 + i * 0.25 })
+        await flushPromises()
+        vi.advanceTimersByTime(16)
+      }
+      expect(w.vm.$.subTree, 'StudyBar se repinta en cada aviso').toBe(bar)
+      expect(w.findComponent(StudyTimeline).vm.$.subTree, 'la línea de tiempo también').toBe(
+        timeline
+      )
+      expect(counts.StudyBar || 0).toBe(0)
+      expect(counts.StudyTimeline || 0).toBe(0)
+      expect(counts.BeatTools || 0).toBe(0)
+      // lo que tiene que moverse, se mueve
+      expect(w.find('.study-time').text()).toBe('0:15 / 3:20')
+      expect(head()).not.toBe(before)
+      // a los 15 s (más lo poco que la adelanta el fotograma: 0,3 s como mucho)
+      expect(parseFloat(head())).toBeGreaterThanOrEqual(7.5)
+      expect(parseFloat(head())).toBeLessThanOrEqual(7.65)
+      w.unmount()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

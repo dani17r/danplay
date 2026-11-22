@@ -17,16 +17,18 @@ import TextField from './ui/TextField.vue'
 import SelectField from './ui/SelectField.vue'
 import BeatAlign from './BeatAlign.vue'
 import { beatsWord, bpmText, timeText } from '../composables/useBeatEdit.js'
+import { usePlayback } from '../composables/usePlayback.js'
 
 const props = defineProps({
   /** Lo que devuelve `useBeatEdit` */
   edit: { type: Object, required: true },
-  /** Por dónde va la canción (para «Hasta el final» sin nada elegido) */
-  position: { type: Number, default: 0 },
   /** El estudio tiene un tramo (A-B) */
   hasLoop: Boolean
 })
 
+// por dónde va la canción (para «Hasta el final» sin nada elegido), leída al
+// pulsar: como prop, las herramientas se repintaban con cada aviso de Rust
+const player = usePlayback()
 const info = computed(() => props.edit.targetInfo)
 const count = computed(() => info.value?.count ?? 0)
 const chosen = computed(() => props.edit.selection.length)
@@ -130,7 +132,7 @@ const isOn = (v) => !!v
           class="btn mini"
           type="button"
           title="Elegir desde el primero elegido (o desde donde va la canción) hasta el final"
-          @click="edit.selectToEnd(position)"
+          @click="edit.selectToEnd(player.position.value)"
         >
           Hasta el final
         </button>

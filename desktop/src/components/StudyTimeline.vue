@@ -74,6 +74,7 @@ import {
 } from 'vue'
 import { api, errorMessage } from '../api.js'
 import { usePreferences } from '../composables/usePreferences.js'
+import { usePlayhead } from '../composables/usePlayhead.js'
 import { openMenu } from '../composables/useContextMenu.js'
 import { formatTime } from '../utils/format.js'
 import { isDownbeat, nearestBeat, gridToOwn, ownToGrid, formatBpm } from '../utils/beats.js'
@@ -98,7 +99,11 @@ import ChannelPicker from './ChannelPicker.vue'
 const props = defineProps({
   songId: { type: Number, default: null },
   duration: { type: Number, default: 0 },
-  position: { type: Number, default: 0 },
+  /**
+   * Se ve: oculto, la aguja no se pinta. (La posición ya no es una prop: la
+   * aguja la lee del reproductor y se pinta sola, ver usePlayhead.)
+   */
+  visible: { type: Boolean, default: true },
   /** los tramos que se repiten: [[a, b], …] en segundos (uno solo, el bucle A-B) */
   loops: { type: Array, default: () => [] },
   /** varios tramos a la vez: arrastrar añade otro en vez de sustituir */
@@ -289,7 +294,7 @@ function setView(from, to, byHand = true) {
 function zoomBy(factor, at = null) {
   const d = props.duration
   if (!d) return
-  const center = at ?? (zoomed.value ? (view.from + view.to) / 2 : props.position)
+  const center = at ?? (zoomed.value ? (view.from + view.to) / 2 : playhead.now())
   const len = clamp(span.value / factor, Math.min(MIN_SPAN, d), d)
   const rel = span.value > 0 ? (center - view.from) / span.value : 0.5
   setView(center - rel * len, center - rel * len + len)
@@ -302,7 +307,8 @@ function zoomToBeats() {
   const g = props.grid
   const period = g?.bpm ? 60 / g.bpm : 0.5
   const len = clamp(period * 32, 6, props.duration || 6)
-  setView(props.position - len * 0.2, props.position - len * 0.2 + len)
+  const t = playhead.now()
+  setView(t - len * 0.2, t - len * 0.2 + len)
 }
 /**
  * Acercar la vista a un trozo: de `t0` a `t1` llena la onda, con un poco de
@@ -319,17 +325,44 @@ function zoomToSpan(t0, t1) {
 }
 defineExpose({ zoomBy, zoomFit, zoomToBeats, zoomToSpan, view, focusCue: (c) => focusCue(c) })
 
-// acercada, la vista sigue a la aguja cuando se va de ella
-watch(
-  () => props.position,
-  (t) => {
-    if (!zoomed.value || drag.mode || beatDrag.kind) return
-    if (Date.now() - movedAt < FOLLOW_PAUSE) return
-    if (t < view.from || t > view.from + span.value * 0.92) {
-      setView(t - span.value * 0.1, t - span.value * 0.1 + span.value, false)
-    }
+// ------------------------------------------------------------ la aguja
+// Se pinta a mano en cada fotograma mientras suena (usePlayhead): leída en
+// la plantilla, cada aviso de Rust (4 por segundo) volvía a ejecutar la
+// plantilla entera (carriles, pulsos, la regla).
+const head = useTemplateRef('head')
+const clickNeedle = useTemplateRef('clickNeedle')
+const guideNeedle = useTemplateRef('guideNeedle')
+const overviewHead = useTemplateRef('overviewHead')
+const playhead = usePlayhead(paintHead, () => props.visible)
+/** Pone la aguja (y las de los carriles y la vista de toda la canción) en `t`. */
+function paintHead(t) {
+  const shown = !!props.duration && inView(t)
+  const left = pct(t)
+  for (const el of [head.value, clickNeedle.value, guideNeedle.value]) {
+    if (!el) continue
+    el.style.left = left
+    el.style.display = shown ? '' : 'none'
   }
+  if (overviewHead.value && props.duration) {
+    overviewHead.value.style.left = (t / props.duration) * 100 + '%'
+  }
+  followHead(t)
+}
+// acercada, la vista sigue a la aguja cuando se va de ella
+function followHead(t) {
+  if (!zoomed.value || drag.mode || beatDrag.kind) return
+  if (Date.now() - movedAt < FOLLOW_PAUSE) return
+  if (t < view.from || t > view.from + span.value * 0.92) {
+    setView(t - span.value * 0.1, t - span.value * 0.1 + span.value, false)
+  }
+}
+// lo que cambia dónde cae la aguja o si está (otra vista, otra canción, un
+// carril o la vista entera que aparece): se vuelve a poner, ya pintado
+watch(
+  () => [view.from, view.to, props.duration, zoomed.value, showClick.value, showGuides.value],
+  () => nextTick(playhead.repaint)
 )
+onMounted(() => playhead.repaint())
 
 /**
  * La rueda, como en un editor de música: con Ctrl o ⌘ (o pellizcando el
@@ -2013,11 +2046,7 @@ const lockTitle = computed(() =>
         :class="{ one: b.one }"
         :style="{ left: pct(b.t) }"
       ></span>
-      <span
-        v-show="inView(position)"
-        class="tl-guide-needle"
-        :style="{ left: pct(position) }"
-      ></span>
+      <span ref="clickNeedle" class="tl-guide-needle" style="display: none"></span>
     </div>
     <!-- en el celular, «varios» y el candado van en su fila, encima de la
          onda y no sobre ella -->
@@ -2302,11 +2331,7 @@ const lockTitle = computed(() =>
         </div>
       </template>
 
-      <div
-        v-if="duration && inView(position)"
-        class="tl-head"
-        :style="{ left: pct(position) }"
-      ></div>
+      <div v-if="duration" ref="head" class="tl-head" style="display: none"></div>
 
       <!-- varios tramos a la vez: cada arrastre añade otro -->
       <button
@@ -2538,9 +2563,9 @@ const lockTitle = computed(() =>
         </TransitionGroup>
       </div>
       <span
-        v-show="inView(position)"
+        ref="guideNeedle"
         class="tl-guide-needle"
-        :style="{ left: pct(position) }"
+        style="display: none"
         aria-hidden="true"
       ></span>
     </div>
@@ -2579,7 +2604,7 @@ const lockTitle = computed(() =>
           width: (span / duration) * 100 + '%'
         }"
       ></span>
-      <span class="tl-overview-head" :style="{ left: (position / duration) * 100 + '%' }"></span>
+      <span ref="overviewHead" class="tl-overview-head"></span>
     </div>
   </div>
 </template>

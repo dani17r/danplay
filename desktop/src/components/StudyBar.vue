@@ -79,6 +79,7 @@ import TextField from './ui/TextField.vue'
 import SliderField from './ui/SliderField.vue'
 import StudyTimeline from './StudyTimeline.vue'
 import BeatTools from './BeatTools.vue'
+import StudyClock from './StudyClock.vue'
 import StudyOutputs from './StudyOutputs.vue'
 import StudyCue from './StudyCue.vue'
 import StudyExport from './StudyExport.vue'
@@ -113,6 +114,8 @@ const blank = () => ({
   mixer: { on: false, tracks: {} }
 })
 const study = ref(blank())
+/** Sin golpes a la vista: siempre la misma lista (una nueva repintaba la onda). */
+const NO_HITS = Object.freeze([])
 /**
  * El clic manual (`metronome.own`) va sin hacer reactivo: son miles de
  * pulsos y nadie los cambia en su sitio (cada cambio es un `own` nuevo, que
@@ -888,6 +891,16 @@ const clickPercent = computed(() => Math.round(click.progress.value * 100))
 const clickLoading = computed(() => click.auto.value && click.loading.value)
 /** Esta canción tiene su clic manual guardado. */
 const hasOwn = computed(() => !!study.value.metronome?.own?.beats?.length)
+/**
+ * El carril del clic de la línea de tiempo (en el escritorio). Un `computed`:
+ * escrito en la plantilla era un objeto nuevo en cada pintada, y la línea de
+ * tiempo se repintaba entera aunque dijera lo mismo.
+ */
+const clickLane = computed(() =>
+  !isMobileApp && track.value
+    ? { on: !!metronome.value.on, volume: metronome.value.volume ?? 0.8 }
+    : null
+)
 /**
  * Dónde el clic es una suposición, para la onda: lo que dijo el último
  * análisis de esta canción (nada si no lo dijo, o si el clic no sigue a la
@@ -3032,10 +3045,7 @@ defineExpose({ close: hide, hide, exit })
         >
           <Icon n="forward10" :t="13" />
         </button>
-        <span class="study-time mono" title="Dónde va la canción / lo que dura"
-          >{{ formatTime(position)
-          }}<span class="study-time-total"> / {{ formatTime(duration) }}</span></span
-        >
+        <StudyClock />
       </span>
       <span class="study-bar-group study-loop-group">
         <span
@@ -3218,7 +3228,7 @@ defineExpose({ close: hide, hide, exit })
       ref="timeline"
       :song-id="track?.id ?? null"
       :duration="duration"
-      :position="position"
+      :visible="visible"
       :loops="study.loops"
       :multi="multi"
       :markers="study.markers"
@@ -3230,15 +3240,13 @@ defineExpose({ close: hide, hide, exit })
       :selection="edit.selection"
       :preview="edit.preview"
       :ghost-beats="edit.ghostBeats"
-      :hits="edit.showHits || edit.snapHits ? edit.hits : []"
+      :hits="edit.showHits || edit.snapHits ? edit.hits : NO_HITS"
       :hits-ref="edit.hitsRef"
       :show-hits="edit.showHits"
       :snap-hits="edit.snapHits"
       :show-mix="showMix"
       :show-routes="showRoutes"
-      :click-lane="
-        !isMobileApp && track ? { on: !!metronome.on, volume: metronome.volume ?? 0.8 } : null
-      "
+      :click-lane="clickLane"
       :seek-click="seekClick"
       :click-loading="clickLoading ? click.progress.value : click.reanalyzing.value"
       :height="waveHeight"
@@ -3273,12 +3281,7 @@ defineExpose({ close: hide, hide, exit })
       @options="showOptions"
     />
     <!-- ajustando los pulsos: sus herramientas, y «Tempo y onda» debajo -->
-    <BeatTools
-      v-if="editingBeats && !isMobileApp"
-      :edit="edit"
-      :position="position"
-      :has-loop="hasLoop"
-    />
+    <BeatTools v-if="editingBeats && !isMobileApp" :edit="edit" :has-loop="hasLoop" />
     <p v-if="isMobileApp" class="study-hint">
       <!-- en el celular se toca, no hay ratón ni teclas -->
       <template v-if="isMobileApp">
