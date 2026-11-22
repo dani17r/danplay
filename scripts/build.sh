@@ -46,9 +46,10 @@ else
     cargo build --release -p danplay-app
 fi
 
-# El .deb, de gzip a xz: 21 MB menos con la 1.44.1 (de 145 a 124), con el
-# mismo contenido. Tauri no deja elegir la compresion. xz y no zstd: el dpkg
-# de Debian 11 no abre zstd. Lo mismo hace la CI (linux.yml).
+# El .deb, de gzip a xz: 21 MB menos (medido en noviembre de 2026: de 145 a
+# 124), con el mismo contenido. Tauri no deja elegir la compresion. xz y no
+# zstd: el dpkg de Debian 11 no abre zstd. Lo mismo hace la CI (linux.yml).
+# (Sin el numero de la version aqui: repo_checks lo vigila.)
 recompress_deb () {
     raw="$TARGET/release/bundle/deb-raw"
     rm -rf "$raw"
