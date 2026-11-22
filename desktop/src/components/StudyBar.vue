@@ -74,6 +74,14 @@ import {
   snapToBeats
 } from '../utils/segments.js'
 import { openMenu } from '../composables/useContextMenu.js'
+import {
+  useStudyDoc,
+  blank,
+  withRawOwn,
+  isSpan,
+  parse,
+  isDefault
+} from '../composables/useStudyDoc.js'
 import Icon from './Icon.vue'
 import TextField from './ui/TextField.vue'
 import SliderField from './ui/SliderField.vue'
@@ -102,37 +110,12 @@ const { track, position, duration, speed, pitch, metronome, playing, volume } = 
 // Las velocidades de ensayar, a la vista en el estudio. Son menos que las del
 // reproductor (usePlayback.js) y todas están en aquella lista.
 const SPEEDS = [0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.1, 1.25]
-// `loops`: los tramos que se repiten, [[a, b], …] (uno solo es el bucle A-B);
-// `mixer`: las pistas separadas, si suenan (`on`) y cómo va cada una;
-// `cues`: las guías habladas, [{t, text?, voice?, file, gain?, lane?}];
-// `cueLanes`: sus carriles (hasta 6), [{key, name, gain?, mute?, solo?, auto?}]
-// (`auto`: el de la guía automática)
-const blank = () => ({
-  loops: [],
-  speed: 1,
-  pitch: 0,
-  metronome: {},
-  markers: [],
-  cues: [],
-  cueLanes: [],
-  notes: '',
-  mixer: { on: false, tracks: {} }
-})
-const study = ref(blank())
+// el estudio de la canción y su guardado (useStudyDoc.js)
+const doc = useStudyDoc()
+const { study, loadedFor, studyFor, saving, scheduleSave, flushSave, flushFile, warnIfOnlyHere } =
+  doc
 /** Sin golpes a la vista: siempre la misma lista (una nueva repintaba la onda). */
 const NO_HITS = Object.freeze([])
-/**
- * El clic manual (`metronome.own`) va sin hacer reactivo: son miles de
- * pulsos y nadie los cambia en su sitio (cada cambio es un `own` nuevo, que
- * sí avisa al sustituir el `metronome`). Hacerlo reactivo envolvía cada
- * número al leerlo.
- * @param {Record<string, any>} metronome
- */
-function withRawOwn(metronome) {
-  const m = { ...metronome }
-  if (m.own && typeof m.own === 'object') m.own = markRaw(m.own)
-  return m
-}
 // el clic: su rejilla, si carga, y el modo. Vive fuera del panel: con él
 // cerrado, al pasar de canción, sigue igual
 const click = useClick()
@@ -169,13 +152,11 @@ const stems = shallowRef(null)
 const songFile = ref('')
 /** Se pidió separar desde aquí esta canción: al acabar, suenan sus pistas. */
 let wantStems = null
-const loadedFor = ref(null)
 // al volver a automático, los de esta canción otra vez (a mano iba otro tempo)
 watch(clickAuto, (on) => {
   if (on && loadedFor.value != null)
     click.songSettings(loadedFor.value, study.value.metronome, true)
 })
-const saving = ref(false)
 /** El marcador elegido (uno de `study.markers`), o null. */
 const selected = ref(null)
 /** Los marcadores con la casilla puesta: para tocar varios seguidos. */
@@ -186,27 +167,7 @@ const grid = click.grid
 const notesTab = ref('song')
 /** La línea de tiempo (su zoom y la edición de pulsos). */
 const timeline = ref(null)
-let saveTimer = null
-/**
- * Lo que falta por guardar: de que cancion es y como estaba al pedirlo. Se
- * apunta al programar el guardado, no al hacerlo: si la cancion cambiaba en
- * esos 600 ms, las notas de la primera acababan guardadas en la segunda (en
- * el indice y en la etiqueta del archivo) y la primera las perdia.
- */
-let pending = null
 
-const isSpan = (m) => m.end > m.t
-
-/** Lo guardado con la canción, si lo hay. */
-function parse(raw) {
-  try {
-    return raw ? JSON.parse(raw) : {}
-  } catch {
-    return {}
-  }
-}
-/** De qué canción es ya `study` (mientras se lee la nueva, aún es el de la anterior). */
-const studyFor = ref(null)
 async function loadFor(id) {
   // lo pendiente es de la cancion que se deja: se guarda en ELLA ya, sin
   // esperar (su copia y su id ya van apuntados)
@@ -287,125 +248,6 @@ watch(
   (id) => loadFor(id),
   { immediate: true }
 )
-
-/**
- * Lo que vale cada ajuste del metrónomo cuando no se ha tocado. El compás
- * 0 (sin acento) SÍ es un ajuste: lo que no se ha tocado es null.
- */
-const METRO_DEFAULTS = { bpm: null, meter: null, shift: 0, mult: 0, own: null }
-const isDefault = (k, v) => v == null || v === METRO_DEFAULTS[k]
-
-/** Lo que se guarda: solo lo que no es lo de siempre, como lo espera el nucleo. */
-function payload(s) {
-  const markers = s.markers.map((m) => ({
-    t: m.t,
-    ...(isSpan(m) ? { end: m.end } : {}),
-    ...(m.parts?.length > 1 ? { parts: m.parts.map((p) => [...p]) } : {}),
-    label: m.label,
-    ...(m.notes?.trim() ? { notes: m.notes.trim() } : {})
-  }))
-  const metro = Object.fromEntries(
-    Object.entries(s.metronome || {}).filter(([k, v]) => !isDefault(k, v))
-  )
-  const mixer = mixerPayload(s.mixer)
-  const cues = (s.cues || []).map((c) => ({
-    t: round2(c.t),
-    file: c.file,
-    ...(c.text ? { text: c.text } : {}),
-    ...(c.voice ? { voice: c.voice } : {}),
-    ...(c.gain != null && c.gain !== 1 ? { gain: c.gain } : {}),
-    ...(c.lane ? { lane: c.lane } : {})
-  }))
-  const cueLanes = (s.cueLanes || []).map((l) => ({
-    key: l.key,
-    name: l.name || '',
-    ...(l.gain != null && l.gain !== 1 ? { gain: l.gain } : {}),
-    ...(l.mute ? { mute: true } : {}),
-    ...(l.solo ? { solo: true } : {}),
-    // el de la guía automática (se rehace con ella)
-    ...(l.auto ? { auto: true } : {})
-  }))
-  return {
-    ...(mixer ? { mixer } : {}),
-    ...(s.loops.length === 1
-      ? { loop: [...s.loops[0]] }
-      : s.loops.length > 1
-        ? { loops: s.loops.map((x) => [...x]) }
-        : {}),
-    ...(s.speed && s.speed !== 1 ? { speed: s.speed } : {}),
-    ...(s.pitch ? { pitch: s.pitch } : {}),
-    ...(Object.keys(metro).length ? { metronome: metro } : {}),
-    ...(markers.length ? { markers } : {}),
-    ...(cues.length ? { cues } : {}),
-    ...(cueLanes.length ? { cueLanes } : {}),
-    ...(s.notes.trim() ? { notes: s.notes.trim() } : {})
-  }
-}
-/** Lo que se guarda del mezclador: si suena y lo que no está como viene. */
-function mixerPayload(m) {
-  const tracks = {}
-  for (const [key, t] of Object.entries(m?.tracks || {})) {
-    const kept = {
-      ...(t.gain != null && t.gain !== 1 ? { gain: t.gain } : {}),
-      ...(t.pan ? { pan: t.pan } : {}),
-      ...(t.mute ? { mute: true } : {}),
-      ...(t.solo ? { solo: true } : {})
-    }
-    if (Object.keys(kept).length) tracks[key] = kept
-  }
-  const out = {
-    ...(m?.on ? { on: true } : {}),
-    ...(Object.keys(tracks).length ? { tracks } : {})
-  }
-  return Object.keys(out).length ? out : null
-}
-function scheduleSave() {
-  const id = loadedFor.value
-  if (!id) return
-  pending = { id, study: payload(study.value) }
-  clearTimeout(saveTimer)
-  saveTimer = setTimeout(flushSave, 600)
-}
-/** Las canciones de las que ya se avisó de que su estudio vive solo en DanPlay. */
-const warnedOnlyHere = new Set()
-/**
- * El núcleo dice si la etiqueta del archivo se escribió. Si no se pudo (el
- * archivo no admite etiquetas, o no se le puede escribir), el estudio queda
- * solo en la base de DanPlay: se avisa una vez por canción, no en cada
- * guardado (que se hace solo, a cada cambio). Con `tags_pending` la etiqueta
- * aún no se escribió (el núcleo la aplaza): no es un fallo.
- */
-function warnIfOnlyHere(id, saved) {
-  if (!saved || saved.tags_pending || saved.tags_written !== false || warnedOnlyHere.has(id)) return
-  if (saved.tags_skipped === 'unsupported') {
-    notify('Este archivo no admite etiquetas: el estudio de esta canción se guarda solo en DanPlay')
-  } else if (saved.tags_skipped === 'failed') {
-    notify(
-      'No se pudo escribir en el archivo (¿es de solo lectura?): el estudio de esta canción se guarda solo en DanPlay'
-    )
-  } else return
-  warnedOnlyHere.add(id)
-}
-/** Lo guardado, ya también en el archivo: el núcleo aplaza la etiqueta hasta que se deja la canción o el estudio. */
-function flushFile() {
-  return api.flushStudy().catch(() => {})
-}
-/** Guarda ya lo pendiente, si hay algo. */
-async function flushSave() {
-  clearTimeout(saveTimer)
-  saveTimer = null
-  const job = pending
-  pending = null
-  if (!job) return
-  saving.value = true
-  try {
-    warnIfOnlyHere(job.id, await api.setStudy(job.id, job.study))
-  } catch (e) {
-    notify('No se pudo guardar el estudio: ' + errorMessage(e))
-  } finally {
-    saving.value = false
-  }
-}
 
 // ---- el candado de la onda
 // Puesto (lo normal), mientras suena un clic en la onda no mueve la cancion
