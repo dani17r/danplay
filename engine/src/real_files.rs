@@ -447,3 +447,184 @@ fn real_load_time() {
         files.len()
     );
 }
+
+/// Los hilos de este proceso: (nombre, politica, prioridad de tiempo real,
+/// nice), de `/proc/self/task/*/stat`. La politica: 0 normal, 1 FIFO, 2 RR
+/// (las dos de tiempo real), 3 por lotes, 5 en reposo.
+fn threads() -> Vec<(String, u32, u32, i32)> {
+    let mut out = Vec::new();
+    let Ok(tasks) = std::fs::read_dir("/proc/self/task") else {
+        return out;
+    };
+    for t in tasks.filter_map(Result::ok) {
+        let Ok(stat) = std::fs::read_to_string(t.path().join("stat")) else {
+            continue;
+        };
+        // el nombre va entre parentesis y puede llevar espacios
+        let (Some(open), Some(close)) = (stat.find('('), stat.rfind(')')) else {
+            continue;
+        };
+        let name = stat[open + 1..close].to_string();
+        // tras el parentesis, el campo 3 (el estado) y los demas
+        let rest: Vec<&str> = stat[close + 1..].split_whitespace().collect();
+        let field = |n: usize| rest.get(n - 3).copied().unwrap_or("?");
+        out.push((
+            name,
+            field(41).parse().unwrap_or(99),
+            field(40).parse().unwrap_or(0),
+            field(19).parse().unwrap_or(0),
+        ));
+    }
+    out.sort();
+    out
+}
+
+/// Un banco (no de la CI) para AUD-12 b: si el hilo de audio llega a tiempo
+/// con el equipo cargado, por la salida de audio de VERDAD (la del sistema),
+/// con el estirador puesto (0,8x). Suena un tono a -70 dBFS (no se oye).
+/// Por cada fase cuenta los tropiezos de la salida (`OutputStatus::xruns`) y
+/// los cortes del render (`State::underruns`), y al principio y al final dice
+/// la politica de cada hilo (si el de cpal llego a tiempo real).
+///
+/// ```text
+/// DANPLAY_RT_PROBE=1 [DANPLAY_RT_SECONDS=15] cargo test --release -p danplay-engine \
+///     real_output_under_load -- --ignored --nocapture
+/// ```
+///
+/// Las fases: sin carga; con un proceso ocupado por nucleo a prioridad normal;
+/// y con esos mismos a `nice 10` (asi corren el separador y el pulso en Linux).
+#[test]
+#[ignore = "banco de desarrollo: pide DANPLAY_RT_PROBE (abre la salida de audio de verdad)"]
+#[allow(
+    clippy::too_many_lines,
+    reason = "un banco que imprime lo que mide, paso a paso"
+)]
+fn real_output_under_load() {
+    use crate::bundle::PartFile;
+    use crate::engine::Engine;
+    use crate::queue::LoopEnd;
+    use std::process::{Child, Command};
+    use std::time::{Duration, Instant};
+
+    if std::env::var_os("DANPLAY_RT_PROBE").is_none() {
+        println!("sin DANPLAY_RT_PROBE: nada que medir");
+        return;
+    }
+    let seconds: u64 = std::env::var("DANPLAY_RT_SECONDS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(15);
+    let show = |when: &str| {
+        println!("hilos {when}:");
+        for (name, policy, rt, nice) in threads() {
+            let kind = match policy {
+                0 => "normal",
+                1 => "FIFO (tiempo real)",
+                2 => "RR (tiempo real)",
+                3 => "por lotes",
+                5 => "en reposo",
+                _ => "?",
+            };
+            println!("  {name:<16} {kind:<20} prioridad rt {rt:>2}, nice {nice:>3}");
+        }
+    };
+    // un minuto de tono muy bajo, que se repite
+    let dir = scratch("tiempo-real");
+    let level = 10f32.powf(-70.0 / 20.0);
+    let tone: Vec<f32> = (0..44_100 * 60)
+        .flat_map(|i| {
+            let v = level * (2.0 * std::f32::consts::PI * 440.0 * i as f32 / 44_100.0).sin();
+            [v, v]
+        })
+        .collect();
+    let path = dir.join("tono.wav");
+    std::fs::write(&path, &crate::testing::wav(2, 44_100, &tone)[..]).expect("wav");
+    let part = PartFile {
+        source: "song".into(),
+        name: "Tono".into(),
+        path,
+    };
+    let e = Engine::new();
+    e.load_files("tono", &[part], 0.0).expect("carga");
+    e.set_segments(&[(0.0, 59.0)], LoopEnd::Repeat);
+    e.set_speed(0.8);
+    let t = Instant::now();
+    e.play();
+    // cuanto tarda en sonar (abrir la salida incluido)
+    while e.state().position <= 0.0 && t.elapsed() < Duration::from_secs(5) {
+        std::thread::sleep(Duration::from_millis(1));
+    }
+    println!(
+        "suena a los {:.0} ms de dar a play (abrir la salida incluido)",
+        t.elapsed().as_secs_f64() * 1e3
+    );
+    std::thread::sleep(Duration::from_millis(500));
+    if let Some(st) = e.output_status() {
+        println!(
+            "salida: {} ({}), {} canales a {} Hz, error {:?}",
+            st.name, st.device, st.channels, st.rate, st.error
+        );
+    }
+    show("al empezar");
+    let cores = std::thread::available_parallelism().map_or(4, std::num::NonZero::get);
+    let busy = |nice: Option<u8>| -> Vec<Child> {
+        (0..cores)
+            .filter_map(|_| {
+                let spin = ["sh", "-c", "while :; do :; done"];
+                let mut c = if let Some(n) = nice {
+                    let mut c = Command::new("nice");
+                    c.arg("-n").arg(n.to_string()).args(spin);
+                    c
+                } else {
+                    let mut c = Command::new(spin[0]);
+                    c.args(&spin[1..]);
+                    c
+                };
+                c.spawn().ok()
+            })
+            .collect()
+    };
+    for (what, nice) in [
+        ("sin carga", None::<Option<u8>>),
+        (
+            "un proceso ocupado por núcleo, prioridad normal",
+            Some(None),
+        ),
+        ("un proceso ocupado por núcleo, nice 10", Some(Some(10))),
+    ] {
+        let mut load = nice.map(busy).unwrap_or_default();
+        std::thread::sleep(Duration::from_millis(300));
+        let xruns = e.output_status().map_or(0, |s| s.xruns);
+        let cuts = e.state().underruns;
+        let from = e.state().position;
+        let t = Instant::now();
+        // la posicion avanza a 0,8 s por segundo; si se para, se ve
+        let mut stalls = 0u32;
+        let mut last = from;
+        while t.elapsed() < Duration::from_secs(seconds) {
+            std::thread::sleep(Duration::from_millis(100));
+            let p = e.state().position;
+            if (p - last).abs() < 1e-9 {
+                stalls += 1;
+            }
+            last = p;
+        }
+        // la salida pone al dia su cuenta cada 250 ms
+        std::thread::sleep(Duration::from_millis(300));
+        let st = e.state();
+        println!(
+            "{what} ({cores} procesos si hay carga), {seconds} s: tropiezos de la salida {}, cortes del render {}, vueltas de 100 ms con la posicion parada {stalls}, error {:?}",
+            e.output_status().map_or(0, |s| s.xruns) - xruns,
+            st.underruns - cuts,
+            st.error,
+        );
+        for c in &mut load {
+            let _ = c.kill();
+            let _ = c.wait();
+        }
+    }
+    show("al acabar");
+    e.pause();
+    drop(e);
+    let _ = std::fs::remove_dir_all(&dir);
+}
