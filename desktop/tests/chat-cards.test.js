@@ -852,12 +852,15 @@ describe('the provider banner', () => {
     expect(w.find('.chat-banner-text').text()).toBe('P no responde; contestó LLM7 · x (respaldo).')
   })
 
-  it('its buttons: Settings, retry and use the fallback (only after confirming)', async () => {
+  it('its buttons: the AI options in place, retry and use the fallback (only after confirming)', async () => {
     held.tools = outage('billing')
     const w = await mountView()
     const button = (t) => w.findAll('.chat-banner-actions .btn').find((b) => b.text().includes(t))
-    await button('Ajustes de IA').trigger('click')
-    expect(hooks.go).toHaveBeenCalledWith({ kind: 'settings' })
+    // las opciones se abren aquí mismo (modelo, clave…), sin salir del chat
+    await button('Opciones de la IA').trigger('click')
+    await flushPromises()
+    expect(w.find('.chat-ai').exists()).toBe(true)
+    expect(hooks.go).not.toHaveBeenCalled()
 
     // usar el respaldo: nombra proveedor y modelo, y sin «sí» no cambia nada
     expect(button('como principal').text()).toBe(

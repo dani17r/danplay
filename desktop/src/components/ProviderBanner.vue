@@ -19,7 +19,7 @@ const props = defineProps({
   /** {primary: {name, model}, problem: {kind, code, at}|null, answering: {id, name, model, reason}|null} */
   state: { type: Object, required: true }
 })
-const emit = defineEmits(['settings', 'recheck', 'promote'])
+const emit = defineEmits(['options', 'recheck', 'promote'])
 
 const open = ref(false)
 
@@ -69,8 +69,8 @@ const text = computed(() => {
       <span class="sr-only">Opciones</span>
     </button>
     <div id="chat-banner-actions" class="chat-banner-actions">
-      <button type="button" class="btn mini" @click="emit('settings')">
-        <Icon n="settings" :t="12" /> Ajustes de IA
+      <button type="button" class="btn mini" @click="emit('options')">
+        <Icon n="settings" :t="12" /> Opciones de la IA
       </button>
       <button type="button" class="btn mini" @click="emit('recheck')">
         <Icon n="refresh" :t="12" /> Reintentar con el principal

@@ -118,8 +118,8 @@ pub fn catalog() -> Vec<Value> {
                 "key_url": "https://aistudio.google.com/app/apikey",
                 "docs": "https://ai.google.dev/gemini-api/docs/openai",
                 "models_dev": "google",
-                "suggest": {"fast": "gemini-3.5-flash-lite", "chat": "gemini-3.8-flash"},
-                "note": "Con clave de AI Studio. Tiene nivel gratuito.",
+                "suggest": {"fast": "gemini-3.5-flash-lite", "chat": "gemini-4-hydrogen"},
+                "note": "Con clave de AI Studio. Tiene nivel gratuito. (gemini-3.8-flash no contestaba con una clave de AI Studio en noviembre de 2026: no se sugiere.)",
                 // su /models dice «models/gemini-3.8-flash»; acepta los dos, y sin el
                 // prefijo se cruza con el catalogo
                 "quirks": {"strip_prefix": "models/"},

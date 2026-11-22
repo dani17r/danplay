@@ -421,7 +421,7 @@ onUnmounted(() => {
     <ProviderBanner
       v-if="provider"
       :state="provider"
-      @settings="chat.openAiSettings()"
+      @options="openAiPanel()"
       @recheck="chat.recheckPrimary()"
       @promote="chat.promoteFallback()"
     />
