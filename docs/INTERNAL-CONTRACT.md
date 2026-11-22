@@ -423,7 +423,14 @@ convierten en `<a>`: se enseñan como texto con la dirección al lado.
   final del último. Va al índice
   (`study`, JSON) y a la etiqueta `ESTUDIO` del archivo, y vuelve al
   escanear. Se va con la canción: la fila del índice se borra al mandarla a
-  la papelera o cuando el escaneo la da por desaparecida.
+  la papelera o cuando el escaneo la da por desaparecida. La etiqueta se
+  escribe después (ver ARCHITECTURE.md, «La etiqueta del estudio se escribe
+  después»): la ficha lleva entonces `tags_written: false`, `tags_pending:
+  true` y `tags_supported: true`, sin `tags_skipped`; con `tags_pending` la
+  interfaz no avisa de nada.
+- `POST /api/study/flush` → `{ written }`: escribe ya las etiquetas del
+  estudio que esperaban (cuántas). La interfaz lo pide al dejar la canción o
+  el estudio.
 - `GET /api/song/{id}/waveform?buckets=800` → `{ peaks, rms, buckets }`: la
   forma de onda para la línea de tiempo del estudio, `buckets` columnas con
   pico y RMS entre 0 y 1 (normalizados al pico más alto). Vale para canciones
@@ -597,7 +604,8 @@ convierten en `<a>`: se enseñan como texto con la dirección al lado.
   esa y `already_running: true` (antes `409`). Se sigue con
   `GET /api/jobs/{name}`; `api.runJob(start, name, { onProgress })` lo hace
   (sondeo cada ~500 ms) y devuelve `result` o lanza el `error`.
-  `/api/status` conserva `jobs` con todas.
+  `/api/status` conserva `jobs` con todas, sin su `result` (que está en
+  `GET /api/jobs/{name}`).
 - `/api/folders` respuesta `action`: `added | already_there | replaced |
   confirm | relocated`. `relocated`: la carpeta era una gestionada que se
   movió; se cambia su ruta en vez de añadir otra y sus canciones vuelven con su

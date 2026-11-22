@@ -35,6 +35,7 @@ pub const ROUTES: &[Route] = &[
     Route::post("/api/song/{cid}/chords", song_chords),
     Route::post("/api/song/{cid}/chords/transposed", song_chords_transposed),
     Route::put("/api/song/{cid}/study", song_study),
+    Route::post("/api/study/flush", study_flush),
     Route::get("/api/song/{cid}/path", audio_path),
     Route::post("/api/transpose", transpose),
 ];
@@ -462,15 +463,15 @@ fn cover(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let cid = ctx.path().int("cid").required();
     let size = ctx.query().int("size").opt();
     ctx.check()?;
-    // `resolve`: la portada sale del propio archivo, así que una canción de
-    // fuera de la biblioteca también tiene la suya
-    let Some(c) = songs::resolve(ctx.app, cid)? else {
+    // `path_of` (como `resolve`): la portada sale del propio archivo, así que
+    // una canción de fuera de la biblioteca también tiene la suya
+    let Some(path) = songs::path_of(ctx.app, cid)? else {
         return Err(ApiError::not_found("no existe"));
     };
-    if !songs::exists(&c) {
+    if path.is_empty() || !Path::new(&path).exists() {
         return Err(ApiError::not_found("sin portada"));
     }
-    let path = path_of(&c);
+    let path = PathBuf::from(path);
     let found = match size {
         Some(s) if media::THUMBNAIL_SIZES.contains(&s) => media::thumbnail(ctx.app, &path, s),
         _ => media::cached_cover(&path),
@@ -715,18 +716,29 @@ fn song_study(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     // se guarda solo, cada 0,6 s de cambios, y quien lo guarda es quien lo
     // tiene delante: sin avisar a la interfaz (`index::quietly`)
     let _quiet = library::index::quietly();
-    let c =
-        songs::set_study(ctx.app, cid, &study)?.ok_or_else(|| ApiError::not_found("no existe"))?;
+    // y la etiqueta del archivo, luego (`tags_pending`): reescribir el
+    // archivo entero a cada cambio era lo que costaba
+    let c = songs::save_study(ctx.app, cid, &study, true)?
+        .ok_or_else(|| ApiError::not_found("no existe"))?;
     Ok(Value::Object(c).into())
 }
 
-/// Dónde está en el disco (lo usa Rust para servir el audio). `resolve`: una
-/// canción abierta desde fuera tiene que sonar igual que las demás.
+/// Las etiquetas del estudio que esperaban, ya: al dejar la canción o el
+/// estudio.
+fn study_flush(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
+    ctx.check()?;
+    Ok(json!({"written": songs::flush_study_tags(ctx.app)}).into())
+}
+
+/// Dónde está en el disco (lo usa Rust para servir el audio). `path_of`
+/// (como `resolve`): una canción abierta desde fuera tiene que sonar igual
+/// que las demás.
 fn audio_path(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let cid = ctx.path().int("cid").required();
     ctx.check()?;
-    let c = resolved_file(ctx.app, cid, "no existe")?;
-    let path = songs::text(&c, "path");
+    let path = songs::path_of(ctx.app, cid)?
+        .filter(|p| !p.is_empty() && Path::new(p).exists())
+        .ok_or_else(|| ApiError::not_found("no existe"))?;
     let bytes = std::fs::metadata(&path)?.len();
     Ok(json!({"path": path, "kind": media::audio_type(&path), "bytes": bytes}).into())
 }

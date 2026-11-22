@@ -10,9 +10,10 @@
 //! Las expresiones van por el motor rápido de `regex`, y por `fancy_regex`
 //! solo las que miran hacia atrás o hacia delante, que `regex` no sabe. Si
 //! una se pasa de pasos, el texto se queda como estaba en vez de parar nada.
+use std::collections::HashMap;
 use std::fmt::Write as _;
 use std::path::Path;
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 use unicode_normalization::UnicodeNormalization;
 use unicode_properties::{GeneralCategory, GeneralCategoryGroup, UnicodeGeneralCategory};
 
@@ -570,9 +571,34 @@ pub struct Detection {
 
 /// El nombre de un artista ya plano, como expresión que admite separadores
 /// entre sus palabras («miel san marcos» casa con «Miel-San Marcos»).
-fn artist_pattern(flat_artist: &str) -> Re {
+fn compile_artist_pattern(flat_artist: &str) -> Re {
     let words: Vec<String> = flat_artist.split_whitespace().map(regex::escape).collect();
     rx(&format!(r"(?i)\s*\b{}\b\s*", words.join(r"[\s.'\-]*")))
+}
+
+/// Cuántas expresiones de artista se recuerdan (los artistas conocidos son
+/// cientos; pasado esto, se empieza de cero).
+const ARTIST_PATTERNS_MAX: usize = 4096;
+
+static ARTIST_PATTERNS: LazyLock<Mutex<HashMap<String, Arc<Re>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+/// `compile_artist_pattern`, recordada por artista: cada una son tres
+/// expresiones compiladas (ver `Re`), y se pedía otra vez por cada archivo
+/// de ese artista al escanear o al importar.
+fn artist_pattern(flat_artist: &str) -> Arc<Re> {
+    let mut known = ARTIST_PATTERNS
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner);
+    if let Some(re) = known.get(flat_artist) {
+        return re.clone();
+    }
+    if known.len() >= ARTIST_PATTERNS_MAX {
+        known.clear();
+    }
+    let re = Arc::new(compile_artist_pattern(flat_artist));
+    known.insert(flat_artist.to_owned(), re.clone());
+    re
 }
 
 static LEADING_JOINER: LazyLock<Re> = LazyLock::new(|| rx(r"(?i)^\s*(feat\.?|ft\.?|con|y|&|x)\s+"));

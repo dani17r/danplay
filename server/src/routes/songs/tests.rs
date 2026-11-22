@@ -292,6 +292,7 @@ fn study_is_validated_and_saved_clean() {
 /// escribió y, si no, por qué: antes no se sabía cuándo lo guardado quedaba
 /// solo en la base. Y la ficha dice si el archivo admite etiquetas.
 #[test]
+#[allow(clippy::too_many_lines, reason = "cada caso de guardar, en orden")]
 fn saving_says_whether_the_file_took_it() {
     let app = app();
     // un wma no admite etiquetas (y este, además, ni es audio)
@@ -313,12 +314,20 @@ fn saving_says_whether_the_file_took_it() {
         &format!("/api/song/{taggable}/study"),
         Some(study.clone()),
     );
+    // la etiqueta, luego (`tags_pending`): no es un fallo
     assert_eq!(
-        (st, &v["tags_written"], &v["tags_skipped"]),
-        (200, &json!(true), &Value::Null),
+        (
+            st,
+            &v["tags_written"],
+            &v["tags_pending"],
+            &v["tags_skipped"]
+        ),
+        (200, &json!(false), &json!(true), &Value::Null),
         "{v}"
     );
+    assert_eq!(v["tags_supported"], true);
     let path = PathBuf::from(v["path"].as_str().expect("ruta"));
+    assert_eq!(call(&app, "POST", "/api/study/flush", None).1["written"], 1);
     assert_eq!(library::tags::read(&path).study, r#"{"speed":0.8}"#);
     assert_eq!(
         call(&app, "GET", &format!("/api/song/{taggable}"), None).1["tags_supported"],

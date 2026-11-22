@@ -55,6 +55,8 @@ fn rescanning_reuses_files_that_have_not_changed() {
 }
 
 fn rebuild(app: &crate::App) -> Value {
+    // (en Windows una base abierta no se puede borrar)
+    app.release_db();
     std::fs::remove_file(&app.config().database).expect("borrar la base");
     let lib = app.config().library.clone();
     call(
@@ -517,4 +519,94 @@ fn the_interface_sends_the_query_parameters_the_api_requires() {
             "routes/{file}: la interfaz no manda «{name}»"
         );
     }
+}
+
+/// Al desplazar una biblioteca sin miniaturas se piden muchas a la vez, como
+/// las filas que se ven de golpe: cada una de una canción con su carátula
+/// grande. No se lanzan más ffmpeg a la vez que núcleos (antes, uno por
+/// petición: 48 con 16 núcleos). Con `--nocapture`, cuántos y cuánto tardan.
+#[test]
+fn many_missing_thumbnails_at_once_start_no_more_ffmpeg_than_cores() {
+    use crate::services::media;
+    let Some(ffmpeg) = crate::testkit::ffmpeg() else {
+        return;
+    };
+    let Some(app) = api_library() else { return };
+    let original = PathBuf::from(
+        get(&app, "/api/search?limit=1")["songs"][0]["path"]
+            .as_str()
+            .expect("ruta"),
+    );
+    let jpeg = original.with_file_name("grande.jpg");
+    let made = std::process::Command::new(&ffmpeg)
+        .args([
+            "-v",
+            "error",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "testsrc=size=1600x1600",
+        ])
+        .args(["-frames:v", "1"])
+        .arg(&jpeg)
+        .status()
+        .is_ok_and(|s| s.success());
+    assert!(made, "la carátula");
+    let image = std::fs::read(&jpeg).expect("carátula");
+    let cores = std::thread::available_parallelism().map_or(4, std::num::NonZero::get);
+    let n = (3 * cores).clamp(8, 48);
+    let songs: Vec<PathBuf> = (0..n)
+        .map(|i| {
+            let p = original.with_file_name(format!("con caratula {i}.mp3"));
+            std::fs::copy(&original, &p).expect("copiar");
+            library::tags::write_cover(&p, &image, "image/jpeg").expect("portada");
+            p
+        })
+        .collect();
+    // (los procesos, de /proc: fuera de Linux no se cuentan)
+    let me = std::process::id().to_string();
+    let count = move || {
+        std::fs::read_dir("/proc").map_or(0, |d| {
+            d.filter_map(Result::ok)
+                .filter(|e| {
+                    let stat = std::fs::read_to_string(e.path().join("stat")).unwrap_or_default();
+                    // «pid (nombre) estado ppid ...»
+                    let after = stat.rsplit_once(") ").map_or("", |(_, r)| r);
+                    // y solo los de miniaturas de 96 (las demás pruebas
+                    // lanzan los suyos a la vez)
+                    let line = std::fs::read(e.path().join("cmdline")).unwrap_or_default();
+                    stat.contains("(ffmpeg)")
+                        && after.split(' ').nth(1) == Some(me.as_str())
+                        && String::from_utf8_lossy(&line).contains("scale='min(96,iw)'")
+                })
+                .count()
+        })
+    };
+    let done = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let watching = {
+        let done = done.clone();
+        std::thread::spawn(move || {
+            let mut most = 0;
+            while !done.load(std::sync::atomic::Ordering::SeqCst) {
+                most = most.max(count());
+                std::thread::sleep(std::time::Duration::from_millis(2));
+            }
+            most
+        })
+    };
+    let start = std::time::Instant::now();
+    std::thread::scope(|s| {
+        for p in &songs {
+            let app = &app;
+            s.spawn(move || assert!(media::thumbnail(app, p, 96).is_some()));
+        }
+    });
+    let took = start.elapsed();
+    done.store(true, std::sync::atomic::Ordering::SeqCst);
+    let most = watching.join().expect("contar");
+    println!(
+        "{n} miniaturas que faltan, pedidas a la vez: hasta {most} ffmpeg a la vez, {took:?} en total ({cores} núcleos)"
+    );
+    assert!(most <= cores, "{most} ffmpeg a la vez con {cores} núcleos");
 }

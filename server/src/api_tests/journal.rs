@@ -540,3 +540,89 @@ fn moving_the_music_keeps_the_lists_and_does_not_undo_what_you_removed() {
     let m3u = std::fs::read_to_string(new_root.join("Listas").join("Banda.m3u8")).expect("m3u");
     assert!(m3u.contains("Shekinah"));
 }
+
+/// Lo que cuesta escribir el diario con una biblioteca grande (con
+/// `--ignored --nocapture`): 20 000 canciones, todas con estrella, y una de
+/// cada diez con estudio, cifrado y letra con tiempos (lo pesado que el
+/// diario relee entero en cada vuelta). Una vuelta sin cambios (que no
+/// escribe) y una tras poner una estrella.
+#[test]
+#[ignore = "mide tiempos: solo, con --ignored --nocapture"]
+fn writing_the_journal_of_a_big_library_costs_this_much() {
+    let rows: usize = std::env::var("DANPLAY_BENCH_SONGS")
+        .ok()
+        .and_then(|n| n.parse().ok())
+        .unwrap_or(20_000);
+    let app = crate::tests::app();
+    let root = app.config().library.to_string_lossy().into_owned();
+    assert!(folders::add_folder(&app, &root, "").expect("carpeta"));
+    let study = json!({"loop": [12.5, 30], "notes": "entrar tras el redoble ".repeat(20),
+        "markers": (0..20).map(|i| json!({"t": i * 10, "label": "coro"})).collect::<Vec<_>>()})
+    .to_string();
+    let chords = json!({"sheet": {"lines": (0..90).map(|i| format!("[G]Línea {i} [D]con [Em]acordes")).collect::<Vec<_>>()}})
+        .to_string();
+    let synced = (0..60)
+        .map(|i| format!("[00:{i:02}.00]Cantaré de tu amor"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    app.db(|c| {
+        library::index::begin(c)?;
+        let mut stmt = c.prepare(
+            "INSERT INTO songs (path, root, file, artist, title, size, duration, stars, study, chords, lyrics_synced) VALUES (?, ?, ?, ?, ?, 4000000, 240.5, ?, ?, ?, ?)",
+        )?;
+        for i in 0..rows {
+            let heavy = i % 10 == 0;
+            stmt.execute(library::rusqlite::params![
+                format!("{root}/Artistas/A{}/{i}.mp3", i % 700),
+                root,
+                format!("{i}.mp3"),
+                format!("A{}", i % 700),
+                format!("Tema {i}"),
+                (i % 5 + 1) as i64,
+                if heavy { study.as_str() } else { "" },
+                if heavy { chords.as_str() } else { "" },
+                if heavy { synced.as_str() } else { "" },
+            ])?;
+        }
+        Ok::<_, library::rusqlite::Error>(())
+    })
+    .expect("canciones");
+    let start = std::time::Instant::now();
+    journal::write(&app).expect("diario");
+    let first = start.elapsed();
+    let size = std::fs::metadata(app.config().data_dir.join(library::journal::FILE))
+        .expect("diario")
+        .len();
+    let start = std::time::Instant::now();
+    assert_eq!(
+        journal::write(&app).expect("diario"),
+        0,
+        "sin cambios no escribe"
+    );
+    let unchanged = start.elapsed();
+    app.db(|c| library::playlists::set_stars(c, 1, 3))
+        .expect("estrella");
+    let start = std::time::Instant::now();
+    journal::write(&app).expect("diario");
+    let starred = start.elapsed();
+    // lo que hacía antes con lo leído, frente a lo de ahora: copiarlo para
+    // quitarle la hora y guardar el texto, y otra copia para escribirlo
+    let data = journal::snapshot(&app).expect("diario");
+    let start = std::time::Instant::now();
+    let mut without = data.clone();
+    without.shift_remove("updated");
+    let body = Value::Object(without).to_string();
+    let text = library::value::pretty(&Value::Object(data.clone()));
+    let before = start.elapsed();
+    let start = std::time::Instant::now();
+    let digest = library::journal::digest(&data);
+    let now = library::journal::text(&data);
+    let after = start.elapsed();
+    assert_eq!(now, text);
+    println!(
+        "el diario de {rows} canciones ({} KB): la primera vez {first:?}; sin cambios {unchanged:?}; tras una estrella {starred:?}. Comparar y preparar el texto: copiando, como antes, {before:?} (y {} KB guardados); ahora {after:?} ({} bytes guardados)",
+        size / 1024,
+        body.len() / 1024,
+        digest.len()
+    );
+}

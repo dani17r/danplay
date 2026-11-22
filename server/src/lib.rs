@@ -87,6 +87,7 @@ pub mod jobs;
 pub mod parent;
 pub mod router;
 pub mod routes;
+#[cfg(feature = "serve")]
 pub mod serve;
 pub mod services;
 pub mod startup;

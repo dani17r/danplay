@@ -338,6 +338,24 @@ etiquetas: lo que cambies se guarda solo en DanPlay»); cada guardado dice si la
 etiqueta se escribió (`tags_written`) y, si no, por qué (`tags_skipped`:
 `off`, `missing`, `unsupported` o `failed`).
 
+**La etiqueta del estudio se escribe después.** El estudio se guarda solo,
+cada 0,6 s de cambios, y escribir una etiqueta es leer y guardar el archivo
+de audio entero (un FLAC de 40 MB o un disco USB: de 100 ms a segundos, a
+cada arrastre de un tramo). Así que `PUT /api/song/{id}/study` pone la base
+al momento (la ficha ya lo trae) y aplaza la etiqueta
+(`services::songs::save_study`, «el estudio, aplazado»): contesta
+`tags_written: false` y `tags_pending: true`, que la interfaz no toma por un
+fallo. La etiqueta se escribe una vez, con lo que tenga la base en ese
+momento y en la ruta de ese momento: cuando esa canción lleva 10 s sin
+cambios (un hilo que se va cuando no queda nada), cuando la interfaz deja la
+canción o el estudio (`POST /api/study/flush`) y al apagar
+(`startup::stop`). Si el archivo no admite etiquetas, no se puede abrir para
+escribir o la última vez falló, se escribe al momento y la respuesta dice
+por qué no, como siempre; lo que el núcleo guarda por su cuenta
+(`set_study`: secuencias, paquetes, lo aprovechado) también va al momento.
+Si se va la luz antes, la base y el diario (escrito a los pocos segundos)
+lo tienen, y el escaneo nunca pisa el estudio de la base con el del archivo.
+
 La base SQLite es solo un índice para buscar rápido. Si la borras, un escaneo
 la reconstruye entera. Y otros reproductores leen esas etiquetas igual que
 DanPlay. Lo que no cabe en las etiquetas (el orden de las listas, sus notas y

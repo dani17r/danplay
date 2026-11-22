@@ -321,6 +321,7 @@ describe('what each method requests from the core', () => {
     reorderPlaylist: [[3, [2, 1]], 'POST', '/api/playlists/3/order', { ids: [2, 1] }],
     setPlaylistSongs: [[3, [5, 1]], 'PUT', '/api/playlists/3/songs', { ids: [5, 1] }],
     setStudy: [[7, { notes: 'x' }], 'PUT', '/api/song/7/study', { notes: 'x' }],
+    flushStudy: [[], 'POST', '/api/study/flush'],
     waveform: [[7], 'GET', '/api/song/7/waveform?buckets=800'],
     waveformRange: [
       [7, 10, 20, 400],

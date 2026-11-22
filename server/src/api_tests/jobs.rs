@@ -1,11 +1,11 @@
 //! Los trabajos largos, desde la API: se arrancan, se consultan por su
-//! nombre (uno de cada a la vez) y su resultado va también en
-//! `/api/status`. (Lo de `jobs.rs` por dentro está en sus pruebas.)
+//! nombre (uno de cada a la vez) y cómo van (sin su resultado) va también
+//! en `/api/status`. (Lo de `jobs.rs` por dentro está en sus pruebas.)
 use crate::testkit::{call, configured_library, get, mp3, run_job, wait_job};
 use serde_json::json;
 
 #[test]
-fn the_status_carries_a_copy_of_the_jobs() {
+fn the_status_carries_how_the_jobs_go_but_not_their_results() {
     let Some((app, _)) = configured_library() else {
         return;
     };
@@ -16,8 +16,18 @@ fn the_status_carries_a_copy_of_the_jobs() {
         (&result["total"], &result["stats"]["total"]),
         (&json!(3), &json!(3))
     );
+    // cómo van, sí; lo que dieron (el informe de duplicados, el de una
+    // importación), no: viajaba entero en cada estado durante diez minutos
+    // y nadie lo leía. Está en `/api/jobs/{nombre}`
     let status = get(&app, "/api/status");
-    assert_eq!(status["jobs"]["scan"]["result"]["total"], 3);
+    let scan = &status["jobs"]["scan"];
+    assert_eq!(
+        (&scan["active"], &scan["error"]),
+        (&json!(false), &json!(""))
+    );
+    assert_eq!(scan["message"], "3 canciones (3 nuevas)");
+    assert!(scan.get("result").is_none(), "{scan}");
+    assert_eq!(get(&app, "/api/jobs/scan")["result"]["total"], 3);
     assert_eq!(
         get(&app, "/api/jobs/scan")["message"],
         "3 canciones (3 nuevas)"

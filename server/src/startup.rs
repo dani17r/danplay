@@ -264,7 +264,8 @@ pub fn catalog_paths(app: &App) -> (std::path::PathBuf, std::path::PathBuf) {
 pub fn refresh_catalog(app: &App, force: bool) -> serde_json::Value {
     let (cache, snapshot) = catalog_paths(app);
     let mut warnings = Warnings::new();
-    let current = catalog::load(&cache, &snapshot, &mut warnings);
+    // lo pequeño: de dónde sale, su ETag y cuándo se miró (ver `catalog::brief`)
+    let current = catalog::brief(&cache, &snapshot, &mut warnings);
     let now = library::index::now();
     let checked = current
         .get("checked_at")
@@ -306,17 +307,18 @@ pub fn refresh_catalog(app: &App, force: bool) -> serde_json::Value {
 pub fn catalog_status(app: &App) -> serde_json::Value {
     let (cache, snapshot) = catalog_paths(app);
     let mut warnings = Warnings::new();
-    let data = catalog::load(&cache, &snapshot, &mut warnings);
+    let brief = catalog::brief(&cache, &snapshot, &mut warnings);
     ai::log_warnings("danplay.model_catalog", warnings);
-    serde_json::Value::Object(catalog::status(&data, catalog_refreshing()))
+    serde_json::Value::Object(catalog::summary_status(&brief, catalog_refreshing()))
 }
 
 /// Si la copia tiene más de `max_age` segundos, se consulta en un hilo.
-/// Devuelve si se lanzó algo.
+/// Devuelve si se lanzó algo. Sin cargar el catálogo entero: lo pequeño
+/// basta (`catalog::brief`).
 pub fn refresh_catalog_in_background(app: &App, max_age: f64) -> bool {
     let (cache, snapshot) = catalog_paths(app);
     let mut warnings = Warnings::new();
-    let data = catalog::load(&cache, &snapshot, &mut warnings);
+    let data = catalog::brief(&cache, &snapshot, &mut warnings);
     ai::log_warnings("danplay.model_catalog", warnings);
     let checked = data
         .get("checked_at")
@@ -387,7 +389,11 @@ pub fn stop(app: &App) {
     crate::services::youtube::cancel(app);
     crate::services::stems::cancel(app);
     watcher::stop(app);
+    // las etiquetas del estudio que esperaban (`services::songs`)
+    crate::services::songs::flush_study_tags(app);
     journal::stop(app);
+    // la última conexión: SQLite deja la base sin `-wal` (ver `app::Keeper`)
+    app.release_db();
 }
 
 #[cfg(test)]
@@ -526,6 +532,88 @@ mod tests {
         );
         let _ = data;
         assert!(marked < walked, "{marked:?} no es menos que {walked:?}");
+    }
+
+    /// Arrancar no lee el catálogo de modelos entero (megas de JSON, y
+    /// retenidos para siempre) solo para ver cuándo se miró: se carga al
+    /// primer uso de verdad. Y lo que enseña la ventana de la IA sale igual.
+    #[test]
+    fn starting_does_not_load_the_whole_model_catalog() {
+        let app = crate::tests::app();
+        let (cache, snapshot) = catalog_paths(&app);
+        // una copia de models.dev recién mirada (más vieja, arrancar iría a
+        // preguntar)
+        let providers = serde_json::json!({
+            "x": {"name": "X", "models": {"m1": {"name": "M1"}, "m2": {"name": "M2"}}},
+        });
+        let providers = providers.as_object().cloned().expect("objeto");
+        let mut warnings = Warnings::new();
+        catalog::store_trimmed(
+            &cache,
+            &snapshot,
+            providers,
+            "etag-1",
+            library::index::now(),
+            &mut warnings,
+        );
+        catalog::forget();
+        start(&app);
+        let status = catalog_status(&app);
+        let loaded = catalog::is_loaded(&cache, &snapshot);
+        stop(&app);
+        assert!(!loaded, "arrancar cargó el catálogo entero");
+        assert_eq!(
+            (&status["source"], &status["providers"], &status["models"]),
+            (
+                &serde_json::json!("models.dev"),
+                &serde_json::json!(1),
+                &serde_json::json!(2)
+            ),
+            "{status}"
+        );
+        // y al usarlo de verdad, está
+        let data = catalog::load(&cache, &snapshot, &mut warnings);
+        assert_eq!(catalog::models_for(&data, "x").len(), 2);
+    }
+
+    /// Lo que cuesta al arrancar mirar el catálogo de modelos: cargándolo
+    /// entero (antes) y con lo pequeño (con `--ignored --nocapture`). La
+    /// copia, del tamaño de una de verdad (unos 3 MB): la foto de la app tres
+    /// veces.
+    #[test]
+    #[ignore = "mide tiempos: solo, con --ignored --nocapture"]
+    fn looking_at_the_model_catalog_at_startup_costs_this_much() {
+        let app = crate::tests::app();
+        let (cache, snapshot) = catalog_paths(&app);
+        let photo: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&snapshot).expect("la foto"))
+                .expect("json");
+        let mut providers = serde_json::Map::new();
+        for copy in 0..3 {
+            for (pid, p) in photo["providers"].as_object().expect("proveedores") {
+                providers.insert(format!("{pid}-{copy}"), p.clone());
+            }
+        }
+        let mut warnings = Warnings::new();
+        catalog::store_trimmed(&cache, &snapshot, providers, "e", 1.0, &mut warnings);
+        let size = std::fs::metadata(&cache).expect("copia").len();
+        let runs: u32 = 10;
+        let start = std::time::Instant::now();
+        for _ in 0..runs {
+            catalog::forget();
+            catalog::load(&cache, &snapshot, &mut warnings);
+        }
+        let whole = start.elapsed() / runs;
+        catalog::forget();
+        let start = std::time::Instant::now();
+        for _ in 0..runs {
+            catalog::brief(&cache, &snapshot, &mut warnings);
+        }
+        let small = start.elapsed() / runs;
+        println!(
+            "mirar el catálogo al arrancar ({} KB): cargándolo entero {whole:?}, con lo pequeño {small:?}",
+            size / 1024
+        );
     }
 
     /// La 1.30 volvió a crear sus carpetas después de que una de ahora las

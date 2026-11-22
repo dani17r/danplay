@@ -210,7 +210,8 @@ const studyFor = ref(null)
 async function loadFor(id) {
   // lo pendiente es de la cancion que se deja: se guarda en ELLA ya, sin
   // esperar (su copia y su id ya van apuntados)
-  flushSave()
+  const leaving = loadedFor.value
+  flushSave().then(() => leaving && flushFile())
   loadedFor.value = id
   studyFor.value = null
   selected.value = null
@@ -371,10 +372,11 @@ const warnedOnlyHere = new Set()
  * El núcleo dice si la etiqueta del archivo se escribió. Si no se pudo (el
  * archivo no admite etiquetas, o no se le puede escribir), el estudio queda
  * solo en la base de DanPlay: se avisa una vez por canción, no en cada
- * guardado (que se hace solo, a cada cambio).
+ * guardado (que se hace solo, a cada cambio). Con `tags_pending` la etiqueta
+ * aún no se escribió (el núcleo la aplaza): no es un fallo.
  */
 function warnIfOnlyHere(id, saved) {
-  if (!saved || saved.tags_written !== false || warnedOnlyHere.has(id)) return
+  if (!saved || saved.tags_pending || saved.tags_written !== false || warnedOnlyHere.has(id)) return
   if (saved.tags_skipped === 'unsupported') {
     notify('Este archivo no admite etiquetas: el estudio de esta canción se guarda solo en DanPlay')
   } else if (saved.tags_skipped === 'failed') {
@@ -383,6 +385,10 @@ function warnIfOnlyHere(id, saved) {
     )
   } else return
   warnedOnlyHere.add(id)
+}
+/** Lo guardado, ya también en el archivo: el núcleo aplaza la etiqueta hasta que se deja la canción o el estudio. */
+function flushFile() {
+  return api.flushStudy().catch(() => {})
 }
 /** Guarda ya lo pendiente, si hay algo. */
 async function flushSave() {
@@ -2467,12 +2473,14 @@ function stemsMenu(ev) {
 async function hide() {
   stopTour()
   await flushSave()
+  flushFile()
   emit('hide')
   emit('close')
 }
 /** Salir del modo estudio: la canción vuelve a sonar como viene. */
 async function exit() {
   await flushSave()
+  flushFile()
   if (player.stems.value) await player.setStems(null)
   await player.clearLoop()
   if (speed.value !== 1) await player.setSpeed(1)

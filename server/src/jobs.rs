@@ -75,13 +75,27 @@ impl Job {
     }
 
     fn snapshot(&self) -> Value {
+        self.view(true)
+    }
+
+    /// Cómo va, sin lo que dio (`result`): lo que va en `/api/status`. El
+    /// resultado de un trabajo terminado (el informe de duplicados, el de una
+    /// importación) viajaba entero en cada estado durante diez minutos, y la
+    /// interfaz lo lee de `GET /api/jobs/{nombre}`.
+    fn summary(&self) -> Value {
+        self.view(false)
+    }
+
+    fn view(&self, with_result: bool) -> Value {
         let mut d = Map::new();
         d.insert("name".into(), self.name.clone().into());
         d.insert("active".into(), self.active.into());
         d.insert("done".into(), self.done.clone());
         d.insert("total".into(), self.total.clone());
         d.insert("message".into(), self.message.clone().into());
-        d.insert("result".into(), self.result.clone());
+        if with_result {
+            d.insert("result".into(), self.result.clone());
+        }
         d.insert("error".into(), self.error.clone().into());
         d.insert("started".into(), self.started.into());
         d.insert("ended".into(), self.ended.map_or(Value::Null, Value::from));
@@ -191,13 +205,14 @@ impl Jobs {
             })
     }
 
-    /// Todos, por nombre (lo que va en `/api/status`).
+    /// Todos, por nombre, y sin su resultado (lo que va en `/api/status`; el
+    /// resultado, en `snapshot`).
     pub fn snapshot_all(&self) -> Value {
         let mut jobs = lock(&self.jobs);
         Self::expire(&mut jobs, now());
         Value::Object(
             jobs.iter()
-                .map(|(n, slot)| (n.clone(), lock(slot).snapshot()))
+                .map(|(n, slot)| (n.clone(), lock(slot).summary()))
                 .collect(),
         )
     }
@@ -536,7 +551,11 @@ mod tests {
         assert_eq!(family, KEPT_PER_FAMILY + 1, "{all}");
         assert!(all.get("guia-1").is_none() && all.get("scan").is_some());
         let last = keyed("guia", KEPT_PER_FAMILY as i64 + 3);
-        assert_eq!(all[last.as_str()]["result"], KEPT_PER_FAMILY as i64 + 3);
+        assert_eq!(all[last.as_str()]["active"], false);
+        assert_eq!(
+            jobs.snapshot(&last).expect("el último")["result"],
+            KEPT_PER_FAMILY as i64 + 3
+        );
     }
 
     #[test]

@@ -328,8 +328,11 @@ pub fn relocate_folder(conn: &Connection, old: &str, new: &str) -> Result<Dict, 
             "la carpeta de antes sigue en su sitio".into(),
         ));
     }
-    // lo que el índice aún enseñaba de ella: su archivo ya no está ahí
+    // lo que el índice aún enseñaba de ella: su archivo ya no está ahí. Todo
+    // lo de aquí va en una transacción (`to_missing` ya no la abre si no hay
+    // nada que apartar)
     let shown = songs_of(conn, "SELECT path FROM songs WHERE root=?", [&old])?;
+    begin(conn)?;
     to_missing(conn, &shown)?;
     let already: Option<i64> = conn
         .query_row("SELECT 1 FROM folders WHERE path=?", [&new], |r| r.get(0))
