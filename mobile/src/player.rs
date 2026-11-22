@@ -29,11 +29,15 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::sync::{Arc, Mutex, PoisonError};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 
 pub const STATE_EVENT: &str = "danplay://state";
 const TICK: Duration = Duration::from_millis(250);
+/// Tanto rato sin sonar y la salida de audio se suelta (como en la PC): el
+/// callback de AAudio, el conversor sobre silencio y estas vueltas de 250 ms
+/// seguian gastando bateria en pausa. Al dar a sonar se vuelve a abrir.
+const IDLE_RELEASE: Duration = Duration::from_secs(60);
 
 /// Por donde sale el estado hacia la interfaz (el evento `danplay://state`).
 type Emit = Box<dyn Fn(&PlaybackState) + Send>;
@@ -250,8 +254,17 @@ impl Worker {
     }
 
     fn serve(&mut self, rx: &Receiver<Command>) {
+        let mut quiet_since = Instant::now();
+        // la salida ya se solto y no suena nada: nada que contar hasta la
+        // proxima orden, se espera sin plazo
+        let mut asleep = false;
         loop {
-            match rx.recv_timeout(TICK) {
+            let got = if asleep {
+                rx.recv().map_err(|_| RecvTimeoutError::Disconnected)
+            } else {
+                rx.recv_timeout(TICK)
+            };
+            match got {
                 Ok(c) => {
                     self.handle(c);
                     // las que haya en cola, antes de contar nada
@@ -266,6 +279,14 @@ impl Worker {
                 }
                 Err(RecvTimeoutError::Disconnected) => return,
             }
+            let st = self.engine.state();
+            let sounding = st.playing || st.counting > 0;
+            if sounding {
+                quiet_since = Instant::now();
+            } else if quiet_since.elapsed() >= IDLE_RELEASE && self.engine.output_open() {
+                self.engine.release_output();
+            }
+            asleep = !sounding && !self.engine.output_open();
         }
     }
 
@@ -999,8 +1020,8 @@ mod tests {
         let player = Player::start(lib, Box::new(|_| {}));
         player.send(Command::Panic);
         player.send(Command::Volume(0.5));
-        let limit = std::time::Instant::now() + Duration::from_secs(3);
-        while (player.state().volume - 0.5).abs() > 1e-6 && std::time::Instant::now() < limit {
+        let limit = Instant::now() + Duration::from_secs(3);
+        while (player.state().volume - 0.5).abs() > 1e-6 && Instant::now() < limit {
             std::thread::sleep(Duration::from_millis(10));
         }
         let state = player.state();

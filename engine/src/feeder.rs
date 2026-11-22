@@ -504,6 +504,22 @@ pub fn advance(segments: &[(u64, u64)], end: LoopEnd, from: u64, ahead: u64, len
     pos.min(len)
 }
 
+/// Lo que se espera a que se libere un bloque con el anillo lleno, tras
+/// `misses` esperas sin que se liberara ninguno: 4 ms, y el doble cada vez
+/// hasta 64. En pausa nadie los libera, y a 4 ms fijos eran 250 despertares
+/// por segundo para nada (en el celular, bateria). Solo si lo que hay en el
+/// anillo es de despues del ultimo salto (`settled`: 1,5 s de colchon por
+/// delante): tras un salto en pausa el anillo sigue lleno de lo de antes, el
+/// hilo de audio lo tira al dar a sonar y espera lo nuevo, y dormido 64 ms la
+/// cancion entraba hasta 30 ms tarde (medido con `real_start_latency`).
+fn idle_wait(misses: u32, settled: bool) -> Duration {
+    if settled {
+        Duration::from_millis(4 << misses.min(4))
+    } else {
+        Duration::from_millis(4)
+    }
+}
+
 /// Hace una orden. Saltar llega a symphonia sobre archivos de fuera, y si
 /// hace *panic* (un archivo dañado) la cancion se acaba ahi y se dice, como
 /// al decodificar (`fill_safely`); antes el *panic* mataba este hilo: no
@@ -531,12 +547,25 @@ pub fn run(
     mut full: rtrb::Producer<Box<Block>>,
     orders: &Receiver<Order>,
 ) {
+    // vueltas seguidas sin que se libere ningun bloque, y bloques escritos
+    // desde el ultimo salto
+    let mut misses = 0u32;
+    let mut fresh = 0usize;
     loop {
         let idle = feeder.ended() || free.is_empty() || full.is_full();
-        let order = if idle {
-            match orders.recv_timeout(Duration::from_millis(4)) {
+        let order = if feeder.ended() {
+            // ya no hay nada que escribir: solo una orden lo cambia
+            match orders.recv() {
                 Ok(o) => Some(o),
-                Err(RecvTimeoutError::Timeout) => None,
+                Err(_) => return,
+            }
+        } else if idle {
+            match orders.recv_timeout(idle_wait(misses, fresh >= POOL)) {
+                Ok(o) => Some(o),
+                Err(RecvTimeoutError::Timeout) => {
+                    misses = misses.saturating_add(1);
+                    None
+                }
                 Err(RecvTimeoutError::Disconnected) => return,
             }
         } else {
@@ -547,13 +576,19 @@ pub fn run(
             }
         };
         if let Some(order) = order {
+            let generation = feeder.generation;
             handle(&mut feeder, order);
+            if feeder.generation != generation {
+                fresh = 0;
+            }
             continue; // todas las que haya, antes de decodificar nada
         }
         if feeder.ended() || full.is_full() {
             continue;
         }
         if let Ok(mut block) = free.pop() {
+            misses = 0;
+            fresh = fresh.saturating_add(1);
             feeder.fill_safely(&mut block);
             // cabe: los dos anillos tienen sitio para todos los bloques
             let _ = full.push(block);
@@ -658,6 +693,20 @@ mod tests {
             }
         }
         None
+    }
+
+    #[test]
+    fn with_nothing_freed_the_thread_waits_longer_and_longer_up_to_64_ms() {
+        let waits: Vec<u64> = (0..7)
+            .map(|m| idle_wait(m, true).as_millis() as u64)
+            .collect();
+        assert_eq!(waits, [4, 8, 16, 32, 64, 64, 64]);
+        // lo mas que se espera, muy por debajo del colchon de bloques
+        let cushion = (POOL * BLOCK) as f64 / 44_100.0;
+        assert!(idle_wait(u32::MAX, true).as_secs_f64() < cushion / 10.0);
+        // con el anillo lleno de lo de antes de un salto, sin dormirse: al
+        // dar a sonar eso se tira y lo nuevo tiene que llegar ya
+        assert_eq!(idle_wait(9, false), Duration::from_millis(4));
     }
 
     #[test]
