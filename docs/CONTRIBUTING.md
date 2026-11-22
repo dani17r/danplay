@@ -26,7 +26,7 @@ cp .env.example .env
 La app y su núcleo son Rust: con Node 24, Vite+ y Rust basta para
 compilarla y probarla. No hace falta Python: el núcleo de Python de hasta
 la 1.30 salió del repositorio en la 1.40, con sus pruebas ya pasadas a Rust
-(ver [la migración](MIGRATION.md)).
+(ver [la migración](historia/MIGRATION.md)).
 
 La interfaz (`desktop/`) va con [Vite+](https://viteplus.dev): `vp` es Vite
 (`vp dev`, `vp build`), Vitest (`vp test`), el formateador (`vp fmt`, Oxfmt)

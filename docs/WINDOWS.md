@@ -2,7 +2,7 @@
 
 Estado a 23 de octubre de 2026: **el portátil y el instalador salen de la
 integración continua** (`windows.yml`, en un Windows de GitHub), y desde la
-fase 4 de la migración ([MIGRATION.md](MIGRATION.md)) **sin Python**: el
+fase 4 de la migración ([MIGRATION.md](historia/MIGRATION.md)) **sin Python**: el
 núcleo va dentro de `danplay-app.exe`, como en Linux y macOS. Nadie los ha
 ejecutado todavía en un Windows de verdad, así que hasta el primer arranque
 hay que tratarlo como «debería funcionar», no como «funciona».

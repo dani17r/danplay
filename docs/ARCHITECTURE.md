@@ -20,7 +20,7 @@ usarlo, con el [README](../README.md) tienes de sobra.
 Hasta la 1.30 el núcleo era Python, un programa aparte (empaquetado con
 PyInstaller) al que la app hablaba por un socket Unix `0600`, con el crate
 PyO3 debajo para lo que Python hacía lento. Desde la fase 4 de
-[la migración](MIGRATION.md) la app lleva el de Rust dentro y no hay Python
+[la migración](historia/MIGRATION.md) la app lleva el de Rust dentro y no hay Python
 en ningún paquete; desde la fase 5 (la 1.40), tampoco en el repositorio:
 sus pruebas pasaron a Rust y el núcleo de Python se fue.
 
@@ -67,7 +67,7 @@ Mientras tanto Python llamaba al crate con la misma API de antes, y sus
 pruebas eran el testigo de que nada cambiaba; además, cada módulo se comparó
 con su versión anterior en miles de casos. Después vinieron la API
 (`server/`) y la app con el núcleo dentro (fase 4), y por último sus pruebas,
-pasadas a Rust una a una (fase 5: [TESTS-PORT.md](TESTS-PORT.md)). Con eso
+pasadas a Rust una a una (fase 5: [TESTS-PORT.md](historia/TESTS-PORT.md)). Con eso
 se fueron el núcleo de Python, `core/` y la versión vieja de las
 etiquetas, la de mutagen (GPL).
 
@@ -2841,7 +2841,7 @@ la versión vieja y no se nota. Por eso hay un script y no tres comandos.
 ```
 
 **Sin Python.** El núcleo va dentro de la app (el crate `server`, en el
-mismo proceso: ver [la migración](MIGRATION.md)). Hasta la 1.30 era el de
+mismo proceso: ver [la migración](historia/MIGRATION.md)). Hasta la 1.30 era el de
 Python, empaquetado con PyInstaller en una carpeta (`core/`) que la app
 arrancaba aparte y a la que hablaba por un socket. Con `--package` la app se
 compila sin empaquetar (`tauri build --no-bundle`) y luego se empaqueta

@@ -313,7 +313,7 @@ Cuatro capas, cada una en lo que mejor se le da:
   el pulso y el «1» para el metrónomo.
 - Hasta la 1.30 el núcleo era **Python**, un programa aparte. Pasó a Rust
   módulo a módulo, con la misma API, y en la 1.40 salió del repositorio con
-  sus pruebas ya pasadas a Rust (ver [la migración](docs/MIGRATION.md)).
+  sus pruebas ya pasadas a Rust (ver [la migración](docs/historia/MIGRATION.md)).
 
 El código está en inglés; los comentarios y todo lo que ve el usuario, en
 castellano.
@@ -516,8 +516,8 @@ Prefiero decirlo aquí que en un issue:
 | [Contrato interno](docs/INTERNAL-CONTRACT.md) | Qué se dicen las capas: comandos, eventos y nombres de cada campo. |
 | [Windows](docs/WINDOWS.md) | Las dos formas (portátil e instalador), cómo se construyen desde Linux y qué cambia respecto a Linux. |
 | [Contribuir](docs/CONTRIBUTING.md) | Cómo montar el entorno, ejecutar las pruebas y en qué se puede ayudar. |
-| [La migración](docs/MIGRATION.md) | Cómo pasó el núcleo de Python a Rust, fase a fase, y lo que se ganó. |
-| [Las pruebas de Python, en Rust](docs/TESTS-PORT.md) | Dónde está ahora cada prueba que era de Python. |
+| [La migración](docs/historia/MIGRATION.md) | Cómo pasó el núcleo de Python a Rust, fase a fase, y lo que se ganó. |
+| [Las pruebas de Python, en Rust](docs/historia/TESTS-PORT.md) | Dónde está ahora cada prueba que era de Python. |
 | [Cambios](CHANGELOG.md) | Qué trae cada versión. |
 | [Dependencias](docs/DEPENDENCIES.md) | Qué usa DanPlay de otros y con qué licencia. |
 
@@ -554,7 +554,7 @@ necesitan la app ya compilada):
 | Humo sobre la app **ya compilada** o empaquetada (el binario de un .deb o el AppImage) | 18 |
 
 Las del núcleo eran de Python hasta la 1.40: se pasaron a Rust una a una,
-con las mismas comprobaciones ([dónde está cada una](docs/TESTS-PORT.md)).
+con las mismas comprobaciones ([dónde está cada una](docs/historia/TESTS-PORT.md)).
 
 La biblioteca de prueba **se genera**: mp3 de verdad hechos con ffmpeg. Antes
 hacía falta la música de quien ejecutara las pruebas y en cualquier otra

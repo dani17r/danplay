@@ -20,7 +20,7 @@ Desde entonces **las etiquetas las lee y las escribe el núcleo de Rust**
 `library/src/tags.rs`). Desde la fase 4 de la migración la app no lleva
 Python, y desde la 1.40 tampoco el repositorio: el núcleo de Python, que
 aún instalaba mutagen (lo pedía `yt-dlp[default]`) y lo usaba en sus
-pruebas de testigo, se fue (ver [la migración](MIGRATION.md)). Lo que esas
+pruebas de testigo, se fue (ver [la migración](historia/MIGRATION.md)). Lo que esas
 pruebas comparaban con mutagen quedó guardado como casos fijos junto a las
 de Rust (`library/src/tags/mutagen/`).
 
