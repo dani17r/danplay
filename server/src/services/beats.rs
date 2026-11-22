@@ -1171,8 +1171,8 @@ fn run(
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
-        // sin ventana de consola
-        cmd.creation_flags(0x0800_0000);
+        // sin ventana de consola, y por debajo de lo normal
+        cmd.creation_flags(crate::services::separation::child_creation_flags());
     }
     // la biblioteca que encontró el núcleo (el hijo no sabe dónde están los
     // datos de la app)

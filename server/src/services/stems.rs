@@ -685,6 +685,12 @@ fn run_child(app: &App, job: &Value, report: &Report<'_>) -> Result<Dict> {
         std::fs::write(&job_file, job.to_string())?;
         let cmd = command(app, &job_file);
         let mut c = library::processes::order(Path::new(&cmd[0]), &cmd[1..]);
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            // sin ventana de consola, y por debajo de lo normal
+            c.creation_flags(crate::services::separation::child_creation_flags());
+        }
         if let Some(lib) = onnx::library(app) {
             c.env("DANPLAY_ONNXRUNTIME", lib);
         }
