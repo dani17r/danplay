@@ -352,7 +352,9 @@ pub fn run_tool(app: &App, name: &str, args: &Value, turn: &mut Turn) -> Value {
 /// Lo que la persona acaba de aprobar. Solo las que hace falta aprobar:
 /// esta puerta no ejecuta herramientas sin pasar por la conversación.
 pub fn confirm(app: &App, tool: &str, args: &Value) -> Value {
-    if !NEEDS_CONFIRMATION.contains(&tool) {
+    // las de `CONFIRM_AFTER_OUTSIDE` solo llegan aquí desde una propuesta
+    // registrada: la forma antigua (`tool`, `args`) las rechaza antes
+    if !NEEDS_CONFIRMATION.contains(&tool) && !t::CONFIRM_AFTER_OUTSIDE.contains(&tool) {
         return json!({"ok": false, "error": "eso no necesita confirmacion"});
     }
     let args = if value::truthy(args) {
@@ -371,7 +373,9 @@ pub fn confirm(app: &App, tool: &str, args: &Value) -> Value {
         "delete_playlist" => {
             "Repertorio borrado. Las canciones siguen en tu biblioteca.".to_owned()
         }
-        _ => summarize("download_music", &result),
+        "download_music" => summarize("download_music", &result),
+        "edit_song" => "Hecho: cambiado.".to_owned(),
+        _ => format!("Hecho: {}.", summarize(tool, &result)),
     };
     json!({"ok": true, "result": result, "text": text})
 }

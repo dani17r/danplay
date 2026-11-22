@@ -13,7 +13,9 @@ use super::context;
 use super::narration;
 use super::setlist;
 use super::text;
-use super::tools::{ACTING_TOOLS, MAX_TOOL_CALLS, NEEDS_CONFIRMATION};
+use super::tools::{
+    ACTING_TOOLS, MAX_TOOL_CALLS, NEEDS_CONFIRMATION, READS_OUTSIDE, asks_after_outside,
+};
 use super::value::{Error, get, yes};
 use crate::index::Dict;
 use serde_json::{Value, json};
@@ -432,7 +434,9 @@ fn done_summaries<O>(state: &State<O>, sep: &str) -> String {
 ///
 /// Las herramientas que no tienen vuelta atrás no se ejecutan aquí: se
 /// registran (`Chat::ask`) y se devuelven en `confirm` para que las apruebe
-/// la persona. Lo que se hizo con una lista va en `setlist`.
+/// la persona; tras leer texto de fuera en el turno, también las que cambian
+/// listas o etiquetas (`CONFIRM_AFTER_OUTSIDE`). Lo que se hizo con una
+/// lista va en `setlist`.
 #[allow(clippy::too_many_lines, reason = "el turno, de una pieza")]
 pub fn reply<C: Chat>(chat: &mut C, start: &Start) -> Result<C::Obj, Fault<C::Error>> {
     let raise = Fault::Raise;
@@ -459,6 +463,10 @@ pub fn reply<C: Chat>(chat: &mut C, start: &Start) -> Result<C::Obj, Fault<C::Er
     let mut pseudo_fixed = 0usize;
     let mut nudged = false;
     let mut did_something = false;
+    // Ya ha entrado texto de fuera en el turno (una página, un título de
+    // YouTube, una letra): lo que cambia la biblioteca pide permiso desde
+    // aquí, porque el modelo podría estar obedeciendo a ese texto.
+    let mut read_outside = false;
     // El aviso de fin de descarga: la descarga ocurrió, pero lo que quedara
     // por hacer (la lista) tiene que hacerse AHORA con herramientas.
     let after_download = recent
@@ -600,7 +608,10 @@ pub fn reply<C: Chat>(chat: &mut C, start: &Start) -> Result<C::Obj, Fault<C::Er
             let (res, view) = if calls_made > MAX_TOOL_CALLS {
                 let view = json!({ "error": TOO_MANY });
                 (chat.make(&view).map_err(Fault::Raise)?, view)
-            } else if NEEDS_CONFIRMATION.contains(&name.as_str()) {
+            } else if NEEDS_CONFIRMATION.contains(&name.as_str())
+                || (read_outside
+                    && asks_after_outside(&name, &chat.view(&args).map_err(Fault::Raise)?))
+            {
                 let (res, asked) = chat
                     .ask(&c.name, &args, state.pending.as_ref())
                     .map_err(Fault::Raise)?;
@@ -613,6 +624,7 @@ pub fn reply<C: Chat>(chat: &mut C, start: &Start) -> Result<C::Obj, Fault<C::Er
             } else {
                 let res = chat.run_tool(&c.name, &args).map_err(Fault::Raise)?;
                 let view = chat.view(&res).map_err(Fault::Raise)?;
+                read_outside |= READS_OUTSIDE.contains(&name.as_str());
                 self::look(
                     chat,
                     &name,

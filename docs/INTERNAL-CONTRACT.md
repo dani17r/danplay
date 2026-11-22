@@ -296,6 +296,16 @@ respuesta HTTP lleva:
   **confirma por id** y no manda argumentos.
 - Antes de proponer una descarga, el núcleo mira la biblioteca: lo que ya está
   no se propone (y se le dice al modelo dónde está).
+- **Tras leer texto de fuera** en el mismo turno (`search_web`,
+  `search_youtube`, `get_lyrics`, `get_chords`, `find_lyrics_and_cover`:
+  `READS_OUTSIDE`), también se proponen en vez de hacerse
+  `set_playlist_songs`, `remove_from_playlist`, `rename_playlist` y
+  `edit_song` (salvo la de solo estrellas o favorito): `CONFIRM_AFTER_OUTSIDE`
+  en `library/src/assistant/tools.rs`. Un resultado de búsqueda con una orden
+  dentro no puede vaciar una lista ni cambiar etiquetas sin el visto bueno.
+  Su `effect` empieza por «Lo pide después de leer texto de fuera…»; la
+  interfaz los pide en el mismo diálogo que borrar, con `summary` y `effect`.
+  La forma antigua (`tool`, `args`) no las ejecuta.
 
 Rutas:
 
@@ -307,7 +317,8 @@ Rutas:
     plano. Si la propuesta venía de una lista, al terminar la descarga y antes
     de soltar el turno se meten las bajadas en su sitio (`plan.apply_after`,
     una sola escritura).
-  - `delete_*` → lo que devuelve la herramienta (`{ ok, result, text }`).
+  - `delete_*` y las de `CONFIRM_AFTER_OUTSIDE` → lo que devuelve la
+    herramienta (`{ ok, result, text }`).
   - `410` si ya no vale (usada, sustituida, caducada o desconocida, o lo que
     se iba a borrar ya no es lo mismo); `409` si hay otra descarga en marcha o
     falta la carpeta; `503` sin yt-dlp; `400` si con esas casillas no queda
