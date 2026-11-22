@@ -533,6 +533,7 @@ mod tests {
     /// orden en castellano, frente al binario de antes (con `--nocapture`).
     #[test]
     #[ignore = "mide tiempos: solo, con --ignored --nocapture"]
+    #[allow(clippy::too_many_lines, reason = "un banco con sus tandas")]
     fn sorting_a_big_library_in_spanish_costs_little() {
         let n: usize = std::env::var("DANPLAY_BENCH_SONGS")
             .ok()
@@ -603,6 +604,20 @@ mod tests {
             );
         }
         time("contar", "SELECT COUNT(*) FROM songs c".into());
+        // lo que ordena va a disco (temporal) o a memoria: ¿cambia algo?
+        let deep = format!(
+            "SELECT {cols} FROM songs c ORDER BY {} LIMIT 5000 OFFSET 15000",
+            order_by("artist", false)
+        );
+        time(
+            "página de 5 000 al final, temporales por defecto",
+            deep.clone(),
+        );
+        conn.pragma_update(None, "temp_store", "MEMORY")
+            .expect("temp_store");
+        time("página de 5 000 al final, temp_store=MEMORY", deep);
+        conn.pragma_update(None, "temp_store", "DEFAULT")
+            .expect("temp_store");
         // y como la pide la lista, con sus filas (`search`): la primera
         // página de 400 y la carga entera, a tandas de 5 000
         let all = Search::default();
