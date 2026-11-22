@@ -580,7 +580,8 @@ convierten en `<a>`: se enseñan como texto con la dirección al lado.
   esa y `already_running: true` (antes `409`). Se sigue con
   `GET /api/jobs/{name}`; `api.runJob(start, name, { onProgress })` lo hace
   (sondeo cada ~500 ms) y devuelve `result` o lanza el `error`.
-  `/api/status` conserva `jobs` con todas.
+  `/api/status` conserva `jobs` con todas, sin su `result` (que está en
+  `GET /api/jobs/{name}`).
 - `/api/folders` respuesta `action`: `added | already_there | replaced |
   confirm | relocated`. `relocated`: la carpeta era una gestionada que se
   movió; se cambia su ruta en vez de añadir otra y sus canciones vuelven con su
