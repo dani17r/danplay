@@ -25,11 +25,12 @@ pub mod process;
 use crate::np;
 use crate::onnx::{self, Tensor32};
 use crate::weights;
-use realfft::RealFftPlanner;
 use realfft::num_complex::Complex;
+use realfft::{ComplexToReal, RealFftPlanner, RealToComplex};
 use std::collections::HashMap;
 use std::fs::File;
 use std::path::Path;
+use std::sync::Arc;
 
 pub use process::{Job, Level, Outcome, Pares, Warning, run, run_max};
 
@@ -256,25 +257,49 @@ pub fn reflect(x: &[f32], before: usize, after: usize) -> Vec<f32> {
 /// La STFT y su inversa como las del entrenamiento de las redes (Hann,
 /// centrada, relleno en espejo), en float32: la de Demucs (4096 puntos,
 /// salto 1024, normalizada) y la del Mega53 (2048, 512, sin normalizar).
+///
+/// Los planes de la FFT, la ventana de la inversa y su cuadrado se hacen una
+/// vez y se guardan: se hacían en cada llamada (en una separación, dos planes
+/// por canal y por trozo, y en la del Mega53, 32 por trozo). Los planes son
+/// los mismos que saldrían cada vez, así que da lo mismo, bit a bit.
 pub struct Stft {
     pub nfft: usize,
     pub hop: usize,
     pub window: Vec<f32>,
     normalized: bool,
+    forward_plan: Arc<dyn RealToComplex<f32>>,
+    inverse_plan: Arc<dyn ComplexToReal<f32>>,
+    /// La ventana por la que se multiplica cada trama de la inversa (por la
+    /// raíz del tamaño en la de Demucs).
+    synthesis: Vec<f32>,
+    /// La ventana al cuadrado: lo que suman las ventanas solapadas.
+    square: Vec<f32>,
 }
 
 impl Stft {
     fn new(nfft: usize, hop: usize, normalized: bool) -> Self {
-        let window = (0..nfft)
+        let window: Vec<f32> = (0..nfft)
             .map(|k| {
                 (0.5 - 0.5 * (2.0 * std::f64::consts::PI * k as f64 / nfft as f64).cos()) as f32
             })
             .collect();
+        let mut planner = RealFftPlanner::<f32>::new();
+        let synthesis = if normalized {
+            let r = (nfft as f32).sqrt();
+            window.iter().map(|v| v * r).collect()
+        } else {
+            window.clone()
+        };
+        let square = window.iter().map(|v| v * v).collect();
         Self {
             nfft,
             hop,
+            forward_plan: planner.plan_fft_forward(nfft),
+            inverse_plan: planner.plan_fft_inverse(nfft),
             window,
             normalized,
+            synthesis,
+            square,
         }
     }
 
@@ -300,7 +325,7 @@ impl Stft {
             0
         };
         let bins = self.nfft / 2 + 1;
-        let fft = RealFftPlanner::<f32>::new().plan_fft_forward(self.nfft);
+        let fft = &self.forward_plan;
         let mut input = fft.make_input_vec();
         let mut output = fft.make_output_vec();
         let mut scratch = fft.make_scratch_vec();
@@ -338,18 +363,12 @@ impl Stft {
     pub fn inverse(&self, z: &Spectrum, length: usize) -> Vec<f32> {
         let frames = z.frames;
         let k = self.nfft / self.hop;
-        let fft = RealFftPlanner::<f32>::new().plan_fft_inverse(self.nfft);
+        let fft = &self.inverse_plan;
         let mut input = fft.make_input_vec();
         let mut output = fft.make_output_vec();
         let mut scratch = fft.make_scratch_vec();
         let inv = 1.0 / self.nfft as f32;
-        // la ventana por la que se multiplica cada trama (y por 64 en Demucs)
-        let w: Vec<f32> = if self.normalized {
-            let r = (self.nfft as f32).sqrt();
-            self.window.iter().map(|v| v * r).collect()
-        } else {
-            self.window.clone()
-        };
+        let w = &self.synthesis;
         let blocks = frames + k - 1;
         let mut out = vec![0f32; blocks * self.hop];
         let mut tr = vec![0f32; frames * self.nfft];
@@ -366,13 +385,13 @@ impl Stft {
             for ((o, s), v) in tr[t * self.nfft..(t + 1) * self.nfft]
                 .iter_mut()
                 .zip(&output)
-                .zip(&w)
+                .zip(w)
             {
                 *o = (s * inv) * v;
             }
         }
         // cada ventana son `k` saltos: se suman desplazados, uno tras otro
-        let square: Vec<f32> = self.window.iter().map(|v| v * v).collect();
+        let square = &self.square;
         let mut env = vec![0f32; blocks * self.hop];
         for j in 0..k {
             for t in 0..frames {
@@ -516,26 +535,24 @@ struct Crossfade<'a> {
 /// Mientras la red calcula un trozo, un hilo deshace el espectrograma del
 /// anterior y lo funde: un diez por ciento menos.
 ///
+/// La red ve la canción normalizada; se normaliza cada trozo al copiarlo, no
+/// la canción entera en una copia suya (con cinco minutos, 106 MB menos
+/// mientras se separa: quien llama la sigue necesitando tal cual). La cuenta
+/// es la misma, muestra a muestra: restar la media y dividir.
+///
 /// # Panics
 ///
 /// No: lo que se funde vuelve siempre de su hilo.
 #[allow(clippy::too_many_lines)]
 pub fn separate(
     net: &mut dyn Net,
-    mut wav: Vec<f32>,
+    wav: &[f32],
     emit: &mut (dyn FnMut(Block) -> Result<(), Error> + Send),
     on_progress: &mut dyn FnMut(usize, usize) -> Result<(), Error>,
-    is_cancelled: &mut dyn FnMut() -> Result<bool, Error>,
 ) -> Result<(), Error> {
     let length = wav.len() / 2;
-    let (media, std) = normalization(&wav, length);
+    let (media, std) = normalization(wav, length);
     let (m32, s32) = (media as f32, std as f32);
-    for v in &mut wav {
-        *v -= m32;
-    }
-    for v in &mut wav {
-        *v /= s32;
-    }
     let weight = triangle();
     let offsets: Vec<usize> = if length == 0 {
         vec![0]
@@ -619,9 +636,6 @@ pub fn separate(
             };
         }
         for (index, &offset) in offsets.iter().enumerate() {
-            if is_cancelled()? {
-                break;
-            }
             let size = SEGMENT.min(length.saturating_sub(offset));
             let delta = SEGMENT - size;
             // `TensorChunk.padded`: centrado, con sus vecinos
@@ -632,8 +646,10 @@ pub fn separate(
             let before = (lo as i64 - start) as usize;
             for c in 0..2 {
                 if hi > lo {
-                    chunk[c * SEGMENT + before..c * SEGMENT + before + (hi - lo)]
-                        .copy_from_slice(&wav[c * length + lo..c * length + hi]);
+                    let dst = &mut chunk[c * SEGMENT + before..c * SEGMENT + before + (hi - lo)];
+                    for (d, v) in dst.iter_mut().zip(&wav[c * length + lo..c * length + hi]) {
+                        *d = (v - m32) / s32;
+                    }
                 }
             }
             let (frames, mag) = spec(&stft, &chunk, 2);

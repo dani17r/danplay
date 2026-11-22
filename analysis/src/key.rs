@@ -116,6 +116,10 @@ pub fn chroma_of(x: &[f32], rate: u32) -> Chroma {
     let fft = planner.plan_fft_forward(WINDOW);
     let mut input = fft.make_input_vec();
     let mut output = fft.make_output_vec();
+    // una vez para todas las tramas (eran un `Vec` por trama, y otro dentro
+    // de la FFT)
+    let mut scratch = fft.make_scratch_vec();
+    let mut spectrum = vec![0.0f32; output.len()];
     let mut found: Vec<Vec<(f64, f64)>> = Vec::with_capacity(frames);
     for t in 0..frames {
         for ((i, v), h) in input
@@ -125,8 +129,10 @@ pub fn chroma_of(x: &[f32], rate: u32) -> Chroma {
         {
             *i = v * h;
         }
-        let _ = fft.process(&mut input, &mut output);
-        let spectrum: Vec<f32> = output.iter().map(|c| c.re.hypot(c.im)).collect();
+        let _ = fft.process_with_scratch(&mut input, &mut output, &mut scratch);
+        for (s, c) in spectrum.iter_mut().zip(&output) {
+            *s = c.re.hypot(c.im);
+        }
         found.push(peaks(&spectrum, rate));
     }
     // la afinación: lo que se aparta cada pico de su nota, como un ángulo

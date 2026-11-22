@@ -120,6 +120,34 @@ fn scaled(x: &[f32], k: f32) -> Vec<f32> {
     x.iter().map(|v| v * k).collect()
 }
 
+/// Las muestras se separan por canal directo de los bytes: lo mismo, bit a
+/// bit, que pasarlas antes a flotante y luego separarlas (también lo raro:
+/// NaN, infinitos, el cero negativo); con más sitio que muestras, ceros
+/// detrás; y media muestra suelta al final no cuenta.
+#[test]
+fn raw_samples_split_into_channels_straight_from_the_bytes() {
+    let mut samples: Vec<f32> = (0..2001).map(|i| (i as f32 * 0.37).sin() * 0.9).collect();
+    samples[3] = f32::NAN;
+    samples[10] = f32::NEG_INFINITY;
+    samples[11] = -0.0;
+    samples[12] = f32::MIN_POSITIVE / 4.0;
+    let raw: Vec<u8> = samples.iter().flat_map(|v| v.to_le_bytes()).collect();
+    let n = samples.len() / 2;
+    let bits = |x: &[f32]| x.iter().map(|v| v.to_bits()).collect::<Vec<u32>>();
+    let left: Vec<f32> = (0..n).map(|i| samples[2 * i]).collect();
+    let right: Vec<f32> = (0..n).map(|i| samples[2 * i + 1]).collect();
+    assert_eq!(
+        bits(&unpack(&raw)),
+        bits(&[left.clone(), right.clone()].concat())
+    );
+    let zeros = vec![0f32; 5];
+    let padded = unpack_into(&raw, n + 5);
+    assert_eq!(
+        bits(&padded),
+        bits(&[left, zeros.clone(), right, zeros].concat())
+    );
+}
+
 /// Sin piano (la red no le da nada): no sale su pista. «Otros» es lo que
 /// queda de la canción, así que todas juntas son exactamente la canción.
 #[test]

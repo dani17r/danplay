@@ -202,10 +202,14 @@ fn dct(n: usize, k: usize) -> Vec<f64> {
     reason = "los pasos de estructura.frames, en el mismo orden"
 )]
 pub fn frames(x: &[f32], rate: u32) -> Features {
-    let mut x = x.to_vec();
-    if x.len() < WINDOW {
-        x.resize(WINDOW, 0.0);
-    }
+    // la canción tal cual; solo si no llega a una trama, una copia rellena
+    let x: std::borrow::Cow<'_, [f32]> = if x.len() < WINDOW {
+        let mut padded = x.to_vec();
+        padded.resize(WINDOW, 0.0);
+        padded.into()
+    } else {
+        x.into()
+    };
     let m = (x.len() - WINDOW) / HOP + 1;
     let hann: Vec<f32> = (0..WINDOW)
         .map(|i| {
@@ -261,6 +265,10 @@ pub fn frames(x: &[f32], rate: u32) -> Features {
     let fft = planner.plan_fft_forward(WINDOW);
     let mut input = fft.make_input_vec();
     let mut output = fft.make_output_vec();
+    // los búferes de cada trama, una vez para todas (eran cuatro `Vec` por
+    // trama, y otro dentro de la FFT)
+    let mut scratch = fft.make_scratch_vec();
+    let mut spec = vec![0.0f32; output.len()];
     let mut rms = Vec::with_capacity(m);
     let mut chroma = Vec::with_capacity(m * 12);
     let mut bands = Vec::with_capacity(m * BANDS);
@@ -274,8 +282,10 @@ pub fn frames(x: &[f32], rate: u32) -> Features {
         for ((i, v), h) in input.iter_mut().zip(block).zip(&hann) {
             *i = v * h;
         }
-        let _ = fft.process(&mut input, &mut output);
-        let spec: Vec<f32> = output.iter().map(|c| c.re.hypot(c.im)).collect();
+        let _ = fft.process_with_scratch(&mut input, &mut output, &mut scratch);
+        for (s, c) in spec.iter_mut().zip(&output) {
+            *s = c.re.hypot(c.im);
+        }
         let mut c = [0.0f32; 12];
         let mut e = [0.0f32; BANDS];
         for (k, s) in spec.iter().enumerate() {
@@ -286,9 +296,8 @@ pub fn frames(x: &[f32], rate: u32) -> Features {
                 e[b] += s * s;
             }
         }
-        let c: Vec<f32> = c.iter().map(|v| v.ln_1p()).collect();
-        let sq_c: Vec<f32> = c.iter().map(|v| v * v).collect();
-        let n = np::sum32(&sq_c).sqrt().max(1e-9);
+        let c = c.map(f32::ln_1p);
+        let n = np::sum32(&c.map(|v| v * v)).sqrt().max(1e-9);
         chroma.extend(c.iter().map(|v| v / n));
         bands.extend(e.iter().map(|v| (v + 1e-10).ln()));
     }

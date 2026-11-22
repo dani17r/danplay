@@ -588,3 +588,24 @@ fn what_the_network_heard_survives_a_cut() {
     assert_eq!(raw::read(&dir.join("no-esta.npz")), None);
     std::fs::remove_dir_all(&dir).expect("borrar");
 }
+
+/// La red de verdad (`data/pulse/beat_this.onnx`) se abre sobre la sesión
+/// de ONNX Runtime de todas las redes y da un pulso y un «1» por trama. Sin
+/// ONNX Runtime, no se comprueba.
+#[test]
+fn the_real_network_gives_a_beat_and_a_downbeat_for_every_frame() {
+    let Some(runtime) = crate::testkit::onnx_runtime() else {
+        println!("sin ONNX Runtime: la red de pulso de verdad no se comprueba");
+        return;
+    };
+    let graph = crate::testkit::bundled_data("pulse/beat_this.onnx");
+    let mut net = net::Net::open(&runtime, &graph, 2).expect("la red se abre");
+    let rows = 300;
+    let data: Vec<f32> = (0..rows * MELS)
+        .map(|i| ((i * 7919) % 1000) as f32 / 250.0)
+        .collect();
+    let (beat, down) = net.forward(&data, rows).expect("la red contesta");
+    assert_eq!((beat.len(), down.len()), (rows, rows));
+    assert!(beat.iter().chain(&down).all(|v| v.is_finite()));
+    assert_ne!(beat, down, "el pulso y el «1» son salidas distintas");
+}

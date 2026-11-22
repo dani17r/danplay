@@ -47,7 +47,21 @@ fn outcome(r: &separate::Outcome) -> Value {
     json!({"ok": true, "seconds": r.segundos, "took": r.took, "tracks": tracks, "levels": levels})
 }
 
-/// Que la separación ceda ante todo lo demás: la música, la interfaz.
+/// Con qué indicadores se lanzan en Windows los procesos que analizan (este,
+/// y el detector de pulso de `beats`): sin ventana de consola
+/// (`CREATE_NO_WINDOW`) y por debajo de lo normal
+/// (`BELOW_NORMAL_PRIORITY_CLASS`), lo que en Unix se pone cada uno al
+/// empezar (`nice`). Sin eso, Demucs corría en Windows a prioridad normal y
+/// con todos los núcleos, a la par que la música. (Los ffmpeg que lanzan
+/// ellos heredan la clase baja: Windows se la da al hijo de uno que la tiene.)
+pub const fn child_creation_flags() -> u32 {
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    const BELOW_NORMAL_PRIORITY_CLASS: u32 = 0x0000_4000;
+    CREATE_NO_WINDOW | BELOW_NORMAL_PRIORITY_CLASS
+}
+
+/// Que la separación ceda ante todo lo demás: la música, la interfaz. (En
+/// Windows ya nace así: `child_creation_flags`.)
 fn lower_priority() {
     #[cfg(unix)]
     {
@@ -130,5 +144,23 @@ pub fn main(args: &[String]) -> i32 {
             say(&json!({"error": if text.is_empty() { "Error".to_owned() } else { text }}));
             1
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// En Windows, el separador y el detector de pulso nacen sin consola y
+    /// por debajo de lo normal, y de las clases de prioridad, solo esa. El
+    /// proceso que se lanza con esto solo se ve en Windows; aquí, el número.
+    #[test]
+    fn the_analysis_starts_below_normal_and_without_a_console() {
+        let flags = child_creation_flags();
+        assert_eq!(flags & 0x0800_0000, 0x0800_0000, "con consola");
+        // NORMAL, IDLE, HIGH, REALTIME, BELOW_NORMAL y ABOVE_NORMAL
+        let classes = [0x20, 0x40, 0x80, 0x100, 0x4000, 0x8000];
+        let set: Vec<u32> = classes.into_iter().filter(|c| flags & c != 0).collect();
+        assert_eq!(set, [0x4000], "{flags:#x}");
     }
 }
