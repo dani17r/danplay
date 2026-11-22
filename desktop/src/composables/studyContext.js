@@ -24,21 +24,15 @@ import { inject } from 'vue'
  *   las guías habladas: sus carriles, ponerlas, moverlas, la guía automática…
  * @property {ReturnType<typeof import('./useStudyStems.js').useStudyStems>} stems
  *   las pistas separadas: las de la canción, su mezcla, separarla, exportar…
- * @property {StudyMetro} metro  el clic (StudyBar)
+ * @property {ReturnType<typeof import('./useStudyClick.js').useStudyClick>} metro
+ *   el clic: su rejilla tal como suena, el clic manual (`edit`), el tempo…
  * @property {ReturnType<typeof import('./useClick.js').useClick>} click
  *   el clic de la canción que suena: su rejilla, si carga, y el modo
  * @property {ReturnType<typeof import('./useRouting.js').useRouting>} routing
  *   por dónde suena cada cosa
  * @property {import('vue').Ref<any>} timeline
  *   la línea de tiempo (StudyTimeline): su zoom, ir a una guía…
- */
-
-/**
- * @typedef {object} StudyMetro
- * @property {import('vue').ComputedRef<any>} soundingGrid  la rejilla del clic tal como suena
- * @property {import('vue').ComputedRef<any>} shownGrid  la de la onda (con el doble o la mitad)
- * @property {import('vue').ComputedRef<boolean>} hasOwn   la canción tiene su clic manual
- * @property {import('vue').ComputedRef<number[]>} clickBeats  los pulsos del clic (los del imán)
+ * @property {() => boolean} visible  si el estudio se ve (puede estar oculto y seguir puesto)
  */
 
 /**
@@ -50,6 +44,9 @@ import { inject } from 'vue'
  * @property {import('vue').Ref<number>} lastTouched      el último tramo que se tocó
  * @property {import('vue').Ref<number | null>} pendingA  la A puesta, esperando a la B
  * @property {import('vue').ComputedRef<boolean>} hasLoop
+ * @property {(list: any[], opts?: { mode?: string, index?: number }) => any} onLoops
+ *   los tramos nuevos que manda la línea de tiempo
+ * @property {(index?: number) => Promise<void>} playNow  ir ya a un tramo y que suene
  */
 
 /** @type {import('vue').InjectionKey<StudyContext>} */
