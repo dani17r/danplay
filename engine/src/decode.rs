@@ -136,6 +136,12 @@ impl Part {
         self.inner.rate
     }
 
+    /// Se lee de memoria (y no del disco por trozos).
+    #[cfg(test)]
+    pub(crate) fn in_memory(&self) -> bool {
+        matches!(self.inner.media, Media::Bytes(_))
+    }
+
     /// Muestras por canal que dura (a la tasa a la que suena), si el
     /// contenedor lo dice.
     pub fn frames(&self) -> Option<u64> {

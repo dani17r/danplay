@@ -387,3 +387,63 @@ fn real_start_latency() {
     }
     println!("\nhecho");
 }
+
+/// Un banco (no de la CI): cuanto tarda en abrir las partes de una cancion,
+/// una tras otra como antes y como ahora (`engine::open_parts`: hasta cuatro a
+/// la vez, con el tope de memoria por cancion). La mejor y la mediana de
+/// siete vueltas de cada, alternando (la primera lee del disco; las demas,
+/// de la cache del sistema).
+///
+/// ```text
+/// DANPLAY_LATENCY_DIR=carpeta_con_las_partes cargo test --release -p danplay-engine \
+///     real_load_time -- --ignored --nocapture
+/// ```
+#[test]
+#[ignore = "banco de desarrollo: pide DANPLAY_LATENCY_DIR"]
+fn real_load_time() {
+    use crate::bundle::PartFile;
+    use crate::engine::{IN_MEMORY, RATE, open_parts};
+    use std::time::Instant;
+    let Some(dir) = std::env::var_os("DANPLAY_LATENCY_DIR") else {
+        println!("sin DANPLAY_LATENCY_DIR: nada que medir");
+        return;
+    };
+    let files: Vec<PartFile> = std::fs::read_dir(PathBuf::from(dir))
+        .expect("la carpeta")
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .filter(|p| {
+            p.extension()
+                .and_then(|x| x.to_str())
+                .is_some_and(|x| ["flac", "mp3", "ogg", "wav", "m4a"].contains(&x))
+        })
+        .map(|path| PartFile {
+            source: String::new(),
+            name: path.display().to_string(),
+            path,
+        })
+        .collect();
+    let (mut before, mut now) = (Vec::new(), Vec::new());
+    for _ in 0..7 {
+        let t = Instant::now();
+        let parts: Vec<Part> = files
+            .iter()
+            .map(|f| Part::open_file(&f.path, RATE, IN_MEMORY).expect("abre"))
+            .collect();
+        before.push(t.elapsed().as_secs_f64() * 1e3);
+        drop(parts);
+        let t = Instant::now();
+        let parts = open_parts(&files).expect("abre");
+        now.push(t.elapsed().as_secs_f64() * 1e3);
+        drop(parts);
+    }
+    let stats = |v: &mut Vec<f64>| {
+        v.sort_by(f64::total_cmp);
+        (v[0], v[v.len() / 2])
+    };
+    let ((b0, bm), (n0, nm)) = (stats(&mut before), stats(&mut now));
+    println!(
+        "{} partes: una tras otra, la mejor {b0:.0} ms y la mediana {bm:.0} ms; ahora, {n0:.0} y {nm:.0} ms",
+        files.len()
+    );
+}

@@ -39,7 +39,17 @@ pub const RATE: u32 = 44_100;
 
 /// Lo que pesa menos que esto se lee entero en memoria; lo demas, del
 /// disco por trozos (un WAV de una secuencia pesa 40 MB).
-const IN_MEMORY: u64 = 24 * 1024 * 1024;
+pub(crate) const IN_MEMORY: u64 = 24 * 1024 * 1024;
+/// Y entre todas las partes de una cancion, como mucho esto en memoria. El
+/// tope de arriba es por parte: 32 partes de 24 MB eran 768 MB por cancion,
+/// y puede haber hasta tres juegos vivos (la que suena, la del fundido y las
+/// de un relevo). En un telefono, eso es que el sistema cierre la app.
+#[cfg(any(target_os = "android", target_os = "ios"))]
+const SONG_IN_MEMORY: u64 = 64 * 1024 * 1024;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
+const SONG_IN_MEMORY: u64 = 256 * 1024 * 1024;
+/// Partes que se abren a la vez al cargar.
+const OPENERS: usize = 4;
 
 /// Como va, para la interfaz.
 #[derive(Serialize, Debug, Clone, Default)]
@@ -818,19 +828,84 @@ fn gains(gain: f32, pan: f32) -> (f32, f32) {
 }
 
 /// Abre cada parte, a la tasa del motor.
-fn open_parts(files: &[PartFile]) -> Result<(Vec<Part>, Vec<String>), String> {
+pub(crate) fn open_parts(files: &[PartFile]) -> Result<(Vec<Part>, Vec<String>), String> {
+    open_parts_within(files, IN_MEMORY, SONG_IN_MEMORY)
+}
+
+/// Que partes se leen enteras en memoria, por lo que pesa cada una: ninguna
+/// que pase de `per_part`, y de las demas, de la que menos pesa a la que mas,
+/// mientras quepan en `budget`. Las mas grandes, del disco por trozos.
+fn kept_in_memory(sizes: &[u64], per_part: u64, budget: u64) -> Vec<bool> {
+    let mut order: Vec<usize> = (0..sizes.len()).collect();
+    order.sort_by_key(|&i| sizes[i]);
+    let mut keep = vec![false; sizes.len()];
+    let mut used = 0u64;
+    for i in order {
+        if sizes[i] <= per_part && used.saturating_add(sizes[i]) <= budget {
+            keep[i] = true;
+            used += sizes[i];
+        }
+    }
+    keep
+}
+
+/// Abre las partes (hasta `OPENERS` a la vez: antes iban una tras otra), con
+/// lo que se lee entero en memoria decidido para toda la cancion.
+fn open_parts_within(
+    files: &[PartFile],
+    per_part: u64,
+    budget: u64,
+) -> Result<(Vec<Part>, Vec<String>), String> {
     if files.is_empty() || files.len() > MAX_PARTS {
         return Err("esa canción no tiene partes que se puedan oír".into());
     }
-    let mut parts = Vec::with_capacity(files.len());
-    let mut names = Vec::with_capacity(files.len());
-    for f in files {
-        let part =
-            Part::open_file(&f.path, RATE, IN_MEMORY).map_err(|e| format!("«{}»: {e}", f.name))?;
-        parts.push(part);
-        names.push(f.name.clone());
+    // lo que no dice cuanto pesa, del disco (abrirlo dira que le pasa)
+    let sizes: Vec<u64> = files
+        .iter()
+        .map(|f| std::fs::metadata(&f.path).map_or(u64::MAX, |m| m.len()))
+        .collect();
+    let memory = kept_in_memory(&sizes, per_part, budget);
+    let open = |i: usize| {
+        let limit = if memory[i] { u64::MAX } else { 0 };
+        Part::open_file(&files[i].path, RATE, limit)
+            .map_err(|e| format!("«{}»: {e}", files[i].name))
+    };
+    let mut opened: Vec<Option<Result<Part, String>>> = (0..files.len()).map(|_| None).collect();
+    if files.len() == 1 {
+        opened[0] = Some(open(0));
+    } else {
+        let workers = OPENERS.min(files.len());
+        let open = &open;
+        std::thread::scope(|s| {
+            let handles: Vec<_> = (0..workers)
+                .map(|w| {
+                    s.spawn(move || {
+                        (w..files.len())
+                            .step_by(workers)
+                            .map(|i| (i, open(i)))
+                            .collect::<Vec<_>>()
+                    })
+                })
+                .collect();
+            for h in handles {
+                match h.join() {
+                    Ok(list) => {
+                        for (i, part) in list {
+                            opened[i] = Some(part);
+                        }
+                    }
+                    // un archivo que tumba al decodificador: como antes, a
+                    // quien carga (la PC lo vigila)
+                    Err(panic) => std::panic::resume_unwind(panic),
+                }
+            }
+        });
     }
-    Ok((parts, names))
+    let mut parts = Vec::with_capacity(files.len());
+    for part in opened {
+        parts.push(part.ok_or("una parte no se pudo abrir")??);
+    }
+    Ok((parts, files.iter().map(|f| f.name.clone()).collect()))
 }
 
 /// Pone a andar el hilo que decodifica una cancion desde `from` y devuelve
@@ -1149,6 +1224,37 @@ mod tests {
             e.state().loaded.as_deref(),
             dir.file_name().and_then(|n| n.to_str())
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_biggest_parts_are_read_from_the_disk_when_a_song_would_take_too_much_memory() {
+        // el tope era por parte: 32 partes de 24 MB, 768 MB por cancion
+        assert_eq!(
+            kept_in_memory(&[10, 30, 20, 50], 40, 35),
+            [true, false, true, false]
+        );
+        assert_eq!(kept_in_memory(&[10, 30], 40, 100), [true, true]);
+        // con archivos de verdad: con sitio solo para la pequeña, la grande va
+        // del disco; y se abren todas, en su orden
+        let (dir, files) = files("presupuesto");
+        let sizes: Vec<u64> = files
+            .iter()
+            .map(|f| std::fs::metadata(&f.path).expect("tamaño").len())
+            .collect();
+        let small = usize::from(sizes[1] < sizes[0]);
+        let (parts, names) = open_parts_within(&files, u64::MAX, sizes[small]).expect("abre");
+        assert_eq!(names, ["OGG", "MP3"]);
+        assert!(parts[small].in_memory() && !parts[1 - small].in_memory());
+        let (parts, _) = open_parts_within(&files, u64::MAX, u64::MAX).expect("abre");
+        assert!(parts.iter().all(Part::in_memory));
+        // y si una no abre, se dice cual
+        let mut broken = files.clone();
+        broken[1].path = dir.join("no-esta.mp3");
+        let e = open_parts_within(&broken, IN_MEMORY, SONG_IN_MEMORY)
+            .err()
+            .unwrap_or_default();
+        assert!(e.starts_with("«MP3»"), "{e}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
