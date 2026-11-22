@@ -508,3 +508,52 @@ fn search_404_means_nothing_and_title_alone_is_tried() {
     assert_eq!(s.title, serde_json::json!("Danzar"));
     assert_eq!(asked.borrow()[1], format!("{UG_SEARCH}Danzar"));
 }
+
+/// Las páginas de los cifrados llegan de fuera (hasta 64 MB). Ninguna de sus
+/// expresiones tiene cuantificadores anidados ni referencias atrás (van por
+/// `regex`, de tiempo lineal), y estas páginas hechas para hacerlas
+/// retroceder se leen en lo que se tarda en recorrerlas.
+#[test]
+fn hostile_pages_are_read_within_a_time_limit() {
+    let mb = 8 * 1024 * 1024;
+    let fill = |unit: &str| unit.repeat(mb / unit.len());
+    let pages = [
+        // aperturas sin cierre: `.*?` hasta el final, una y otra vez
+        fill("id=t_body><pre>"),
+        format!("id=t_body><pre>{}", fill("<a x>")),
+        format!("<div id=t_body><pre>{}</pre>", fill("<a x>b")),
+        fill(r#"class="js-store" data-content="x"#),
+        fill("<li id='liElm1'"),
+        fill("<H1>a<br> <A "),
+    ];
+    for page in &pages {
+        let start = std::time::Instant::now();
+        let _ = parse_lacuerda(page);
+        let _ = ug_data(page);
+        let _ = find_all(&LC_VERSIONS, page);
+        let _ = find_all(&LC_SONGS, page);
+        let _ = search(&LC_NAME, page);
+        let took = start.elapsed();
+        assert!(took.as_secs_f64() < 5.0, "{took:?} con {:?}…", &page[..30]);
+    }
+}
+
+/// Un título con miles de paréntesis anidados (de una página de cifrados:
+/// el de cada resultado) se compara en un momento: quitar los paréntesis
+/// de dentro afuera era una pasada por cada nivel.
+#[test]
+fn a_title_with_nested_parentheses_is_compared_at_once() {
+    let n = 100_000;
+    let title = format!("Mi Gozo {}x{}", "(".repeat(n), ")".repeat(n));
+    let start = std::time::Instant::now();
+    assert!(!same_song("Barak", "Otra", "Barak", &title));
+    let took = start.elapsed();
+    assert!(took.as_secs_f64() < 1.0, "{took:?}");
+    // lo de siempre, igual
+    assert!(same_song(
+        "Barak",
+        "Mi Gozo",
+        "Barak",
+        "Mi Gozo (En Vivo) [Acordes]"
+    ));
+}

@@ -196,6 +196,27 @@ mod tests {
         assert_eq!(parse(PAGE, Some(-1)).len(), 1);
     }
 
+    /// La página de la búsqueda llega de fuera: hecha para hacer retroceder
+    /// sus expresiones (aperturas sin cierre, atributos sin comillas de
+    /// cierre), se lee en lo que se tarda en recorrerla.
+    #[test]
+    fn a_hostile_results_page_is_read_within_a_time_limit() {
+        let mb = 8 * 1024 * 1024;
+        let fill = |unit: &str| unit.repeat(mb / unit.len());
+        for page in [
+            fill(r#"<a class="result-link" href="x">"#),
+            fill(r#"<a class="result-link"#),
+            fill(r#"<a b class="result__a" href=""#),
+            fill(r#"class="result-snippet">"#),
+            fill(r#"<a class="result-link" href="u">t</a><td class="result-snippet">s</td>"#),
+        ] {
+            let start = std::time::Instant::now();
+            let _ = parse(&page, Some(10));
+            let took = start.elapsed();
+            assert!(took.as_secs_f64() < 5.0, "{took:?} con {:?}…", &page[..30]);
+        }
+    }
+
     #[test]
     fn unquote_reads_each_ascii_run_as_utf8() {
         assert_eq!(unquote("a%20b%zz%e2%82%ac%E2"), "a b%zz€\u{fffd}");
