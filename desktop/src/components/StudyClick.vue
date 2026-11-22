@@ -58,7 +58,7 @@ const {
 </script>
 
 <template>
-  <section class="study-col">
+  <section class="study-col study-click">
     <h5 class="study-col-title"><Icon n="note" :t="12" /> Clic</h5>
     <div class="study-block study-metro" :class="{ on: clickWanted }">
       <div class="study-metro-row">

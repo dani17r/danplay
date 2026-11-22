@@ -58,7 +58,7 @@ async function setPitch(n) {
 </script>
 
 <template>
-  <section class="study-col">
+  <section class="study-col study-tempo">
     <h5 class="study-col-title"><Icon n="forward10" :t="12" /> Velocidad y tono</h5>
 
     <div class="study-block">

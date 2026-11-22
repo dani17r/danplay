@@ -4,6 +4,7 @@ import {
   BODY_MIN,
   LANE_MAX,
   LANE_MIN,
+  TABS_BODY,
   TIGHT_BELOW,
   WAVE_MIN,
   bodyHeight,
@@ -36,6 +37,15 @@ describe('the height of the study, shared out', () => {
     const tall = waveRoom({ ...panel, inner: 1300 })
     expect(tall).toBe(1300 - 22 - 96 - 24 - 300 - 110)
     expect(laneHeight(22, tall)).toBe(34)
+  })
+
+  it('in tabs the body asks for less, and unpinned nothing: the wave gets the rest', () => {
+    const columns = waveRoom(panel)
+    const tabs = waveRoom({ ...panel, body: TABS_BODY })
+    const unpinned = waveRoom({ ...panel, body: 0 })
+    expect(tabs).toBe(824 - 22 - 96 - 24 - TABS_BODY - 110)
+    expect(tabs).toBeGreaterThan(columns)
+    expect(unpinned).toBe(824 - 22 - 96 - 24 - 110)
   })
 
   it('a few tracks grow to fill the panel, up to a limit', () => {

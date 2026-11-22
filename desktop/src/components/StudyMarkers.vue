@@ -30,7 +30,7 @@ const { LOOP_ENDS, loopEndWanted, setLoopEnd, hasLoop } = ctx.loops
 </script>
 
 <template>
-  <section class="study-col">
+  <section class="study-col study-marks">
     <h5 class="study-col-title">
       <Icon n="list" :t="12" /> Marcadores
       <small v-if="study.markers.length">marca varios y tócalos seguidos</small>

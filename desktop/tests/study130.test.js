@@ -321,6 +321,7 @@ describe('the menus', () => {
       'Guía automática',
       'Salidas…',
       'Estilo de la onda',
+      'Ver las partes en columnas',
       'Cómo se usa',
       'Salir del modo estudio'
     ])
@@ -668,5 +669,105 @@ describe('the big data of the study', () => {
     expect(isReactive(w.vm.study.metronome.own), 'los pulsos, reactivos uno a uno').toBe(false)
     w.vm.cueWaves = { 'a.wav': { peaks: [1, 2, 3], seconds: 1 } }
     expect(isReactive(w.vm.cueWaves['a.wav'])).toBe(false)
+  })
+})
+
+// Las partes de abajo (velocidad y tono, el clic, los marcadores, las notas):
+// en pestañas por defecto, a todo lo ancho, con la chincheta para fijarlas o
+// dejar que se abran encima de la onda; en columnas si se elige en «⋯».
+describe('the parts below the wave', () => {
+  let notify = null
+  let had = false
+  let before = null
+  beforeEach(() => {
+    had = 'ResizeObserver' in globalThis
+    before = globalThis.ResizeObserver
+    globalThis.ResizeObserver = class {
+      constructor(cb) {
+        notify = cb
+      }
+      observe() {}
+      disconnect() {}
+    }
+  })
+  afterEach(() => {
+    if (had) globalThis.ResizeObserver = before
+    else delete globalThis.ResizeObserver
+  })
+  const at = async (w, width) => {
+    notify([{ target: w.find('.study').element, contentRect: { width } }])
+    await flushPromises()
+  }
+  const tabs = (w) => w.findAll('.study-panel-tab').map((t) => t.text().trim())
+  const shown = (w) => w.find('.study-body .study-col.active')
+
+  it('come in tabs by default, one at a time, also with a wide window', async () => {
+    const w = await mountView()
+    await at(w, 1536)
+    expect(tabs(w)).toEqual(['Velocidad y tono', 'Clic', 'Marcadores', 'Notas'])
+    expect(w.find('.study-body').classes()).toContain('tabbed')
+    await w.findAll('.study-panel-tab')[0].trigger('click')
+    expect(shown(w).classes()).toContain('study-tempo')
+    expect(w.findAll('.study-body .study-col.active')).toHaveLength(1)
+  })
+
+  it('can be columns again from «⋯», and it is remembered', async () => {
+    const w = await mountView()
+    await at(w, 1536)
+    await w.find('.study-more').trigger('click')
+    option('Ver las partes en columnas').action()
+    await flushPromises()
+    expect(w.find('.study-panels').exists()).toBe(false)
+    expect(w.find('.study-body').classes()).not.toContain('tabbed')
+    expect(localStorage.getItem('danplay.study.layout')).toBe('"columns"')
+    await w.find('.study-more').trigger('click')
+    expect(option('Ver las partes en pestañas')).toBeTruthy()
+    // sin ancho para las cuatro columnas, pestañas igual
+    await at(w, 900)
+    expect(w.find('.study-panels').exists()).toBe(true)
+  })
+
+  it('unpinned, only the tabs stay; a tab opens its part over the wave, and it closes', async () => {
+    const w = await mountView()
+    await at(w, 1536)
+    const pin = w.find('.study-pin')
+    expect(pin.attributes('aria-pressed')).toBe('true')
+    await pin.trigger('click')
+    expect(localStorage.getItem('danplay.study.pinned')).toBe('false')
+    const body = () => w.find('.study-body').classes()
+    expect(body()).toContain('floating')
+    expect(body()).not.toContain('shown')
+    // una pestaña la abre; la misma, la cierra
+    await w.findAll('.study-panel-tab')[1].trigger('click')
+    expect(body()).toContain('shown')
+    expect(shown(w).classes()).toContain('study-click')
+    await w.findAll('.study-panel-tab')[1].trigger('click')
+    expect(body()).not.toContain('shown')
+    // con Esc
+    await w.findAll('.study-panel-tab')[3].trigger('click')
+    expect(body()).toContain('shown')
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    await flushPromises()
+    expect(body()).not.toContain('shown')
+    // pulsando fuera (en la onda), sí; dentro, no
+    await w.findAll('.study-panel-tab')[0].trigger('click')
+    w.find('.study-body').element.dispatchEvent(new Event('pointerdown', { bubbles: true }))
+    await flushPromises()
+    expect(body()).toContain('shown')
+    w.find('.tl-box').element.dispatchEvent(new Event('pointerdown', { bubbles: true }))
+    await flushPromises()
+    expect(body()).not.toContain('shown')
+    // fijado otra vez, el panel siempre a la vista
+    await w.find('.study-pin').trigger('click')
+    expect(body()).not.toContain('floating')
+  })
+
+  it('in tabs the notes of the song and of the marker go side by side', async () => {
+    const w = await mountView()
+    expect(w.find('.study-notes-pair').exists(), 'en columnas, con sus pestañas').toBe(false)
+    await at(w, 1536)
+    expect(w.findAll('.study-notes-half')).toHaveLength(2)
+    expect(w.find('.study-notes .study-tabs').exists()).toBe(false)
+    expect(w.find('.study-notes-half .study-empty').text()).toContain('Elige un marcador')
   })
 })

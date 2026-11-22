@@ -117,7 +117,13 @@ function stepsFor(root) {
       side: 'bottom'
     },
     {
-      el: '.study-col:nth-child(2)',
+      el: '.study-panels',
+      title: 'Las partes',
+      text: 'La velocidad y el tono, el clic, los marcadores y las notas, cada una en su pestaña. Con la chincheta el panel se queda fijo; sin ella, la onda tiene todo el alto y la pestaña se abre encima.',
+      side: 'top'
+    },
+    {
+      el: '.study-click',
       title: 'El clic',
       text: 'Un metrónomo pegado a la canción. Ajústalo si se adelanta o se atrasa.',
       side: 'top'

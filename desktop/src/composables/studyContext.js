@@ -43,6 +43,7 @@ import { inject } from 'vue'
  * @property {import('vue').Ref<boolean>} showMix     a la vista, la mezcla de cada carril
  * @property {import('vue').Ref<boolean>} showRoutes  a la vista, los canales de cada carril
  * @property {() => Promise<void>} tour               el recorrido por el modo estudio
+ * @property {import('vue').Ref<boolean>} [tabbed]   las partes de abajo, en pestañas (a todo lo ancho)
  */
 
 /** @type {import('vue').InjectionKey<StudyContext>} */

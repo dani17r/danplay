@@ -30,7 +30,7 @@
  * recorrido, el encaje de la onda en el panel, los diálogos y la línea de
  * tiempo.
  */
-import { ref, computed, watch, onMounted, onUnmounted, provide } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onUnmounted, provide } from 'vue'
 // su CSS viene con él: es una isla y no se carga al arrancar (islands.js). Antes
 // que lo demás; el de driver.js (useStudyTour.js) llega después, con el recorrido
 import '../styles/study.css'
@@ -41,6 +41,7 @@ import { notify } from '../composables/useNotices.js'
 import { usePlayback } from '../composables/usePlayback.js'
 import {
   LANE_MIN,
+  TABS_BODY,
   isTight,
   laneHeight as fittedLane,
   waveRoom as roomFor
@@ -423,7 +424,25 @@ function headMenu(ev) {
       hint: 'La salida de audio y los repartos de siempre (el clic y las guías a un lado, la música al otro)',
       action: () => (outputsOpen.value = true)
     },
-    ...(isMobileApp ? [] : [waveStyleItem(), { label: 'Cómo se usa', icon: 'help', action: tour }]),
+    ...(isMobileApp
+      ? []
+      : [
+          waveStyleItem(),
+          layout.value === 'tabs'
+            ? {
+                label: 'Ver las partes en columnas',
+                icon: 'column',
+                hint: 'La velocidad, el clic, los marcadores y las notas, las cuatro a la vez una al lado de otra (con la ventana ancha)',
+                action: () => (layout.value = 'columns')
+              }
+            : {
+                label: 'Ver las partes en pestañas',
+                icon: 'viewList',
+                hint: 'Una parte a la vez y a todo lo ancho, con más sitio para la onda',
+                action: () => (layout.value = 'tabs')
+              },
+          { label: 'Cómo se usa', icon: 'help', action: tour }
+        ]),
     { separator: true },
     {
       label: 'Salir del modo estudio',
@@ -440,10 +459,43 @@ onUnmounted(() => {
   flushSave()
   if (metronome.value.count_in) player.setMetronome({ count_in: 0 })
 })
-// ---- en una ventana de ancho medio, las columnas son pestañas: en una
-// rejilla de dos por dos cada una se quedaba con cuatro dedos de alto
+// ---- las partes de abajo (velocidad y tono, el clic, los marcadores y las
+// notas): en pestañas, una a la vez y a todo lo ancho, o en cuatro columnas.
+// En pestañas por defecto (lo pidió Daniel: cada parte tiene sitio de verdad
+// y la onda se queda con más alto); en columnas, si se elige en «⋯». En una
+// ventana de ancho medio, siempre pestañas: en una rejilla de dos por dos
+// cada una se quedaba con cuatro dedos de alto.
 const root = ref(null)
-const tabbed = ref(false)
+/** El ancho del panel, en px (0: sin medir, como en las pruebas). */
+const bodyWidth = ref(0)
+/** Lo que mide como poco para que quepan las cuatro columnas. */
+const COLUMNS_FROM = 1100
+const LAYOUT_KEY = 'danplay.study.layout'
+const layout = ref(readPref(LAYOUT_KEY, 'tabs') === 'columns' ? 'columns' : 'tabs')
+watch(layout, (v) => savePref(LAYOUT_KEY, v))
+const tabbed = computed(
+  () =>
+    !isMobileApp &&
+    bodyWidth.value >= 680 &&
+    (bodyWidth.value < COLUMNS_FROM || layout.value === 'tabs')
+)
+// Fijado, el panel va debajo de la onda; sin fijar, solo quedan las
+// pestañas (la onda gana todo el alto) y al pulsar una el panel se abre
+// encima de la onda, sin moverla, hasta que se pulsa fuera, Esc o la misma
+// pestaña.
+const PINNED_KEY = 'danplay.study.pinned'
+const pinned = ref(readPref(PINNED_KEY, true) !== false)
+watch(pinned, (v) => savePref(PINNED_KEY, v))
+const floating = computed(() => tabbed.value && !pinned.value)
+// las notas, en pestañas, ponen las de la canción y las del marcador lado a lado
+ctx.view.tabbed = tabbed
+/** Sin fijar, si el panel está abierto encima de la onda. */
+const peek = ref(false)
+const bodyShown = computed(() => !floating.value || peek.value)
+const strip = ref(null)
+const body = ref(null)
+/** Dónde se abre el panel sin fijar: justo encima de las pestañas. */
+const floatStyle = ref({})
 const PANEL_KEY = 'danplay.study.panel'
 const PANELS = [
   { v: 'tempo', n: 'Velocidad y tono', icon: 'forward10' },
@@ -454,6 +506,56 @@ const PANELS = [
 const savedPanel = readPref(PANEL_KEY, 'click')
 const panel = ref(PANELS.some((p) => p.v === savedPanel) ? savedPanel : 'click')
 watch(panel, (v) => savePref(PANEL_KEY, v))
+/** Una pestaña: sin fijar, la abre encima de la onda (o la cierra si ya estaba). */
+function pickPanel(/** @type {string} */ v) {
+  if (floating.value) {
+    const open = !(peek.value && panel.value === v)
+    if (open) placeFloat()
+    peek.value = open
+  }
+  panel.value = v
+}
+function placeFloat() {
+  const el = root.value
+  const tabs = strip.value
+  if (!el || !tabs) return
+  const cs = getComputedStyle(el)
+  floatStyle.value = {
+    bottom: el.clientHeight - tabs.offsetTop + 'px',
+    left: cs.paddingLeft,
+    right: cs.paddingRight
+  }
+}
+function togglePinned() {
+  pinned.value = !pinned.value
+  peek.value = false
+}
+// sin fijar, se cierra al pulsar fuera (no en un menú o un diálogo que se
+// abrió desde dentro) o con Esc
+function closeFloatOutside(/** @type {PointerEvent} */ e) {
+  if (!peek.value) return
+  const t = /** @type {Element | null} */ (e.target instanceof Element ? e.target : null)
+  if (!t || body.value?.contains(t) || strip.value?.contains(t)) return
+  if (t.closest('[role="menu"], [role="listbox"], [role="dialog"], .ctx-menu, .modal')) return
+  peek.value = false
+}
+function closeFloatOnEscape(/** @type {KeyboardEvent} */ e) {
+  if (peek.value && e.key === 'Escape') peek.value = false
+}
+onMounted(() => {
+  document.addEventListener('pointerdown', closeFloatOutside, true)
+  document.addEventListener('keydown', closeFloatOnEscape)
+})
+onUnmounted(() => {
+  document.removeEventListener('pointerdown', closeFloatOutside, true)
+  document.removeEventListener('keydown', closeFloatOnEscape)
+})
+// al fijarlo, o al pasar a columnas, el panel ya no flota
+watch(floating, (on) => {
+  if (!on) peek.value = false
+})
+// lo que cambia el sitio de la onda: volver a repartir
+watch([tabbed, floating], () => nextTick(() => fitTimeline()))
 /**
  * El recorrido (useStudyTour.js), cargado la primera vez que se pide: trae
  * driver.js y su CSS, y sale una vez en la vida. `null` hasta entonces.
@@ -512,8 +614,10 @@ function fitTimeline() {
   let others = 0
   let rows = 0
   for (const child of el.children) {
-    const pos = getComputedStyle(child).position
-    if (pos === 'fixed' || pos === 'absolute') continue // las ventanas que se abren encima
+    const style = getComputedStyle(child)
+    // las ventanas que se abren encima, y el panel sin fijar
+    if (style.position === 'fixed' || style.position === 'absolute' || style.display === 'none')
+      continue
     rows++
     if (child !== tl && !child.classList.contains('study-body')) others += child.offsetHeight
   }
@@ -528,7 +632,10 @@ function fitTimeline() {
     const sum = items.reduce((total, item) => total + item.offsetHeight, 0)
     wanted = Math.max(wanted, sum + between * Math.max(0, items.length - 1))
   }
-  const next = roomFor({ inner, pad, others, gap, rows, rest, wanted })
+  // en pestañas el cuerpo tiene un alto conocido (o ninguno, sin fijar: se
+  // abre encima de la onda)
+  const fixed = tabbed.value ? (floating.value ? 0 : TABS_BODY) : null
+  const next = roomFor({ inner, pad, others, gap, rows, rest, wanted, body: fixed })
   // de dos en dos píxeles: que un redondeo no la tenga midiendo sin parar
   if (waveRoom.value == null || Math.abs(next - waveRoom.value) >= 2) waveRoom.value = next
 }
@@ -563,7 +670,7 @@ onMounted(() => {
     for (const e of entries) {
       if (e.target !== root.value) continue
       const w = e.contentRect.width
-      tabbed.value = w >= 680 && w < 1100
+      bodyWidth.value = w
     }
     if (!growing) fitTimeline()
   })
@@ -795,16 +902,23 @@ defineExpose({ close: hide, hide, exit })
       </template>
     </p>
 
-    <div v-if="tabbed" class="study-panels" role="tablist" aria-label="Partes del estudio">
+    <div
+      v-if="tabbed"
+      ref="strip"
+      class="study-panels"
+      :class="{ floating }"
+      role="tablist"
+      aria-label="Partes del estudio"
+    >
       <button
         v-for="p in PANELS"
         :key="p.v"
         type="button"
         role="tab"
         class="study-panel-tab"
-        :class="{ on: panel === p.v }"
-        :aria-selected="panel === p.v"
-        @click="panel = p.v"
+        :class="{ on: panel === p.v && bodyShown }"
+        :aria-selected="panel === p.v && bodyShown"
+        @click="pickPanel(p.v)"
       >
         <Icon :n="p.icon" :t="12" /> {{ p.n }}
         <span
@@ -813,8 +927,28 @@ defineExpose({ close: hide, hide, exit })
           aria-hidden="true"
         ></span>
       </button>
+      <button
+        type="button"
+        class="btn mini icon-btn study-pin"
+        :class="{ on: pinned }"
+        :aria-pressed="pinned ? 'true' : 'false'"
+        aria-label="Fijar el panel"
+        :title="
+          pinned
+            ? 'Fijado: el panel siempre a la vista, debajo de la onda. Quítalo para que la onda tenga todo el alto y el panel se abra encima al pulsar una pestaña'
+            : 'Sin fijar: la onda tiene todo el alto y el panel se abre encima al pulsar una pestaña. Fíjalo para tenerlo siempre a la vista'
+        "
+        @click="togglePinned"
+      >
+        <Icon n="pin" :t="13" />
+      </button>
     </div>
-    <div class="study-body" :class="{ tabbed }">
+    <div
+      ref="body"
+      class="study-body"
+      :class="{ tabbed, floating, shown: bodyShown }"
+      :style="floating && peek ? floatStyle : null"
+    >
       <!-- ========================================== velocidad y tono -->
       <StudyTempo :class="{ active: panel === 'tempo' }" />
 
