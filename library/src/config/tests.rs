@@ -243,6 +243,46 @@ fn config_reads_the_environment_and_the_settings_file() {
     );
 }
 
+/// Las claves y la base que ya estaban abiertas para todos (un `ai.json`
+/// copiado de NTFS sale en 0777) quedan solo para su dueño al arrancar, sin
+/// esperar a que se vuelvan a guardar; lo que no es un secreto, como estaba.
+#[cfg(target_os = "linux")]
+#[test]
+fn files_with_keys_are_closed_on_load() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = Scratch::new("claves-abiertas");
+    let s = |p: PathBuf| p.to_string_lossy().into_owned();
+    let (data, cfg) = (dir.join("datos"), dir.join("cfg"));
+    std::fs::create_dir_all(&data).expect("carpeta");
+    std::fs::create_dir_all(&cfg).expect("carpeta");
+    let open = |path: PathBuf| {
+        std::fs::write(&path, "x").expect("archivo");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o666)).expect("modo");
+        path
+    };
+    let secrets = [
+        open(cfg.join("ai.json")),
+        open(cfg.join("danplay.env")),
+        open(data.join("danplay.db")),
+        open(data.join("danplay.db-wal")),
+    ];
+    let other = open(cfg.join("otro.txt"));
+    let env = vec![
+        ("HOME", s(dir.join("home"))),
+        ("DANPLAY_DATA_DIR", s(data.clone())),
+        ("DANPLAY_CONFIG_DIR", s(cfg.clone())),
+        ("DANPLAY_LIBRARY", s(dir.join("Musica"))),
+        ("DANPLAY_PROJECT_ENV", "0".to_owned()),
+    ];
+    config_in(&env, dir.path());
+    let mode = |p: &Path| std::fs::metadata(p).expect("archivo").permissions().mode() & 0o777;
+    for path in &secrets {
+        assert_eq!(mode(path), 0o600, "{}", path.display());
+    }
+    assert_eq!(mode(&other), 0o666);
+    assert_eq!(mode(&cfg), 0o700);
+}
+
 /// El archivo de ajustes se lee como lo leían las versiones de antes (con
 /// dotenv 1.2.4). Los casos (textos hechos al azar con estas líneas, y lo que
 /// se leía de ellos con interpolación y sin pisar el entorno) se sacaron una
