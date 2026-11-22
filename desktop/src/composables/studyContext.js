@@ -17,8 +17,35 @@ import { inject } from 'vue'
  *   el estudio de la canción y su guardado
  * @property {import('vue').Ref<string>} notesTab
  *   la pestaña de notas: 'song' (las de la canción) o 'marker' (las del elegido)
- * @property {{ selected: import('vue').Ref<any> }} markers
- *   los marcadores: el elegido
+ * @property {ReturnType<typeof import('./useStudyMarkers.js').useStudyMarkers>} markers
+ *   los marcadores: el elegido, los de la casilla, elegir, tocar, guardar…
+ * @property {StudyLoops} loops  los tramos (StudyBar)
+ * @property {StudyCues} cues    las guías habladas (StudyBar)
+ */
+
+/**
+ * @typedef {object} StudyLoops
+ * @property {Array<{ v: string, n: string, icon: string, title: string }>} LOOP_ENDS
+ * @property {import('vue').Ref<import('../api.js').LoopEnd>} loopEndWanted  qué pasa al acabar el último tramo
+ * @property {(v: import('../api.js').LoopEnd) => Promise<void>} setLoopEnd
+ * @property {import('vue').Ref<boolean>} multi           varios tramos a la vez
+ * @property {import('vue').Ref<number>} lastTouched      el último tramo que se tocó
+ * @property {import('vue').Ref<number | null>} pendingA  la A puesta, esperando a la B
+ * @property {import('vue').ComputedRef<boolean>} hasLoop
+ */
+
+/**
+ * @typedef {object} StudyCues
+ * @property {import('vue').ComputedRef<any[]>} cueList  las guías, por orden
+ * @property {(c: any) => void} goToCue
+ * @property {(c: any) => Promise<void>} previewCue
+ * @property {(c: any) => void} editCue
+ * @property {(c: any) => void} removeCue
+ * @property {import('vue').ComputedRef<any[]>} guideLanes  los carriles de las guías
+ * @property {(c: any) => string} laneOfCue
+ * @property {import('vue').ComputedRef<boolean>} cueEdit  se pueden tocar (la canción parada)
+ * @property {string} STOP_FIRST
+ * @property {import('vue').Ref<number>} cueVolume
  */
 
 /** @type {import('vue').InjectionKey<StudyContext>} */

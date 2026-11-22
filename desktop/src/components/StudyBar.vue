@@ -67,21 +67,13 @@ import {
 } from '../utils/beats.js'
 import {
   cleanSegments,
-  sameSegments,
   segmentAt,
   nextSegment,
   segmentsLength,
   snapToBeats
 } from '../utils/segments.js'
 import { openMenu } from '../composables/useContextMenu.js'
-import {
-  useStudyDoc,
-  blank,
-  withRawOwn,
-  isSpan,
-  parse,
-  isDefault
-} from '../composables/useStudyDoc.js'
+import { useStudyDoc, blank, withRawOwn, parse, isDefault } from '../composables/useStudyDoc.js'
 import Icon from './Icon.vue'
 import TextField from './ui/TextField.vue'
 import SliderField from './ui/SliderField.vue'
@@ -94,6 +86,8 @@ import StudyExport from './StudyExport.vue'
 import VoicePicker from './VoicePicker.vue'
 import StudyNotes from './StudyNotes.vue'
 import StudyTempo from './StudyTempo.vue'
+import StudyMarkers from './StudyMarkers.vue'
+import { useStudyMarkers } from '../composables/useStudyMarkers.js'
 import { STUDY } from '../composables/studyContext.js'
 import { clamp, pctText, round2, round3 } from '../utils/num.js'
 import { readPref, savePref } from '../utils/prefs.js'
@@ -157,10 +151,6 @@ watch(clickAuto, (on) => {
   if (on && loadedFor.value != null)
     click.songSettings(loadedFor.value, study.value.metronome, true)
 })
-/** El marcador elegido (uno de `study.markers`), o null. */
-const selected = ref(null)
-/** Los marcadores con la casilla puesta: para tocar varios seguidos. */
-const checked = ref(/** @type {Set<any>} */ (new Set()))
 /** La rejilla de pulsos de la cancion que suena, tal como la dio el analisis, o null. */
 const grid = click.grid
 /** La pestaña de notas: las de la cancion o las del marcador elegido. */
@@ -172,8 +162,12 @@ const timeline = ref(null)
  * objeto, que se va llenando según se arma cada una (studyContext.js).
  * @type {import('../composables/studyContext.js').StudyContext}
  */
-const ctx = { doc, notesTab, markers: { selected } }
+const ctx = /** @type {import('../composables/studyContext.js').StudyContext} */ ({ doc, notesTab })
 provide(STUDY, ctx)
+// los marcadores: aquí arriba porque `loadFor` quita el elegido nada más empezar
+const markers = useStudyMarkers(ctx)
+ctx.markers = markers
+const { selected, checked, markerOf, loopSaved, saveMarker, selectMarker, jump } = markers
 
 async function loadFor(id) {
   // lo pendiente es de la cancion que se deja: se guarda en ELLA ya, sin
@@ -309,6 +303,7 @@ const multi = ref(false)
 const lastTouched = ref(-1)
 const pendingA = ref(null)
 const hasLoop = computed(() => study.value.loops.length > 0)
+ctx.loops = { LOOP_ENDS, loopEndWanted, setLoopEnd, multi, lastTouched, pendingA, hasLoop }
 // ---- los mandos de la canción, encima de la onda (sin bajar al reproductor)
 /** Al principio: del tramo, si hay, o de la canción. */
 function toStart() {
@@ -1207,120 +1202,7 @@ async function reanalyze(ev) {
   )
 }
 
-// ---- marcadores: tramos con nombre y notas (uno, o varios seguidos), o un
-// instante suelto
-/** El marcador que son exactamente esos tramos, si lo hay. */
-function markerOf(list) {
-  if (!list?.length) return null
-  return (
-    study.value.markers.find((m) => {
-      const parts = partsOf(m)
-      return parts.length > 0 && sameSegments(parts, list)
-    }) || null
-  )
-}
-function markerLabel(m) {
-  const parts = partsOf(m)
-  if (parts.length > 1) return `${parts.length} tramos · ${formatTime(parts[0][0])}…`
-  return isSpan(m) ? `${formatTime(m.t)} – ${formatTime(m.end)}` : formatTime(m.t)
-}
-const loopSaved = computed(() => hasLoop.value && !!markerOf(study.value.loops))
-
-function saveMarker() {
-  if (!track.value) return
-  let m
-  const list = study.value.loops
-  if (list.length) {
-    const dup = markerOf(list)
-    if (dup) {
-      selected.value = dup
-      return notify(`Ese tramo ya es «${dup.label}»`, 'info')
-    }
-    const n = study.value.markers.filter(isSpan).length + 1
-    m = { t: list[0][0], end: list.at(-1)[1], label: `Tramo ${n}`, notes: '' }
-    // varios tramos se guardan juntos: un solo marcador que los repite seguidos
-    if (list.length > 1) m.parts = list.map((x) => [...x])
-  } else {
-    const n = study.value.markers.filter((x) => !isSpan(x)).length + 1
-    m = { t: round2(position.value), label: `Marca ${n}`, notes: '' }
-  }
-  study.value.markers = [...study.value.markers, m].sort((a, b) => a.t - b.t)
-  selected.value = m
-  notesTab.value = 'marker'
-  scheduleSave()
-}
-/**
- * Elige un marcador: pone sus tramos y, si `jump`, coloca la cancion al
- * principio. Desde la onda con candado, sonando, no salta: el tramo entra
- * cuando la cancion llega.
- */
-async function selectMarker(m, { jump = true } = {}) {
-  selected.value = m
-  notesTab.value = 'marker'
-  const parts = partsOf(m)
-  if (parts.length) {
-    pendingA.value = null
-    if (parts.length > 1) multi.value = true
-    study.value.loops = cleanSegments(parts)
-    lastTouched.value = study.value.loops.length - 1
-    await player.setLoops(study.value.loops, { end: loopEndWanted.value })
-    scheduleSave()
-  }
-  if (jump) await player.seek(m.t)
-}
-/** Un marcador, a sonar ya (desde su principio). */
-async function playMarker(m) {
-  await selectMarker(m)
-  if (!playing.value) await player.toggle()
-}
-function toggleChecked(m) {
-  const next = new Set(checked.value)
-  if (next.has(m)) next.delete(m)
-  else next.add(m)
-  checked.value = next
-}
-const checkedList = computed(() =>
-  study.value.markers.filter((m) => checked.value.has(m) && partsOf(m).length)
-)
-/**
- * Los marcadores con la casilla puesta, seguidos (saltándose lo de entre
- * medias), desde el primero: una vez o en bucle, según «Al acabar».
- */
-async function playChecked() {
-  const list = checkedList.value
-  if (!list.length) return
-  const parts = cleanSegments(list.flatMap((m) => partsOf(m)))
-  selected.value = list.length === 1 ? list[0] : null
-  pendingA.value = null
-  multi.value = parts.length > 1
-  study.value.loops = parts
-  lastTouched.value = parts.length - 1
-  await player.setLoops(parts, { end: loopEndWanted.value })
-  scheduleSave()
-  await player.seek(parts[0][0])
-  if (!playing.value) await player.toggle()
-}
-function removeMarker(m) {
-  if (selected.value === m) {
-    selected.value = null
-    notesTab.value = 'song'
-  }
-  if (checked.value.has(m)) toggleChecked(m)
-  study.value.markers = study.value.markers.filter((x) => x !== m)
-  scheduleSave()
-}
-async function renameMarker(m) {
-  const label = await ask({
-    kind: 'prompt',
-    title: 'Nombre del marcador',
-    value: m.label,
-    okLabel: 'Guardar'
-  })
-  if (!label) return
-  m.label = label.slice(0, 60)
-  scheduleSave()
-}
-const jump = (t) => player.seek(t)
+// ---- marcadores: tramos con nombre y notas (useStudyMarkers.js, StudyMarkers.vue)
 
 // ---- las guías habladas: una frase que suena en un punto de la canción
 // (escrita, y dicha con una voz, o grabada con el micrófono). Las hace el
@@ -1928,6 +1810,18 @@ function cuePath(c) {
   const f = String(c.file || '')
   const base = player.state.path || ''
   return f && !f.startsWith('/') && !/^[A-Za-z]:[\\/]/.test(f) && base ? base + '/' + f : f
+}
+ctx.cues = {
+  cueList,
+  goToCue,
+  previewCue,
+  editCue,
+  removeCue,
+  guideLanes,
+  laneOfCue,
+  cueEdit,
+  STOP_FIRST,
+  cueVolume
 }
 // ---- notas: un solo cuadro, dos pestañas (StudyNotes.vue)
 
@@ -3392,194 +3286,7 @@ defineExpose({ close: hide, hide, exit })
       </section>
 
       <!-- ======================================= marcadores y guías -->
-      <section class="study-col" :class="{ active: panel === 'markers' }">
-        <h5 class="study-col-title">
-          <Icon n="list" :t="12" /> Marcadores
-          <small v-if="study.markers.length">marca varios y tócalos seguidos</small>
-        </h5>
-        <div class="study-markers">
-          <div
-            v-for="m in study.markers"
-            :key="m.t + ':' + (m.end || 0)"
-            class="study-marker"
-            :class="{ on: m === selected, span: isSpan(m), checked: checked.has(m) }"
-          >
-            <button
-              v-if="isSpan(m)"
-              type="button"
-              role="checkbox"
-              class="study-check"
-              :class="{ on: checked.has(m) }"
-              :aria-checked="checked.has(m) ? 'true' : 'false'"
-              :aria-label="'Elegir «' + m.label + '» para tocarlo con otros'"
-              :title="'Elegir «' + m.label + '» para tocarlo seguido con otros'"
-              @click="toggleChecked(m)"
-            >
-              <Icon v-if="checked.has(m)" n="check" :t="10" />
-            </button>
-            <button
-              type="button"
-              class="study-pick"
-              :title="
-                isSpan(m) ? 'Repetir este tramo (' + markerLabel(m) + ')' : 'Ir a ' + markerLabel(m)
-              "
-              @click="selectMarker(m)"
-            >
-              <Icon :n="isSpan(m) ? 'repeat' : 'right'" :t="11" class="study-pick-ico" />
-              <span class="mono study-pick-time">{{ markerLabel(m) }}</span>
-              <span class="study-pick-name">{{ m.label }}</span>
-            </button>
-            <button
-              v-if="isSpan(m)"
-              type="button"
-              class="field-btn"
-              :title="'Tocar «' + m.label + '» ya'"
-              @click="playMarker(m)"
-            >
-              <Icon n="play" :t="11" />
-            </button>
-            <button
-              type="button"
-              class="field-btn"
-              :title="'Renombrar «' + m.label + '»'"
-              @click="renameMarker(m)"
-            >
-              <Icon n="pencil" :t="11" />
-            </button>
-            <button type="button" class="field-btn" title="Quitar" @click="removeMarker(m)">
-              <Icon n="close" :t="11" />
-            </button>
-          </div>
-          <p v-if="!study.markers.length" class="study-empty">
-            Elige un tramo en la onda y guárdalo: aquí quedan tus partes con nombre y notas.
-          </p>
-          <template v-if="study.cues?.length">
-            <h6 class="study-sub"><Icon n="waveform" :t="11" /> Guías</h6>
-            <TransitionGroup name="study-list" tag="div" class="study-cue-list">
-              <div v-for="c in cueList" :key="'c' + c.t + c.file" class="study-marker study-cue">
-                <button
-                  type="button"
-                  class="study-pick"
-                  :title="'Ir a ' + formatTime(c.t) + ' y verla en su carril'"
-                  @click="goToCue(c)"
-                >
-                  <Icon :n="c.text ? 'speech' : 'mic'" :t="11" class="study-pick-ico" />
-                  <span class="mono study-pick-time">{{ formatTime(c.t) }}</span>
-                  <span class="study-pick-name">{{ c.text || 'audio' }}</span>
-                  <span
-                    v-if="guideLanes.length > 1"
-                    class="study-cue-lane"
-                    :title="
-                      'En el carril «' +
-                      (guideLanes.find((l) => l.key === laneOfCue(c))?.name || 'Guías') +
-                      '»'
-                    "
-                    >{{ guideLanes.find((l) => l.key === laneOfCue(c))?.name || 'Guías' }}</span
-                  >
-                </button>
-                <button
-                  type="button"
-                  class="field-btn"
-                  aria-label="Escucharla"
-                  title="Escucharla"
-                  @click="previewCue(c)"
-                >
-                  <Icon n="play" :t="11" />
-                </button>
-                <button
-                  v-if="!isMobileApp"
-                  type="button"
-                  class="field-btn"
-                  aria-label="Cambiarla"
-                  :title="cueEdit ? 'Cambiarla' : STOP_FIRST"
-                  :disabled="!cueEdit"
-                  @click="editCue(c)"
-                >
-                  <Icon :n="c.text ? 'pencil' : 'cut'" :t="11" />
-                </button>
-                <button
-                  v-if="!isMobileApp"
-                  type="button"
-                  class="field-btn"
-                  aria-label="Quitarla"
-                  :title="cueEdit ? 'Quitarla' : STOP_FIRST"
-                  :disabled="!cueEdit"
-                  @click="removeCue(c)"
-                >
-                  <Icon n="close" :t="11" />
-                </button>
-              </div>
-            </TransitionGroup>
-            <div class="study-metro-row study-metro-vol">
-              <span class="study-metro-label">Guías</span>
-              <SliderField
-                v-model="cueVolume"
-                :min="0"
-                :max="3"
-                :step="0.05"
-                :mark="1"
-                width="100%"
-                aria-label="Volumen de las guías"
-                :value-text="pctText(cueVolume)"
-              />
-              <span class="study-vol-n mono">{{ pctText(cueVolume) }}</span>
-            </div>
-          </template>
-        </div>
-        <div class="btn-row study-col-foot">
-          <template v-if="checkedList.length">
-            <button
-              class="btn mini study-play-checked"
-              type="button"
-              :title="
-                'Tocar seguidos los ' +
-                checkedList.length +
-                ' elegidos, saltándose lo de en medio (al acabar: ' +
-                LOOP_ENDS.find((e) => e.v === loopEndWanted).n.toLowerCase() +
-                ')'
-              "
-              @click="playChecked"
-            >
-              <Icon n="play" :t="11" /> Tocar {{ checkedList.length }}
-              {{ checkedList.length === 1 ? 'elegido' : 'elegidos' }}
-            </button>
-            <span class="study-ends" role="radiogroup" aria-label="Los elegidos, al acabar">
-              <button
-                v-for="e in LOOP_ENDS"
-                :key="e.v"
-                type="button"
-                role="radio"
-                class="btn mini study-end"
-                :class="{ on: loopEndWanted === e.v }"
-                :aria-checked="loopEndWanted === e.v"
-                :title="e.title"
-                @click="setLoopEnd(e.v)"
-              >
-                <Icon :n="e.icon" :t="11" />
-              </button>
-            </span>
-          </template>
-          <button
-            v-else-if="hasLoop && !loopSaved"
-            class="btn mini"
-            type="button"
-            title="Guardar el tramo que se repite como marcador"
-            @click="saveMarker"
-          >
-            <Icon n="save" :t="12" /> Guardar tramo
-          </button>
-          <button
-            v-else-if="!hasLoop"
-            class="btn mini"
-            type="button"
-            :disabled="!track"
-            title="Marcar este instante (sin tramo elegido)"
-            @click="saveMarker"
-          >
-            <Icon n="plus" :t="12" /> aquí
-          </button>
-        </div>
-      </section>
+      <StudyMarkers :class="{ active: panel === 'markers' }" />
 
       <!-- ========================================================= notas -->
       <StudyNotes :class="{ active: panel === 'notes' }" />
