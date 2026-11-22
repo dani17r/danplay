@@ -21,4 +21,4 @@ No estan en git.
 
 En desarrollo, la app usa data/, y ONNX Runtime el de aqui (que la
 compilacion deja junto al ejecutable; scripts/dev.sh lo baja la primera
-vez) o el del .venv del proyecto.
+vez).

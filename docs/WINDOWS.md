@@ -42,7 +42,7 @@ la saca la propia app, y un `.exe` no se puede ejecutar en Linux.
 | **«Abrir con DanPlay»** | lo activa la propia app desde Ajustes | lo deja puesto el instalador |
 | **Desinstalador** | borrar la carpeta | sí, y sale en «Aplicaciones instaladas» |
 | **ffmpeg, fpcalc y QuickJS** | solo con `--with-tools` | siempre (el de la CI; ver abajo) |
-| **Tamaño** | por medir sin Python (en la 1.30, con él: 217 MB comprimido) | por medir (en la 1.30: 191 MB) |
+| **Tamaño** | sin medir desde que no lleva Python (en la 1.30, con él: 217 MB comprimido) | sin medir desde entonces (en la 1.30: 191 MB) |
 
 ## Actualizar
 
@@ -65,7 +65,8 @@ las portadas antes de encogerlas y la duración de las secuencias, cosas que
 salen ahora de la cabecera del propio archivo; y `deno.exe` (93 MB), el motor
 de JavaScript de YouTube, que ahora es QuickJS (`qjs.exe`, 2 MB). Deno
 resolvía los retos algo antes: con QuickJS cada descarga tarda unos 5
-segundos más.
+segundos más. Y desde la 1.45 tampoco `yt-dlp.exe`: lo instala la app, en su
+carpeta de datos, la primera vez que se baja algo de YouTube.
 
 La primera vez descarga a `~/.cache/danplay-windows` lo que necesita
 —mingw-w64 y NSIS, extraídos de sus paquetes sin instalar nada; ONNX Runtime

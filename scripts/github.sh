@@ -163,7 +163,8 @@ place () {
         copy_out "$apk" "$(basename "$apk")"
         ;;
     windows)
-        # dos trabajos en la misma ejecución: si uno falló, el otro sirve igual
+        # dos artefactos de la misma ejecución (el instalador y el portátil):
+        # si falta uno, el otro sirve igual
         exe=$(find "$dir" -name 'DanPlay_*-setup.exe' | head -1)
         if [ -n "$exe" ]; then
             rm -f dist/installers/DanPlay_*-setup.exe

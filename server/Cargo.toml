@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 rust-version.workspace = true
-description = "La API del núcleo de DanPlay en Rust: las mismas rutas, cuerpos y errores que la de FastAPI (danplay/api/), en el mismo proceso que la app o por un socket"
+description = "La API del núcleo de DanPlay: sus rutas, cuerpos y errores, en el mismo proceso que la app o por un socket"
 
 [lib]
 name = "server"
@@ -28,7 +28,7 @@ md-5 = "0.11.0"
 ureq = "3.4.2"
 percent-encoding = "2"
 # Servir la API por un socket Unix o por loopback (las pruebas de la
-# interfaz, el arnés que la compara con la de Python y la línea de órdenes)
+# interfaz y la línea de órdenes)
 hyper = { version = "1", features = ["server", "http1"] }
 hyper-util = { version = "0.1", features = ["tokio"] }
 http-body-util = "0.1"
