@@ -48,6 +48,29 @@ pub fn wav(channels: u16, rate: u32, data: &[f32]) -> Arc<[u8]> {
     Arc::from(out)
 }
 
+/// Un WAV en coma flotante de 32 bits (formato 3) con esas muestras tal
+/// cual, sin recortar: lo que trae un WAV de un estudio, NaN incluidos.
+pub fn wav_f32(channels: u16, rate: u32, data: &[f32]) -> Arc<[u8]> {
+    let bytes = (data.len() * 4) as u32;
+    let mut out = Vec::with_capacity(44 + data.len() * 4);
+    out.extend_from_slice(b"RIFF");
+    out.extend_from_slice(&(36 + bytes).to_le_bytes());
+    out.extend_from_slice(b"WAVEfmt ");
+    out.extend_from_slice(&16u32.to_le_bytes());
+    out.extend_from_slice(&3u16.to_le_bytes());
+    out.extend_from_slice(&channels.to_le_bytes());
+    out.extend_from_slice(&rate.to_le_bytes());
+    out.extend_from_slice(&(rate * u32::from(channels) * 4).to_le_bytes());
+    out.extend_from_slice(&(channels * 4).to_le_bytes());
+    out.extend_from_slice(&32u16.to_le_bytes());
+    out.extend_from_slice(b"data");
+    out.extend_from_slice(&bytes.to_le_bytes());
+    for v in data {
+        out.extend_from_slice(&v.to_le_bytes());
+    }
+    Arc::from(out)
+}
+
 /// Una carpeta temporal vacia para una prueba (la borra quien la pide).
 pub fn scratch(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("danplay-engine-{name}-{}", std::process::id()));

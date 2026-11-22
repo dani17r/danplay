@@ -222,11 +222,13 @@ impl Mixer {
                 }
             }
             self.limiter.process(acc);
+            // lo que no sea un numero no llega a la tarjeta (en coma flotante
+            // pasaria tal cual): silencio en su lugar
             for (o, v) in data[done * channels..(done + n) * channels]
                 .iter_mut()
                 .zip(acc.iter())
             {
-                *o = T::from_sample(*v);
+                *o = T::from_sample(if v.is_finite() { *v } else { 0.0 });
             }
             done += n;
         }
@@ -690,6 +692,42 @@ mod tests {
         let loud = data.iter().fold(0f32, |m, v| m.max(v.abs()));
         assert!(loud > 0.1, "{loud}");
         assert_eq!(beat.load(Ordering::Relaxed), 2, "cada vuelta, un latido");
+    }
+
+    #[test]
+    fn what_is_not_a_number_does_not_reach_the_card() {
+        // un bloque con NaN (lo que da un infinito en el limitador): en coma
+        // flotante llegaba tal cual a la tarjeta
+        use crate::feeder::{Block, Shared};
+        use crate::render::{Gains, Ring};
+        let controls = Arc::new(Controls::default());
+        let mut render = Render::new(44_100, 44_100, Arc::clone(&controls));
+        let (mut free_tx, free_rx) = rtrb::RingBuffer::<Box<Block>>::new(4);
+        let (mut full_tx, full_rx) = rtrb::RingBuffer::<Box<Block>>::new(4);
+        let mut block = Box::new(Block::new(1));
+        block.frames = crate::feeder::BLOCK;
+        block.data.fill(f32::NAN);
+        let _ = full_tx.push(block);
+        let _ = free_tx.push(Box::new(Block::new(1)));
+        render.set_ring(Some(Ring {
+            full: full_rx,
+            free: free_tx,
+            parts: 1,
+            shared: Arc::new(Shared::default()),
+            gains: Arc::new(Gains::default()),
+        }));
+        controls.playing.store(true, Ordering::Release);
+        let deck = Arc::new(Mutex::new(render));
+        let (broken, beat) = (
+            Arc::new(AtomicBool::new(false)),
+            Arc::new(AtomicU64::new(0)),
+        );
+        let xruns = Arc::new(AtomicU64::new(0));
+        let mut mixer = Mixer::new(&[deck], 44_100, 2, &broken, &beat, &xruns);
+        let mut data = vec![0f32; 512 * 2];
+        mixer.fill(&mut data);
+        assert!(data.iter().all(|v| v.is_finite()));
+        drop((free_rx, full_tx));
     }
 
     #[test]

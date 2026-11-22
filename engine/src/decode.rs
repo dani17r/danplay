@@ -420,6 +420,15 @@ impl Decoded {
         }
         self.scratch.resize(audio.samples_interleaved(), 0.0);
         audio.copy_to_slice_interleaved(&mut self.scratch);
+        // un WAV o un AIFF en coma flotante (o un paquete dañado) puede traer
+        // NaN o infinitos: en el estirador dejaban la parte muda o con ruido
+        // hasta el siguiente salto (guarda la fase de antes de cada banda), y
+        // en el limitador un infinito da NaN. Silencio en su lugar
+        for v in &mut self.scratch {
+            if !v.is_finite() {
+                *v = 0.0;
+            }
+        }
         let frames = self.scratch.len() / channels;
         let mut drop = 0;
         if self.want == i64::MIN {
@@ -637,7 +646,7 @@ fn read_priming(media: &Media, track_id: u32, rate: u32) -> u64 {
 pub(crate) mod tests {
     use super::*;
     use crate::testing::{
-        LONG_MARKS, encoded, ffmpeg, ffmpeg_pcm, fixture, scratch, wav, without_ffmpeg,
+        LONG_MARKS, encoded, ffmpeg, ffmpeg_pcm, fixture, scratch, wav, wav_f32, without_ffmpeg,
     };
 
     fn all(part: &mut Part) -> Vec<f32> {
@@ -726,6 +735,29 @@ pub(crate) mod tests {
         let mut buf = vec![0f32; 100];
         assert_eq!(part.read(&mut buf), 0);
         assert!(part.done());
+    }
+
+    #[test]
+    fn nan_and_infinities_in_a_float_wav_come_out_as_silence() {
+        // en el estirador dejaban la parte muda o con ruido hasta el siguiente
+        // salto, y en el limitador un infinito da NaN
+        let mut data = vec![0.25f32; 2_000];
+        data[10] = f32::NAN;
+        data[11] = f32::INFINITY;
+        data[501] = f32::NEG_INFINITY;
+        let mut part = Part::open(wav_f32(2, 44_100, &data), "wav").expect("wav");
+        let pcm = all(&mut part);
+        assert_eq!(pcm.len(), 2_000);
+        assert!(
+            pcm.iter().all(|v| v.is_finite()),
+            "todo lo leido es un numero"
+        );
+        assert_eq!((pcm[10], pcm[11], pcm[501]), (0.0, 0.0, 0.0));
+        assert!(
+            (pcm[12] - 0.25).abs() < 1e-6,
+            "lo de al lado, tal cual: {}",
+            pcm[12]
+        );
     }
 
     #[test]
