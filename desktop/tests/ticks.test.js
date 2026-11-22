@@ -34,6 +34,7 @@ vi.mock('../src/utils/markdown.js', async (importOriginal) => {
 })
 
 import App from '../src/App.vue'
+import DetailsPanel from '../src/components/DetailsPanel.vue'
 import { renderMarkdown } from '../src/utils/markdown.js'
 import { resetPlayback } from '../src/composables/usePlayback.js'
 import { resetPreferences } from '../src/composables/usePreferences.js'
@@ -50,20 +51,19 @@ beforeEach(() => {
   vi.clearAllMocks()
 })
 
+/** Cuenta cuántas veces se repinta cada componente (por su nombre). */
+const counting = (counts) => ({
+  updated() {
+    const n = this.$.type.__name || '?'
+    counts[n] = (counts[n] || 0) + 1
+  }
+})
+
 /** Monta la app contando cuantas veces se repinta cada componente. */
 async function mountView(counts) {
   const w = mount(App, {
     attachTo: document.body,
-    global: {
-      mixins: [
-        {
-          updated() {
-            const n = this.$.type.__name || '?'
-            counts[n] = (counts[n] || 0) + 1
-          }
-        }
-      ]
-    }
+    global: { mixins: [counting(counts)] }
   })
   await flushPromises()
   await flushPromises()
@@ -145,5 +145,32 @@ describe('what plays and what gets repainted', () => {
     })
     await flushPromises()
     expect(w.find('.player .title').text()).toBe('Shekinah')
+  })
+
+  it('the details panel with synced lyrics: the lyrics follow, the panel is not repainted', async () => {
+    const lrc = '[00:01.00]Mi gozo\n[00:03.00]es el Señor\n[00:04.50]coro'
+    held.playback.emit({
+      track: { id: 1, title: 'Mi Gozo', artist: 'Barak', duration: 200, blur: false },
+      playing: true,
+      position: 0
+    })
+    await flushPromises()
+    const counts = {}
+    const w = mount(DetailsPanel, {
+      attachTo: document.body,
+      props: { song: song(1, { title: 'Mi Gozo', lyrics_synced: lrc }), aiReady: false },
+      global: { mixins: [counting(counts)] }
+    })
+    await flushPromises()
+    for (const k of Object.keys(counts)) delete counts[k]
+    for (let i = 1; i <= 20; i++) {
+      held.playback.emit({ position: i * 0.25 })
+      await flushPromises()
+    }
+    expect(counts.DetailsPanel || 0, 'la ficha entera se repinta en cada tick').toBe(0)
+    // la letra sí sigue a la canción: a los 5 s va por el coro
+    expect(w.find('.lrc-line.current').text()).toBe('coro')
+    expect(counts.SyncedLyrics).toBeGreaterThan(0)
+    w.unmount()
   })
 })
