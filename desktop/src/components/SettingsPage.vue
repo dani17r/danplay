@@ -8,6 +8,7 @@ import { usePlayback, CROSSFADES } from '../composables/usePlayback.js'
 import { notify } from '../composables/useNotices.js'
 import { ask, tell } from '../composables/useDialog.js'
 import { useSeparation } from '../composables/useSeparation.js'
+import { useAiSetup } from '../composables/useAiSetup.js'
 import { formatAgo, formatGigabytes } from '../utils/format.js'
 import { DENSITIES, KIND_LABEL, allThemes, deleteCustomTheme } from '../themes.js'
 import ThemeEditor from './ThemeEditor.vue'
@@ -37,12 +38,28 @@ const checkingKey = ref(false)
 const keyState = ref(null)
 // El proveedor de IA se elige en un modal aparte: son sesenta y pico
 // servicios con sus campos, y aqui solo se enseña cual esta en uso y los
-// que ya estan configurados, para saltar entre ellos con un clic.
-const aiInfo = ref(null)
-const aiModal = ref(false)
-const aiInitial = ref('')
-const aiProfiles = computed(() => Object.values(aiInfo.value?.profiles || {}))
-const activeAi = computed(() => aiInfo.value?.active_profile || null)
+// que ya estan configurados, para saltar entre ellos con un clic. Lo mismo
+// que ofrece el asistente en su panel de opciones (useAiSetup).
+const {
+  aiInfo,
+  aiModal,
+  aiInitial,
+  aiProfiles,
+  activeAi,
+  loadAi,
+  openAi,
+  afterAiSaved,
+  activateAi,
+  tryingFree,
+  freeResult,
+  tryFree: tryAiFree
+} = useAiSetup({
+  onSaved: async () => {
+    keyState.value = null
+    settings.value = await api.settings()
+    status.value = await api.status()
+  }
+})
 // Lo que gasta la IA (tokens y coste segun el catalogo): hoy y este mes.
 const usage = ref(null)
 async function loadUsage() {
@@ -84,41 +101,11 @@ async function saveBudget() {
   }
 }
 
-function openAi(initial = '') {
-  aiInitial.value = initial
-  aiModal.value = true
-}
-// «Probar gratis, sin clave»: el nucleo prueba los servicios gratuitos por
-// orden y activa el primero que responda. Tarda lo que tarden en contestar.
-const tryingFree = ref(false)
-const freeResult = ref(null)
-async function tryFree() {
-  tryingFree.value = true
-  freeResult.value = null
+// «Probar gratis, sin clave»: lo que dijo «Probar» deja de valer ya al
+// empezar, no solo si sale bien
+function tryFree() {
   keyState.value = null
-  try {
-    const r = await api.aiFree()
-    freeResult.value = r.free
-    await afterAiSaved(r)
-  } catch (e) {
-    freeResult.value = { ok: false, reason: errorMessage(e) }
-  } finally {
-    tryingFree.value = false
-  }
-}
-async function afterAiSaved(r) {
-  aiInfo.value = r
-  keyState.value = null
-  settings.value = await api.settings()
-  status.value = await api.status()
-}
-async function activateAi(id) {
-  if (id === aiInfo.value?.active) return
-  try {
-    await afterAiSaved(await api.aiActivate(id))
-  } catch (e) {
-    notify(errorMessage(e))
-  }
+  return tryAiFree()
 }
 async function removeAi(p) {
   const ok = await ask({
@@ -247,11 +234,7 @@ async function load() {
   player.value = await app.defaultPlayer()
   // Consulta el catalogo de modelos en segundo plano si hace rato: asi el
   // apartado de IA abre ya con la lista de hoy.
-  try {
-    aiInfo.value = await api.aiProviders()
-  } catch {
-    /* sin nucleo de IA: la tarjeta lo dice */
-  }
+  await loadAi()
   loadUsage()
   loadDownloadFolder()
 }
