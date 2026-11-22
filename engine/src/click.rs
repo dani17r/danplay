@@ -219,6 +219,32 @@ mod tests {
         assert!(bad.is_empty(), "acaban cortados: {bad:#?}");
     }
 
+    /// Un banco (no de la CI): lo que cuesta sintetizar un golpe en el hilo de
+    /// audio, muestra a muestra, por trozo de 256 (lo que pide el render).
+    #[test]
+    #[ignore = "banco de desarrollo: lo que cuesta el clic"]
+    fn what_a_click_costs_to_synthesize() {
+        use std::time::Instant;
+        for sound in SOUNDS {
+            let len = click_len(true, 44_100, sound);
+            let reps = 400;
+            let t = Instant::now();
+            let mut sum = 0f32;
+            for _ in 0..reps {
+                for i in 0..len {
+                    sum += click_sample(std::hint::black_box(i), true, 44_100, sound);
+                }
+            }
+            let each = t.elapsed().as_secs_f64() / (reps * len) as f64;
+            std::hint::black_box(sum);
+            println!(
+                "{sound:?}: {:.0} ns por muestra, {:.1} µs por trozo de 256 con una voz",
+                each * 1e9,
+                each * 256.0 * 1e6
+            );
+        }
+    }
+
     #[test]
     fn the_names_are_the_ones_the_interface_sends() {
         let names: Vec<String> = SOUNDS
