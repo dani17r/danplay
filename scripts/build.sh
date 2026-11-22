@@ -39,8 +39,7 @@ if [ "${1:-}" = "--package" ]; then
     # (desktop/src-tauri/tools)
     ./scripts/tools-linux.sh
     # La compila `tauri build` (con su entorno: compilarla tambien con cargo
-    # era hacerlo dos veces), pero sin empaquetar todavia: antes se saca con
-    # ella la foto del catalogo (abajo).
+    # era hacerlo dos veces), y se empaqueta abajo.
     ( cd desktop && vp exec tauri build --no-bundle )
 else
     # workspace de Cargo: sale en target/ de la raiz
@@ -48,14 +47,9 @@ else
 fi
 
 if [ "${1:-}" = "--package" ]; then
-    step "extra  la foto del catalogo de modelos, la de hoy"
-    # Para que ningun paquete salga con una lista de hace meses, la saca la
-    # propia app recien compilada, y en data/, que es lo que se empaqueta: la
-    # del repositorio no se toca.
-    # Sin internet viaja la del repositorio.
-    "$APP" --models-snapshot desktop/src-tauri/data/models-snapshot.json \
-      || echo "  sin red: viaja la del repositorio"
-
+    # (la foto del catalogo de modelos viaja la del repositorio, data/: se
+    # saca al subir la version, con scripts/bump-version.sh, y asi es la
+    # misma en todos los paquetes)
     step "extra  paquetes .deb y .AppImage"
     BUNDLE="$TARGET/release/bundle"
 
@@ -80,7 +74,9 @@ if [ "${1:-}" = "--package" ]; then
     # (la misma en todas partes: la prueba de versiones lo vigila).
     VERSION=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -1)
 
-    for f in $(find "$BUNDLE" -type f \( -name '*.deb' -o -name '*.AppImage' \)); do
+    # (los nombres de Tauri no llevan espacios: DanPlay_X.Y.Z_amd64.deb)
+    for f in "$BUNDLE"/deb/*.deb "$BUNDLE"/appimage/*.AppImage; do
+        [ -f "$f" ] || continue
         # Cinturon: si por lo que sea aparece un paquete que no es de esta
         # version, se para en vez de copiarlo.
         case "$(basename "$f")" in
@@ -97,7 +93,8 @@ if [ "${1:-}" = "--package" ]; then
     done
 
     # Lo que tiene que llevar el .deb, y lo que no: ni rastro de Python.
-    DEB=$(ls dist/installers/*_"$VERSION"_*.deb)
+    DEB="dist/installers/DanPlay_${VERSION}_amd64.deb"
+    [ -f "$DEB" ] || die "no salio $DEB"
     CONTENTS=$(dpkg-deb -c "$DEB")
     for wanted in usr/bin/danplay-app usr/lib/DanPlay/data/libonnxruntime.so \
                   usr/lib/DanPlay/data/pulse/beat_this.onnx usr/lib/DanPlay/data/models-snapshot.json \

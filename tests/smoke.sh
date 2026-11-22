@@ -84,6 +84,7 @@ alive () { s=$(ps -o stat= -p "$1" 2>/dev/null); [ -n "$s" ] && [ "${s#Z}" = "$s
 tree () { echo "$1"; for c in $(pgrep -P "$1"); do tree "$c"; done; }
 
 cleanup () {
+    # shellcheck disable=SC2046  # una lista de pids: se parte a proposito
     [ -n "${PID:-}" ] && kill -9 $(tree "$PID") 2>/dev/null
     [ -n "${DISPLAY_PID:-}" ] && kill "$DISPLAY_PID" 2>/dev/null
     [ -n "${MOUNT_PID:-}" ] && kill "$MOUNT_PID" 2>/dev/null && sleep 1

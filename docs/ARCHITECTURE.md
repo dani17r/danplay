@@ -602,8 +602,11 @@ la URL, si pide clave y qué parámetros tolera. Tres piezas:
   vez que se abre el selector y al arrancar: sin cambios, el servidor
   responde 304 y cero bytes, así que se puede comprobar siempre. La copia
   vive en la carpeta de datos; la app lleva dentro una foto para el primer
-  arranque sin red, regenerada en cada paquete por la propia app recién
-  compilada (`--models-snapshot`). Y lo que el usuario puede usar **de
+  arranque sin red (`data/models-snapshot.json`), que se saca al subir la
+  versión (`scripts/bump-version.sh`, con `--models-snapshot` de la app ya
+  compilada) y va en git: la misma en todos los paquetes. (Hasta la 1.44 la
+  sacaba cada paquete al construirse, así que cada sistema podía llevar una
+  distinta.) Y lo que el usuario puede usar **de
   verdad** con su clave lo dice el propio proveedor (`/models`), cruzado con
   el catálogo.
 - **Gratis, sin clave**: el grupo `free` del catálogo (LLM7, las rutas
@@ -2835,8 +2838,7 @@ la versión vieja y no se nota. Por eso hay un script y no tres comandos.
 mismo proceso: ver [la migración](MIGRATION.md)). Hasta la 1.30 era el de
 Python, empaquetado con PyInstaller en una carpeta (`core/`) que la app
 arrancaba aparte y a la que hablaba por un socket. Con `--package` la app se
-compila sin empaquetar (`tauri build --no-bundle`), saca con ella misma la
-foto del catálogo de modelos (`--models-snapshot`) y luego se empaqueta
+compila sin empaquetar (`tauri build --no-bundle`) y luego se empaqueta
 (`tauri bundle`); el script comprueba que el `.deb` lleva el núcleo, sus
 datos y sus programas, y nada de Python.
 

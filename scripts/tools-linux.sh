@@ -23,9 +23,12 @@ cd "$(dirname "$0")/.."
 DEST=desktop/src-tauri/tools
 CACHE="${DANPLAY_CACHE_LINUX:-$HOME/.cache/danplay-linux}"
 
-# ffmpeg 9.0.2 de martin-riedl.de (el mismo que el paquete de macOS)
+# ffmpeg 9.0.2 de martin-riedl.de (el mismo que el paquete de macOS). Ese es
+# un servidor personal: si desaparece, la copia idéntica (la misma suma) de la
+# versión «tools-ffmpeg-9.0.2» del repositorio de DanPlay.
 FFMPEG_URL=https://ffmpeg.martin-riedl.de/download/linux/amd64/1789931100_9.0.2
 FFMPEG_SHA256=fa8ecf4abbd290d98f7d188b8649cc6b391ae209a98452be955a15aab1909d7f
+FFMPEG_MIRROR=https://github.com/dani17r/danplay/releases/download/tools-ffmpeg-9.0.2/ffmpeg-9.0.2-linux-amd64.zip
 # fpcalc 1.6.1 (estático), de las versiones de Chromaprint
 FPCALC_URL=https://github.com/acoustid/chromaprint/releases/download/v1.6.1/chromaprint-fpcalc-1.6.1-linux-x86_64.tar.gz
 FPCALC_SHA256=fc16cd37a70168040bc9ceb45f1d4d1216f5a75bc4c9cf8564bea70ac6a45733
@@ -42,20 +45,29 @@ die () { printf '\033[31m%s\033[0m\n' "$1" >&2; exit 1; }
 mkdir -p "$CACHE" "$DEST"
 
 # Baja `url` a la caché como `name`, si no está ya, y comprueba su sha256.
+# Con una segunda dirección, si la primera falla (o da otra cosa), esa.
 download () {
-    url=$1 sha=$2 name=$3
+    sha=$2 name=$3
     file="$CACHE/$name"
     if [ -f "$file" ] && echo "$sha  $file" | sha256sum -c --status -; then
         return 0
     fi
     printf '  bajando %s\n' "$name"
-    curl -sfL --retry 3 -o "$file.part" "$url" || die "no pude bajar $url"
-    echo "$sha  $file.part" | sha256sum -c --status - \
-      || { rm -f "$file.part"; die "$name no es el que se esperaba (sha256)"; }
-    mv "$file.part" "$file"
+    for url in "$1" ${4:+"$4"}; do
+        if ! curl -sfL --retry 3 -o "$file.part" "$url"; then
+            printf '  no pude bajar %s\n' "$url" >&2
+        elif echo "$sha  $file.part" | sha256sum -c --status -; then
+            mv "$file.part" "$file"
+            return 0
+        else
+            printf '  %s no es el que se esperaba (sha256)\n' "$url" >&2
+        fi
+        rm -f "$file.part"
+    done
+    die "no pude bajar $name"
 }
 
-download "$FFMPEG_URL/ffmpeg.zip" "$FFMPEG_SHA256" ffmpeg-9.0.2.zip
+download "$FFMPEG_URL/ffmpeg.zip" "$FFMPEG_SHA256" ffmpeg-9.0.2.zip "$FFMPEG_MIRROR"
 download "$FPCALC_URL" "$FPCALC_SHA256" fpcalc-1.6.1.tar.gz
 download "$QJS_URL" "$QJS_SHA256" qjs-0.17.0
 download "$YTDLP_URL" "$YTDLP_SHA256" yt-dlp-2026.08.19
@@ -70,8 +82,14 @@ rm -f "$DEST/ffprobe" "$DEST/deno"
 chmod 755 "$DEST/ffmpeg" "$DEST/fpcalc" "$DEST/qjs" "$DEST/yt-dlp"
 
 # Que arrancan de verdad en esta máquina (la de la CI es la más vieja que se
-# admite: Ubuntu 22.04)
-"$DEST/ffmpeg" -hide_banner -version | head -1
-"$DEST/fpcalc" -version
-"$DEST/qjs" --help 2>&1 | head -1
-printf 'yt-dlp %s\n' "$("$DEST/yt-dlp" --ignore-config --version)"
+# admite: Ubuntu 22.04). Con la salida guardada y no por una tubería: sin
+# `pipefail`, `programa | head -1` da el estado de `head`, y un programa que
+# no arranca pasaba por bueno.
+v=$("$DEST/ffmpeg" -hide_banner -version) || die "ffmpeg no arranca aquí"
+printf '%s\n' "$v" | head -1
+v=$("$DEST/fpcalc" -version) || die "fpcalc no arranca aquí"
+printf '%s\n' "$v"
+v=$("$DEST/qjs" --version) || die "qjs no arranca aquí"
+printf 'QuickJS %s\n' "$v"
+v=$("$DEST/yt-dlp" --ignore-config --version) || die "yt-dlp no arranca aquí"
+printf 'yt-dlp %s\n' "$v"

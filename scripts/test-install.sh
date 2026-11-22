@@ -14,7 +14,15 @@ cd "$(dirname "$0")/.."
 die () { printf '\n\033[31mERROR\033[0m  %s\n' "$1" >&2; exit 1; }
 
 command -v docker >/dev/null 2>&1 || die "hace falta Docker"
-DEB="${1:-$(ls -t dist/installers/*.deb 2>/dev/null | head -1)}"
+# el que se diga, o el mas nuevo (sin `ls`: un nombre raro no lo parte)
+DEB=${1:-}
+if [ -z "$DEB" ]; then
+    for f in dist/installers/*.deb; do
+        [ -f "$f" ] || continue
+        # (`-newer` de find, y no `-nt` de test: ese no es de POSIX)
+        if [ -z "$DEB" ] || [ -n "$(find "$f" -prune -newer "$DEB")" ]; then DEB=$f; fi
+    done
+fi
 [ -n "$DEB" ] && [ -f "$DEB" ] || die "no hay ningun .deb: ./scripts/build.sh --package"
 DEB=$(realpath "$DEB")
 CHECK=$(realpath scripts/install-check.sh)

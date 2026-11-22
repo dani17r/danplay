@@ -35,6 +35,9 @@ foreach ($program in @('node', 'vp', 'cargo', 'rustc')) {
 
 # Baja `url` a la cache como `name`, si no esta ya, y comprueba su SHA-256.
 # La cache, como la de scripts/tools-linux.sh: la segunda vez no se baja nada.
+# Una suma que no coincide para aqui mismo (Fail, no throw): sin red se puede
+# seguir sin las herramientas (abajo), pero no con un archivo que no es el
+# que se esperaba.
 $cache = Join-Path $env:LOCALAPPDATA 'danplay-windows'
 New-Item -ItemType Directory -Force -Path $cache | Out-Null
 function Download($url, $sha, $name) {
@@ -43,7 +46,7 @@ function Download($url, $sha, $name) {
     Write-Host "   bajando $name"
     Invoke-WebRequest -Uri $url -OutFile "$file.part"
     $real = (Get-FileHash "$file.part" -Algorithm SHA256).Hash.ToLower()
-    if ($real -ne $sha) { Remove-Item "$file.part"; throw "$name no es lo esperado: $real" }
+    if ($real -ne $sha) { Remove-Item "$file.part"; Fail "$name no es lo esperado (sha256 $real)" }
     Move-Item -Force "$file.part" $file
     return $file
 }
@@ -127,17 +130,10 @@ if (-not $NoTools) {
 # --- la aplicacion -----------------------------------------------------------
 Step '4/4  aplicacion de escritorio (Tauri), con el nucleo dentro'
 if ($Installer) {
+    # con la foto del catalogo de modelos del repositorio (data/), la que se
+    # saca al subir la version: la misma en todos los paquetes
     Push-Location desktop
-    # sin empaquetar todavia: antes se saca con ella la foto del catalogo
-    vp exec tauri build --no-bundle
-    Pop-Location
-    # La de hoy, para que el instalador no salga con una lista de hace meses
-    # (sin red, viaja la del repositorio). Con -Wait: es una app de ventanas.
-    $p = Start-Process -Wait -PassThru -NoNewWindow -FilePath target/release/danplay-app.exe `
-         -ArgumentList '--models-snapshot', "$data/models-snapshot.json"
-    if ($p.ExitCode -ne 0) { Write-Host '   sin red: viaja la foto del repositorio' -ForegroundColor Yellow }
-    Push-Location desktop
-    vp exec tauri bundle --bundles nsis
+    vp exec tauri build --bundles nsis
     Pop-Location
 } else {
     cargo build --release -p danplay-app

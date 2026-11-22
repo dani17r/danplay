@@ -207,9 +207,12 @@ cd desktop && vp run check                       # lint + css + formato + prueba
 cd desktop && vp run e2e                         # los flujos en Chrome
 ```
 
-Las e2e arrancan `danplay-server` (`desktop/e2e/server.mjs` lo busca en
-`target/debug` o `target/release`; o el que diga `DANPLAY_E2E_CORE`), así
-que antes hace falta `cargo build -p danplay-server`.
+Las e2e arrancan `danplay-server` (`desktop/e2e/server.mjs` coge el más
+nuevo de `target/ci`, `target/release` y `target/debug`; o el que diga
+`DANPLAY_E2E_CORE`), así que antes hace falta compilarlo:
+`cargo build --profile ci -p danplay-server`, como `scripts/test.sh` y la CI.
+El perfil `ci` es el de release sin LTO ni `strip`: lo mismo de rápido al
+correr y mucho más rápido de enlazar.
 
 ### Cómo se escriben aquí las pruebas
 
@@ -291,15 +294,23 @@ toca a mano:
 ```
 
 Eso los deja iguales, con el cerrojo de Cargo (el de Bun no la lleva) y la
-insignia del README. Después, `./scripts/test.sh --quick` —hay
-una prueba que falla si alguno se queda atrás—, un **commit propio**
-(`chore: subir a 1.3.0`, sin mezclarlo con el cambio) y, para publicarla,
-una etiqueta:
-`git tag v1.3.0 && git push --tags`. Con ella la CI construye los siete
-paquetes (el `.deb`, el `.AppImage`, el APK, los dos `.dmg` y el instalador y
-el portátil de Windows) y los deja en esa versión de GitHub: no hace falta
-compilar nada en tu equipo. Si además los quieres en `dist/installers/`,
-`./scripts/github.sh packages` espera a esas mismas ejecuciones y te los baja.
+insignia del README, y saca la foto del catálogo de modelos de IA de hoy
+(`data/models-snapshot.json`, con la app ya compilada; sin red se queda la de
+antes y lo dice), que va en ese mismo commit: es la que viaja en todos los
+paquetes de la versión. Avisa también si falta la entrada de la versión en
+`CHANGELOG.md` (y en `desktop/src/data/releases.js`). Después,
+`./scripts/test.sh --quick` —hay una prueba que falla si alguno se queda
+atrás—, un **commit propio** (`chore: subir a 1.3.0`, sin mezclarlo con el
+cambio) y, para publicarla, una etiqueta anotada:
+`git tag -a v1.3.0 -m 1.3.0 && git push --tags`. La CI comprueba que la
+etiqueta es la versión de `Cargo.toml` antes de construir nada, y con ella
+construye los siete paquetes (el `.deb`, el `.AppImage`, el APK, los dos
+`.dmg` y el instalador y el portátil de Windows) y los deja en esa versión de
+GitHub, con sus sumas (`SHA256SUMS-<sistema>.txt`) y su procedencia firmada
+(`gh attestation verify DanPlay_1.3.0_amd64.deb -R dani17r/danplay`): no
+hace falta compilar nada en tu equipo. Si además los quieres en
+`dist/installers/`, `./scripts/github.sh packages` espera a esas mismas
+ejecuciones y te los baja.
 
 ## Estilo
 

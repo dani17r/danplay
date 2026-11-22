@@ -18,7 +18,7 @@
 // Playwright arranca esto (webServer) y espera a que Vite conteste; al acabar
 // lo para con SIGTERM y aquí se para todo lo demás y se borra el temporal.
 import { spawn, execFileSync } from 'node:child_process'
-import { mkdtempSync, mkdirSync, rmSync, existsSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, rmSync, existsSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -26,13 +26,17 @@ import { SONGS, BIG_COUNT, bigSong } from './songs.js'
 
 const DESKTOP = join(dirname(fileURLToPath(import.meta.url)), '..')
 const ROOT = join(DESKTOP, '..')
-// `danplay-server` (DANPLAY_E2E_CORE, o el de `cargo build -p danplay-server`)
+// `danplay-server` (DANPLAY_E2E_CORE, o el de `cargo build -p danplay-server`
+// con el perfil que sea: `ci`, el de la CI y scripts/test.sh; release o
+// depuración). Si hay varios, el más nuevo: el otro puede ser de hace semanas
+// y las pruebas fallarían contra un núcleo viejo.
+const TARGET = process.env.CARGO_TARGET_DIR || join(ROOT, 'target')
 const SERVER =
   process.env.DANPLAY_E2E_CORE ||
-  [
-    join(ROOT, 'target', 'debug', 'danplay-server'),
-    join(ROOT, 'target', 'release', 'danplay-server')
-  ].find((p) => existsSync(p))
+  ['ci', 'release', 'debug']
+    .map((profile) => join(TARGET, profile, 'danplay-server'))
+    .filter((p) => existsSync(p))
+    .sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)[0]
 const CORE_PORT = Number(process.env.DANPLAY_E2E_CORE_PORT || 8731)
 const VITE_PORT = Number(process.env.DANPLAY_E2E_VITE_PORT || 5274)
 const CORE = `http://127.0.0.1:${CORE_PORT}`
@@ -168,7 +172,9 @@ async function waitFor(what, fn, timeout = 90_000) {
 
 async function main() {
   if (!SERVER || !existsSync(SERVER)) {
-    throw new Error('no encuentro danplay-server: compílalo antes (cargo build -p danplay-server)')
+    throw new Error(
+      'no encuentro danplay-server: compílalo antes (cargo build --profile ci -p danplay-server)'
+    )
   }
   temp = process.env.DANPLAY_E2E_ROOT || mkdtempSync(join(tmpdir(), 'danplay-e2e-'))
   const music = join(temp, 'Musica')

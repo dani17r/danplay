@@ -8,8 +8,11 @@
 # El nucleo va dentro de la app (el crate `server`); sus pruebas, en
 # tests.yml.
 #
-# Con una etiqueta de version (`git tag v1.13.0 && git push --tags`) los
-# publica en esa version, junto al instalador de Windows (`windows.yml`).
+# Con una etiqueta de version (`git tag -a v1.13.0 -m 1.13.0 && git push
+# --tags`) los publica en esa version, junto a los de los demas sistemas.
+# Publicar lo hace un trabajo aparte (`publish`), el unico con permiso de
+# escribir: el que construye corre `vp install`, los build.rs y lo que se
+# baja, y con ese permiso cualquiera de ellos podria tocar la version.
 name: linux
 
 on:
@@ -18,14 +21,34 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write     # publicar los paquetes en la version
+  contents: read
+
+# Dos ejecuciones de la misma etiqueta no se pisan al publicar; las de una
+# rama (workflow_dispatch) sí se cancelan: la nueva deja vieja a la otra.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+env:
+  CARGO_TERM_COLOR: always
 
 jobs:
   packages:
     name: .deb y .AppImage
     runs-on: ubuntu-22.04
+    timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # `git tag v1.44.2` sobre un árbol en 1.44.1 publicaría en «v1.44.2»
+      # paquetes que dicen 1.44.1
+      - name: la etiqueta es la versión
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          v=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -1)
+          [ "v$v" = "$GITHUB_REF_NAME" ] || { echo "::error::la etiqueta es $GITHUB_REF_NAME y Cargo.toml dice $v"; exit 1; }
 
       # Bun (el gestor de paquetes de la interfaz) y Vite+ (vp), en las
       # versiones que fija desktop/package.json (packageManager y vite-plus).
@@ -42,13 +65,19 @@ jobs:
           cache: true
           run-install: false
 
-      - uses: dtolnay/rust-toolchain@stable
+      # la de rust-toolchain.toml, la misma que en las pruebas
+      - name: Rust
+        run: |
+          rustup show active-toolchain || rustup toolchain install
+          rustc --version
       # v1: las cachés v0 son del perfil de antes (Cargo.toml) y, con la misma
-      # clave, se restauraban sin servir y nunca se renovaban
-      - uses: Swatinem/rust-cache@v2
+      # clave, se restauraban sin servir y nunca se renovaban. Desde una
+      # etiqueta no se guarda: esa caché no la restauraría nadie.
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           cache-on-failure: true
           prefix-key: v1-rust
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: dependencias de Tauri
         run: |
@@ -61,20 +90,18 @@ jobs:
       - name: ffmpeg, fpcalc, QuickJS y yt-dlp dentro
         run: ./scripts/tools-linux.sh
 
+      # con la foto del catálogo de modelos del repositorio (data/), la que
+      # se saca al subir la versión: la misma en todos los paquetes
       - name: los datos y ONNX Runtime dentro
         run: ./scripts/data.sh
 
-      # Compilada sin empaquetar todavia: antes se saca con ella la foto del
-      # catalogo de modelos de IA (abajo).
+      # Compilada sin empaquetar todavia: antes se prueba con ella el pulso
+      # (abajo).
       - name: la app
         working-directory: desktop
         run: |
           vp install --frozen-lockfile
           vp exec tauri build --no-bundle
-
-      # la de hoy; sin red, la que hay
-      - name: la foto del catálogo de modelos
-        run: target/release/danplay-app --models-snapshot desktop/src-tauri/data/models-snapshot.json || true
 
       # La propia app con un argumento, como la lanza el nucleo: el detector
       # de pulso con el grafo, ONNX Runtime y ffmpeg que viajan con ella, en
@@ -103,7 +130,9 @@ jobs:
         run: |
           contents=$(dpkg-deb -c target/release/bundle/deb/*.deb)
           for wanted in usr/bin/danplay-app usr/lib/DanPlay/data/libonnxruntime.so \
-                        usr/lib/DanPlay/data/pulse/beat_this.onnx usr/lib/DanPlay/tools/yt-dlp; do
+                        usr/lib/DanPlay/data/pulse/beat_this.onnx usr/lib/DanPlay/data/models-snapshot.json \
+                        usr/lib/DanPlay/tools/ffmpeg usr/lib/DanPlay/tools/fpcalc usr/lib/DanPlay/tools/qjs \
+                        usr/lib/DanPlay/tools/yt-dlp; do
             echo "$contents" | grep -q "$wanted" || { echo "falta $wanted"; exit 1; }
           done
           if echo "$contents" | grep -iE 'python|\.pyc|/_internal/|libpython'; then
@@ -111,7 +140,26 @@ jobs:
           fi
           ls -la target/release/bundle/deb/*.deb target/release/bundle/appimage/*.AppImage
 
-      - uses: actions/upload-artifact@v7
+      # La ventana del paquete que se publica, abierta de verdad: el .deb
+      # extraído, con una pantalla de mentira (Xvfb, que tests/smoke.sh usa
+      # si está), y las comprobaciones de la prueba de humo (el núcleo
+      # dentro, sus datos y programas, el pulso, la instancia única). Aún sin
+      # ver en verde en la CI (¿arranca WebKitGTK bajo Xvfb sin retoques?):
+      # hasta entonces un fallo aquí se ve pero no para la publicación.
+      # Probarlo con workflow_dispatch y quitar `continue-on-error` al verlo
+      # pasar.
+      - name: el .deb abre su ventana (prueba de humo)
+        continue-on-error: true
+        env:
+          # sin tarjeta gráfica: sin esto WebKitGTK intenta el modo acelerado
+          WEBKIT_DISABLE_COMPOSITING_MODE: '1'
+        run: |
+          sudo apt-get install -y xvfb
+          rm -rf deb-ext
+          dpkg-deb -x target/release/bundle/deb/*.deb deb-ext
+          tests/smoke.sh "$PWD/deb-ext/usr/bin/danplay-app"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: danplay-linux
           path: |
@@ -119,10 +167,44 @@ jobs:
             target/release/bundle/appimage/*.AppImage
           if-no-files-found: error
 
-      - name: publicar en la versión
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v3
+  # Lo único con permiso de escribir: sube los paquetes a la versión con su
+  # SHA256SUMS y la procedencia firmada por GitHub (con qué flujo y qué
+  # commit se construyeron), que se comprueba con
+  #   gh attestation verify DanPlay_X_amd64.deb -R dani17r/danplay
+  publish:
+    name: publicar en la versión
+    needs: packages
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write       # subir los archivos a la versión
+      id-token: write       # firmar la procedencia
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          files: |
-            target/release/bundle/deb/*.deb
-            target/release/bundle/appimage/*.AppImage
+          name: danplay-linux
+          path: artifact
+      - name: los paquetes y sus sumas
+        run: |
+          mkdir -p out
+          find artifact -type f \( -name '*.deb' -o -name '*.AppImage' \) -exec mv {} out/ \;
+          ls out/*.deb out/*.AppImage
+          ( cd out && sha256sum -- * ) > SHA256SUMS-linux.txt
+          cat SHA256SUMS-linux.txt
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: 'out/*'
+      # Los cuatro flujos de paquetes publican en la misma versión: el
+      # primero que llega la crea y los demás suben a la que ya hay.
+      - name: a la versión
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=$GITHUB_REF_NAME
+          repo=$GITHUB_REPOSITORY
+          gh release view "$tag" -R "$repo" >/dev/null 2>&1 \
+            || gh release create "$tag" -R "$repo" --verify-tag --title "$tag" --notes "" \
+            || gh release view "$tag" -R "$repo" >/dev/null
+          gh release upload "$tag" out/* SHA256SUMS-linux.txt -R "$repo" --clobber

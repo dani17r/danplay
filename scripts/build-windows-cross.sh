@@ -24,12 +24,14 @@
 # verdad (MSVC y el NSIS de Tauri) sale de la integración continua
 # (windows.yml).
 #
-# Todo lo que hace falta se descarga a una caché (~/.cache/danplay-windows) y
-# no toca el sistema: no se necesita ser administrador.
+# Todo lo que hace falta se descarga a una caché (~/.cache/danplay-windows, o
+# la que diga DANPLAY_CACHE_WINDOWS, la misma que lee scripts/data.sh) y no
+# toca el sistema: no se necesita ser administrador.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT=$(pwd)
-CACHE="${DANPLAY_CACHE_WIN:-$HOME/.cache/danplay-windows}"
+# (DANPLAY_CACHE_WIN es el nombre de antes: se sigue entendiendo)
+CACHE="${DANPLAY_CACHE_WINDOWS:-${DANPLAY_CACHE_WIN:-$HOME/.cache/danplay-windows}}"
 DEST="$ROOT/dist/windows"
 TRIPLE=x86_64-pc-windows-gnu
 TARGET="${CARGO_TARGET_DIR:-target}"
@@ -118,7 +120,7 @@ QJS_SHA256=2aeabf0092c3262d6b2609824418f7dd7ed1f1df939f73b2b15645230cac0d77
 YTDLP_URL=https://github.com/yt-dlp/yt-dlp/releases/download/2026.08.19/yt-dlp.exe
 YTDLP_SHA256=66674953fe251b89f4d08c5f0e35e0728679bd67ab3d7d05c0562af101dd3e7a
 download () {  # URL SHA256 DEST
-    curl -sfL -o "$3" "$1" || die "no pude descargar $1"
+    curl -sfL --retry 3 -o "$3" "$1" || die "no pude descargar $1"
     echo "$2  $3" | sha256sum -c --status - || die "$(basename "$1") no es lo esperado (sha256)"
 }
 if [ "$WITH_TOOLS" = 1 ]; then
@@ -126,14 +128,15 @@ if [ "$WITH_TOOLS" = 1 ]; then
     if [ ! -f "$TOOLS/yt-dlp.exe" ]; then
         step "herramientas de Windows: ffmpeg, fpcalc, QuickJS y yt-dlp (una vez, ~150 MB)"
         rm -rf "$TOOLS"; mkdir -p "$TOOLS"
-        tmp=$(mktemp -d -p "$CACHE")
+        # si algo falla a medias, el temporal no se queda en la caché
+        tmp=$(mktemp -d -p "$CACHE"); trap 'rm -rf "$tmp"' EXIT
         download "$FFMPEG_URL" "$FFMPEG_SHA256" "$tmp/ffmpeg.zip"
         unzip -oq "$tmp/ffmpeg.zip" -d "$tmp/ffmpeg"
         find "$tmp/ffmpeg" -name 'ffmpeg.exe' -exec cp {} "$TOOLS/" \;
         download "$FPCALC_URL" "$FPCALC_SHA256" "$tmp/fpcalc.zip"
         unzip -oq "$tmp/fpcalc.zip" -d "$tmp/fpcalc"
         find "$tmp/fpcalc" -name 'fpcalc.exe' -exec cp {} "$TOOLS/" \;
-        rm -rf "$tmp"
+        rm -rf "$tmp"; trap - EXIT
         [ -f "$TOOLS/ffmpeg.exe" ] || die "el zip de ffmpeg no traía ffmpeg.exe"
         download "$QJS_URL" "$QJS_SHA256" "$TOOLS/qjs.exe"
         # el último: es el que dice que la caché está completa
@@ -245,12 +248,12 @@ if [ "$INSTALLER" = 1 ]; then
     # NSIS también se saca de sus paquetes sin instalarlo, igual que mingw.
     NSIS="$CACHE/nsis"
     if [ ! -x "$NSIS/usr/bin/makensis" ]; then
-        tmp=$(mktemp -d)
+        tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
         ( cd "$tmp" && apt-get download nsis nsis-common >/dev/null ) \
           || die "no pude descargar NSIS. ¿Hay red y apt configurado?"
         mkdir -p "$NSIS"
         for d in "$tmp"/*.deb; do dpkg-deb -x "$d" "$NSIS"; done
-        rm -rf "$tmp"
+        rm -rf "$tmp"; trap - EXIT
     fi
 
     mkdir -p dist/installers
