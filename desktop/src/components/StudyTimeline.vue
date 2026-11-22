@@ -590,14 +590,69 @@ function wantLaneDetail() {
 watch(
   () => [view.from, view.to],
   () => {
-    draw()
+    scheduleDraw()
     wantDetail()
     wantLaneDetail()
   }
 )
 
 const { theme, waveStyle } = usePreferences()
-watch([theme, waveStyle], () => nextTick(draw))
+watch([theme, waveStyle], () => {
+  colors = null
+  nextTick(draw)
+})
+
+/**
+ * Pintar en el próximo fotograma, una vez aunque se pida varias: un pellizco
+ * manda varios giros de rueda por fotograma, y al cambiar el tamaño el
+ * observador avisa en ráfaga. Pintar en cada uno era tirar el trabajo.
+ */
+let drawFrame = 0
+function scheduleDraw() {
+  if (typeof requestAnimationFrame !== 'function') return draw()
+  if (drawFrame) return
+  drawFrame = requestAnimationFrame(() => {
+    drawFrame = 0
+    draw()
+  })
+}
+
+/**
+ * Los colores de la onda (los del tema), leídos una vez: `getComputedStyle`
+ * obliga al navegador a recalcular estilos si algo cambió en la página, y se
+ * hacía dos veces por pintada. Se vuelven a leer al cambiar de tema o al
+ * probar uno en el editor (cambia el estilo de la raíz).
+ * @type {{ key: string, text: string, accent: string } | null}
+ */
+let colors = null
+function waveColors(c) {
+  const root = document.documentElement
+  const key = (root.getAttribute('style') || '') + '|' + (root.dataset.theme || '')
+  if (colors?.key !== key) {
+    const styles = getComputedStyle(c)
+    const text = styles.getPropertyValue('--text').trim() || styles.color || 'gray'
+    const accent = styles.getPropertyValue('--accent').trim() || text
+    colors = { key, text, accent }
+  }
+  return colors
+}
+
+/**
+ * El RMS más alto de una onda, al que se estira el suyo. Una vez por onda
+ * (son miles de valores): se calculaba en cada pintada.
+ * @type {WeakMap<object, number>}
+ */
+const rmsTops = new WeakMap()
+function rmsTopOf(w) {
+  if (!w) return 1e-6
+  let top = rmsTops.get(w)
+  if (top == null) {
+    top = 1e-6
+    for (const v of w.rms || []) if (v > top) top = v
+    rmsTops.set(w, top)
+  }
+  return top
+}
 
 /**
  * Las columnas de lo que se ve, de una onda de toda la canción (o de su
@@ -639,16 +694,19 @@ function draw() {
   const H = WAVE_H.value
   if (!W) return
   const dpr = window.devicePixelRatio || 1
-  c.width = Math.round(W * dpr)
-  c.height = Math.round(H * dpr)
-  c.style.width = W + 'px'
-  c.style.height = H + 'px'
+  // cambiar el tamaño del lienzo lo vuelve a crear: solo si cambió
+  const cw = Math.round(W * dpr)
+  const ch = Math.round(H * dpr)
+  if (c.width !== cw || c.height !== ch) {
+    c.width = cw
+    c.height = ch
+    c.style.width = W + 'px'
+    c.style.height = H + 'px'
+  }
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
   ctx.clearRect(0, 0, W, H)
   // los colores salen del tema; si por lo que sea no estan, el del texto
-  const styles = getComputedStyle(c)
-  const text = styles.getPropertyValue('--text').trim() || styles.color || 'gray'
-  const accent = styles.getPropertyValue('--accent').trim() || text
+  const { text, accent } = waveColors(c)
   if (laneMode.value) {
     drawLanes(ctx, W, text, accent)
     drawGrid(ctx, W, H)
@@ -667,7 +725,7 @@ function draw() {
   // En un mp3 de hoy los picos van casi todos a tope y el RMS ronda el
   // tercio: el RMS se estira hasta su propio maximo (el de toda la canción,
   // tambien de cerca); el estilo lo elige quien toca (utils/wavePaint.js)
-  const rmsTop = Math.max(1e-6, ...(w.rms || [0]))
+  const rmsTop = rmsTopOf(w)
   const style = waveStyle.value
   const cols = columnsFor(style, W)
   const d = detail.value
@@ -685,9 +743,7 @@ function draw() {
 function drawLanes(ctx, W, text, accent) {
   const lh = props.laneHeight
   let rmsTop = 1e-6
-  for (const lane of props.lanes) {
-    for (const v of lane.wave?.rms || []) if (v > rmsTop) rmsTop = v
-  }
+  for (const lane of props.lanes) rmsTop = Math.max(rmsTop, rmsTopOf(lane.wave))
   const style = waveStyle.value
   const cols = columnsFor(style, W)
   props.lanes.forEach((lane, li) => {
@@ -751,8 +807,7 @@ function panText(v) {
 function drawGrid(ctx, W, H) {
   const g = props.grid
   if (!g || !g.beats?.length || !props.duration || props.editBeats) return
-  const styles = getComputedStyle(canvas.value)
-  const text = styles.getPropertyValue('--text').trim() || styles.color || 'gray'
+  const { text } = waveColors(canvas.value)
   ctx.fillStyle = text
   const close = (span.value / props.duration) * g.beats.length < W / 6
   for (let i = 0; i < g.beats.length; i++) {
@@ -780,13 +835,14 @@ onMounted(() => {
   if (typeof ResizeObserver === 'function' && box.value) {
     observer = new ResizeObserver(() => {
       measure()
-      draw()
+      scheduleDraw()
     })
     observer.observe(box.value)
   }
 })
 onUnmounted(() => {
   observer?.disconnect()
+  if (drawFrame) cancelAnimationFrame(drawFrame)
   clearTimeout(detailTimer)
   laneRun++
   clearTimeout(laneTimer)
