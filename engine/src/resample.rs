@@ -215,9 +215,9 @@ mod tests {
 
     /// Lo mismo, con `half` coeficientes a cada lado.
     fn through_with(rate_in: u32, hz: f64, half: usize) -> (f64, f64) {
-        let mut r = Resampler::with_half(rate_in, 44_100, 2, half);
+        let mut resampler = Resampler::with_half(rate_in, 44_100, 2, half);
         let mut out = vec![0f32; 44_100 * 2];
-        r.pull(&mut out, sine_source(hz, f64::from(rate_in)));
+        resampler.pull(&mut out, sine_source(hz, f64::from(rate_in)));
         // el canal izquierdo, pasado lo que tarda en asentarse
         let left: Vec<f64> = out
             .iter()
@@ -226,9 +226,9 @@ mod tests {
             .map(|v| f64::from(*v))
             .collect();
         let n = left.len() as f64;
-        let w = 2.0 * std::f64::consts::PI * hz / 44_100.0;
+        let omega = 2.0 * std::f64::consts::PI * hz / 44_100.0;
         let (s, c) = left.iter().enumerate().fold((0.0, 0.0), |(s, c), (i, v)| {
-            (s + v * (w * i as f64).sin(), c + v * (w * i as f64).cos())
+            (s + v * (omega * i as f64).sin(), c + v * (omega * i as f64).cos())
         });
         let tone = 2.0 * (s * s + c * c).sqrt() / n;
         let rms = (left.iter().map(|v| v * v).sum::<f64>() / n).sqrt();
