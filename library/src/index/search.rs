@@ -530,6 +530,13 @@ mod tests {
             "Elevation",
             "Bethel",
         ];
+        // filas de verdad: con su letra (2 KB) y su cifrado (3 KB), que pesan
+        // en la base aunque la lista no los enseñe
+        let lyrics = "Cantaré de tu amor por siempre, Señor\n".repeat(54);
+        let chords = serde_json::json!({
+            "sheet": {"lines": (0..90).map(|i| format!("[G]Línea {i} [D]con [Em]acordes")).collect::<Vec<_>>()},
+        })
+        .to_string();
         crate::index::begin(&conn).expect("begin");
         for i in 0..n {
             add(
@@ -539,6 +546,8 @@ mod tests {
                 &format!("Canción número {}", (i * 7919) % n),
             );
         }
+        conn.execute("UPDATE songs SET lyrics=?, chords=?", [&lyrics, &chords])
+            .expect("letra y cifrado");
         conn.execute_batch("COMMIT").expect("commit");
         let time = |label: &str, sql: String| {
             let mut stmt = conn.prepare(&sql).expect("consulta");
@@ -570,5 +579,30 @@ mod tests {
             );
         }
         time("contar", "SELECT COUNT(*) FROM songs c".into());
+        // y como la pide la lista, con sus filas (`search`): la primera
+        // página de 400 y la carga entera, a tandas de 5 000
+        let all = Search::default();
+        let runs = 5;
+        let start = std::time::Instant::now();
+        for _ in 0..runs {
+            search(&conn, &all, "artist", 400, 0, false, true).expect("página");
+        }
+        let first = start.elapsed() / runs;
+        let start = std::time::Instant::now();
+        for _ in 0..runs {
+            let mut got = search(&conn, &all, "artist", 400, 0, false, true)
+                .expect("página")
+                .len();
+            while got < n {
+                got += search(&conn, &all, "artist", 5000, got as i64, false, true)
+                    .expect("página")
+                    .len();
+                count(&conn, &all).expect("contar");
+            }
+        }
+        println!(
+            "con `search` ({n} canciones con letra y cifrado): primera página de 400 {first:?}, la lista entera {:?}",
+            start.elapsed() / runs
+        );
     }
 }

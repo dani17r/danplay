@@ -290,31 +290,57 @@ mod tests {
         .expect("leer")
     }
 
-    /// Lo que cuesta abrir una conexión nueva en cada consulta, frente a
-    /// reutilizar una, con una biblioteca grande (con `--ignored --nocapture`).
-    #[test]
-    #[ignore = "mide tiempos: solo, con --ignored --nocapture"]
-    fn a_connection_per_query_costs_little_next_to_the_query() {
-        let rows: usize = std::env::var("DANPLAY_BENCH_SONGS")
-            .ok()
-            .and_then(|n| n.parse().ok())
-            .unwrap_or(20_000);
-        let app = crate::tests::app();
+    /// Una biblioteca grande con filas de verdad: con su letra (2 KB) y su
+    /// cifrado (3 KB), que es lo que pesa en la base aunque la lista no lo
+    /// enseñe. Sin ellos, los bancos de la lista medían una base de juguete.
+    fn big_library(app: &App, rows: usize) {
+        let lyrics = "Cantaré de tu amor por siempre, Señor\n".repeat(54);
+        let chords = serde_json::json!({
+            "sheet": {"lines": (0..90).map(|i| format!("[G]Línea {i} [D]con [Em]acordes")).collect::<Vec<_>>()},
+            "source": "cifraclub",
+        })
+        .to_string();
+        assert!(
+            lyrics.len() >= 2000 && chords.len() >= 3000,
+            "{} {}",
+            lyrics.len(),
+            chords.len()
+        );
         app.db(|c| {
             library::index::begin(c)?;
-            let mut stmt =
-                c.prepare("INSERT INTO songs (path, file, artist, title) VALUES (?, ?, ?, ?)")?;
+            let mut stmt = c.prepare(
+                "INSERT INTO songs (path, file, artist, title, lyrics, chords) VALUES (?, ?, ?, ?, ?, ?)",
+            )?;
             for i in 0..rows {
                 stmt.execute([
                     format!("/m/{i}.mp3"),
                     format!("{i}.mp3"),
                     format!("Artista {}", i % 700),
                     format!("Tema {}", (i * 7919) % rows),
+                    lyrics.clone(),
+                    chords.clone(),
                 ])?;
             }
             Ok::<_, library::rusqlite::Error>(())
         })
         .expect("canciones");
+    }
+
+    fn bench_rows() -> usize {
+        std::env::var("DANPLAY_BENCH_SONGS")
+            .ok()
+            .and_then(|n| n.parse().ok())
+            .unwrap_or(20_000)
+    }
+
+    /// Lo que cuesta abrir una conexión nueva en cada consulta, frente a
+    /// reutilizar una, con una biblioteca grande (con `--ignored --nocapture`).
+    #[test]
+    #[ignore = "mide tiempos: solo, con --ignored --nocapture"]
+    fn a_connection_per_query_costs_little_next_to_the_query() {
+        let rows = bench_rows();
+        let app = crate::tests::app();
+        big_library(&app, rows);
         let search = library::index::search::Search::default();
         let page = |c: &library::rusqlite::Connection| {
             library::index::search::search(c, &search, "artist", 400, 0, false, true)
@@ -341,6 +367,97 @@ mod tests {
         let trivial = start.elapsed() / runs;
         println!(
             "una página de 400 de {rows}: con conexión nueva {per_query:?}, reutilizando {reused:?}; abrir y cerrar una conexión para `SELECT 1`: {trivial:?}"
+        );
+    }
+
+    /// La lista como la pide la interfaz (`useLibrary.js`): una primera página
+    /// de 400 y el resto a tandas de 5 000, por la API entera (la consulta,
+    /// las filas, el recuento y el JSON), con una biblioteca grande de filas
+    /// de verdad (con `--ignored --nocapture`).
+    #[test]
+    #[ignore = "mide tiempos: solo, con --ignored --nocapture"]
+    fn loading_the_whole_list_of_a_big_library_costs_this_much() {
+        let rows = bench_rows();
+        let app = crate::tests::app();
+        big_library(&app, rows);
+        let ask = |limit: usize, offset: usize| {
+            let r = crate::handle(
+                &app,
+                &crate::Request::new(
+                    "GET",
+                    &format!("/api/search?sort=artist&limit={limit}&from_key={offset}"),
+                ),
+            );
+            assert_eq!(r.status, 200);
+            r.into_bytes().expect("cuerpo")
+        };
+        // la primera, para que la caché del disco no cuente
+        ask(400, 0);
+        let runs = 5;
+        let start = Instant::now();
+        let mut first = 0;
+        for _ in 0..runs {
+            first = ask(400, 0).len();
+        }
+        let first_page = start.elapsed() / runs;
+        let start = Instant::now();
+        let mut bytes = 0;
+        for _ in 0..runs {
+            bytes = ask(400, 0).len();
+            let mut offset = 400;
+            while offset < rows {
+                bytes += ask(5000, offset).len();
+                offset += 5000;
+            }
+        }
+        let whole = start.elapsed() / runs;
+        let start = Instant::now();
+        let mut once = 0;
+        for _ in 0..runs {
+            once = ask(20_000, 0).len();
+        }
+        let in_one = start.elapsed() / runs;
+        println!(
+            "la lista de {rows} por la API: primera página de 400 {first_page:?} ({} KB); entera (400 y tandas de 5 000) {whole:?} ({} KB); entera en una sola página {in_one:?} ({} KB)",
+            first / 1024,
+            bytes / 1024,
+            once / 1024
+        );
+    }
+
+    /// Lo que cuesta poner una estrella (una escritura por `db_write`, como
+    /// `songs::rate`) y si el `-wal` sigue ahí entre una y otra (con
+    /// `--ignored --nocapture`). Si desaparece tras cada escritura, SQLite
+    /// hace punto de control (con su `fsync`) cada vez que se cierra la única
+    /// conexión abierta.
+    #[test]
+    #[ignore = "mide tiempos: solo, con --ignored --nocapture"]
+    fn writing_a_star_costs_this_much() {
+        let app = crate::tests::app();
+        let id = app
+            .db(|c| {
+                c.execute(
+                    "INSERT INTO songs (path, file) VALUES ('/m/a.mp3', 'a.mp3')",
+                    [],
+                )?;
+                Ok::<_, library::rusqlite::Error>(c.last_insert_rowid())
+            })
+            .expect("canción");
+        let wal = PathBuf::from(format!("{}-wal", app.config().database.display()));
+        let runs = 200;
+        let mut kept = 0;
+        let start = Instant::now();
+        for i in 0..runs {
+            app.db_write(|c| library::playlists::set_stars(c, id, i64::from(i % 6)))
+                .expect("estrella");
+            if wal.exists() {
+                kept += 1;
+            }
+        }
+        let took = start.elapsed();
+        println!(
+            "{runs} estrellas seguidas por db_write: {took:?} en total, {:?} cada una; el -wal seguía ahí tras {kept} de {runs}",
+            took / runs
         );
     }
 
