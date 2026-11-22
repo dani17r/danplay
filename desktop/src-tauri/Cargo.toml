@@ -35,7 +35,7 @@ danplay-engine = { path = "../../engine" }
 # El nucleo de DanPlay, en el mismo proceso: la API entera, sus trabajos, el
 # vigilante de carpetas, y el pulso y el separador (esta misma app con un
 # argumento).
-danplay-server = { path = "../../server" }
+danplay-server = { path = "../../server", default-features = false }
 
 # Reproduccion en el sistema (MPRIS en Linux, SMTC en Windows, Now Playing en
 # macOS): teclas multimedia, pantalla de bloqueo y el reproductor del escritorio.
