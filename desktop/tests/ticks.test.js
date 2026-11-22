@@ -37,6 +37,13 @@ import App from '../src/App.vue'
 import DetailsPanel from '../src/components/DetailsPanel.vue'
 import StudyBar from '../src/components/StudyBar.vue'
 import StudyTimeline from '../src/components/StudyTimeline.vue'
+import StudyNotes from '../src/components/StudyNotes.vue'
+import StudyTempo from '../src/components/StudyTempo.vue'
+import StudyMarkers from '../src/components/StudyMarkers.vue'
+import StudyCueList from '../src/components/StudyCueList.vue'
+import StudyStems from '../src/components/StudyStems.vue'
+import StudyClick from '../src/components/StudyClick.vue'
+import StudyWaveBar from '../src/components/StudyWaveBar.vue'
 import { renderMarkdown } from '../src/utils/markdown.js'
 import { resetPlayback } from '../src/composables/usePlayback.js'
 import { resetPreferences } from '../src/composables/usePreferences.js'
@@ -194,6 +201,19 @@ describe('what plays and what gets repainted', () => {
       vi.advanceTimersByTime(20)
       const bar = w.vm.$.subTree
       const timeline = w.findComponent(StudyTimeline).vm.$.subTree
+      // y las partes en que se partió StudyBar (lote 9): tampoco
+      const parts = [
+        StudyNotes,
+        StudyTempo,
+        StudyMarkers,
+        StudyCueList,
+        StudyStems,
+        StudyClick,
+        StudyWaveBar
+      ]
+      // (StudyStems va dos veces: en la cabecera y en la fila del celular)
+      const partTrees = (C) => w.findAllComponents(C).map((c) => c.vm.$.subTree)
+      const partsBefore = parts.map(partTrees)
       const head = () => w.find('.tl-head').element.style.left
       const before = head()
       for (const k of Object.keys(counts)) delete counts[k]
@@ -209,6 +229,14 @@ describe('what plays and what gets repainted', () => {
       expect(counts.StudyBar || 0).toBe(0)
       expect(counts.StudyTimeline || 0).toBe(0)
       expect(counts.BeatTools || 0).toBe(0)
+      parts.forEach((C, i) => {
+        const now = partTrees(C)
+        expect(now.length, `${C.__name} está montado`).toBeGreaterThan(0)
+        now.forEach((tree, k) => {
+          expect(tree, `${C.__name} se repinta en cada aviso`).toBe(partsBefore[i][k])
+        })
+      })
+      expect(w.findAllComponents(StudyStems)).toHaveLength(2)
       // lo que tiene que moverse, se mueve
       expect(w.find('.study-time').text()).toBe('0:15 / 3:20')
       expect(head()).not.toBe(before)

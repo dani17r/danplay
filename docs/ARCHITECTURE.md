@@ -1165,7 +1165,7 @@ ellos parte la canción en trozos de 2 s y salen distintas, y peores. Lo fuerte
 de cada pista separada en cada compás se lee a la vez (hasta cuatro
 ffmpeg) y se recuerda en memoria por pista y compases. Con el tempo puesto a
 mano, la onda, el imán de las guías y los compases que se mandan a la guía son
-los del clic que suena (`StudyBar.soundingGrid`), no los detectados.
+los del clic que suena (`soundingGrid`, en `useStudyClick.js`), no los detectados.
 
 **La carpeta del pulso** (`DATA_DIR/beats`) se limpia al escanear
 (`beats::prune`): lo que no tiene la clave de un archivo que hay (canciones y
@@ -2400,7 +2400,27 @@ línea de tiempo las pinta `usePlayhead.js` a mano (`style.left`), en cada
 fotograma mientras suena, con lo que va de canción desde el último aviso
 (a la velocidad puesta, como mucho 0,3 s por delante, sin pasar del final
 del tramo). Oculto el estudio, no pinta. `tests/ticks.test.js` comprueba
-que StudyBar y StudyTimeline no se repintan con los avisos.
+que StudyBar, StudyTimeline y las partes del estudio no se repintan con los
+avisos.
+
+**Las partes del estudio.** `StudyBar.vue` arma el estudio con un composable
+por cosa —`useStudyDoc` (el estudio de la canción y su guardado),
+`useStudyStems` (las pistas, su mezcla, exportar), `useStudyMarkers`,
+`useStudyLoops` (los tramos, el candado, las teclas A y B), `useStudyClick`
+(el metrónomo y el clic manual) y `useStudyCues` (las guías)— y los da a sus
+partes con un solo `provide(STUDY, ctx)` (`composables/studyContext.js`, con
+sus tipos): `StudyStems`, `StudyWaveBar` (la barra de encima de la onda),
+`StudyTempo`, `StudyClick`, `StudyMarkers` con `StudyCueList`, y
+`StudyNotes`. Las partes no reciben props: así una parte solo se repinta
+cuando cambia algo que ella enseña. Los composables se arman en el orden en
+que estaba el código en StudyBar, porque dos `watch` que miran lo mismo
+avisan por orden de creación (el del reparto manda primero las guías y luego
+la mezcla); lo que uno usa de otro que se arma después lo lee de `ctx` al
+usarlo. En StudyBar se quedan la cabecera, leer lo guardado al cambiar de
+canción (`loadFor`, que orquesta a los demás), ocultar y salir, las pestañas,
+el recorrido, el encaje de la onda en el panel, los diálogos y la línea de
+tiempo. El DOM y las clases son los de antes: las pruebas montan StudyBar
+entero.
 
 **La guía, por la letra (1.41).** Las partes salían solo de cómo suena
 (`analysis/src/structure.rs`), y con estrofa y coro sobre los mismos
