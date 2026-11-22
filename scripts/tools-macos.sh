@@ -1,9 +1,10 @@
 #!/bin/sh
 # Las herramientas que viajan DENTRO del paquete de macOS (la .app), en
 # desktop/src-tauri/tools/: ffmpeg (ondas, clic, separar, convertir), fpcalc
-# (identificar por el sonido), yt-dlp (bajar de YouTube: su ejecutable
-# oficial, sin Python) y QuickJS-NG (`qjs`, el motor de JavaScript que YouTube
-# exige a yt-dlp), para el procesador de este Mac: Apple Silicon o Intel.
+# (identificar por el sonido) y QuickJS-NG (`qjs`, el motor de JavaScript que
+# YouTube exige a yt-dlp), para el procesador de este Mac: Apple Silicon o
+# Intel. yt-dlp ya no viaja (desde la 1.45): la app lo instala de GitHub la
+# primera vez que se baja algo de YouTube (ver scripts/tools-linux.sh).
 #
 #   ./scripts/tools-macos.sh                 lo que viaja en la .app
 #   ./scripts/tools-macos.sh --with-ffprobe  y ffprobe, que la app ya
@@ -26,7 +27,12 @@ WITH_FFPROBE=0
 die () { printf '\033[31m%s\033[0m\n' "$1" >&2; exit 1; }
 [ "$(uname -s)" = Darwin ] || die "las herramientas de macOS son para un Mac (esto es $(uname -s))"
 
-# ffmpeg 9.0.2 de martin-riedl.de (el mismo que el de Linux) y QuickJS-NG 0.17.0
+# ffmpeg 9.0.2 de martin-riedl.de (el mismo que el de Linux) y QuickJS-NG
+# 0.17.0. Si martin-riedl.de (un servidor personal) desaparece, ffmpeg y
+# ffprobe salen de la copia idéntica (la misma suma) de la versión
+# «tools-ffmpeg-9.0.2» del repositorio de DanPlay, con el procesador en el
+# nombre (el de `uname -m`).
+MIRROR=https://github.com/dani17r/danplay/releases/download/tools-ffmpeg-9.0.2
 ARCH=$(uname -m)
 case "$ARCH" in
     arm64)
@@ -49,49 +55,60 @@ QJS_URL=https://github.com/quickjs-ng/quickjs/releases/download/v0.17.0/$QJS
 # fpcalc 1.6.1: un solo binario para los dos procesadores
 FPCALC_URL=https://github.com/acoustid/chromaprint/releases/download/v1.6.1/chromaprint-fpcalc-1.6.1-macos-universal.tar.gz
 FPCALC_SHA256=240aeb5a8c8205af458e3625cb7487b826b711a999e491ef00111f3cebd76f00
-# yt-dlp 2026.08.19 (la de Linux y Windows): también uno para los dos
-YTDLP_URL=https://github.com/yt-dlp/yt-dlp/releases/download/2026.08.19/yt-dlp_macos
-YTDLP_SHA256=0f192b7ec147ab6288885d6351d9ab67367640029b4377576ef46dd79cf7b202
 
 mkdir -p "$CACHE" "$DEST"
 
 # Baja `url` a la caché como `name`, si no está ya, y comprueba su sha256.
+# Con una segunda dirección, si la primera falla (o da otra cosa), esa.
 download () {
-    url=$1 sha=$2 name=$3
+    sha=$2 name=$3
     file="$CACHE/$name"
     if [ -f "$file" ] && echo "$sha  $file" | shasum -a 256 -c --status -; then
         return 0
     fi
     printf '  bajando %s\n' "$name"
-    curl -sfL --retry 3 -o "$file.part" "$url" || die "no pude bajar $url"
-    echo "$sha  $file.part" | shasum -a 256 -c --status - \
-      || { rm -f "$file.part"; die "$name no es el que se esperaba (sha256)"; }
-    mv "$file.part" "$file"
+    for url in "$1" ${4:+"$4"}; do
+        if ! curl -sfL --retry 3 -o "$file.part" "$url"; then
+            printf '  no pude bajar %s\n' "$url" >&2
+        elif echo "$sha  $file.part" | shasum -a 256 -c --status -; then
+            mv "$file.part" "$file"
+            return 0
+        else
+            printf '  %s no es el que se esperaba (sha256)\n' "$url" >&2
+        fi
+        rm -f "$file.part"
+    done
+    die "no pude bajar $name"
 }
 
-download "$FFMPEG_URL/ffmpeg.zip" "$FFMPEG_SHA256" "ffmpeg-9.0.2-$ARCH.zip"
+download "$FFMPEG_URL/ffmpeg.zip" "$FFMPEG_SHA256" "ffmpeg-9.0.2-$ARCH.zip" \
+    "$MIRROR/ffmpeg-9.0.2-macos-$ARCH.zip"
 download "$QJS_URL" "$QJS_SHA256" "qjs-0.17.0-$ARCH"
 download "$FPCALC_URL" "$FPCALC_SHA256" fpcalc-1.6.1-universal.tar.gz
-download "$YTDLP_URL" "$YTDLP_SHA256" yt-dlp-2026.08.19
 
 unzip -o -q "$CACHE/ffmpeg-9.0.2-$ARCH.zip" -d "$DEST"
 cp "$CACHE/qjs-0.17.0-$ARCH" "$DEST/qjs"
-cp "$CACHE/yt-dlp-2026.08.19" "$DEST/yt-dlp"
 tar xzf "$CACHE/fpcalc-1.6.1-universal.tar.gz" -C "$DEST" --strip-components=1 \
     chromaprint-fpcalc-1.6.1-macos-universal/fpcalc
 if [ "$WITH_FFPROBE" = 1 ]; then
-    download "$FFMPEG_URL/ffprobe.zip" "$FFPROBE_SHA256" "ffprobe-9.0.2-$ARCH.zip"
+    download "$FFMPEG_URL/ffprobe.zip" "$FFPROBE_SHA256" "ffprobe-9.0.2-$ARCH.zip" \
+        "$MIRROR/ffprobe-9.0.2-macos-$ARCH.zip"
     unzip -o -q "$CACHE/ffprobe-9.0.2-$ARCH.zip" -d "$DEST"
     chmod 755 "$DEST/ffprobe"
 else
     # el de una vez anterior con --with-ffprobe: en la .app no viaja
     rm -f "$DEST/ffprobe"
 fi
-rm -f "$DEST/deno"  # el de antes: ya no viaja
-chmod 755 "$DEST/ffmpeg" "$DEST/fpcalc" "$DEST/qjs" "$DEST/yt-dlp"
+# los de antes: ya no viajan (uno viejo aquí acabaría en la .app)
+rm -f "$DEST/deno" "$DEST/yt-dlp"
+chmod 755 "$DEST/ffmpeg" "$DEST/fpcalc" "$DEST/qjs"
 
-# Que arrancan de verdad en este Mac
-"$DEST/ffmpeg" -hide_banner -version | head -1
-"$DEST/fpcalc" -version
-"$DEST/qjs" --help 2>&1 | head -1
-printf 'yt-dlp %s\n' "$("$DEST/yt-dlp" --ignore-config --version)"
+# Que arrancan de verdad en este Mac. Con la salida guardada y no por una
+# tubería: sin `pipefail`, `programa | head -1` da el estado de `head`, y un
+# programa que no arranca pasaba por bueno.
+v=$("$DEST/ffmpeg" -hide_banner -version) || die "ffmpeg no arranca aquí"
+printf '%s\n' "$v" | head -1
+v=$("$DEST/fpcalc" -version) || die "fpcalc no arranca aquí"
+printf '%s\n' "$v"
+v=$("$DEST/qjs" --version) || die "qjs no arranca aquí"
+printf 'QuickJS %s\n' "$v"

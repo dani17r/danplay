@@ -659,7 +659,9 @@ fn settle_row(app: &App, id: &str, i: usize, res: &Dict) {
 }
 
 /// Prepara yt-dlp y su motor de JavaScript ANTES de abrir hilos (si no,
-/// cada hilo lo buscaba a la vez). Sin yt-dlp no se puede buscar: el porqué.
+/// cada hilo lo buscaba a la vez; y sin yt-dlp, cada uno lo instalaba). Si
+/// no lo hay, aquí se instala (`youtube::ensure_ytdlp`); sin él no se puede
+/// buscar: el porqué.
 fn warm(app: &App) -> String {
     #[cfg(test)]
     if let Some(why) = testing::lock(&testing::WARM).clone() {
@@ -668,6 +670,9 @@ fn warm(app: &App) -> String {
     #[cfg(test)]
     if testing::lock(&testing::INFO).is_none() {
         return testing::OFFLINE.into();
+    }
+    if let Err(why) = youtube::ensure_ytdlp(app, &mut |_| {}, &|| false) {
+        return why;
     }
     if ytdlp::executable(app).is_none() {
         let why = youtube::unavailable_reason(app);

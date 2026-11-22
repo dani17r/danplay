@@ -27,7 +27,10 @@ die () { printf '\n\033[31m%s\033[0m\n' "$1" >&2; exit 1; }
 export ANDROID_HOME="${ANDROID_HOME:-$HOME/Android/Sdk}"
 export JAVA_HOME="${JAVA_HOME:-$HOME/Android/jdk-17}"
 if [ -z "${NDK_HOME:-}" ]; then
-    NDK_HOME=$(ls -d "$ANDROID_HOME"/ndk/* 2>/dev/null | sort -V | tail -1)
+    # el más nuevo de los que haya. Sin `ls`: con pipefail, un `ls` sin nada
+    # que listar paraba aquí el guion sin decir por qué
+    NDK_HOME=$(printf '%s\n' "$ANDROID_HOME"/ndk/* | sort -V | tail -1)
+    [ -d "$NDK_HOME" ] || NDK_HOME=""
     export NDK_HOME
 fi
 export PATH="$JAVA_HOME/bin:$PATH"
@@ -60,7 +63,10 @@ APK="$APKS/release/app-universal-release.apk"
 
 step "comprobar la firma"
 # el de las build-tools más nuevas, salvo que se diga cuál (la CI tiene varias)
-APKSIGNER="${APKSIGNER:-$(ls -d "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)}"
+if [ -z "${APKSIGNER:-}" ]; then
+    APKSIGNER=$(printf '%s\n' "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
+fi
+[ -x "$APKSIGNER" ] || die "no encuentro apksigner en $ANDROID_HOME/build-tools"
 # Si algo falla, lo que dijo apksigner: antes se lo tragaba el grep y moría
 # sin explicar nada.
 signature=$("$APKSIGNER" verify --print-certs "$APK" 2>&1) \

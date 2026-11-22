@@ -9,7 +9,7 @@
 # Esto compara las fechas de cada capa y avisa de lo que no cuadre. El
 # nucleo ya no es una aparte: va dentro de la app.
 set -u
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/.." || exit 1
 
 red=$(printf '\033[31m'); green=$(printf '\033[32m'); amber=$(printf '\033[33m')
 gray=$(printf '\033[90m'); reset=$(printf '\033[0m')

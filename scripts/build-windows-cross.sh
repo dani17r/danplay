@@ -4,7 +4,7 @@
 #   ./scripts/build-windows-cross.sh                 construye dist/windows/
 #   ./scripts/build-windows-cross.sh --zip           además, el .zip portátil
 #   ./scripts/build-windows-cross.sh --installer     además, el .exe instalador
-#   ./scripts/build-windows-cross.sh --with-tools    mete ffmpeg, fpcalc, QuickJS y yt-dlp dentro
+#   ./scripts/build-windows-cross.sh --with-tools    mete ffmpeg, fpcalc y QuickJS dentro
 #
 # El .zip y el .exe quedan en dist/installers/, con la versión en el nombre,
 # junto al .deb, el .AppImage y los .dmg de Mac: todo lo que se entrega, en
@@ -24,12 +24,14 @@
 # verdad (MSVC y el NSIS de Tauri) sale de la integración continua
 # (windows.yml).
 #
-# Todo lo que hace falta se descarga a una caché (~/.cache/danplay-windows) y
-# no toca el sistema: no se necesita ser administrador.
+# Todo lo que hace falta se descarga a una caché (~/.cache/danplay-windows, o
+# la que diga DANPLAY_CACHE_WINDOWS, la misma que lee scripts/data.sh) y no
+# toca el sistema: no se necesita ser administrador.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 ROOT=$(pwd)
-CACHE="${DANPLAY_CACHE_WIN:-$HOME/.cache/danplay-windows}"
+# (DANPLAY_CACHE_WIN es el nombre de antes: se sigue entendiendo)
+CACHE="${DANPLAY_CACHE_WINDOWS:-${DANPLAY_CACHE_WIN:-$HOME/.cache/danplay-windows}}"
 DEST="$ROOT/dist/windows"
 TRIPLE=x86_64-pc-windows-gnu
 TARGET="${CARGO_TARGET_DIR:-target}"
@@ -102,9 +104,10 @@ cp -r desktop/src-tauri/data "$DEST/data"
 mkdir -p "$DEST/tools"
 cp desktop/src-tauri/tools/LEEME.txt "$DEST/tools/" 2>/dev/null || true
 
-# ffmpeg, fpcalc, QuickJS y yt-dlp: en Windows no hay `apt install`, así que
-# o van dentro o no hay conversión de formatos, ni huella acústica, ni
-# .opus/.wma sonando, ni YouTube.
+# ffmpeg, fpcalc y QuickJS: en Windows no hay `apt install`, así que o van
+# dentro o no hay conversión de formatos, ni huella acústica, ni .opus/.wma
+# sonando, ni YouTube. yt-dlp ya no viaja (desde la 1.45): la app lo instala
+# de GitHub la primera vez que se baja algo de YouTube.
 #
 # Con versión fija y su SHA-256, las mismas que el instalador de la CI
 # (.github/workflows/windows.yml): antes se bajaba «la última» sin comprobar
@@ -115,41 +118,40 @@ FPCALC_URL=https://github.com/acoustid/chromaprint/releases/download/v1.6.1/chro
 FPCALC_SHA256=735d6182b38e9f364b84ce6f4ccd682c75e2851de89735711d6b762d12b92a4e
 QJS_URL=https://github.com/quickjs-ng/quickjs/releases/download/v0.17.0/qjs-windows-x86_64.exe
 QJS_SHA256=2aeabf0092c3262d6b2609824418f7dd7ed1f1df939f73b2b15645230cac0d77
-YTDLP_URL=https://github.com/yt-dlp/yt-dlp/releases/download/2026.08.19/yt-dlp.exe
-YTDLP_SHA256=66674953fe251b89f4d08c5f0e35e0728679bd67ab3d7d05c0562af101dd3e7a
 download () {  # URL SHA256 DEST
-    curl -sfL -o "$3" "$1" || die "no pude descargar $1"
+    curl -sfL --retry 3 -o "$3" "$1" || die "no pude descargar $1"
     echo "$2  $3" | sha256sum -c --status - || die "$(basename "$1") no es lo esperado (sha256)"
 }
 if [ "$WITH_TOOLS" = 1 ]; then
-    TOOLS="$CACHE/tools-win-ffmpeg9.0.2-fpcalc1.6.1-qjs0.17.0-ytdlp2026.08.19"
-    if [ ! -f "$TOOLS/yt-dlp.exe" ]; then
-        step "herramientas de Windows: ffmpeg, fpcalc, QuickJS y yt-dlp (una vez, ~150 MB)"
+    TOOLS="$CACHE/tools-win-ffmpeg9.0.2-fpcalc1.6.1-qjs0.17.0"
+    if [ ! -f "$TOOLS/qjs.exe" ]; then
+        step "herramientas de Windows: ffmpeg, fpcalc y QuickJS (una vez)"
         rm -rf "$TOOLS"; mkdir -p "$TOOLS"
-        tmp=$(mktemp -d -p "$CACHE")
+        # si algo falla a medias, el temporal no se queda en la caché
+        tmp=$(mktemp -d -p "$CACHE"); trap 'rm -rf "$tmp"' EXIT
         download "$FFMPEG_URL" "$FFMPEG_SHA256" "$tmp/ffmpeg.zip"
         unzip -oq "$tmp/ffmpeg.zip" -d "$tmp/ffmpeg"
         find "$tmp/ffmpeg" -name 'ffmpeg.exe' -exec cp {} "$TOOLS/" \;
         download "$FPCALC_URL" "$FPCALC_SHA256" "$tmp/fpcalc.zip"
         unzip -oq "$tmp/fpcalc.zip" -d "$tmp/fpcalc"
         find "$tmp/fpcalc" -name 'fpcalc.exe' -exec cp {} "$TOOLS/" \;
-        rm -rf "$tmp"
+        rm -rf "$tmp"; trap - EXIT
         [ -f "$TOOLS/ffmpeg.exe" ] || die "el zip de ffmpeg no traía ffmpeg.exe"
-        download "$QJS_URL" "$QJS_SHA256" "$TOOLS/qjs.exe"
         # el último: es el que dice que la caché está completa
-        download "$YTDLP_URL" "$YTDLP_SHA256" "$TOOLS/yt-dlp.exe"
+        download "$QJS_URL" "$QJS_SHA256" "$TOOLS/qjs.exe"
     fi
-    cp "$TOOLS/ffmpeg.exe" "$TOOLS/fpcalc.exe" "$TOOLS/qjs.exe" "$TOOLS/yt-dlp.exe" "$DEST/tools/"
+    cp "$TOOLS/ffmpeg.exe" "$TOOLS/fpcalc.exe" "$TOOLS/qjs.exe" "$DEST/tools/"
     # el LEEME de la carpeta vacia diria que aqui no hay nada
     cat > "$DEST/tools/LEEME.txt" <<'EOF'
-ffmpeg, fpcalc, QuickJS y yt-dlp, incluidos.
+ffmpeg, fpcalc y QuickJS, incluidos.
 
 En Windows no hay gestor de paquetes que los ponga, asi que viajan aqui. Son
 los que hacen que funcionen la conversion de formatos, la reproduccion de
 .opus y .wma, el encogido de portadas, la identificacion de canciones por su
-sonido y las descargas de YouTube (yt-dlp.exe, con QuickJS, qjs.exe, el motor
-de JavaScript que pide). La aplicacion los busca en esta carpeta antes que en
-el PATH.
+sonido y las descargas de YouTube (con QuickJS, qjs.exe, el motor de
+JavaScript que pide yt-dlp; yt-dlp lo instala la aplicacion, en su carpeta de
+datos, la primera vez que se baja algo). La aplicacion los busca en esta
+carpeta antes que en el PATH.
 
 No los borres. Si faltan, DanPlay sigue abriendo y avisa de lo que no puede
 hacer.
@@ -167,11 +169,12 @@ Qué hay aquí
   WebView2Loader.dll   lo carga la aplicación al abrir
   data\                los modelos (el pulso, el separador), las voces de
                        las guías y ONNX Runtime, que los mueve
-  tools\               ffmpeg.exe, fpcalc.exe, qjs.exe y yt-dlp.exe:
-                       conversión de formatos, reproducción de .opus y .wma,
-                       identificación de canciones por su sonido y descargas
-                       de YouTube. Si la carpeta está vacía, eso no funciona
-                       y la aplicación lo dice
+  tools\               ffmpeg.exe, fpcalc.exe y qjs.exe: conversión de
+                       formatos, reproducción de .opus y .wma, identificación
+                       de canciones por su sonido y descargas de YouTube (su
+                       yt-dlp lo instala la aplicación la primera vez). Si la
+                       carpeta está vacía, eso no funciona y la aplicación lo
+                       dice
 
 Hace falta WebView2, que Windows 10 y 11 actualizados ya traen. Si la ventana
 sale en blanco, instálalo desde
@@ -201,7 +204,6 @@ if [ "$WITH_TOOLS" = 1 ]; then
     check tools/ffmpeg.exe
     check tools/fpcalc.exe
     check tools/qjs.exe
-    check tools/yt-dlp.exe
 fi
 
 for exe in danplay-app.exe data/onnxruntime.dll; do
@@ -245,12 +247,12 @@ if [ "$INSTALLER" = 1 ]; then
     # NSIS también se saca de sus paquetes sin instalarlo, igual que mingw.
     NSIS="$CACHE/nsis"
     if [ ! -x "$NSIS/usr/bin/makensis" ]; then
-        tmp=$(mktemp -d)
+        tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
         ( cd "$tmp" && apt-get download nsis nsis-common >/dev/null ) \
           || die "no pude descargar NSIS. ¿Hay red y apt configurado?"
         mkdir -p "$NSIS"
         for d in "$tmp"/*.deb; do dpkg-deb -x "$d" "$NSIS"; done
-        rm -rf "$tmp"
+        rm -rf "$tmp"; trap - EXIT
     fi
 
     mkdir -p dist/installers

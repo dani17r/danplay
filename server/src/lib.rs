@@ -1,5 +1,5 @@
 //! La API del núcleo de DanPlay: las rutas, los cuerpos y los errores que
-//! conoce la interfaz. Cómo se llegó aquí, en docs/MIGRATION.md (fase 4).
+//! conoce la interfaz. Cómo se llegó aquí, en docs/historia/MIGRATION.md (fase 4).
 //!
 //! Se usa de dos maneras:
 //!

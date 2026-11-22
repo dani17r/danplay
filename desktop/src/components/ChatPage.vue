@@ -48,6 +48,8 @@ const {
 
 // las mismas que publica el nucleo en youtube.STATE
 const PHASES = {
+  // yt-dlp no viaja con la app: la primera descarga lo instala antes
+  installing: 'Instalando yt-dlp',
   starting: 'Preparando',
   downloading: 'Bajando',
   converting: 'Convirtiendo a mp3',

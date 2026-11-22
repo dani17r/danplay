@@ -213,7 +213,8 @@ Rutas nuevas o cambiadas (el núcleo):
 - `POST /api/duplicates/resolve` → `dry_run` es `true` por defecto; solo rutas
   dentro de las carpetas gestionadas y con extensión de audio; borrar = papelera.
 - `GET /api/youtube` → además de `{ available, reason }`: `version` (la de
-  yt-dlp que se usa), `bundled_version` (la que viaja con la app),
+  yt-dlp que se usa; `""` si aún no hay ninguno), `bundled_version` (la que
+  viaja con la app; desde la 1.45 los paquetes no lo llevan),
   `js_runtime` (`deno | node | bun | quickjs | null`) y `js_runtime_hint`
   (qué instalar si es `null`).
 - `GET /api/downloads/folder` → `{ path, ready, reason, suggested }`: dónde se
@@ -230,7 +231,12 @@ Rutas nuevas o cambiadas (el núcleo):
   Along/` y `Entrada/`. Devuelve lo mismo que el `GET`. `409` si no vale.
 - `POST /api/youtube/download` y `POST /api/chat/confirm` con `download_music`
   → `409` («elige antes dónde guardar lo que descargas») mientras la carpeta
-  de descargas no esté lista.
+  de descargas no esté lista. `available` solo pide ffmpeg: sin yt-dlp la
+  descarga arranca igual y primero lo instala con la tarea `yt-dlp` (la de
+  `POST /api/youtube/update`), con `phase: "installing"` en el estado
+  (`name` dice el paso, `percent` el avance). Si no se puede instalar (sin
+  red), termina con `error` y un resultado `{ ok: false, reason }` que lo
+  explican. `POST /api/youtube/info` también lo instala antes, sin avance.
 - `POST /api/youtube/update` → pone yt-dlp al día como tarea larga (`yt-dlp`),
   con `result: { previous, version, updated }`.
 - `POST /api/external/play` → `400` si el archivo no es de audio.
@@ -310,7 +316,7 @@ Rutas:
   - `delete_*` → lo que devuelve la herramienta (`{ ok, result, text }`).
   - `410` si ya no vale (usada, sustituida, caducada o desconocida, o lo que
     se iba a borrar ya no es lo mismo); `409` si hay otra descarga en marcha o
-    falta la carpeta; `503` sin yt-dlp; `400` si con esas casillas no queda
+    falta la carpeta; `503` sin ffmpeg; `400` si con esas casillas no queda
     nada. En `409`, `503` y `400` la propuesta sigue viva.
 - Forma antigua, por compatibilidad: `POST /api/chat/confirm { tool, args }`
   ejecuta esa herramienta como antes (un `after` metido en `args` se ignora).

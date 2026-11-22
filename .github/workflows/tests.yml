@@ -3,12 +3,38 @@
 # La biblioteca de prueba se genera con ffmpeg, así que aquí se comprueba lo
 # mismo que en tu equipo. Desde la 1.40 todo es Rust (y la interfaz): ya no
 # hay Python que instalar.
+#
+# Las acciones van fijadas por su commit (el comentario dice la versión):
+# una etiqueta como `v7` la puede mover quien controle ese repositorio, y
+# con ella cambiaría lo que corre aquí sin que cambie nada en este archivo.
+# Dependabot las sube con su comentario (.github/dependabot.yml).
 name: pruebas
 
 on:
+  # Un commit que solo toca documentación no lanza nada. Ojo: no vale
+  # ignorar todos los .md, que las pruebas leen algunos (el README y
+  # CONTRIBUTING.md los mira library/src/repo_checks.rs; el CHANGELOG,
+  # desktop/tests/about.test.js). El orden importa: lo de después manda.
   push:
     branches: [main]
+    paths:
+      - '**'
+      - '!docs/**'
+      - 'docs/CONTRIBUTING.md'
+      - '!LICENSE'
+      - '!.markdownlint.jsonc'
   pull_request:
+    paths:
+      - '**'
+      - '!docs/**'
+      - 'docs/CONTRIBUTING.md'
+      - '!LICENSE'
+      - '!.markdownlint.jsonc'
+  # Los avisos de seguridad de las dependencias salen cualquier día, no solo
+  # cuando se sube algo: los lunes se miran aunque no haya cambiado nada
+  # (solo el trabajo «audit»).
+  schedule:
+    - cron: '17 6 * * 1'
   workflow_dispatch:
 
 permissions:
@@ -19,25 +45,40 @@ concurrency:
   group: tests-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
   core:
     name: núcleo en Rust
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          components: clippy, rustfmt
+          persist-credentials: false
+      # La de rust-toolchain.toml (la misma que en el contenedor de
+      # desarrollo), no «la estable del día»: un lint nuevo de clippy ya
+      # rompió la CI una vez sin haber tocado nada.
+      - name: Rust
+        run: |
+          rustup show active-toolchain || rustup toolchain install
+          rustup component add clippy rustfmt
+          rustc --version
       # v1: las cachés v0 son del perfil de antes (Cargo.toml) y, con la misma
-      # clave, se restauraban sin servir y nunca se renovaban
-      - uses: Swatinem/rust-cache@v2
+      # clave, se restauraban sin servir y nunca se renovaban. Se guarda solo
+      # desde main: la de una rama o una etiqueta no la reutiliza nadie más y
+      # ocupa sitio de las 10 GB que desaloja a las buenas.
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           cache-on-failure: true
           prefix-key: v1-rust
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       # ffmpeg, fpcalc y QuickJS fijos (con su sha256), los mismos que viajan
       # en los paquetes, en vez de apt: un día apt tardó 20 minutos en
       # instalar ffmpeg. Guardados en la caché: la segunda vez no se baja nada.
-      - uses: actions/cache@v6
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/danplay-linux
           key: tools-linux-${{ hashFiles('scripts/tools-linux.sh') }}
@@ -45,51 +86,87 @@ jobs:
         run: |
           ./scripts/tools-linux.sh
           echo "$PWD/desktop/src-tauri/tools" >> "$GITHUB_PATH"
+      # Clippy con el mismo perfil que las pruebas (`ci`: el de release sin
+      # LTO ni strip): los build.rs (SQLite, el C++ del estirador) y las
+      # macros se compilan una vez para los dos, no una por perfil.
       - name: estilo
         run: |
           cargo fmt --all --check
-          cargo clippy -p danplay-library -p danplay-analysis -p danplay-server --all-targets -- -D warnings
+          cargo clippy --profile ci -p danplay-library -p danplay-analysis -p danplay-server --all-targets -- -D warnings
       # la biblioteca (el índice, las etiquetas, el asistente), el análisis
       # (el pulso, el clic, los pesos) y la API con todas sus rutas, con sus
       # bibliotecas de verdad en carpetas temporales
       - name: pruebas
-        run: cargo test --release -p danplay-library -p danplay-analysis -p danplay-server
+        run: cargo test --profile ci -p danplay-library -p danplay-analysis -p danplay-server
 
   # El núcleo, en Windows. Es la única forma de saber si de verdad funciona
   # allí: las rutas, la papelera y el transporte por loopback con token toman
   # caminos distintos que en Linux no se ejecutan nunca.
   core-windows:
     name: núcleo en Windows
+    if: github.event_name != 'schedule'
     runs-on: windows-latest
+    timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Rust
+        shell: bash
+        run: |
+          rustup show active-toolchain || rustup toolchain install
+          rustc --version
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           cache-on-failure: true
           prefix-key: v1-rust
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      # El mismo ffmpeg que viaja en el instalador (windows.yml), con su
+      # sha256, en vez del de Chocolatey: ese no tiene versión fija ni suma.
       - name: ffmpeg (para generar la biblioteca de prueba)
-        run: choco install ffmpeg --no-progress -y
+        shell: pwsh
+        env:
+          FFMPEG_URL: https://github.com/GyanD/codexffmpeg/releases/download/9.0.2/ffmpeg-9.0.2-essentials_build.zip
+          FFMPEG_SHA256: 60f467265b1e312373dbcd92200c2618a74850f98d3d078e94296bb3fa2047ba
+        run: |
+          $zip = Join-Path $env:RUNNER_TEMP 'ffmpeg.zip'
+          $dir = Join-Path $env:RUNNER_TEMP 'ffmpeg'
+          Invoke-WebRequest -Uri $env:FFMPEG_URL -OutFile $zip
+          $real = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+          if ($real -ne $env:FFMPEG_SHA256) { throw "ffmpeg.zip no es lo esperado: $real" }
+          Expand-Archive $zip -DestinationPath $dir
+          $exe = Get-ChildItem -Recurse $dir -Filter ffmpeg.exe | Select-Object -First 1
+          if (-not $exe) { throw "el zip de ffmpeg no trae ffmpeg.exe" }
+          Add-Content -Path $env:GITHUB_PATH -Value $exe.DirectoryName
+          & $exe.FullName -hide_banner -version | Select-Object -First 1
       # todas, aunque falle una: así se ven todas las de Windows de una vez
       - name: pruebas
-        run: cargo test --release --no-fail-fast -p danplay-library -p danplay-analysis -p danplay-server
+        run: cargo test --profile ci --no-fail-fast -p danplay-library -p danplay-analysis -p danplay-server
 
   # El núcleo, en macOS (Apple Silicon): la papelera, FSEvents en el
   # vigilante y un sistema de archivos que no distingue mayúsculas, que en
   # Linux tampoco se ejecutan.
   core-macos:
     name: núcleo en macOS
+    if: github.event_name != 'schedule'
     runs-on: macos-latest
+    timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Rust
+        run: |
+          rustup show active-toolchain || rustup toolchain install
+          rustc --version
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           cache-on-failure: true
           prefix-key: v1-rust
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       # ffmpeg y fpcalc fijos, los mismos que viajan en el paquete de macOS,
       # en una caché: la segunda vez no se baja nada
-      - uses: actions/cache@v6
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/danplay-macos
           key: tools-macos-${{ hashFiles('scripts/tools-macos.sh') }}
@@ -99,16 +176,20 @@ jobs:
           echo "$PWD/desktop/src-tauri/tools" >> "$GITHUB_PATH"
       # todas, aunque falle una: así se ven todas las de macOS de una vez
       - name: pruebas
-        run: cargo test --release --no-fail-fast -p danplay-library -p danplay-analysis -p danplay-server
+        run: cargo test --profile ci --no-fail-fast -p danplay-library -p danplay-analysis -p danplay-server
 
   frontend:
     name: interfaz
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     defaults:
       run:
         working-directory: desktop
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       # Bun (el gestor de paquetes de la interfaz) y Vite+ (vp), en las
       # versiones que fija desktop/package.json (packageManager y vite-plus).
       # setup-vp, a una versión exacta: su etiqueta v1 ya no se mueve.
@@ -137,20 +218,34 @@ jobs:
       - name: rutas de medios
         working-directory: .
         run: node tests/test_frontend.mjs
+      # Los guiones de shell: lo que solo se rompe al ejecutarlos (una
+      # variable sin comillas, un `cd` que falla en silencio). shellcheck
+      # viene en la imagen de Ubuntu de GitHub.
+      - name: guiones de shell
+        working-directory: .
+        run: shellcheck -S warning scripts/*.sh tests/smoke.sh packaging/deb/post* danplay-app.sh
 
   # La interfaz de verdad contra el núcleo de verdad, en Chrome (viene en la
   # imagen de Ubuntu de GitHub): lo que las pruebas con dobles no ven.
   e2e:
     name: interfaz y núcleo juntos (Playwright)
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       # el núcleo de verdad: danplay-server, compilado aquí
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - name: Rust
+        run: |
+          rustup show active-toolchain || rustup toolchain install
+          rustc --version
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           cache-on-failure: true
           prefix-key: v1-rust
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       # Bun (el gestor de paquetes de la interfaz) y Vite+ (vp), en las
       # versiones que fija desktop/package.json (packageManager y vite-plus).
       # setup-vp, a una versión exacta: su etiqueta v1 ya no se mueve.
@@ -168,7 +263,7 @@ jobs:
       # ffmpeg, fpcalc y QuickJS fijos (con su sha256), los mismos que viajan
       # en los paquetes, en vez de apt: un día apt tardó 20 minutos en
       # instalar ffmpeg. Guardados en la caché: la segunda vez no se baja nada.
-      - uses: actions/cache@v6
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/danplay-linux
           key: tools-linux-${{ hashFiles('scripts/tools-linux.sh') }}
@@ -176,16 +271,20 @@ jobs:
         run: |
           ./scripts/tools-linux.sh
           echo "$PWD/desktop/src-tauri/tools" >> "$GITHUB_PATH"
+      # Con el perfil de las pruebas (`ci`), no en depuración: es otro perfil
+      # más que compilar entero, y sus dependencias sin optimizar hacían
+      # lento el análisis de la biblioteca de prueba (e2e/server.mjs lo busca
+      # en target/ci).
       - name: dependencias
         run: |
-          cargo build -p danplay-server
+          cargo build --profile ci -p danplay-server
           cd desktop && vp install --frozen-lockfile
       - name: flujos completos
         working-directory: desktop
         run: vp run e2e
       - name: informe si algo falló
         if: failure()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: playwright-report
           path: desktop/playwright-report
@@ -193,19 +292,26 @@ jobs:
 
   desktop:
     name: envoltorio de escritorio
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          components: clippy, rustfmt
-          targets: x86_64-pc-windows-gnu
+          persist-credentials: false
+      - name: Rust
+        run: |
+          rustup show active-toolchain || rustup toolchain install
+          rustup component add clippy rustfmt
+          rustup target add x86_64-pc-windows-gnu
+          rustc --version
       # v1: las cachés v0 son del perfil de antes (Cargo.toml) y, con la misma
       # clave, se restauraban sin servir y nunca se renovaban
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           cache-on-failure: true
           prefix-key: v1-rust
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       # Bun (el gestor de paquetes de la interfaz) y Vite+ (vp), en las
       # versiones que fija desktop/package.json (packageManager y vite-plus).
       # setup-vp, a una versión exacta: su etiqueta v1 ya no se mueve.
@@ -220,12 +326,22 @@ jobs:
           package-manager: false
           cache: true
           run-install: false
+      # mingw-w64, para comprobar que el código de Windows compila (abajo)
       - name: dependencias de Tauri
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
-            librsvg2-dev patchelf libasound2-dev libdbus-1-dev \
-            ffmpeg mingw-w64
+            librsvg2-dev patchelf libasound2-dev libdbus-1-dev mingw-w64
+      # ffmpeg, fijo y con su sha256 como en «núcleo en Rust» (antes, el de
+      # apt, sin versión ni suma), en una caché
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/danplay-linux
+          key: tools-linux-${{ hashFiles('scripts/tools-linux.sh') }}
+      - name: programas del sistema
+        run: |
+          ./scripts/tools-linux.sh
+          echo "$PWD/desktop/src-tauri/tools" >> "$GITHUB_PATH"
       # Tauri exige la interfaz compilada para compilar, y no está en git (los
       # datos y las herramientas no: van entre los recursos, y sin ellos
       # bastan sus LEEME)
@@ -235,34 +351,48 @@ jobs:
           vp install --frozen-lockfile
           vp build
           vp build --mode mobile
+      # con el perfil de las pruebas (`ci`), como en «núcleo en Rust»
       - name: estilo
         run: |
           cargo fmt --all --check
-          cargo clippy -p danplay-app --all-targets -- -D warnings
-          cargo clippy -p danplay-engine --all-targets -- -D warnings
-          cargo clippy -p danplay-mobile --all-targets -- -D warnings
+          cargo clippy --profile ci -p danplay-app --all-targets -- -D warnings
+          cargo clippy --profile ci -p danplay-engine --all-targets -- -D warnings
+          cargo clippy --profile ci -p danplay-mobile --all-targets -- -D warnings
+      # Que la documentación del código se pueda generar sin avisos (un
+      # enlace roto entre `[]`, un bloque de código que no es Rust): es la que
+      # se lee con `cargo doc --open`.
+      - name: documentación
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --profile ci --workspace --no-deps
       # Algunas usan ffmpeg de verdad (opus, cambiar el tono); las de sonido
       # se saltan solas y lo dicen, porque la maquina de CI no tiene salida.
       - name: pruebas del reproductor, la cola y la bandeja
-        run: cargo test --release -p danplay-app
+        run: cargo test --profile ci -p danplay-app
       # El motor de la app del celular, en Linux: lo mismo que corre en el
       # telefono, sin la salida de audio (las pruebas tiran del render a mano).
       - name: pruebas del motor y de la app del celular
-        run: cargo test --release -p danplay-engine -p danplay-mobile
+        run: cargo test --profile ci -p danplay-engine -p danplay-mobile
       # El código solo-Windows (Job Object, registro, consola) no se compila
       # nunca en Linux: comprobarlo aquí caza lo que se rompe sin ver Windows.
       # Con el destino gnu, porque Tauri compila los recursos de Windows y
       # desde Linux solo hay con qué hacerlo con mingw (windres).
       - name: el código de Windows compila
         run: |
-          cargo check -p danplay-app --target x86_64-pc-windows-gnu
+          cargo check --profile ci -p danplay-app --target x86_64-pc-windows-gnu
 
   audit:
     name: avisos de seguridad de las dependencias
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
-      - uses: taiki-e/install-action@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # `cargo audit` pasa por el `cargo` de rustup, que lee rust-toolchain.toml
+      - name: la versión de Rust
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
         with:
           tool: cargo-audit
       - name: Rust

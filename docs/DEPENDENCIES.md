@@ -20,12 +20,14 @@ Desde entonces **las etiquetas las lee y las escribe el núcleo de Rust**
 `library/src/tags.rs`). Desde la fase 4 de la migración la app no lleva
 Python, y desde la 1.40 tampoco el repositorio: el núcleo de Python, que
 aún instalaba mutagen (lo pedía `yt-dlp[default]`) y lo usaba en sus
-pruebas de testigo, se fue (ver [la migración](MIGRATION.md)). Lo que esas
+pruebas de testigo, se fue (ver [la migración](historia/MIGRATION.md)). Lo que esas
 pruebas comparaban con mutagen quedó guardado como casos fijos junto a las
 de Rust (`library/src/tags/mutagen/`).
 
-mutagen solo sigue dentro del ejecutable oficial de yt-dlp, que va como
-programa aparte, igual que ffmpeg (abajo, en «Herramientas externas»).
+mutagen solo sigue dentro del ejecutable oficial de yt-dlp, un programa
+aparte como ffmpeg (abajo, en «Herramientas externas») que desde la 1.45 ni
+siquiera viaja en los paquetes: lo instala la app la primera vez que se baja
+algo de YouTube.
 
 **Esto no es asesoramiento legal.** Es para que la decisión se tome a
 sabiendas.
@@ -106,7 +108,7 @@ no hay PipeWire), sin el que la app «sonaba» sin error y no se oía nada.
 | `ffmpeg` | LGPL-2.1+ / GPL según compilación (la de Windows, la *essentials* de Gyan, es **GPL-3.0**) | convertir formatos, encoger carátulas, opus/wma, velocidad y tono |
 | `fpcalc` (Chromaprint) | MIT / LGPL-2.1+ | calcular la huella acústica |
 | QuickJS-NG (`qjs`) | MIT | el motor de JavaScript que YouTube exige a yt-dlp (o Deno, Node, Bun, si están en el sistema) |
-| `yt-dlp` | Unlicense | descargar de YouTube. Es su ejecutable oficial: un PyInstaller con su propio Python y sus dependencias dentro (entre ellas `mutagen`, GPL, y `yt-dlp-ejs`), que va como programa aparte, igual que ffmpeg |
+| `yt-dlp` | Unlicense | descargar de YouTube. Es su ejecutable oficial: un PyInstaller con su propio Python y sus dependencias dentro (entre ellas `mutagen`, GPL, y `yt-dlp-ejs`), un programa aparte como ffmpeg. Desde la 1.45 no viaja en los paquetes: la app lo baja de GitHub a su carpeta de datos la primera vez que se usa |
 | ONNX Runtime (`libonnxruntime`, `onnxruntime.dll`) | MIT (viaja con su licencia y sus avisos de terceros, `ThirdPartyNotices`) | mover las redes: el pulso, separar en pistas y las voces de las guías |
 | `gio` (GLib) | LGPL-2.1+ | papelera de respaldo en Linux, si no se puede usar directamente la de freedesktop.org |
 
@@ -208,7 +210,7 @@ Ninguno es obligatorio; la app funciona sin todos ellos.
 | LRCLIB | letras | no |
 | iTunes Search / Cover Art Archive | carátulas | no |
 | DuckDuckGo (HTML) | comprobar datos en la web | no |
-| GitHub (las publicaciones de yt-dlp) | «Actualizar yt-dlp»: el ejecutable de la última versión, comprobado con su `SHA2-256SUMS` | no |
+| GitHub (las publicaciones de yt-dlp) | «Actualizar yt-dlp», y la primera consulta o descarga de YouTube si aún no hay ninguno: el ejecutable de la última versión, comprobado con su `SHA2-256SUMS` | no |
 | HuggingFace (el repositorio del autor de Demucs) | los pesos del separador de pistas, una sola vez y comprobados con su `sha256` | no |
 | GitHub (la release de ZFTurbo) | los pesos de la separación de máxima calidad, una sola vez y comprobados con su `sha256` | no |
 | HuggingFace (Supertone y Rhasspy) | las voces de las guías habladas, cada una cuando se elige y comprobadas con su `sha256` | no |

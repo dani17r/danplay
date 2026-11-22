@@ -18,6 +18,13 @@ target/
 dist/
 dist-mobile/
 build/
+# los esquemas de las capabilities: los reescribe tauri-build en cada
+# compilacion (no hacen falta para validarlas: eso lo hace con los permisos,
+# en OUT_DIR); solo los usa el editor por el `$schema` de capabilities/*.json
+desktop/src-tauri/gen/schemas/
+mobile/gen/schemas/
+# lo que deja a medias scripts/bump-version.sh si se corta
+Cargo.lock.tmp
 
 # lo que viaja con la app y se baja o se copia al compilar: ffmpeg, fpcalc,
 # QuickJS y yt-dlp (scripts/tools-*.sh) y los datos con ONNX Runtime
@@ -31,6 +38,10 @@ desktop/src-tauri/core/
 
 # modo desarrollo con datos de prueba (scripts/dev.sh --sandbox)
 .dev/
+# las copias de trabajo de los agentes, y los ajustes de cada editor
+.claude/worktrees/
+.idea/
+.vscode/
 
 # informes de pruebas y caches de herramientas
 coverage/

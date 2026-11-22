@@ -1,5 +1,5 @@
-Aqui van ffmpeg, fpcalc, QuickJS (qjs) y yt-dlp cuando viajan DENTRO de
-los paquetes: la app los encuentra aqui y se los da al nucleo, que los usa
+Aqui van ffmpeg, fpcalc y QuickJS (qjs) cuando viajan DENTRO de los
+paquetes: la app los encuentra aqui y se los da al nucleo, que los usa
 antes que los del sistema. Asi no hay que instalar nada aparte.
 
 - Windows (.exe): los pone .github/workflows/windows.yml o
@@ -10,8 +10,9 @@ antes que los del sistema. Asi no hay que instalar nada aparte.
 - macOS: los pone scripts/tools-macos.sh (lo llama
   .github/workflows/macos.yml).
 
-yt-dlp es su ejecutable oficial (no pide Python en el sistema); la app lo
-pone al dia sola desde GitHub, en su carpeta de datos.
+yt-dlp no viaja (desde la 1.45: eran 38 MB): la app baja su ejecutable
+oficial de GitHub, en su carpeta de datos, la primera vez que se usa, y lo
+pone al dia desde Descargas. Si hay uno aqui (en desarrollo), lo usa.
 
 Sin ellos DanPlay funciona, pero sin ondas ni clic de canciones nuevas, sin
 separar, sin convertir formatos, sin identificar por el sonido y sin bajar

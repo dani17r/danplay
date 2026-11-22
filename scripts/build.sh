@@ -8,8 +8,8 @@
 # Sin Python ni PyInstaller: el nucleo va dentro de la app (el crate
 # `server`). Lo que viaja con ella son sus datos (desktop/src-tauri/data:
 # los modelos, las voces, la foto del catalogo y ONNX Runtime) y, en los
-# paquetes, sus programas (desktop/src-tauri/tools: ffmpeg, fpcalc, QuickJS y
-# yt-dlp).
+# paquetes, sus programas (desktop/src-tauri/tools: ffmpeg, fpcalc y
+# QuickJS; yt-dlp lo instala la app la primera vez que baja de YouTube).
 #
 # Los paquetes acaban en dist/installers/. Respeta CARGO_TARGET_DIR.
 set -eu
@@ -35,27 +35,33 @@ rm -rf desktop/src-tauri/core desktop/src-tauri/binaries
 
 step "3/3  app de escritorio (Tauri), con el nucleo dentro"
 if [ "${1:-}" = "--package" ]; then
-    # ffmpeg, fpcalc, QuickJS y yt-dlp dentro de los paquetes
+    # ffmpeg, fpcalc y QuickJS dentro de los paquetes
     # (desktop/src-tauri/tools)
     ./scripts/tools-linux.sh
     # La compila `tauri build` (con su entorno: compilarla tambien con cargo
-    # era hacerlo dos veces), pero sin empaquetar todavia: antes se saca con
-    # ella la foto del catalogo (abajo).
+    # era hacerlo dos veces), y se empaqueta abajo.
     ( cd desktop && vp exec tauri build --no-bundle )
 else
     # workspace de Cargo: sale en target/ de la raiz
     cargo build --release -p danplay-app
 fi
 
-if [ "${1:-}" = "--package" ]; then
-    step "extra  la foto del catalogo de modelos, la de hoy"
-    # Para que ningun paquete salga con una lista de hace meses, la saca la
-    # propia app recien compilada, y en data/, que es lo que se empaqueta: la
-    # del repositorio no se toca.
-    # Sin internet viaja la del repositorio.
-    "$APP" --models-snapshot desktop/src-tauri/data/models-snapshot.json \
-      || echo "  sin red: viaja la del repositorio"
+# El .deb, de gzip a xz: 21 MB menos (medido en noviembre de 2026: de 145 a
+# 124), con el mismo contenido. Tauri no deja elegir la compresion. xz y no
+# zstd: el dpkg de Debian 11 no abre zstd. Lo mismo hace la CI (linux.yml).
+# (Sin el numero de la version aqui: repo_checks lo vigila.)
+recompress_deb () {
+    raw="$TARGET/release/bundle/deb-raw"
+    rm -rf "$raw"
+    dpkg-deb -R "$1" "$raw"
+    dpkg-deb -Zxz -z6 --root-owner-group -b "$raw" "$1" >/dev/null
+    rm -rf "$raw"
+}
 
+if [ "${1:-}" = "--package" ]; then
+    # (la foto del catalogo de modelos viaja la del repositorio, data/: se
+    # saca al subir la version, con scripts/bump-version.sh, y asi es la
+    # misma en todos los paquetes)
     step "extra  paquetes .deb y .AppImage"
     BUNDLE="$TARGET/release/bundle"
 
@@ -72,6 +78,9 @@ if [ "${1:-}" = "--package" ]; then
     # tragaba y luego se copiaban los paquetes VIEJOS con fecha nueva, que es
     # la peor forma de fallar: parece que funciono y arrancas la app de ayer.
     ( cd desktop && vp exec tauri bundle --bundles deb,appimage )
+    for f in "$BUNDLE"/deb/*.deb; do
+        [ -f "$f" ] && recompress_deb "$f"
+    done
 
     # Y fuera tambien los de la version anterior en el destino, por lo mismo.
     rm -f dist/installers/*.deb dist/installers/*.AppImage
@@ -80,7 +89,9 @@ if [ "${1:-}" = "--package" ]; then
     # (la misma en todas partes: la prueba de versiones lo vigila).
     VERSION=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -1)
 
-    for f in $(find "$BUNDLE" -type f \( -name '*.deb' -o -name '*.AppImage' \)); do
+    # (los nombres de Tauri no llevan espacios: DanPlay_X.Y.Z_amd64.deb)
+    for f in "$BUNDLE"/deb/*.deb "$BUNDLE"/appimage/*.AppImage; do
+        [ -f "$f" ] || continue
         # Cinturon: si por lo que sea aparece un paquete que no es de esta
         # version, se para en vez de copiarlo.
         case "$(basename "$f")" in
@@ -96,14 +107,20 @@ if [ "${1:-}" = "--package" ]; then
         printf '  %s  (%s)\n' "$(basename "$f")" "$(du -h "$f" | cut -f1)"
     done
 
-    # Lo que tiene que llevar el .deb, y lo que no: ni rastro de Python.
-    DEB=$(ls dist/installers/*_"$VERSION"_*.deb)
+    # Lo que tiene que llevar el .deb, y lo que no: ni rastro de Python, ni
+    # yt-dlp (ya no viaja: la app lo instala al bajar de YouTube).
+    DEB="dist/installers/DanPlay_${VERSION}_amd64.deb"
+    [ -f "$DEB" ] || die "no salio $DEB"
     CONTENTS=$(dpkg-deb -c "$DEB")
     for wanted in usr/bin/danplay-app usr/lib/DanPlay/data/libonnxruntime.so \
                   usr/lib/DanPlay/data/pulse/beat_this.onnx usr/lib/DanPlay/data/models-snapshot.json \
-                  usr/lib/DanPlay/tools/ffmpeg usr/lib/DanPlay/tools/yt-dlp; do
+                  usr/lib/DanPlay/tools/ffmpeg; do
         printf '%s\n' "$CONTENTS" | grep -q "$wanted" || die "el .deb no lleva $wanted"
     done
+    if printf '%s\n' "$CONTENTS" | grep -q 'usr/lib/DanPlay/tools/yt-dlp'; then
+        die "el .deb lleva yt-dlp, que ya no viaja"
+    fi
+    ar t "$DEB" | grep -qx 'data.tar.xz' || die "el .deb no va en xz: $(ar t "$DEB" | tr '\n' ' ')"
     if printf '%s\n' "$CONTENTS" | grep -iqE 'python|\.pyc|/_internal/|libpython'; then
         die "el .deb lleva algo de Python: $(printf '%s\n' "$CONTENTS" | grep -iE 'python|\.pyc|/_internal/|libpython' | head -3)"
     fi

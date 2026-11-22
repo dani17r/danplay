@@ -20,7 +20,7 @@ usarlo, con el [README](../README.md) tienes de sobra.
 Hasta la 1.30 el núcleo era Python, un programa aparte (empaquetado con
 PyInstaller) al que la app hablaba por un socket Unix `0600`, con el crate
 PyO3 debajo para lo que Python hacía lento. Desde la fase 4 de
-[la migración](MIGRATION.md) la app lleva el de Rust dentro y no hay Python
+[la migración](historia/MIGRATION.md) la app lleva el de Rust dentro y no hay Python
 en ningún paquete; desde la fase 5 (la 1.40), tampoco en el repositorio:
 sus pruebas pasaron a Rust y el núcleo de Python se fue.
 
@@ -67,7 +67,7 @@ Mientras tanto Python llamaba al crate con la misma API de antes, y sus
 pruebas eran el testigo de que nada cambiaba; además, cada módulo se comparó
 con su versión anterior en miles de casos. Después vinieron la API
 (`server/`) y la app con el núcleo dentro (fase 4), y por último sus pruebas,
-pasadas a Rust una a una (fase 5: [TESTS-PORT.md](TESTS-PORT.md)). Con eso
+pasadas a Rust una a una (fase 5: [TESTS-PORT.md](historia/TESTS-PORT.md)). Con eso
 se fueron el núcleo de Python, `core/` y la versión vieja de las
 etiquetas, la de mutagen (GPL).
 
@@ -602,8 +602,11 @@ la URL, si pide clave y qué parámetros tolera. Tres piezas:
   vez que se abre el selector y al arrancar: sin cambios, el servidor
   responde 304 y cero bytes, así que se puede comprobar siempre. La copia
   vive en la carpeta de datos; la app lleva dentro una foto para el primer
-  arranque sin red, regenerada en cada paquete por la propia app recién
-  compilada (`--models-snapshot`). Y lo que el usuario puede usar **de
+  arranque sin red (`data/models-snapshot.json`), que se saca al subir la
+  versión (`scripts/bump-version.sh`, con `--models-snapshot` de la app ya
+  compilada) y va en git: la misma en todos los paquetes. (Hasta la 1.44 la
+  sacaba cada paquete al construirse, así que cada sistema podía llevar una
+  distinta.) Y lo que el usuario puede usar **de
   verdad** con su clave lo dice el propio proveedor (`/models`), cruzado con
   el catálogo.
 - **Gratis, sin clave**: el grupo `free` del catálogo (LLM7, las rutas
@@ -2087,9 +2090,15 @@ inmediata.
 
 ## yt-dlp al día
 
-YouTube cambia a menudo y yt-dlp saca versión cada pocas semanas; la que viaja
-con la app (su ejecutable oficial, en `tools/`) se quedaría congelada hasta la
-siguiente versión de DanPlay. «Actualizar yt-dlp» (Descargas) baja de GitHub
+YouTube cambia a menudo y yt-dlp saca versión cada pocas semanas; uno que
+viajara con la app (su ejecutable oficial, en `tools/`) se quedaría congelado
+hasta la siguiente versión de DanPlay. **Desde la 1.45 no viaja**: eran 38 de
+los 145 MB del `.deb`, y solo sirve para YouTube, que ya pide red. La primera
+consulta o descarga sin yt-dlp lo instala antes (`youtube::ensure_ytdlp`)
+con la misma tarea que «Actualizar yt-dlp» (`yt-dlp`), que sin ninguno trae
+el último; la descarga cuenta ese paso como `phase: "installing"` y, sin red,
+acaba diciendo por qué no pudo. Quien ya lo había actualizado alguna vez
+sigue con el de su carpeta de datos, sin instalar nada. «Actualizar yt-dlp» (Descargas) baja de GitHub
 el ejecutable de la última versión para este sistema (`yt-dlp_linux`,
 `yt-dlp_macos`, `yt-dlp.exe`), lo comprueba contra su `SHA2-256SUMS`, lo deja
 en la carpeta de datos (`tools/yt-dlp/<versión>/`, con su marca `current`) y
@@ -2832,19 +2841,21 @@ la versión vieja y no se nota. Por eso hay un script y no tres comandos.
 ```
 
 **Sin Python.** El núcleo va dentro de la app (el crate `server`, en el
-mismo proceso: ver [la migración](MIGRATION.md)). Hasta la 1.30 era el de
+mismo proceso: ver [la migración](historia/MIGRATION.md)). Hasta la 1.30 era el de
 Python, empaquetado con PyInstaller en una carpeta (`core/`) que la app
 arrancaba aparte y a la que hablaba por un socket. Con `--package` la app se
-compila sin empaquetar (`tauri build --no-bundle`), saca con ella misma la
-foto del catálogo de modelos (`--models-snapshot`) y luego se empaqueta
+compila sin empaquetar (`tauri build --no-bundle`) y luego se empaqueta
 (`tauri bundle`); el script comprueba que el `.deb` lleva el núcleo, sus
 datos y sus programas, y nada de Python.
 
-**Los programas de fuera, dentro de los paquetes.** ffmpeg, fpcalc,
-QuickJS-NG y yt-dlp (su ejecutable oficial) viajan en la carpeta `tools/` de
-cada paquete (en Linux y macOS los ponen `scripts/tools-linux.sh` y
-`tools-macos.sh`, con versiones y sha256 fijados; en Windows, su CI). La app
-se la da al núcleo, que la mira antes que el sistema.
+**Los programas de fuera, dentro de los paquetes.** ffmpeg, fpcalc y
+QuickJS-NG viajan en la carpeta `tools/` de cada paquete (en Linux y macOS
+los ponen `scripts/tools-linux.sh` y `tools-macos.sh`, con versiones y
+sha256 fijados, y el ffmpeg con una segunda dirección, la versión
+`tools-ffmpeg-9.0.2` del propio repositorio; en Windows, su CI). La app se la
+da al núcleo, que la mira antes que el sistema. yt-dlp no (desde la 1.45): lo
+instala la app al usarlo (ver «yt-dlp al día»). El `.deb` va en xz, no en el
+gzip de Tauri (21 MB menos).
 
 **Los datos, en `data/`.** Lo de `data/` del repositorio (el grafo y los pesos de
 Beat This!, los grafos del separador, el catálogo de voces y la foto del
