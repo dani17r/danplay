@@ -96,6 +96,8 @@ const emit = defineEmits(['hide', 'exit', 'close'])
 const player = usePlayback()
 const { track, position, duration, speed, pitch, metronome, playing, volume } = player
 
+// Las velocidades de ensayar, a la vista en el estudio. Son menos que las del
+// reproductor (usePlayback.js) y todas están en aquella lista.
 const SPEEDS = [0.5, 0.6, 0.7, 0.8, 0.9, 1, 1.1, 1.25]
 // `loops`: los tramos que se repiten, [[a, b], …] (uno solo es el bucle A-B);
 // `mixer`: las pistas separadas, si suenan (`on`) y cómo va cada una;

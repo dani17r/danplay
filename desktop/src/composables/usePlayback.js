@@ -34,9 +34,10 @@ const REPEAT_KEY = 'danplay.repeat'
 const ACCENT_KEY = 'danplay.click.accent'
 
 /**
- * Las velocidades que se ofrecen: las mismas en el reproductor y en el modo
- * estudio. Eran dos listas distintas, y desde un 80 % puesto en el estudio el
- * botón del reproductor (que buscaba la suya) saltaba al 50 %.
+ * Las velocidades del botón del reproductor. Llevan dentro todas las del
+ * modo estudio (que enseña menos, las de ensayar: StudyBar.vue), y el botón
+ * pasa a la siguiente desde la que haya puesta aunque no esté en la lista:
+ * desde un 80 % puesto en el estudio saltaba al 50 %.
  */
 export const SPEEDS = [0.5, 0.6, 0.7, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 2]
 /** La siguiente de la lista desde `speed` (esté o no en ella); tras la última, la primera. */
@@ -772,10 +773,6 @@ function setSpeed(value) {
   return send((b) => b.setSpeed(v))
 }
 /**
- * El tono corrido, en semitonos (-12..12). Con fracciones: medio semitono es
- * un cuarto de tono.
- */
-/**
  * Cuánto se funden dos canciones al pasar de una a otra, en segundos (0 =
  * sin fundido). Con el clic, la cuenta o tramos puestos no se funden.
  * @param {number} seconds
@@ -796,6 +793,10 @@ function setFormants(on) {
   remember(FORMANTS_KEY, on ? '1' : '0')
   return send((b) => b.setFormants?.(!!on))
 }
+/**
+ * El tono corrido, en semitonos (-12..12). Con fracciones: medio semitono es
+ * un cuarto de tono.
+ */
 function setPitch(semitones) {
   const n = cleanPitch(semitones)
   return send((b) => b.setPitch(n))
@@ -1040,7 +1041,6 @@ export function usePlayback() {
     loopB: computed(() => state.loop_b),
     /** los tramos que se repiten, en orden: [[a, b], …] */
     loops: computed(() => state.loops || []),
-    /** los tramos esperan a que acabe la canción */
     /** qué pasa al acabar el último tramo: 'repeat', 'stop' o 'continue' */
     loopEnd: computed(() => state.loop_end || 'repeat'),
     /** la salida de audio abierta (null si aún no, o se soltó) */
