@@ -285,6 +285,10 @@ impl Output {
                     }
                 }
             })
+            .map_err(|e| {
+                // sin el hilo no hay salida: que se diga, en vez de callar
+                lock(&status).error = Some(format!("no se pudo abrir la salida de audio: {e}"));
+            })
             .ok();
         Output {
             stop,
@@ -425,7 +429,7 @@ pub fn bridge() -> Bridge {
 /// sistema lo configuró así (con `pipewire-pulse` y el complemento de
 /// PulseAudio instalados pero sin `pipewire-alsa`, no), y entonces va a la
 /// tarjeta 0.
-fn system_devices(host: &cpal::Host) -> Vec<cpal::Device> {
+pub(crate) fn system_devices(host: &cpal::Host) -> Vec<cpal::Device> {
     let mut out = Vec::new();
     #[cfg(target_os = "linux")]
     if let Some(pcm) = bridge().pcm

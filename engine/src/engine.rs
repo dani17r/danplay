@@ -305,13 +305,14 @@ impl Engine {
         declared: f64,
     ) -> Result<Loaded, String> {
         let (parts, names) = open_parts(files)?;
+        let (song, ring) = spawn_song(id, parts, declared, 0)?;
         self.drop_other();
         let deck = self.deck();
         self.unload_deck(deck);
         if !self.offline {
             self.ensure_output();
         }
-        Ok(self.start_song(deck, id, parts, names, declared, 1.0))
+        Ok(self.start_song(deck, song, ring, names, 1.0))
     }
 
     /// La siguiente cancion entra fundiendose con la que suena, en
@@ -325,9 +326,10 @@ impl Engine {
         seconds: f32,
     ) -> Result<Loaded, String> {
         let (parts, names) = open_parts(files)?;
+        let (song, ring) = spawn_song(id, parts, declared, 0)?;
         self.drop_other();
         let incoming = self.other();
-        let loaded = self.start_song(incoming, id, parts, names, declared, 0.0);
+        let loaded = self.start_song(incoming, song, ring, names, 0.0);
         let frames = (seconds.max(0.05) * RATE as f32) as u32;
         let outgoing = self.deck();
         outgoing
@@ -363,13 +365,12 @@ impl Engine {
     fn start_song(
         &self,
         deck: &Deck,
-        id: &str,
-        parts: Vec<Part>,
+        song: Song,
+        ring: Ring,
         names: Vec<String>,
-        declared: f64,
         fade: f32,
     ) -> Loaded {
-        let (song, ring) = spawn_song(id, parts, declared, 0);
+        let id = song.id.clone();
         let frames = song.frames();
         let c = &deck.controls;
         c.playing.store(false, Ordering::Release);
@@ -400,7 +401,7 @@ impl Engine {
         self.send_routing(deck, routing);
         *lock(&deck.song) = Some(song);
         Loaded {
-            id: id.to_string(),
+            id,
             duration: frames as f64 / f64::from(RATE),
             parts: names,
         }
@@ -441,7 +442,7 @@ impl Engine {
             // nada cargado: es una cancion como otra
             return self.load_files(id, files, declared);
         };
-        let (song, ring) = spawn_song(id, parts, declared, start);
+        let (song, ring) = spawn_song(id, parts, declared, start)?;
         let (segments, end) = lock(&self.session).segments.clone();
         if !segments.is_empty() {
             song.segments(segments, end);
@@ -503,6 +504,11 @@ impl Engine {
     /// Suelta la cancion que se fue con el fundido, cuando ya no se oye; y
     /// las partes que ya fueron relevadas.
     fn reap(&self) {
+        // lo que el hilo de audio ya soltó, fuera: antes solo se recogía al
+        // mandarle algo, y sonando sin tocar nada se quedaba ahí
+        for deck in &self.decks {
+            lock(&deck.mail).empty();
+        }
         for deck in &self.decks {
             if deck.controls.handed_over.swap(false, Ordering::AcqRel) {
                 let fresh = lock(&deck.incoming).take();
@@ -910,7 +916,12 @@ fn open_parts_within(
 
 /// Pone a andar el hilo que decodifica una cancion desde `from` y devuelve
 /// lo que la sigue por fuera y los anillos para el render.
-fn spawn_song(id: &str, parts: Vec<Part>, declared: f64, from: u64) -> (Song, Ring) {
+fn spawn_song(
+    id: &str,
+    parts: Vec<Part>,
+    declared: f64,
+    from: u64,
+) -> Result<(Song, Ring), String> {
     // lo que dura, para empezar: lo que dicen los archivos; si no, lo que
     // dice quien carga (la PC la mide con ffmpeg); y a falta de las dos, la
     // cuenta aproximada de un mp3 sin cabecera. Es solo un punto de partida:
@@ -947,9 +958,11 @@ fn spawn_song(id: &str, parts: Vec<Part>, declared: f64, from: u64) -> (Song, Ri
         feeder.stall_seek = feeder::STALL_SEEK.get();
     }
     let (orders, rx) = channel();
-    let _ = std::thread::Builder::new()
+    // sin el hilo no llegaria nada: «sonando» en silencio. Que se diga
+    std::thread::Builder::new()
         .name("danplay-parts".into())
-        .spawn(move || feeder::run(feeder, free_rx, full_tx, &rx));
+        .spawn(move || feeder::run(feeder, free_rx, full_tx, &rx))
+        .map_err(|e| format!("no se pudo poner a leer la canción: {e}"))?;
     let gains = Arc::new(Gains::default());
     let ring = Ring {
         full: full_rx,
@@ -967,7 +980,7 @@ fn spawn_song(id: &str, parts: Vec<Part>, declared: f64, from: u64) -> (Song, Ri
         shared,
         gains,
     };
-    (song, ring)
+    Ok((song, ring))
 }
 
 impl Drop for Engine {
@@ -1305,7 +1318,8 @@ mod tests {
         for from in [0u64, 10_000] {
             for _ in 0..200 {
                 let part = Part::open(Arc::clone(&bytes), "ogg").expect("ogg");
-                let (song, mut ring) = spawn_song("prueba", vec![part], 2.0, from);
+                let (song, mut ring) =
+                    spawn_song("prueba", vec![part], 2.0, from).expect("el hilo");
                 // nada mas volver, sin esperar al hilo: el salto ya esta puesto
                 assert_eq!(ring.shared.generation.load(Ordering::Acquire), 1);
                 assert_eq!(ring.shared.target.load(Ordering::Acquire), from);

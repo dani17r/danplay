@@ -3,16 +3,18 @@
 //!
 //! La entrada de audio del sistema (cpal), en su propio hilo, que es el dueño
 //! del stream (en algunas plataformas no se puede pasar de un hilo a otro).
-//! Cada bloque que llega se junta a mono y se manda por un canal al hilo; el
-//! nivel (el pico del ultimo bloque) queda a mano para el medidor. Un minuto
-//! como mucho: lo de mas se tira (una guia es una frase).
+//! Cada bloque que llega se junta a mono y va por un anillo sin candados al
+//! hilo (antes, un `Vec` nuevo y un envio por canal en cada bloque, pidiendo
+//! memoria en el hilo de audio); el nivel (el pico del ultimo bloque) queda
+//! a mano para el medidor. Un minuto como mucho: lo de mas se tira (una guia
+//! es una frase).
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{FromSample, SampleFormat, SizedSample, StreamConfig};
 use std::io::{self, Write};
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use std::sync::mpsc::{Receiver, Sender, channel};
+use std::sync::mpsc::{Sender, channel};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
@@ -121,29 +123,47 @@ fn run(
     }
     let _ = ready.send(Ok(()));
     let limit = (rate * MAX_SECONDS) as usize;
+    let mut blocks = blocks;
     let mut samples: Vec<f32> = Vec::with_capacity(rate as usize * 8);
-    while !stop.load(Ordering::Acquire) {
-        match blocks.recv_timeout(Duration::from_millis(50)) {
-            Ok(block) => take(&mut samples, &block, limit),
-            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
-            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
-        }
+    while !stop.load(Ordering::Acquire) && !blocks.is_abandoned() {
+        std::thread::sleep(Duration::from_millis(50));
+        take(&mut samples, &mut blocks, limit);
     }
     drop(stream);
     // lo que quedara por llegar
-    while let Ok(block) = blocks.try_recv() {
-        take(&mut samples, &block, limit);
-    }
+    take(&mut samples, &mut blocks, limit);
     level.store(0f32.to_bits(), Ordering::Relaxed);
     Ok(Take { samples, rate })
 }
 
-fn take(samples: &mut Vec<f32>, block: &[f32], limit: usize) {
-    let room = limit.saturating_sub(samples.len());
-    samples.extend_from_slice(&block[..block.len().min(room)]);
+/// Lo que haya llegado, a lo grabado (sin pasar del minuto: lo demas se tira).
+fn take(samples: &mut Vec<f32>, blocks: &mut rtrb::Consumer<f32>, limit: usize) {
+    while let Ok(v) = blocks.pop() {
+        if samples.len() < limit {
+            samples.push(v);
+        }
+    }
 }
 
-type Opened = (cpal::Stream, u32, Receiver<Vec<f32>>);
+/// Un bloque de la entrada, a mono, al anillo (lo que no quepa se pierde: el
+/// hilo lo vacia cada 50 ms y caben dos segundos). Devuelve el pico. Sin
+/// pedir memoria: corre en el hilo de audio de la entrada.
+fn to_mono<T>(data: &[T], channels: usize, out: &mut rtrb::Producer<f32>) -> f32
+where
+    T: SizedSample,
+    f32: FromSample<T>,
+{
+    let mut peak = 0f32;
+    for frame in data.chunks_exact(channels) {
+        let sum: f32 = frame.iter().map(|s| s.to_sample::<f32>()).sum();
+        let v = sum / channels as f32;
+        peak = peak.max(v.abs());
+        let _ = out.push(v);
+    }
+    peak
+}
+
+type Opened = (cpal::Stream, u32, rtrb::Consumer<f32>);
 
 fn open(level: &Arc<AtomicU32>) -> Result<Opened, String> {
     let host = cpal::default_host();
@@ -155,7 +175,7 @@ fn open(level: &Arc<AtomicU32>) -> Result<Opened, String> {
         .map_err(|e| format!("el micrófono no dice cómo abrirlo: {e}"))?;
     let config: StreamConfig = supported.config();
     let rate = config.sample_rate;
-    let (tx, rx) = channel::<Vec<f32>>();
+    let (tx, rx) = rtrb::RingBuffer::<f32>::new(rate as usize * 2);
     let stream = match supported.sample_format() {
         SampleFormat::F32 => build::<f32>(&device, &config, tx, level),
         SampleFormat::I16 => build::<i16>(&device, &config, tx, level),
@@ -170,7 +190,7 @@ fn open(level: &Arc<AtomicU32>) -> Result<Opened, String> {
 fn build<T>(
     device: &cpal::Device,
     config: &StreamConfig,
-    tx: Sender<Vec<f32>>,
+    mut tx: rtrb::Producer<f32>,
     level: &Arc<AtomicU32>,
 ) -> Result<cpal::Stream, String>
 where
@@ -183,18 +203,8 @@ where
         .build_input_stream::<T, _, _>(
             config,
             move |data: &[T], _| {
-                let frames = data.len() / channels;
-                let mut mono = Vec::with_capacity(frames);
-                let mut peak = 0f32;
-                for frame in data.chunks_exact(channels) {
-                    let sum: f32 = frame.iter().map(|s| s.to_sample::<f32>()).sum();
-                    let v = sum / channels as f32;
-                    peak = peak.max(v.abs());
-                    mono.push(v);
-                }
+                let peak = to_mono(data, channels, &mut tx);
                 level.store(peak.min(1.0).to_bits(), Ordering::Relaxed);
-                // si el hilo ya no escucha, se acabo
-                let _ = tx.send(mono);
             },
             |_| {},
             None,
@@ -261,10 +271,31 @@ mod tests {
 
     #[test]
     fn a_take_stops_at_a_minute() {
+        let (mut tx, mut rx) = rtrb::RingBuffer::<f32>::new(1_000);
         let mut samples = Vec::new();
-        take(&mut samples, &[0.1; 100], 150);
-        take(&mut samples, &[0.2; 100], 150);
+        to_mono(&[0.1f32; 200], 2, &mut tx);
+        take(&mut samples, &mut rx, 150);
+        to_mono(&[0.2f32; 200], 2, &mut tx);
+        take(&mut samples, &mut rx, 150);
         assert_eq!(samples.len(), 150);
         assert!((Take { samples, rate: 100 }.seconds() - 1.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_block_from_the_microphone_goes_to_mono_without_asking_for_memory() {
+        // cada bloque era un `Vec` nuevo y un envio por canal, en el hilo de
+        // audio de la entrada
+        let (mut tx, mut rx) = rtrb::RingBuffer::<f32>::new(1_000);
+        let stereo: Vec<f32> = (0..400)
+            .map(|i| if i % 2 == 0 { 0.5 } else { -0.1 })
+            .collect();
+        let mut peak = 0.0;
+        let n = crate::testing::allocations(|| peak = to_mono(&stereo, 2, &mut tx));
+        assert_eq!(n, 0, "veces que pidio o solto memoria");
+        assert!((peak - 0.2).abs() < 1e-6, "{peak}");
+        let mut samples = Vec::new();
+        take(&mut samples, &mut rx, 10_000);
+        assert_eq!(samples.len(), 200);
+        assert!(samples.iter().all(|v| (v - 0.2).abs() < 1e-6));
     }
 }
