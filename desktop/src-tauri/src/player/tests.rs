@@ -750,6 +750,51 @@ fn an_opus_file_is_prepared_and_plays() {
     let _ = std::fs::remove_file(&src);
 }
 
+/// Lo preparado, al volver a sonar, cuenta como usado: pasado su tope, la
+/// caché tira lo que lleva más tiempo sin sonar, y tiraba lo que se preparó
+/// primero aunque sonara a diario (y esa vez había que esperar a ffmpeg).
+#[test]
+fn a_prepared_song_that_plays_again_counts_as_used() {
+    use std::time::SystemTime;
+    let Some(song) = tone_to_prepare("usada", 1.0, true) else {
+        return;
+    };
+    let (m, _rx, _card) = measured();
+    let play = || {
+        m.send(Command::Play {
+            path: song.clone(),
+            duration: 1.0,
+        })
+        .unwrap();
+        // (la primera vez, lo que tarde ffmpeg)
+        let deadline = Instant::now() + Duration::from_secs(20);
+        let mut s = m.state();
+        while !s.playing && s.error.is_empty() && Instant::now() < deadline {
+            wait_ms(20);
+            s = m.state();
+        }
+        assert!(s.playing && s.error.is_empty(), "{s:?}");
+        m.send(Command::Stop).unwrap();
+        let s = until(&m, |s| !s.playing);
+        assert!(!s.playing, "{s:?}");
+    };
+    play();
+    let flac = super::formats::cached(std::path::Path::new(&song)).expect("preparada");
+    // como si no sonara desde hace dos días
+    let two_days = Duration::from_secs(2 * 24 * 60 * 60);
+    std::fs::File::options()
+        .write(true)
+        .open(&flac)
+        .and_then(|f| f.set_modified(SystemTime::now() - two_days))
+        .expect("fecha");
+    play();
+    let used = std::fs::metadata(&flac).and_then(|m| m.modified()).expect("fecha");
+    let age = SystemTime::now().duration_since(used).unwrap_or_default();
+    assert!(age < Duration::from_secs(60), "sonó y sigue de hace {age:?}");
+    forget_prepared(&song);
+    let _ = std::fs::remove_file(song);
+}
+
 // ------------------------------------------- lo que sonaría, medido
 //
 // Aquí nadie puede escuchar nada, y la máquina de las pruebas no tiene

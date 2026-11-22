@@ -463,6 +463,8 @@ impl Engine<'_> {
             if formats::is_native(path) {
                 out.push(path.to_path_buf());
             } else if let Some(done) = formats::cached(path) {
+                // va a sonar: que la caché no lo tire por viejo
+                formats::mark_used(&done);
                 out.push(done);
             } else {
                 missing.push(path.to_path_buf());
