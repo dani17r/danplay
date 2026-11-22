@@ -2159,7 +2159,25 @@ El hilo que lleva el reproductor es uno solo, y si se cae no hay música:
   vez que alguien pide sonido; si la interfaz elegida no está, suena por la
   del sistema y se dice (en directo, sin sonido es peor que por otro sitio).
 - **La salida muere sonando.** El hilo de la salida (`engine/src/output.rs`)
-  la vuelve a abrir solo, a la tasa que tenga entonces.
+  la vuelve a abrir solo, a la tasa que tenga entonces, y al momento (solo
+  si no se deja abrir espera medio segundo antes de insistir). También si se
+  cuelga sin decir nada: cada vuelta del callback es un latido, y sin latir
+  1 s (3 s la primera vez) se da por rota.
+- **Un *panic* dentro del callback de audio.** `Mixer::fill` lo recoge: esa
+  vuelta sale en silencio, la salida se vuelve a abrir y el candado
+  envenenado del plato se sigue usando (antes esa canción callaba para
+  siempre, y en AAudio y CoreAudio el *panic* cerraba la app).
+- **Un *panic* al saltar** (symphonia sobre un archivo de fuera): el hilo que
+  decodifica lo recoge (`feeder::handle`) y la canción se acaba ahí y se
+  dice, como si fallara al decodificar.
+- **Lo que no es un número** (NaN o infinitos de un WAV en coma flotante)
+  se cambia por silencio al decodificar, y la salida no lo entrega.
+- **El hilo de audio no pide ni suelta memoria**, tampoco en la cuenta, al
+  pasar las partes de un relevo ni en el conversor de tasa: lo comprueba un
+  repartidor de memoria de pruebas que cuenta lo que pide cada hilo
+  (`testing::allocations`).
+- **En el celular**, el hilo del reproductor también se vigila: tras un
+  *panic*, un motor nuevo y un aviso, y la cola sigue.
 
 La salida se abre al primer play y se suelta tras un minuto sin sonar; al
 volver, sigue donde iba. Y la cola (`queue/`) no depende del núcleo para
@@ -2522,7 +2540,12 @@ un sitio queda arreglado en el otro. Es Rust puro, salvo el estirador:
   (`Shared::len`, la que enseña `State::duration`). Sin cabecera, symphonia no
   recorta (`Part::estimated`).
 - **Alimentar** (`feeder.rs`): un hilo decodifica todas las partes a la par
-  en bloques de 1024 muestras, 1,5 s por delante. Los bloques van y vuelven
+  en bloques de 1024 muestras, 1,5 s por delante. Con el anillo lleno (en
+  pausa) espera cada vez más, de 4 a 64 ms, salvo si lo que hay es de antes
+  de un salto; acabada la canción, hasta la siguiente orden. Cambiar de
+  canción no espera a que acabe el hilo de la anterior. Al cargar, las
+  partes se abren hasta cuatro a la vez, y en memoria se leen enteras como
+  mucho 256 MB por canción (64 en el celular; las más grandes, del disco). Los bloques van y vuelven
   por dos anillos sin candados: el hilo de audio no pide memoria ni espera. Un
   salto empieza una «generación» nueva y los bloques viejos se tiran. Si un
   archivo dañado hace caer al decodificador a media canción, la canción se
@@ -2572,7 +2595,11 @@ un sitio queda arreglado en el otro. Es Rust puro, salvo el estirador:
 - **Salir** (`output.rs`): cpal (AAudio en Android, CoreAudio en iOS). Se
   pide 44,1 kHz: AAudio la acepta y convierte el sistema (el emulador va a
   48 kHz); si una salida no la acepta, convierte el motor (`resample.rs`,
-  sinc polifase).
+  sinc polifase). El mismo filtro pasa a 44,1 las partes que van a otra
+  tasa; bajando de 88,2 kHz o más, con tantos más coeficientes como se baje
+  (de 192 kHz, un tono de 15 kHz sale a 0,0 dB y el alias de uno de 30 kHz,
+  a -101 dB). En el celular, tras un minuto sin sonar la salida se suelta,
+  como en la PC.
 
 Medido con «Dios Poderoso» (cinco partes, 4:54) en un núcleo de la PC:
 decodificar va a 180 veces el tiempo real; mezclar a velocidad normal, a
