@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach, onTestFinished } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
+import { isReactive } from 'vue'
 
 // El modo estudio de la 1.30: cada cosa por su lado (L, R, estéreo o mono,
 // en su carril), «ir con un clic» con la onda bloqueada, ocultar la mezcla y
@@ -608,5 +609,19 @@ describe('the tour', () => {
     await mountView()
     await new Promise((r) => setTimeout(r, 1000))
     expect(document.querySelector('.driver-popover')).toBeNull()
+  })
+})
+
+describe('the big data of the study', () => {
+  it('the manual click beats and the cue waves are not made reactive one by one', async () => {
+    const own = { beats: [0.5, 1, 1.5, 2], bars: [0], meter: 4 }
+    held.state.songs = [
+      song(7, { title: 'Mi Gozo', study: JSON.stringify({ metronome: { own } }) })
+    ]
+    const w = await mountView()
+    expect(w.vm.study.metronome.own.beats).toEqual(own.beats)
+    expect(isReactive(w.vm.study.metronome.own), 'los pulsos, reactivos uno a uno').toBe(false)
+    w.vm.cueWaves = { 'a.wav': { peaks: [1, 2, 3], seconds: 1 } }
+    expect(isReactive(w.vm.cueWaves['a.wav'])).toBe(false)
   })
 })

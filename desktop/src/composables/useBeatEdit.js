@@ -13,7 +13,17 @@
 // fondo, las preferencias de la barra y las teclas (deshacer, rehacer, borrar,
 // mover con las flechas), que se escuchan en la fase de captura para ganarle
 // al reproductor, que con las flechas adelanta o atrasa la canción.
-import { computed, onMounted, onUnmounted, reactive, ref, shallowRef, toValue, watch } from 'vue'
+import {
+  computed,
+  markRaw,
+  onMounted,
+  onUnmounted,
+  reactive,
+  ref,
+  shallowRef,
+  toValue,
+  watch
+} from 'vue'
 import { api, errorMessage } from '../api.js'
 import { notify } from './useNotices.js'
 import { HOTKEY_BLOCKERS } from './useHotkeys.js'
@@ -467,11 +477,15 @@ export function useBeatEdit(deps) {
     return syncing
   }
 
-  /** Deja `own` en el estudio de la canción (null: se quita el manual). */
+  /**
+   * Deja `own` en el estudio de la canción (null: se quita el manual). Sin
+   * hacerlo reactivo (miles de pulsos que nadie cambia en su sitio: cada
+   * cambio es otro `own`).
+   */
   function writeOwn(own) {
     const m = { ...(study.value.metronome || {}) }
     if (own) {
-      m.own = own
+      m.own = markRaw(own)
       delete m.shift
       delete m.mult
     } else {

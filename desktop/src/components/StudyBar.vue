@@ -21,9 +21,9 @@
  * ocultar no se toca nada; al salir del estudio se quita y la canción vuelve
  * a sonar normal.
  */
-import { ref, computed, watch, onMounted, onUnmounted, shallowRef } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, shallowRef, markRaw } from 'vue'
 // su CSS viene con él: es una isla y no se carga al arrancar (islands.js). Antes
-// que lo demás, como iba antes que el de driver.js (useStudyTour.js)
+// que lo demás; el de driver.js (useStudyTour.js) llega después, con el recorrido
 import '../styles/study.css'
 // y el de ajustar los pulsos de muchos en muchos, que es parte del estudio
 import '../styles/beat-tools.css'
@@ -113,6 +113,18 @@ const blank = () => ({
   mixer: { on: false, tracks: {} }
 })
 const study = ref(blank())
+/**
+ * El clic manual (`metronome.own`) va sin hacer reactivo: son miles de
+ * pulsos y nadie los cambia en su sitio (cada cambio es un `own` nuevo, que
+ * sí avisa al sustituir el `metronome`). Hacerlo reactivo envolvía cada
+ * número al leerlo.
+ * @param {Record<string, any>} metronome
+ */
+function withRawOwn(metronome) {
+  const m = { ...metronome }
+  if (m.own && typeof m.own === 'object') m.own = markRaw(m.own)
+  return m
+}
 /** Hasta cuántos carriles de guías (como el núcleo). */
 const MAX_CUE_LANES = 6
 // el clic: su rejilla, si carga, y el modo. Vive fuera del panel: con él
@@ -236,7 +248,7 @@ async function loadFor(id) {
       speed: s.speed || 1,
       // en semitonos, con fracciones (un cuarto de tono es medio semitono)
       pitch: Number.isFinite(s.pitch) ? round2(clamp(s.pitch, -12, 12)) : 0,
-      metronome: typeof s.metronome === 'object' && s.metronome ? { ...s.metronome } : {},
+      metronome: typeof s.metronome === 'object' && s.metronome ? withRawOwn(s.metronome) : {},
       markers: (s.markers || []).map((m) => ({ ...m })),
       cues: (Array.isArray(s.cues) ? s.cues : []).map((c) => ({ ...c })),
       cueLanes: (Array.isArray(s.cueLanes) ? s.cueLanes : [])
@@ -1165,7 +1177,7 @@ const pctText = (v) => Math.round((Number(v) || 0) * 100) + ' %'
  */
 async function saveOwnOf(id, own) {
   if (studyFor.value === id) {
-    study.value.metronome = { ...(study.value.metronome || {}), own }
+    study.value.metronome = { ...(study.value.metronome || {}), own: markRaw(own) }
     scheduleSave()
     await flushSave()
     return
@@ -1607,8 +1619,12 @@ const magnetTitle = computed(() =>
       ? 'Imán puesto: las guías se pegan a los pulsos del clic (pulsa para moverlas libres)'
       : 'Imán puesto, pero esta canción aún no tiene los pulsos del clic: pon el clic o espera a que cargue'
 )
-/** La onda y lo que dura cada guía (por su archivo), para verlas en sus bloques. */
-const cueWaves = ref({})
+/**
+ * La onda y lo que dura cada guía (por su archivo), para verlas en sus
+ * bloques. Superficial: se sustituye entera y son miles de picos que solo se
+ * leen para pintar.
+ */
+const cueWaves = shallowRef({})
 const askedWaves = new Set()
 watch(
   () => (isMobileApp ? [] : (study.value.cues || []).map((c) => c.file).filter(Boolean)),
