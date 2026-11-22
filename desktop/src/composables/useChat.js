@@ -2137,6 +2137,8 @@ export function useChat() {
     exportChat,
     tryFree,
     loadChats,
+    // quién contesta, otra vez (tras cambiar la IA desde el panel del chat)
+    refreshInfo,
     // la franja del proveedor
     provider,
     openAiSettings,

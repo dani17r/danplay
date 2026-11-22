@@ -9,6 +9,7 @@
 import {
   ref,
   reactive,
+  computed,
   watch,
   nextTick,
   onMounted,
@@ -17,8 +18,11 @@ import {
   onUnmounted,
   useTemplateRef
 } from 'vue'
-import { api } from '../api.js'
+import { api, errorMessage } from '../api.js'
 import { useChat, DRAFT_MAX, QUEUE_MAX } from '../composables/useChat.js'
+import { useAiSetup } from '../composables/useAiSetup.js'
+import { onClickOutside } from '../composables/useClickOutside.js'
+import { notify } from '../composables/useNotices.js'
 import { renderMarkdown } from '../utils/markdown.js'
 import Icon from './Icon.vue'
 import TextField from './ui/TextField.vue'
@@ -26,6 +30,9 @@ import ChatComposer from './ChatComposer.vue'
 import ChatConfirmCard from './ChatConfirmCard.vue'
 import ChatSetlistCard from './ChatSetlistCard.vue'
 import ProviderBanner from './ProviderBanner.vue'
+import AiProviderModal from './AiProviderModal.vue'
+import ModelPicker from './ui/ModelPicker.vue'
+import Loading from './ui/Loading.vue'
 // su CSS, con la página: solo se carga al abrir el asistente
 import '../styles/chat.css'
 
@@ -202,6 +209,101 @@ function newChat() {
   showChats.value = false
 }
 
+// ------------------------------------------------- las opciones de la IA
+// Qué IA contesta, con qué modelo, y la clave: aquí mismo, sin salir a
+// Ajustes. Es lo mismo que la tarjeta de Ajustes (useAiSetup) y el mismo
+// modal para pegar la clave; tras cada cambio, la cabecera dice quién
+// contesta ahora.
+const ai = useAiSetup({ onSaved: () => chat.refreshInfo() })
+const {
+  aiInfo,
+  aiModal,
+  aiInitial,
+  activeAi,
+  activeSaved,
+  aiProfiles,
+  models,
+  modelList,
+  loadingModels,
+  savingModel,
+  freeResult
+} = ai
+const tryingAiFree = ai.tryingFree
+const showAi = ref(false)
+const aiPanel = useTemplateRef('aiPanel')
+const aiButton = useTemplateRef('aiButton')
+// lo que hay en cada selector: lo elegido, o lo que se va escribiendo
+const chatDraft = ref('')
+const fastDraft = ref('')
+watch(
+  activeAi,
+  (a) => {
+    chatDraft.value = a?.chat_model || ''
+    fastDraft.value = a?.model || ''
+  },
+  { immediate: true }
+)
+async function openAiPanel() {
+  showChats.value = false
+  showAi.value = true
+  await ai.loadAi()
+  ai.loadModels()
+}
+function toggleAi() {
+  if (showAi.value) showAi.value = false
+  else openAiPanel()
+}
+// como los demás menús: un clic fuera o Escape lo cierran
+onClickOutside([aiPanel, aiButton], () => {
+  showAi.value = false
+})
+/** El modal de proveedor y clave, encima del chat (el panel se recoge). */
+function setupHere(initial = '') {
+  showAi.value = false
+  ai.openAi(initial)
+}
+/**
+ * Sin IA: lo que la arregla aquí mismo. Apagada en Ajustes, el panel (que
+ * ofrece encenderla); si no, directamente elegir proveedor y pegar la clave.
+ */
+async function setupFromEmpty() {
+  await ai.loadAi()
+  if (aiInfo.value?.ai_enabled === false) openAiPanel()
+  else setupHere()
+}
+/** @param {'chat_model' | 'model'} role @param {string} id */
+async function useModel(role, id) {
+  if (!(await ai.setModel(role, id))) return
+  notify(
+    role === 'chat_model'
+      ? `El asistente conversa ahora con ${id.trim()}.`
+      : `Para identificar y rellenar fichas: ${id.trim()}.`,
+    'ok'
+  )
+}
+/** Lo que se sabe de la clave del activo: enmascarada, nunca entera. */
+const keyLine = computed(() => {
+  const p = activeSaved.value
+  if (!p) return ''
+  if (p.has_key) return 'clave guardada: ' + p.key
+  const entry = aiInfo.value?.catalog?.find((c) => c.id === p.provider)
+  return entry?.key === 'required' ? 'falta la clave' : 'sin clave'
+})
+// la IA apagada en Ajustes: se enciende aquí con el mismo ajuste
+const turningOn = ref(false)
+async function turnOnAi() {
+  turningOn.value = true
+  try {
+    await api.saveSettings({ ai_enabled: true })
+    await ai.loadAi()
+    await chat.refreshInfo()
+  } catch (e) {
+    notify('No se pudo encender: ' + errorMessage(e))
+  } finally {
+    turningOn.value = false
+  }
+}
+
 // ------------------------------------------------------------- el hilo
 const thread = useTemplateRef('thread')
 async function scrollToBottom() {
@@ -264,12 +366,25 @@ onUnmounted(() => {
         >
       </div>
       <button
+        ref="aiButton"
+        class="btn mini"
+        type="button"
+        :class="{ on: showAi }"
+        title="Opciones de la IA: proveedor, modelo y clave"
+        aria-label="Opciones de la IA"
+        aria-controls="chat-ai-panel"
+        :aria-expanded="showAi"
+        @click="toggleAi"
+      >
+        <Icon n="adjust" :t="13" />
+      </button>
+      <button
         class="btn mini"
         type="button"
         :class="{ on: showChats }"
         title="Conversaciones guardadas"
         :aria-expanded="showChats"
-        @click="showChats = !showChats"
+        @click="((showChats = !showChats), (showAi = false))"
       >
         <Icon n="list" :t="13" /> {{ chats.length || '' }}
       </button>
@@ -310,6 +425,149 @@ onUnmounted(() => {
       @recheck="chat.recheckPrimary()"
       @promote="chat.promoteFallback()"
     />
+
+    <!-- las opciones de la IA: quién contesta, el modelo y la clave -->
+    <div
+      v-if="showAi"
+      id="chat-ai-panel"
+      ref="aiPanel"
+      class="chat-ai"
+      role="region"
+      aria-label="Opciones de la IA"
+    >
+      <Loading v-if="!aiInfo" />
+      <template v-else>
+        <div class="chat-ai-now">
+          <span class="ai-current-ico"><Icon n="ai" :t="18" /></span>
+          <div class="ai-current-txt">
+            <strong>{{ activeAi ? activeAi.name : 'Sin proveedor elegido' }}</strong>
+            <span v-if="activeAi" class="mono">{{ keyLine }}</span>
+            <span v-else
+              >Elige uno y pega su clave aquí mismo, o prueba uno gratis, sin clave.</span
+            >
+          </div>
+          <span class="badge" :class="aiInfo.ai_ready ? 'ok' : 'bad'">
+            {{ aiInfo.ai_ready ? 'lista' : aiInfo.ai_reason || 'sin configurar' }}</span
+          >
+        </div>
+
+        <div v-if="activeSaved" class="chat-ai-models">
+          <div class="chat-ai-model">
+            <ModelPicker
+              v-model="chatDraft"
+              label="Modelo de la conversación"
+              :models="modelList"
+              :suggest="models.suggest?.chat"
+              :unavailable="models.hidden"
+              need-tools
+              :loading="loadingModels"
+              :disabled="savingModel"
+              @pick="(id) => useModel('chat_model', id)"
+            />
+            <button
+              v-if="chatDraft.trim() && chatDraft.trim() !== (activeAi?.chat_model || '')"
+              class="btn primary"
+              type="button"
+              :disabled="savingModel"
+              @click="useModel('chat_model', chatDraft)"
+            >
+              Usar
+            </button>
+          </div>
+          <div class="chat-ai-model">
+            <ModelPicker
+              v-model="fastDraft"
+              label="Para identificar y rellenar fichas"
+              :models="modelList"
+              :suggest="models.suggest?.fast"
+              :unavailable="models.hidden"
+              :loading="loadingModels"
+              :disabled="savingModel"
+              @pick="(id) => useModel('model', id)"
+            />
+            <button
+              v-if="fastDraft.trim() && fastDraft.trim() !== (activeAi?.model || '')"
+              class="btn primary"
+              type="button"
+              :disabled="savingModel"
+              @click="useModel('model', fastDraft)"
+            >
+              Usar
+            </button>
+          </div>
+        </div>
+
+        <div v-if="aiProfiles.length > 1" class="ai-profiles" aria-label="Proveedores guardados">
+          <span
+            v-for="p in aiProfiles"
+            :key="p.id"
+            class="ai-profile"
+            :class="{ active: p.id === aiInfo.active }"
+          >
+            <button
+              type="button"
+              class="ai-profile-pick"
+              :aria-pressed="p.id === aiInfo.active"
+              :title="p.id === aiInfo.active ? 'en uso' : 'usar este'"
+              @click="ai.activateAi(p.id)"
+            >
+              <Icon v-if="p.id === aiInfo.active" n="check" :t="11" />
+              {{ p.provider_name }}
+            </button>
+          </span>
+        </div>
+
+        <div class="btn-row chat-ai-actions">
+          <button
+            v-if="aiInfo.ai_enabled === false"
+            class="btn primary"
+            type="button"
+            :disabled="turningOn"
+            @click="turnOnAi"
+          >
+            {{ turningOn ? 'Encendiendo…' : 'Encender la IA' }}
+          </button>
+          <button
+            v-if="activeAi"
+            class="btn"
+            type="button"
+            title="La clave, la URL y los modelos de este proveedor"
+            @click="setupHere(activeAi.id)"
+          >
+            <Icon n="key" :t="12" /> Clave y ajustes…
+          </button>
+          <button class="btn" :class="{ primary: !activeAi }" type="button" @click="setupHere()">
+            {{ activeAi ? 'Otro proveedor…' : 'Elegir proveedor y pegar la clave…' }}
+          </button>
+          <button
+            v-if="!activeAi"
+            class="btn"
+            type="button"
+            :disabled="tryingAiFree"
+            @click="ai.tryFree()"
+          >
+            {{ tryingAiFree ? 'Buscando uno que responda…' : 'Probar gratis, sin clave' }}
+          </button>
+          <span style="flex: 1"></span>
+          <button
+            class="btn mini"
+            type="button"
+            title="El gasto, el respaldo y lo demás de la IA, en Ajustes"
+            @click="chat.openAiSettings()"
+          >
+            Más en Ajustes
+          </button>
+        </div>
+        <div v-if="freeResult" class="key-state" :class="freeResult.ok ? 'ok' : 'bad'">
+          <Icon :n="freeResult.ok ? 'check' : 'warning'" :t="14" />
+          <span v-if="freeResult.ok"
+            >Listo: {{ freeResult.name }} con <span class="mono">{{ freeResult.chat_model }}</span
+            >, gratis y con límites.</span
+          >
+          <span v-else>{{ freeResult.reason }}</span>
+        </div>
+      </template>
+    </div>
 
     <!-- las conversaciones guardadas: lista y busqueda en todas -->
     <div v-if="showChats" class="chat-list">
@@ -392,11 +650,21 @@ onUnmounted(() => {
         <div v-if="info && !info.available" class="chat-noai">
           <p>
             <Icon n="warning" :t="14" /> La IA no está lista: {{ info.reason || 'sin proveedor' }}.
-            Elige uno en Ajustes → Inteligencia artificial, o prueba uno gratuito sin clave.
+            Elige uno aquí mismo y pega su clave, o prueba uno gratuito sin clave.
           </p>
-          <button type="button" class="btn primary" :disabled="tryingFree" @click="chat.tryFree()">
-            {{ tryingFree ? 'Buscando uno que responda…' : 'Probar gratis, sin clave' }}
-          </button>
+          <div class="btn-row chat-noai-actions">
+            <button
+              type="button"
+              class="btn primary"
+              :disabled="tryingFree"
+              @click="chat.tryFree()"
+            >
+              {{ tryingFree ? 'Buscando uno que responda…' : 'Probar gratis, sin clave' }}
+            </button>
+            <button type="button" class="btn chat-noai-setup" @click="setupFromEmpty">
+              <Icon n="key" :t="12" /> Elegir proveedor y pegar la clave…
+            </button>
+          </div>
           <p v-if="freeNote" class="chat-note" style="border: none; padding: 0">{{ freeNote }}</p>
         </div>
       </div>
@@ -517,5 +785,13 @@ onUnmounted(() => {
         @resize="keepBottom"
       />
     </div>
+
+    <!-- el mismo modal que Ajustes: proveedor, clave, URL y modelos -->
+    <AiProviderModal
+      :open="aiModal"
+      :initial="aiInitial"
+      @close="aiModal = false"
+      @saved="ai.afterAiSaved"
+    />
   </div>
 </template>

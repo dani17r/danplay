@@ -495,22 +495,24 @@ function answers(state) {
     saveSettings: async (d) => ({ ...d }),
     checkAi: async () => ({ ok: true }),
     aiProviders: async () => aiOverview(state),
+    // como el núcleo (`providers::save_profile`): lo que no viene se conserva
     aiSaveProfile: async (d) => {
       const id =
         d.id || (d.provider === 'custom' ? 'custom-' + (d.name || 'x').toLowerCase() : d.provider)
+      const old = state.aiProfiles[id]
       state.aiProfiles[id] = {
         id,
         provider: d.provider,
-        provider_name: d.name || d.provider,
-        has_key: !!(d.key || state.aiProfiles[id]?.has_key),
-        key: d.key ? d.key.slice(0, 4) + '…' : '',
-        model: d.model || '',
-        chat_model: d.chat_model || '',
-        base_url: d.base_url || '',
-        fields: d.fields || {},
-        headers: d.headers || {},
-        extra: d.extra || {},
-        timeout: d.timeout || 60
+        provider_name: d.name || old?.provider_name || d.provider,
+        has_key: !!(d.key || old?.has_key),
+        key: d.key ? d.key.slice(0, 4) + '…' : old?.key || '',
+        model: d.model ?? old?.model ?? '',
+        chat_model: d.chat_model ?? old?.chat_model ?? '',
+        base_url: d.base_url ?? old?.base_url ?? '',
+        fields: d.fields || old?.fields || {},
+        headers: d.headers || old?.headers || {},
+        extra: d.extra || old?.extra || {},
+        timeout: d.timeout || old?.timeout || 60
       }
       if (d.activate !== false) state.aiActive = id
       return { ...aiOverview(state), saved: id }

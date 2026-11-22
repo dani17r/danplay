@@ -199,7 +199,7 @@ describe('saved conversations', () => {
     ]
     const w = await mountView()
     expect(w.text()).toContain('Aqui va el set.')
-    await w.findAll('.chat-head .btn').at(0).trigger('click') // conversaciones
+    await w.find('.chat-head .btn[title="Conversaciones guardadas"]').trigger('click') // conversaciones
     await flushPromises()
     const items = w.findAll('.chat-item')
     expect(items.map((i) => i.find('.chat-item-title').text())).toEqual([
@@ -211,12 +211,12 @@ describe('saved conversations', () => {
     expect(w.text()).toContain('En Sol.')
     expect(w.text()).not.toContain('Aqui va el set.')
     // nueva: vacia y sin conversacion hasta el primer mensaje
-    await w.findAll('.chat-head .btn').at(1).trigger('click')
+    await w.find('.chat-head .btn[title="Nueva conversación"]').trigger('click')
     await flushPromises()
     expect(w.find('.chat-empty').exists()).toBe(true)
     expect(held.api.chatCreate).not.toHaveBeenCalled()
     // borrar desde la lista pregunta antes
-    await w.findAll('.chat-head .btn').at(0).trigger('click')
+    await w.find('.chat-head .btn[title="Conversaciones guardadas"]').trigger('click')
     await flushPromises()
     await w.findAll('.chat-item-x').at(0).trigger('click')
     await flushPromises()
@@ -242,7 +242,7 @@ describe('saved conversations', () => {
       { id: 2, title: 'Otra', updated: 2, messages: [{ role: 'me', text: 'hola' }] }
     ]
     const w = await mountView()
-    await w.findAll('.chat-head .btn').at(0).trigger('click')
+    await w.find('.chat-head .btn[title="Conversaciones guardadas"]').trigger('click')
     await flushPromises()
     await w.find('.chat-list input').setValue('gozo')
     await vi.advanceTimersByTimeAsync(400)
