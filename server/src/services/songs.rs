@@ -10,7 +10,11 @@ use library::paths;
 use library::tags::Changes;
 use library::value;
 use serde_json::{Value, json};
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Condvar, Mutex, PoisonError};
+use std::time::{Duration, Instant};
 
 /// La fila entera, o `None`.
 pub fn by_id(app: &App, cid: i64) -> Result<Option<Dict>, ApiError> {
@@ -240,6 +244,18 @@ pub fn cues_folder(app: &App) -> PathBuf {
 /// ver `with_tags_outcome`): antes no se sabía cuándo el estudio quedaba
 /// solo en la base.
 pub fn set_study(app: &App, cid: i64, study: &Value) -> Result<Option<Dict>, ApiError> {
+    save_study(app, cid, study, false)
+}
+
+/// Como `set_study`; con `later` (lo que se guarda solo, a cada cambio), la
+/// etiqueta se deja para luego si se puede (ver «el estudio, aplazado») y la
+/// ficha lo dice: `tags_written: false` y `tags_pending: true`.
+pub fn save_study(
+    app: &App,
+    cid: i64,
+    study: &Value,
+    later: bool,
+) -> Result<Option<Dict>, ApiError> {
     let Some(c) = by_id(app, cid)? else {
         return Ok(None);
     };
@@ -252,13 +268,233 @@ pub fn set_study(app: &App, cid: i64, study: &Value) -> Result<Option<Dict>, Api
     update_one(app, cid, "study", Value::from(raw.clone()))?;
     let mut written = false;
     if app.config().write_tags && exists(&c) {
+        let path = PathBuf::from(text(&c, "path"));
+        if later && can_defer(app, cid, &path) {
+            defer_study_tag(app, cid);
+            return Ok(by_id(app, cid)?.map(with_tags_pending));
+        }
+        // al momento: lo que esperaba de esta canción queda escrito con esto
+        app.study_tags.lock().pending.remove(&cid);
+        let _one = app.study_tags.one_at_a_time();
         let changes = Changes {
             study: Some(raw),
             ..Changes::default()
         };
-        written = tags::write_fields(app, Path::new(&text(&c, "path")), &changes);
+        written = tags::write_fields(app, &path, &changes);
+        app.study_tags.lock().failed(cid, !written);
     }
     Ok(by_id(app, cid)?.map(|out| with_tags_outcome(app, out, written, true)))
+}
+
+// ---------------------------------------------------------------- el estudio, aplazado
+//
+// El estudio se guarda solo, cada 0,6 s de cambios, y escribir su etiqueta
+// es leer y guardar el archivo de audio entero: un FLAC de 40 MB o un disco
+// USB, de 100 ms a segundos, repetido mientras se arrastra un tramo. Así que
+// la base se pone al día al momento y la etiqueta se escribe después: cuando
+// esa canción lleva `StudyTags::IDLE` sin cambios, al dejar la canción o el
+// estudio (`POST /api/study/flush`, `flush_study_tags`) y al apagar
+// (`startup::stop`). Se escribe lo que tenga la base en ese momento, en la
+// ruta de ese momento. Si se va la luz entre medias, la base y el diario
+// (escrito a los pocos segundos) lo tienen; el escaneo nunca pisa el estudio
+// de la base con el del archivo (`restore_study_from_tags`).
+
+/// Las canciones cuyo estudio está ya en la base y aún no en su etiqueta.
+#[derive(Debug)]
+pub struct StudyTags {
+    inner: Mutex<Waiting>,
+    wake: Condvar,
+    /// una escritura de la etiqueta del estudio a la vez (el hilo, quien
+    /// vacía y quien la escribe al momento): dos a la vez sobre el mismo
+    /// archivo, cada una leyéndolo y guardándolo entero, se pisarían
+    writing: Mutex<()>,
+    /// cuánto sin cambios antes de escribirla (en milisegundos; las pruebas
+    /// lo acortan)
+    idle_ms: AtomicU64,
+}
+
+#[derive(Debug, Default)]
+struct Waiting {
+    /// la canción y cuándo cambió su estudio por última vez
+    pending: HashMap<i64, Instant>,
+    /// las que no se pudieron escribir: la próxima vez, al momento (y la
+    /// respuesta dice por qué, como siempre)
+    failing: HashSet<i64>,
+    /// el hilo que las escribe está en marcha
+    running: bool,
+}
+
+impl Waiting {
+    fn failed(&mut self, cid: i64, failed: bool) {
+        if failed {
+            self.failing.insert(cid);
+        } else {
+            self.failing.remove(&cid);
+        }
+    }
+}
+
+impl Default for StudyTags {
+    fn default() -> Self {
+        Self {
+            inner: Mutex::default(),
+            wake: Condvar::new(),
+            writing: Mutex::new(()),
+            idle_ms: AtomicU64::new(Self::IDLE.as_millis() as u64),
+        }
+    }
+}
+
+impl StudyTags {
+    /// Cuánto se espera, sin cambios en el estudio de una canción, para
+    /// escribir su etiqueta.
+    pub const IDLE: Duration = Duration::from_secs(10);
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, Waiting> {
+        self.inner.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn one_at_a_time(&self) -> std::sync::MutexGuard<'_, ()> {
+        self.writing.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn idle(&self) -> Duration {
+        Duration::from_millis(self.idle_ms.load(Ordering::Relaxed))
+    }
+
+    /// Otra espera (para las pruebas).
+    #[cfg(test)]
+    pub(crate) fn set_idle(&self, idle: Duration) {
+        self.idle_ms
+            .store(idle.as_millis() as u64, Ordering::Relaxed);
+    }
+
+    /// Si la etiqueta del estudio de esa canción espera a escribirse.
+    pub fn is_pending(&self, cid: i64) -> bool {
+        self.lock().pending.contains_key(&cid)
+    }
+}
+
+/// Si la etiqueta se puede dejar para luego: el archivo admite etiquetas y
+/// se puede abrir para escribir (si no, se escribe al momento y la respuesta
+/// dice por qué no, como siempre), y la última vez no falló.
+fn can_defer(app: &App, cid: i64, path: &Path) -> bool {
+    !app.study_tags.lock().failing.contains(&cid)
+        && library::tags::writable(path)
+        && std::fs::OpenOptions::new().write(true).open(path).is_ok()
+}
+
+/// Apunta la etiqueta del estudio de esa canción para luego, y arranca el
+/// hilo que las escribe si no está.
+fn defer_study_tag(app: &App, cid: i64) {
+    {
+        let mut s = app.study_tags.lock();
+        s.pending.insert(cid, Instant::now());
+        if std::mem::replace(&mut s.running, true) {
+            return;
+        }
+    }
+    let worker = app.clone();
+    let spawned = std::thread::Builder::new()
+        .name("danplay-study-tags".into())
+        .spawn(move || study_tags_loop(&worker));
+    if spawned.is_err() {
+        // se escribirán al dejar la canción o al apagar
+        app.study_tags.lock().running = false;
+    }
+}
+
+/// El hilo: escribe las que llevan `IDLE` sin cambios y duerme hasta la
+/// siguiente. Sin ninguna pendiente (o apagando), se va.
+fn study_tags_loop(app: &App) {
+    let tags = &app.study_tags;
+    let mut s = tags.lock();
+    loop {
+        if s.pending.is_empty() || app.stopping.load(Ordering::SeqCst) {
+            s.running = false;
+            return;
+        }
+        let idle = tags.idle();
+        let now = Instant::now();
+        let due: Vec<i64> = s
+            .pending
+            .iter()
+            .filter(|(_, at)| now.duration_since(**at) >= idle)
+            .map(|(id, _)| *id)
+            .collect();
+        if due.is_empty() {
+            let next = s
+                .pending
+                .values()
+                .map(|at| idle.saturating_sub(now.duration_since(*at)))
+                .min()
+                .unwrap_or(idle);
+            s = tags
+                .wake
+                .wait_timeout(s, next)
+                .unwrap_or_else(PoisonError::into_inner)
+                .0;
+            continue;
+        }
+        for id in &due {
+            s.pending.remove(id);
+        }
+        drop(s);
+        for id in due {
+            write_study_tag(app, id);
+        }
+        s = tags.lock();
+    }
+}
+
+/// Escribe ya en su archivo el estudio que tiene la base de esa canción.
+/// `None` si no había nada que escribir (ya no está, o se desactivaron las
+/// etiquetas); si no, si se pudo.
+fn write_study_tag(app: &App, cid: i64) -> Option<bool> {
+    let _one = app.study_tags.one_at_a_time();
+    if !app.config().write_tags {
+        return None;
+    }
+    let row = app
+        .db(|c| index::fetch_one(c, "SELECT path, study FROM songs WHERE id=?", [cid]))
+        .ok()??;
+    let path = text(&row, "path");
+    if path.is_empty() || !Path::new(&path).exists() {
+        return None;
+    }
+    let changes = Changes {
+        study: Some(text(&row, "study")),
+        ..Changes::default()
+    };
+    let ok = tags::write_fields(app, Path::new(&path), &changes);
+    app.study_tags.lock().failed(cid, !ok);
+    Some(ok)
+}
+
+/// Escribe ya las etiquetas del estudio que esperaban (al dejar la canción o
+/// el estudio, y al apagar). Cuántas se escribieron.
+pub fn flush_study_tags(app: &App) -> usize {
+    let due: Vec<i64> = app
+        .study_tags
+        .lock()
+        .pending
+        .drain()
+        .map(|(id, _)| id)
+        .collect();
+    // el hilo, sin nada que esperar, se va
+    app.study_tags.wake.notify_all();
+    due.into_iter()
+        .filter(|id| write_study_tag(app, *id) == Some(true))
+        .count()
+}
+
+/// La ficha de un estudio cuya etiqueta se escribirá luego: no es un fallo
+/// (la interfaz no avisa de nada), y el archivo sí admite etiquetas.
+fn with_tags_pending(mut card: Dict) -> Dict {
+    card.insert("tags_written".into(), Value::Bool(false));
+    card.insert("tags_pending".into(), Value::Bool(true));
+    card.insert("tags_supported".into(), Value::Bool(true));
+    card
 }
 
 // ---------------------------------------------------------------- estrellas

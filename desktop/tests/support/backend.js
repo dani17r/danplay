@@ -922,6 +922,7 @@ function answers(state) {
       if (s) s.study = raw
       return s ? { ...s } : null
     },
+    flushStudy: async () => ({ written: 0 }),
     playlistSheet: async (id) => ({ file: `/musica/Listas/lista-${id}.html` }),
     separation: async () => copy(state.separation),
     // separar tarda: aqui la cancion se queda en marcha hasta que la prueba

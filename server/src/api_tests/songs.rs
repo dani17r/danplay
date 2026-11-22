@@ -16,6 +16,94 @@ fn study_of(app: &crate::App, cid: i64, body: Value) -> Value {
     }
 }
 
+/// Guardar el estudio a cada cambio (cada 0,6 s, mientras se arrastra un
+/// tramo) ya no reescribe el archivo de audio entero cada vez: la base y la
+/// ficha, al momento; la etiqueta, una vez, al dejar la canción o el estudio
+/// (o al apagar, o tras unos segundos sin cambios).
+#[test]
+fn saving_the_study_on_every_change_writes_the_file_once() {
+    let Some(app) = api_library() else { return };
+    if !app.config().write_tags {
+        return;
+    }
+    let c = get(&app, "/api/search?limit=1")["songs"][0].clone();
+    let cid = c["id"].as_i64().expect("id");
+    let path = PathBuf::from(c["path"].as_str().expect("ruta"));
+    let modified = || {
+        std::fs::metadata(&path)
+            .and_then(|m| m.modified())
+            .expect("fecha")
+    };
+    let before = (modified(), library::tags::read(&path).study);
+    for i in 1..=5 {
+        let speed = 0.5 + f64::from(i) / 20.0;
+        let (s, d) = call(
+            &app,
+            "PUT",
+            &format!("/api/song/{cid}/study"),
+            Some(json!({"speed": speed})),
+        );
+        assert_eq!(s, 200, "{d}");
+        assert_eq!(
+            (&d["tags_written"], &d["tags_pending"]),
+            (&json!(false), &json!(true)),
+            "{d}"
+        );
+        // la ficha ya lo tiene, desde el primero
+        let saved: Value = serde_json::from_str(
+            get(&app, &format!("/api/song/{cid}"))["study"]
+                .as_str()
+                .expect("estudio"),
+        )
+        .expect("json");
+        assert_eq!(saved["speed"], speed);
+    }
+    assert_eq!(
+        (modified(), library::tags::read(&path).study),
+        before,
+        "se escribió el archivo"
+    );
+    // al dejar la canción o el estudio, una vez
+    assert_eq!(call(&app, "POST", "/api/study/flush", None).1["written"], 1);
+    let after = modified();
+    assert_ne!(after, before.0);
+    let in_db = |app: &crate::App| get(app, &format!("/api/song/{cid}"))["study"].clone();
+    assert_eq!(json!(library::tags::read(&path).study), in_db(&app));
+    assert_eq!(call(&app, "POST", "/api/study/flush", None).1["written"], 0);
+    assert_eq!(modified(), after);
+    // sin dejarla: tras unos segundos sin cambios
+    app.study_tags
+        .set_idle(std::time::Duration::from_millis(200));
+    call(
+        &app,
+        "PUT",
+        &format!("/api/song/{cid}/study"),
+        Some(json!({"speed": 0.7})),
+    );
+    let limit = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while json!(library::tags::read(&path).study) != in_db(&app)
+        && std::time::Instant::now() < limit
+    {
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    assert_eq!(library::tags::read(&path).study, r#"{"speed":0.7}"#);
+    assert!(!app.study_tags.is_pending(cid));
+    // y al apagar, lo que quede
+    app.study_tags
+        .set_idle(std::time::Duration::from_secs(3600));
+    call(
+        &app,
+        "PUT",
+        &format!("/api/song/{cid}/study"),
+        Some(json!({"speed": 0.6})),
+    );
+    assert!(app.study_tags.is_pending(cid));
+    let wanted = in_db(&app);
+    crate::startup::stop(&app);
+    assert_eq!(json!(library::tags::read(&path).study), wanted);
+    assert_eq!(wanted, r#"{"speed":0.6}"#);
+}
+
 /// Unas notas muy largas no dejan sin guardar lo demás del estudio (se
 /// rechazaba todo: tramos, marcadores y mezcla), y los marcadores que admite
 /// la ruta son los que se guardan (del 51 en adelante desaparecían).
@@ -82,6 +170,8 @@ fn the_study_mode_is_saved_in_the_index_and_in_the_file() {
     assert_eq!(study["markers"][0], json!({"t": 12.5, "label": "verso"}));
     assert_eq!(study["notes"], "intro con cejilla 2");
     if app.config().write_tags {
+        // (la etiqueta se escribe luego: al dejar la canción o el estudio)
+        crate::services::songs::flush_study_tags(&app);
         assert_eq!(
             library::tags::read(Path::new(&path)).study,
             raw,

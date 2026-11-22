@@ -531,6 +531,8 @@ mod tests {
             )
             .expect("json");
             assert_eq!(saved["notes"], "despacio", "{ext}");
+            // la etiqueta se escribe al dejar la canción o el estudio
+            crate::services::songs::flush_study_tags(&app);
 
             // se pierde el índice
             let db = app.config().database.clone();

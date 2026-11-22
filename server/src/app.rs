@@ -62,6 +62,9 @@ pub struct State {
     pub last_prune: Mutex<Option<(Instant, usize)>>,
     /// la conexión que mantiene viva la base (ver `Keeper`)
     keeper: Mutex<Option<Keeper>>,
+    /// las etiquetas del estudio que esperan a escribirse
+    /// (`services::songs`, «el estudio, aplazado»)
+    pub study_tags: crate::services::songs::StudyTags,
 }
 
 /// Una conexión al índice abierta mientras la app vive, que nadie usa. Con
@@ -131,6 +134,7 @@ impl App {
             watcher: crate::services::watcher::Slot::default(),
             last_prune: Mutex::new(None),
             keeper: Mutex::new(None),
+            study_tags: crate::services::songs::StudyTags::default(),
         }));
         if let Err(e) = crate::startup::prepare_index(&app, renamed) {
             log::warn!("no pude preparar el indice: {e}");

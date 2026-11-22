@@ -35,6 +35,7 @@ pub const ROUTES: &[Route] = &[
     Route::post("/api/song/{cid}/chords", song_chords),
     Route::post("/api/song/{cid}/chords/transposed", song_chords_transposed),
     Route::put("/api/song/{cid}/study", song_study),
+    Route::post("/api/study/flush", study_flush),
     Route::get("/api/song/{cid}/path", audio_path),
     Route::post("/api/transpose", transpose),
 ];
@@ -715,9 +716,18 @@ fn song_study(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     // se guarda solo, cada 0,6 s de cambios, y quien lo guarda es quien lo
     // tiene delante: sin avisar a la interfaz (`index::quietly`)
     let _quiet = library::index::quietly();
-    let c =
-        songs::set_study(ctx.app, cid, &study)?.ok_or_else(|| ApiError::not_found("no existe"))?;
+    // y la etiqueta del archivo, luego (`tags_pending`): reescribir el
+    // archivo entero a cada cambio era lo que costaba
+    let c = songs::save_study(ctx.app, cid, &study, true)?
+        .ok_or_else(|| ApiError::not_found("no existe"))?;
     Ok(Value::Object(c).into())
+}
+
+/// Las etiquetas del estudio que esperaban, ya: al dejar la canción o el
+/// estudio.
+fn study_flush(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
+    ctx.check()?;
+    Ok(json!({"written": songs::flush_study_tags(ctx.app)}).into())
 }
 
 /// Dónde está en el disco (lo usa Rust para servir el audio). `path_of`

@@ -1178,6 +1178,12 @@ export const api = {
    */
   setStudy: (id, study) => PUT(`/song/${id}/study`, study),
   /**
+   * La etiqueta del estudio, ya: el núcleo la aplaza (`tags_pending`) hasta
+   * unos segundos sin cambios. Al dejar la canción o el estudio.
+   * @returns {Promise<{written: number}>}
+   */
+  flushStudy: () => POST('/study/flush'),
+  /**
    * La forma de onda para el modo estudio: `buckets` columnas con el pico y
    * el RMS entre 0 y 1. Falla con 501 si no hay con qué decodificar.
    * @param {number} id @param {number} [buckets]
