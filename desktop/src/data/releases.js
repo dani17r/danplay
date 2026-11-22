@@ -17,6 +17,19 @@ import { compareVersions } from '../utils/version.js'
 /** @type {Release[]} */
 export const RELEASES = [
   {
+    version: '1.45.0',
+    date: '',
+    summary: 'Un sonido que se recupera solo, un estudio más fluido y un paquete mucho más pequeño.',
+    items: [
+      'Si algo falla dentro del sonido o unos cascos se desconectan, la música vuelve sola en vez de quedarse muda.',
+      'La aguja del modo estudio avanza suave, y «Grande» y el zoom de la onda van más fluidos.',
+      'Guardar el estudio ya no reescribe el archivo de audio a cada cambio, y poner una estrella es al momento.',
+      'Las canciones con muchas pistas cargan más rápido, y las de 96 o 192 kHz conservan sus agudos.',
+      'yt-dlp se instala solo la primera vez que bajas algo de YouTube, y el instalador pesa unos 60 MB menos.',
+      'El asistente pide permiso antes de cambiar una lista si acaba de leer algo de internet.'
+    ]
+  },
+  {
     version: '1.44.1',
     date: '2026-11-16',
     summary: 'Al dar play, la canción y el clic arrancan a la vez, sin cuenta ni espera.',

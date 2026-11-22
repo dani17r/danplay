@@ -3,6 +3,125 @@
 Lo que cambia en cada versión que se entrega. El detalle de por qué está
 hecho así, en [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
+## 1.45.0 — sin publicar
+
+Una revisión entera de lo que no se ve: que el sonido no se quede mudo,
+seguridad, rapidez, tamaño de descarga, la CI y limpieza. El plan, con el
+porqué de cada punto, en
+[docs/IMPROVEMENT-PLAN-2.md](docs/IMPROVEMENT-PLAN-2.md). Nada de esto se ha
+podido oír: lo que cambia el sonido va respaldado por una medida dentro de
+una prueba.
+
+### Que no se corte el sonido
+
+- **El sonido se recupera solo** si algo falla dentro del motor: un fallo en
+  la vuelta de la salida sale en silencio y la salida se vuelve a abrir (antes
+  callaba hasta reiniciar), un salto que tropieza con un archivo dañado ya no
+  mata el hilo que decodifica, y una salida que deja de pedir muestras sin
+  avisar (unos cascos Bluetooth colgados) se da por caída al segundo.
+- **Al desenchufar unos cascos, la música vuelve por los altavoces al
+  momento** (antes, hasta 750 ms de silencio).
+- Las muestras que no son un número (un WAV dañado en coma flotante) ya no
+  llegan al estirador ni a la tarjeta.
+- El hilo de audio ya no pide ni suelta memoria en la cuenta, el relevo y el
+  conversor de frecuencia; cambiar de canción ya no espera al hilo de la
+  anterior (con un disco dormido, bloqueaba pausa y siguiente).
+- **Las pistas a 96 o 192 kHz conservan sus agudos** y ya no dejan alias al
+  pasarlas a 44,1 kHz (medido: un tono de 15 kHz a 192 kHz caía 1,56 dB y
+  ahora 0,00; el alias de 30 kHz, de −30 a −101 dB). A 48 kHz no cambia nada.
+- **Las canciones con muchas partes cargan unas tres veces más rápido**: las
+  partes se abren a la vez (de 32 a 11 ms con siete), y con un tope de
+  memoria por canción (256 MB en la PC, 64 en el celular).
+- El estirador se compila con `-O3`: un 10 % menos de procesador, con la
+  salida idéntica bit a bit.
+- La siguiente canción ya no se abre 25 veces por segundo mientras suena la
+  de antes (de 52 veces en 2 s a 1).
+- La caché de convertidos (Opus, WMA…) ya no borra primero lo que más suena.
+- En Windows, separar pistas y sacar el pulso van con prioridad baja.
+- **En el celular**: tocar el mezclador ya no hace un hueco de unos 10 ms; si
+  el reproductor se cae leyendo un archivo, se levanta solo y lo dice; y en
+  pausa suelta la salida y deja de despertarse, que gasta batería.
+- Prioridad de tiempo real para el hilo de audio: **medida y descartada**. Un
+  banco nuevo (`real_output_under_load`, `engine/src/real_files.rs`) suena por
+  la salida de verdad con el equipo cargado: con la carga real de separar (a
+  `nice 10`) no hay ni un corte, en este equipo no se puede subir (no hay
+  rtkit) y, donde sí, pone un tope de tiempo al proceso entero que podría
+  cerrar la app.
+
+### Seguridad
+
+- **El asistente pide permiso antes de cambiar una lista o las etiquetas** si
+  en ese turno acaba de leer algo de la web, de YouTube o una letra (un texto
+  de fuera podría llevar órdenes escondidas); los resultados de la web le
+  llegan recortados.
+- Un proyecto de Ableton preparado a mala idea ya no puede cerrar DanPlay.
+- El registro, la base y las claves de IA quedan solo para tu usuario, también
+  los que venían con permisos de más de una copia anterior.
+- La versión de yt-dlp que dice GitHub ya no puede nombrar una carpeta de
+  fuera de la suya.
+- ffmpeg lee siempre un archivo (`file:` delante), aunque se llame como uno de
+  sus protocolos.
+- La ventana de proyección solo puede leer del núcleo.
+- Un título de cifrado con miles de paréntesis anidados ya no cuesta segundos,
+  y el vigilante ya no sigue un enlace a otra carpeta hasta recorrer el disco.
+- El `.m3u8` exportado ya no se rompe con un título con un salto de línea.
+- El servidor de desarrollo corta los cuerpos en su tope y no espera siempre
+  a las cabeceras.
+
+### Más rápido
+
+- **Guardar el modo estudio ya no reescribe el archivo de audio a cada
+  cambio**: la base se guarda al momento y la etiqueta del archivo, al dejar
+  la canción o el estudio (o a los 10 s de calma).
+- **Poner una estrella, de 3 ms a 0,6**: la base ya no espera al disco en cada
+  escritura (una conexión abierta la mantiene viva).
+- Poner una estrella mientras DanPlay revisa la biblioteca ya no espera ni
+  falla con el disco lento.
+- Al abrir DanPlay la lista ya no se carga dos veces, y el catálogo de modelos
+  de IA no se lee entero (de 81 a 0,04 ms).
+- Miniaturas: servirlas ya no lee la ficha entera ni escribe en el disco, como
+  mucho un ffmpeg por núcleo para hacerlas, y borrar las de muchas canciones
+  ya no es cuadrático (5 000 entre 60 000: de 163 s a 0,6).
+- El resto de la lista llega en una sola página de 20 000.
+
+### La interfaz, más fluida
+
+- **La aguja del modo estudio avanza suave**, sin saltos de un cuarto de
+  segundo, y el estudio ya no se repinta entero con cada aviso de posición
+  (la mitad de trabajo por aviso, y nada con el estudio oculto).
+- «Grande» y el zoom de la onda van más fluidos (el peor fotograma de
+  «Grande», de 155 a 72 ms).
+- La cola entera ya no pinta miles de filas, la ficha con letra sincronizada
+  no se repinta con cada aviso y la lista agrupada se ordena una vez.
+- El recorrido del estudio y las novedades ya no se cargan al arrancar (el
+  trozo del estudio, de 240 a 209 KB), y un `.danpista` abierto al arrancar
+  ya no espera a la biblioteca.
+- «Ir a lo que suena» se quita cuando la canción vuelve a estar a la vista.
+
+### Paquetes más pequeños
+
+- **El `.deb` pasa de 145 a unos 84 MB**: va en xz y ya no lleva yt-dlp.
+- **yt-dlp se instala solo la primera vez que bajas algo de YouTube**, con su
+  avance en Descargas, comprobando su suma; sin internet lo dice claro.
+- Separar una canción gasta 100 MB menos de memoria (200 MB menos en máxima
+  calidad), con el mismo resultado bit a bit.
+
+### Para desarrollar
+
+- La CI: todas las acciones fijadas por SHA, los paquetes se construyen solo
+  con lectura y se publican aparte con `SHA256SUMS` y procedencia firmada, la
+  etiqueta tiene que ser la versión, plazos y concurrencia, la versión de Rust
+  fijada (`rust-toolchain.toml`, 1.100.0) y un perfil `ci` para las pruebas
+  (sin LTO). Un commit de documentación ya no lanza las tres plataformas.
+- ffmpeg 9.0.2 tiene una copia propia en una versión aparte del repositorio
+  (`tools-ffmpeg-9.0.2`), por si el servidor de origen falla.
+- Dependencias: Vite+ 1.5.0 y Vitest 5.1.0 (arreglan un aviso de su servidor
+  de desarrollo), `sha2` 0.11, `rustix`, `async-executor` y `yoke-derive` al
+  día, y `symphonia` sin los formatos que la biblioteca no usa.
+- `StudyBar.vue` partido por áreas.
+- Los documentos históricos (la migración, las pruebas de Python y el plan
+  viejo), a `docs/historia/`.
+
 ## 1.44.1 — 2026-11-16
 
 Dar play arranca todo a la vez. Con la «Cuenta» del clic puesta (uno o dos
@@ -520,7 +639,7 @@ rama a `main`.
   cada cosa (sus rutas, su JSON, sus errores, sus tablas de caracteres);
   usa las reglas de Rust, que en Windows y macOS son las del sistema. Unas
   9.000 líneas menos. Lo guardado se sigue leyendo igual (ver
-  [docs/MIGRATION.md](docs/MIGRATION.md), «La fase 6»).
+  [docs/historia/MIGRATION.md](docs/historia/MIGRATION.md), «La fase 6»).
 - **Mensajes en castellano**: lo que fallaba al leer una respuesta de la IA,
   de yt-dlp o un cifrado salía con el texto de Python en inglés
   («invalid literal for int()…»); ahora dice qué pasó.
@@ -538,7 +657,7 @@ rama a `main`.
 ## 1.40.0 — 2026-10-23
 
 El núcleo, en Rust y dentro de la app: lo que hacía en Python, ahora en
-Rust (ver [docs/MIGRATION.md](docs/MIGRATION.md)). Por fuera todo sigue
+Rust (ver [docs/historia/MIGRATION.md](docs/historia/MIGRATION.md)). Por fuera todo sigue
 igual; por dentro va más rápido y gasta menos.
 
 - **Sin Python**: el núcleo va dentro de la propia app. Ya no hay un
@@ -591,7 +710,7 @@ igual; por dentro va más rápido y gasta menos.
   cambia.
 - **Para quien compila**: Python ya no está en el repositorio. Sus casi
   1.000 pruebas, pasadas a Rust una a una con los mismos valores esperados
-  (dónde está cada una, en [docs/TESTS-PORT.md](docs/TESTS-PORT.md)); las de
+  (dónde está cada una, en [docs/historia/TESTS-PORT.md](docs/historia/TESTS-PORT.md)); las de
   la interfaz de extremo a extremo, contra `danplay-server`; los datos que
   viajan con la app, de `danplay/data` a `data/`. Los paquetes, sin
   PyInstaller ni uv; `scripts/data.sh` deja los datos y ONNX Runtime en
