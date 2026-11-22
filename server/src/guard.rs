@@ -56,8 +56,7 @@ pub fn check(guard: &Guard, req: &Request) -> Option<Response> {
         }
     }
     if guard.enforce_host {
-        let host = req.header_value("host").unwrap_or("");
-        let host = host.rsplit_once(':').map_or(host, |(h, _)| h);
+        let host = without_port(req.header_value("host").unwrap_or(""));
         if !ALLOWED_HOSTS.contains(&host) {
             return Some(Response::plain(421, "host no permitido"));
         }
@@ -70,19 +69,44 @@ pub fn check(guard: &Guard, req: &Request) -> Option<Response> {
             return Some(Response::plain(403, "falta la cabecera X-DanPlay"));
         }
     }
-    let cap = if path.starts_with("/api/chat") {
-        MAX_CHAT_BODY
-    } else {
-        MAX_BODY
-    };
     let length = req
         .header_value("content-length")
         .filter(|l| !l.is_empty() && l.bytes().all(|b| b.is_ascii_digit()))
         .map_or(Some(req.body.len()), |l| l.parse::<usize>().ok());
-    if length.is_none_or(|n| n > cap) {
-        return Some(Response::plain(413, "eso es demasiado grande"));
+    if length.is_none_or(|n| n > body_cap(path)) {
+        return Some(too_big());
     }
     None
+}
+
+/// Lo más que puede pesar el cuerpo de una petición a `path`.
+pub fn body_cap(path: &str) -> usize {
+    if path.starts_with("/api/chat") {
+        MAX_CHAT_BODY
+    } else {
+        MAX_BODY
+    }
+}
+
+/// La respuesta a un cuerpo de más.
+pub fn too_big() -> Response {
+    Response::plain(413, "eso es demasiado grande")
+}
+
+/// El `Host` sin su puerto. Solo se quita lo de detrás de los últimos dos
+/// puntos si son cifras y lo de delante no es una IPv6 sin corchetes:
+/// partiendo siempre por ahí, «[::1]» se quedaba en «[:» y no pasaba.
+fn without_port(host: &str) -> &str {
+    match host.rsplit_once(':') {
+        Some((name, port))
+            if !port.is_empty()
+                && port.bytes().all(|b| b.is_ascii_digit())
+                && (!name.contains(':') || name.ends_with(']')) =>
+        {
+            name
+        }
+        _ => host,
+    }
 }
 
 /// El CORS de los orígenes de desarrollo: el preflight se contesta aquí; a
@@ -165,6 +189,40 @@ mod tests {
         assert!(check(&g, &media).is_none());
         let options = Request::new("OPTIONS", "/api/scan").header("host", "localhost");
         assert!(check(&g, &options).is_none());
+    }
+
+    /// La IPv6 de este equipo pasa con y sin puerto (sin él, se partía por
+    /// sus dos puntos y daba «[:»); lo que no es este equipo, con o sin
+    /// algo detrás, no.
+    #[test]
+    fn the_host_without_its_port() {
+        let g = tcp();
+        let status = |host: &str| {
+            let r = Request::new("GET", "/api/status")
+                .header("host", host)
+                .header("x-danplay", "1");
+            check(&g, &r).map_or(200, |r| r.status)
+        };
+        for host in [
+            "[::1]",
+            "[::1]:8730",
+            "::1",
+            "localhost",
+            "localhost:5273",
+            "127.0.0.1:8730",
+        ] {
+            assert_eq!(status(host), 200, "{host}");
+        }
+        for host in [
+            "evil.com",
+            "evil.com:80",
+            "localhost:x",
+            "localhost:",
+            "[::2]:80",
+            "::1:80",
+        ] {
+            assert_eq!(status(host), 421, "{host}");
+        }
     }
 
     #[test]
