@@ -728,8 +728,11 @@ fn leaving_the_app_waits_for_the_last_session_but_not_forever() {
     assert!(!saver.flush(Duration::from_millis(50)), "dijo que estaba escrita y no");
     assert!(saver.flush(Duration::from_secs(5)));
     assert_eq!(*written.lock().unwrap(), vec![9]);
-    // sin nada pendiente, al momento
+    // sin nada pendiente, al momento. Con margen para un equipo ocupado
+    // (con 50 ms falló una vez sin que nada estuviera mal), pero por debajo
+    // de lo que tarda en escribir este guardador (400 ms): esperar al disco
+    // se seguiría viendo.
     let started = Instant::now();
     assert!(saver.flush(Duration::from_secs(5)));
-    assert!(started.elapsed() < Duration::from_millis(50));
+    assert!(started.elapsed() < Duration::from_millis(250));
 }
