@@ -37,6 +37,7 @@ import App from '../src/App.vue'
 import DetailsPanel from '../src/components/DetailsPanel.vue'
 import StudyBar from '../src/components/StudyBar.vue'
 import StudyTimeline from '../src/components/StudyTimeline.vue'
+import StudyNotes from '../src/components/StudyNotes.vue'
 import { renderMarkdown } from '../src/utils/markdown.js'
 import { resetPlayback } from '../src/composables/usePlayback.js'
 import { resetPreferences } from '../src/composables/usePreferences.js'
@@ -194,6 +195,10 @@ describe('what plays and what gets repainted', () => {
       vi.advanceTimersByTime(20)
       const bar = w.vm.$.subTree
       const timeline = w.findComponent(StudyTimeline).vm.$.subTree
+      // y las partes en que se partió StudyBar (lote 9): tampoco
+      const parts = [StudyNotes]
+      const partTree = (C) => w.findComponent(C).vm.$.subTree
+      const partsBefore = parts.map(partTree)
       const head = () => w.find('.tl-head').element.style.left
       const before = head()
       for (const k of Object.keys(counts)) delete counts[k]
@@ -209,6 +214,9 @@ describe('what plays and what gets repainted', () => {
       expect(counts.StudyBar || 0).toBe(0)
       expect(counts.StudyTimeline || 0).toBe(0)
       expect(counts.BeatTools || 0).toBe(0)
+      parts.forEach((C, i) => {
+        expect(partTree(C), `${C.__name} se repinta en cada aviso`).toBe(partsBefore[i])
+      })
       // lo que tiene que moverse, se mueve
       expect(w.find('.study-time').text()).toBe('0:15 / 3:20')
       expect(head()).not.toBe(before)

@@ -21,7 +21,7 @@
  * ocultar no se toca nada; al salir del estudio se quita y la canción vuelve
  * a sonar normal.
  */
-import { ref, computed, watch, onMounted, onUnmounted, shallowRef, markRaw } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, shallowRef, markRaw, provide } from 'vue'
 // su CSS viene con él: es una isla y no se carga al arrancar (islands.js). Antes
 // que lo demás; el de driver.js (useStudyTour.js) llega después, con el recorrido
 import '../styles/study.css'
@@ -92,6 +92,8 @@ import StudyOutputs from './StudyOutputs.vue'
 import StudyCue from './StudyCue.vue'
 import StudyExport from './StudyExport.vue'
 import VoicePicker from './VoicePicker.vue'
+import StudyNotes from './StudyNotes.vue'
+import { STUDY } from '../composables/studyContext.js'
 import { clamp, pctText, round2, round3 } from '../utils/num.js'
 import { readPref, savePref } from '../utils/prefs.js'
 import { MAX_CUE_LANES, markerParts as partsOf } from '../utils/cues.js'
@@ -167,6 +169,13 @@ const grid = click.grid
 const notesTab = ref('song')
 /** La línea de tiempo (su zoom y la edición de pulsos). */
 const timeline = ref(null)
+/**
+ * Lo que comparten las partes del estudio (StudyNotes, StudyTempo…): un solo
+ * objeto, que se va llenando según se arma cada una (studyContext.js).
+ * @type {import('../composables/studyContext.js').StudyContext}
+ */
+const ctx = { doc, notesTab, markers: { selected } }
+provide(STUDY, ctx)
 
 async function loadFor(id) {
   // lo pendiente es de la cancion que se deja: se guarda en ELLA ya, sin
@@ -1955,10 +1964,7 @@ function cuePath(c) {
   const base = player.state.path || ''
   return f && !f.startsWith('/') && !/^[A-Za-z]:[\\/]/.test(f) && base ? base + '/' + f : f
 }
-// ---- notas: un solo cuadro, dos pestañas
-watch(selected, (m) => {
-  if (!m) notesTab.value = 'song'
-})
+// ---- notas: un solo cuadro, dos pestañas (StudyNotes.vue)
 
 // ---- las pistas separadas: batería, voces, bajo… cada una con su volumen
 const hasStems = computed(() => !!stems.value?.complete)
@@ -3713,71 +3719,7 @@ defineExpose({ close: hide, hide, exit })
       </section>
 
       <!-- ========================================================= notas -->
-      <section class="study-col study-notes" :class="{ active: panel === 'notes' }">
-        <h5 class="study-col-title"><Icon n="pencil" :t="12" /> Notas</h5>
-        <div class="study-tabs" role="tablist">
-          <button
-            type="button"
-            role="tab"
-            class="study-tab"
-            :class="{ on: notesTab === 'song' }"
-            :aria-selected="notesTab === 'song'"
-            @click="notesTab = 'song'"
-          >
-            La canción
-          </button>
-          <button
-            v-if="selected"
-            type="button"
-            role="tab"
-            class="study-tab"
-            :class="{ on: notesTab === 'marker' }"
-            :aria-selected="notesTab === 'marker'"
-            @click="notesTab = 'marker'"
-          >
-            «{{ selected.label }}»
-          </button>
-          <span v-else class="study-tab off" title="Elige un marcador para escribirle notas"
-            >un marcador</span
-          >
-        </div>
-        <!-- primero se apunta lo escrito y luego se programa el guardado, que
-             copia la ficha en ese momento -->
-        <TextField
-          v-if="notesTab === 'marker' && selected"
-          :key="'m' + selected.t"
-          :model-value="selected.notes"
-          multiline
-          :rows="6"
-          width="100%"
-          :placeholder="'qué trabajar en «' + selected.label + '»…'"
-          maxlength="2000"
-          class="study-notes-field"
-          @update:model-value="
-            (v) => {
-              selected.notes = v
-              scheduleSave()
-            }
-          "
-        />
-        <TextField
-          v-else
-          :model-value="study.notes"
-          multiline
-          :rows="6"
-          width="100%"
-          placeholder="cejilla en 2, entrar tras el redoble…"
-          :disabled="!track"
-          maxlength="4000"
-          class="study-notes-field"
-          @update:model-value="
-            (v) => {
-              study.notes = v
-              scheduleSave()
-            }
-          "
-        />
-      </section>
+      <StudyNotes :class="{ active: panel === 'notes' }" />
     </div>
 
     <StudyOutputs
