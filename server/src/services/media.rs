@@ -9,7 +9,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::ffi::OsString;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
-use std::sync::{LazyLock, Mutex, PoisonError};
+use std::sync::{Condvar, LazyLock, Mutex, PoisonError};
 
 // ---------------------------------------------------------------- carátulas
 
@@ -208,6 +208,36 @@ fn thumbnails_folder_lost(path: &Path) {
         .remove(path);
 }
 
+/// Cuántas miniaturas se están haciendo ahora (un ffmpeg cada una), y el
+/// aviso a las que esperan.
+static MAKING: (Mutex<usize>, Condvar) = (Mutex::new(0), Condvar::new());
+
+/// El turno para hacer una miniatura: como mucho una por núcleo a la vez. Al
+/// desplazar una biblioteca sin miniaturas llegan decenas de peticiones
+/// juntas, y cada una lanzaba su ffmpeg: 48 a la vez con 16 núcleos (medido),
+/// peleándose con el audio. Las demás esperan su turno.
+struct Making;
+
+impl Making {
+    fn wait() -> Self {
+        let most = std::thread::available_parallelism().map_or(4, std::num::NonZero::get);
+        let mut busy = MAKING.0.lock().unwrap_or_else(PoisonError::into_inner);
+        while *busy >= most {
+            busy = MAKING.1.wait(busy).unwrap_or_else(PoisonError::into_inner);
+        }
+        *busy += 1;
+        Self
+    }
+}
+
+impl Drop for Making {
+    fn drop(&mut self) {
+        let mut busy = MAKING.0.lock().unwrap_or_else(PoisonError::into_inner);
+        *busy = busy.saturating_sub(1);
+        MAKING.1.notify_one();
+    }
+}
+
 /// La miniatura (o la carátula tal cual si no se pudo encoger); `None` si no
 /// tiene carátula.
 pub fn thumbnail(app: &App, path: &Path, size: i64) -> Option<Cover> {
@@ -220,6 +250,7 @@ pub fn thumbnail(app: &App, path: &Path, size: i64) -> Option<Cover> {
     let original = cached_cover(path)?;
     let ffmpeg = app.tool("ffmpeg");
     let mut warnings = Warnings::new();
+    let _turn = Making::wait();
     let made = library::thumbnails::get(
         &folder,
         path,
