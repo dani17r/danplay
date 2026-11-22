@@ -568,7 +568,8 @@ pub struct Render {
     in_cap: usize,
     /// Lo que suena de cada bus en el trozo: `MAX_BUSES` buferes de `CHUNK`.
     bus_out: Vec<f32>,
-    /// Para el render en estereo de siempre (`render`).
+    /// Para el render en estereo de las pruebas (`render`).
+    #[cfg(test)]
     limiter: Limiter,
     inbox: Option<rtrb::Consumer<Msg>>,
     trash: Option<rtrb::Producer<Trash>>,
@@ -630,6 +631,7 @@ impl Render {
             bus_in: vec![0.0; MAX_BUSES * in_cap * 2],
             in_cap,
             bus_out: vec![0.0; MAX_BUSES * CHUNK * 2],
+            #[cfg(test)]
             limiter: Limiter::new(rate, 2),
             inbox: None,
             trash: None,
@@ -665,12 +667,10 @@ impl Render {
         self.channels = channels;
         self.resampler = (out_rate != self.rate)
             .then(|| Resampler::with_channels(self.rate, out_rate, channels));
-        self.limiter = Limiter::new(out_rate, channels);
-    }
-
-    /// Lo de antes, en estereo.
-    pub fn set_out_rate(&mut self, out_rate: u32) {
-        self.set_output(out_rate, self.channels);
+        #[cfg(test)]
+        {
+            self.limiter = Limiter::new(out_rate, channels);
+        }
     }
 
     /// Una cancion nueva (o ninguna). Devuelve los anillos de la anterior,
@@ -797,14 +797,16 @@ impl Render {
         }
     }
 
-    /// Llena `out` (estereo intercalado, a la tasa de la salida), con el
-    /// limitador. Es lo que hace la salida cuando hay una sola cancion.
     /// Bloques ya decodificados esperando a sonar (para las pruebas).
     #[cfg(test)]
     pub fn blocks_ready(&self) -> usize {
         self.ring.as_ref().map_or(0, |r| r.full.slots())
     }
 
+    /// Llena `out` (estereo intercalado, a la tasa de la salida), con el
+    /// limitador: lo que hace la salida con una sola cancion (para las
+    /// pruebas; la salida de verdad limita despues de sumar, en `output.rs`).
+    #[cfg(test)]
     pub fn render(&mut self, out: &mut [f32]) {
         if self.channels != 2 {
             self.set_output(self.output_rate(), 2);
@@ -813,6 +815,7 @@ impl Render {
         self.limiter.process(out);
     }
 
+    #[cfg(test)]
     fn output_rate(&self) -> u32 {
         self.resampler.as_ref().map_or(self.rate, |r| {
             (f64::from(self.rate) / r.step()).round() as u32
@@ -1003,7 +1006,8 @@ impl Render {
 
     /// La cuenta para entrar en lo que suena: los golpes al tempo y en el
     /// compas de la cancion (los de su rejilla alrededor de ahi), acabando
-    /// justo donde cae el siguiente pulso. Como en la PC (`player/metro.rs`).
+    /// justo donde cae el siguiente pulso. La PC ya no cuenta (desde la
+    /// 1.44.1 play arranca todo a la vez); en el celular, si.
     /// Los golpes van a `count_hits`.
     fn count_in(&mut self, bars: u32) -> CountIn {
         let rate = f64::from(self.rate);

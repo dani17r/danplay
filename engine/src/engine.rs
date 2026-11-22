@@ -234,7 +234,7 @@ impl Engine {
     pub fn offline(out_rate: u32) -> Engine {
         let mut e = Engine::new();
         for d in &e.decks {
-            lock(&d.render).set_out_rate(out_rate);
+            lock(&d.render).set_output(out_rate, 2);
         }
         e.offline = true;
         e
