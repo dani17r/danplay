@@ -40,7 +40,11 @@ export function tellJournal(report) {
   const text = journalMessage(report)
   if (text) notify(text, 'ok', 12)
 }
-const PAGE = 5000
+// El resto, de una vez si cabe: es lo más que admite el núcleo (`le(20000)`).
+// De 5 000 en 5 000, una biblioteca de 20 000 eran cinco ordenaciones enteras
+// en el núcleo (`ORDER BY … LIMIT ? OFFSET ?` no tiene índice que sirva: cada
+// página vuelve a ordenarlo todo). Así son dos.
+const PAGE = 20000
 
 /**
  * @param {{ view: import('vue').Ref<View>, params: () => Record<string, any> }} context
