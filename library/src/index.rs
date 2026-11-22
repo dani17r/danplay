@@ -236,7 +236,16 @@ pub fn next_song_id(conn: &Connection) -> rusqlite::Result<i64> {
 /// `songs_missing` con su id. Sus filas en las listas se quedan: las listas
 /// solo enseñan lo que está en `songs`, y si la canción vuelve reaparece en
 /// su sitio. No hace commit.
+///
+/// Sin nada que apartar no abre la transacción: el escaneo lo llama siempre
+/// y confirma mucho después, tras mirar cada archivo, así que un escaneo sin
+/// cambios (al arrancar y cada diez minutos) se quedaba el turno de escribir
+/// todo el recorrido, y poner una estrella con el disco frío esperaba hasta
+/// cinco segundos y fallaba. Quien escribe después abre la suya (`begin`).
 pub fn to_missing(conn: &Connection, paths: &[String]) -> rusqlite::Result<usize> {
+    if paths.is_empty() {
+        return Ok(0);
+    }
     let now = now();
     let mut moved = 0;
     begin(conn)?;
