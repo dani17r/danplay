@@ -220,7 +220,6 @@ fn chunks_join_into_the_whole_song() {
                 seen.push((d, t));
                 Ok(())
             },
-            &mut || Ok(false),
         )
         .expect("separa");
         let (s, rows) = join_blocks(&blocks);
@@ -238,25 +237,10 @@ fn chunks_join_into_the_whole_song() {
     }
 }
 
+/// Si quien recibe las pistas falla (el disco lleno), la separación falla
+/// con ese motivo, aunque el fallo llegue desde el hilo que funde.
 #[test]
-fn stops_on_cancel_and_a_join_error_is_not_lost() {
-    let mut net = Identity {
-        parts: vec![0.5, 0.5],
-        calls: 0,
-    };
-    let mut calls = 0;
-    separate(
-        &mut net,
-        &tones(20 * RATE),
-        &mut |_| Ok(()),
-        &mut |_, _| Ok(()),
-        &mut || {
-            calls += 1;
-            Ok(calls > 1)
-        },
-    )
-    .expect("separa");
-    assert_eq!(net.calls, 1);
+fn a_join_error_is_not_lost() {
     let mut net = Identity {
         parts: vec![0.5, 0.5],
         calls: 0,
@@ -266,7 +250,6 @@ fn stops_on_cancel_and_a_join_error_is_not_lost() {
         &tones(12 * RATE),
         &mut |_| Err("disco lleno".into()),
         &mut |_, _| Ok(()),
-        &mut || Ok(false),
     );
     assert_eq!(r.map_err(|e| e.to_string()), Err("disco lleno".to_owned()));
 }
@@ -345,7 +328,6 @@ fn a_song_with_an_offset_and_a_loud_mix_comes_back_the_same() {
             Ok(())
         },
         &mut |_, _| Ok(()),
-        &mut || Ok(false),
     )
     .expect("separa");
     let (s, rows) = join_blocks(&blocks);

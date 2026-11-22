@@ -571,18 +571,12 @@ pub fn run(
                 }
                 Ok(())
             };
-            separate(
-                session.as_mut(),
-                &wav,
-                &mut emit,
-                &mut |d, _| {
-                    say(Warning::Done {
-                        done: base + d,
-                        total,
-                    })
-                },
-                &mut || Ok(false),
-            )
+            separate(session.as_mut(), &wav, &mut emit, &mut |d, _| {
+                say(Warning::Done {
+                    done: base + d,
+                    total,
+                })
+            })
         };
         let closed = close(&mut encoders, "guardar las pistas");
         r?;
@@ -786,7 +780,6 @@ pub fn run_max(
             &stems,
             &mut emit,
             &mut |d, tt| say(Warning::Done { done: d, total: tt }),
-            &mut || Ok(false),
             0.25,
         )
     };

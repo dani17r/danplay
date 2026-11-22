@@ -311,7 +311,6 @@ pub fn separate<S: AsRef<[f32]>>(
     stems: &[(String, S)],
     emit: &mut dyn FnMut(Parts) -> Result<(), Error>,
     on_progress: &mut dyn FnMut(usize, usize) -> Result<(), Error>,
-    is_cancelled: &mut dyn FnMut() -> Result<bool, Error>,
     overlap: f64,
 ) -> Result<(), Error> {
     let length = mix.len() / 2;
@@ -338,9 +337,6 @@ pub fn separate<S: AsRef<[f32]>>(
         out
     };
     for (n, &start) in chunk_starts.iter().enumerate() {
-        if is_cancelled()? {
-            break;
-        }
         let end = length.min(start + chunk);
         let size = end - start;
         let x = piece(mix, start, end);

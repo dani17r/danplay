@@ -549,7 +549,6 @@ pub fn separate(
     wav: &[f32],
     emit: &mut (dyn FnMut(Block) -> Result<(), Error> + Send),
     on_progress: &mut dyn FnMut(usize, usize) -> Result<(), Error>,
-    is_cancelled: &mut dyn FnMut() -> Result<bool, Error>,
 ) -> Result<(), Error> {
     let length = wav.len() / 2;
     let (media, std) = normalization(wav, length);
@@ -637,9 +636,6 @@ pub fn separate(
             };
         }
         for (index, &offset) in offsets.iter().enumerate() {
-            if is_cancelled()? {
-                break;
-            }
             let size = SEGMENT.min(length.saturating_sub(offset));
             let delta = SEGMENT - size;
             // `TensorChunk.padded`: centrado, con sus vecinos

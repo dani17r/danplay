@@ -148,7 +148,6 @@ fn split_adds_up_and_follows_what_the_net_hears() {
             Ok(())
         },
         &mut |_, _| Ok(()),
-        &mut || Ok(false),
         0.25,
     )
     .expect("separa");
