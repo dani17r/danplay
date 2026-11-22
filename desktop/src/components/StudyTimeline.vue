@@ -194,8 +194,8 @@ const props = defineProps({
 // («mover 5 pulsos»), para el historial de deshacer; `update:selection`, los
 // pulsos elegidos cuando cambian. `cue`, la guía que se pulsó. Las de los
 // carriles de guías: `add-cue` (segundo, carril), `move-cue` (guía, segundo),
-// `cue-lane` (carril, cambios), `add-cue-lane`, `remove-cue-lane` y
-// `rename-cue-lane` (carril); `cue-lane-menu` (carril, evento, segundo o
+// `cue-lane` (carril, cambios), `add-cue-lane` y `rename-cue-lane`
+// (carril) —quitar un carril va por su menú—; `cue-lane-menu` (carril, evento, segundo o
 // null), las opciones de un carril (su botón ⋯ o un clic derecho en él), y
 // `cue-menu` (guía, evento), las de una guía (clic derecho en ella).
 const emit = defineEmits([
@@ -213,7 +213,6 @@ const emit = defineEmits([
   'move-cue',
   'cue-lane',
   'add-cue-lane',
-  'remove-cue-lane',
   'rename-cue-lane',
   'cue-lane-menu',
   'cue-menu',

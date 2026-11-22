@@ -3264,7 +3264,6 @@ defineExpose({ close: hide, hide, exit })
       @move-cue="moveCue"
       @cue-lane="setCueLane"
       @add-cue-lane="addCueLane"
-      @remove-cue-lane="removeCueLane"
       @rename-cue-lane="renameCueLane"
       @cue-lane-menu="cueLaneMenu"
       @click-lane="onClickLane"
@@ -3282,35 +3281,17 @@ defineExpose({ close: hide, hide, exit })
     />
     <!-- ajustando los pulsos: sus herramientas, y «Tempo y onda» debajo -->
     <BeatTools v-if="editingBeats && !isMobileApp" :edit="edit" :has-loop="hasLoop" />
+    <!-- en el celular se toca, no hay ratón ni teclas (en el escritorio, lo
+         mismo va en el título de la onda) -->
     <p v-if="isMobileApp" class="study-hint">
-      <!-- en el celular se toca, no hay ratón ni teclas -->
-      <template v-if="isMobileApp">
-        <template v-if="multi">
-          Desliza el dedo sobre la onda para añadir tramos · toca uno para quitarlo ·
-          <b>⋯</b> opciones
-        </template>
-        <template v-else>
-          Desliza el dedo sobre la onda para elegir el tramo ·
-          {{ locked ? 'con el candado, tocar no mueve la canción' : 'toca para ir a un punto' }}
-          · <b>⋯</b> opciones
-        </template>
-      </template>
-      <template v-else-if="editingBeats">
-        Ajustando tu clic: <b>arrastra</b> un pulso para moverlo · <b>doble clic</b> añade uno ·
-        <b>clic derecho</b> lo quita o lo hace el «1» · la <b>rueda</b> acerca
-      </template>
-      <template v-else-if="multi">
-        Arrastra para añadir tramos: suenan seguidos, saltándose lo de en medio · clic sobre uno
-        para quitarlo · <b>rueda</b>: zoom · <b>⋯</b> o clic derecho: opciones
+      <template v-if="multi">
+        Desliza el dedo sobre la onda para añadir tramos · toca uno para quitarlo ·
+        <b>⋯</b> opciones
       </template>
       <template v-else>
-        Arrastra sobre la onda para elegir el tramo ·
-        {{
-          locked
-            ? 'con el candado, sonando, un clic no mueve la canción'
-            : 'clic para ir a un punto'
-        }}
-        · <b>rueda</b>: zoom · <b>⋯</b> o clic derecho: opciones · teclas <b>A</b> y <b>B</b>
+        Desliza el dedo sobre la onda para elegir el tramo ·
+        {{ locked ? 'con el candado, tocar no mueve la canción' : 'toca para ir a un punto' }}
+        · <b>⋯</b> opciones
       </template>
     </p>
 
