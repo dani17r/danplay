@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { api, app, pickFolder, errorMessage, JOBS } from '../api.js'
+import { api, app, pickFolder, errorMessage, JOBS, inTauri } from '../api.js'
 import { addFolder } from '../utils/folders.js'
 import { chooseDownloadFolder } from '../utils/downloadFolder.js'
 import { usePreferences } from '../composables/usePreferences.js'
@@ -159,6 +159,39 @@ const catalog = ref(allThemes())
 // bajan por eventos hasta App.
 const { theme, density } = usePreferences()
 
+// El zoom automático de la interfaz (lo lleva Rust: ui_scale.rs). Solo en la
+// app de escritorio: en el navegador manda el zoom del propio navegador.
+const uiScale = ref(/** @type {{ auto: boolean, zoom: number } | null} */ (null))
+async function loadUiScale() {
+  if (!inTauri) return
+  try {
+    const [auto, zoom] = await app.uiScale()
+    uiScale.value = { auto, zoom }
+  } catch {
+    uiScale.value = null
+  }
+}
+async function setUiScale(/** @type {boolean} */ auto) {
+  try {
+    const zoom = await app.setUiScale(auto)
+    uiScale.value = { auto, zoom }
+  } catch (e) {
+    notify(errorMessage(e))
+  }
+}
+const uiScaleHint = computed(() => {
+  const z = uiScale.value
+  const now =
+    z && z.auto && z.zoom > 1.001
+      ? ` Ahora mismo, al ${Math.round(z.zoom * 100)} %.`
+      : ' Con esta ventana no hace falta.'
+  return (
+    'Con una pantalla grande, todo se ve un poco más grande para que no quede chiquito: ' +
+    'según el tamaño de la ventana, hasta un 30 % más. En una ventana como la de un portátil no cambia nada.' +
+    now
+  )
+})
+
 // ---- separar en pistas: si se puede, lo bajado de cada modelo y la cola
 const separation = useSeparation()
 const sep = separation.state
@@ -223,6 +256,7 @@ async function load() {
   loadDownloadFolder()
 }
 onMounted(load)
+onMounted(loadUiScale)
 
 // Donde va lo descargado: se pregunta la primera vez que se baja algo, y
 // aqui se ve y se cambia (utils/downloadFolder.js).
@@ -485,6 +519,14 @@ const ACCENT_OPTIONS = [
               <span style="font-size: 11.5px">Crear el mio</span>
             </button>
           </div>
+
+          <ToggleField
+            v-if="uiScale"
+            :model-value="uiScale.auto"
+            title="Agrandar la interfaz en pantallas grandes"
+            :hint="uiScaleHint"
+            @update:model-value="setUiScale"
+          />
 
           <div style="display: flex; align-items: center; gap: 9px; margin-top: 13px">
             <SelectField

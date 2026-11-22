@@ -60,6 +60,8 @@ const COMMANDS: &[&str] = &[
     "set_window_shape",
     "window_shape",
     "set_window_on_top",
+    "ui_scale",
+    "set_ui_scale",
 ];
 
 fn main() {

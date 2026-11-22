@@ -61,6 +61,8 @@ permissions = [
   "allow-set-window-shape",
   "allow-window-shape",
   "allow-set-window-on-top",
+  "allow-ui-scale",
+  "allow-set-ui-scale",
 ]
 
 [[set]]

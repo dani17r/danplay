@@ -21,6 +21,7 @@ mod shape;
 mod share;
 mod tools;
 mod tray;
+mod ui_scale;
 
 use std::path::Path;
 use tauri::Manager;
@@ -210,6 +211,8 @@ fn main() {
             shape::set_window_shape,
             shape::window_shape,
             shape::set_window_on_top,
+            ui_scale::ui_scale,
+            ui_scale::set_ui_scale,
         ])
         .build(tauri::generate_context!());
     let app = match app {
@@ -320,7 +323,17 @@ fn setup(app: &tauri::App) {
 
     // Cerrar la ventana la esconde; se sale desde la bandeja.
     if let Some(main) = app.get_webview_window("main") {
+        // el zoom de la interfaz, el que toca a la ventana tal como abre y
+        // con cada cambio de tamaño o de pantalla (ver ui_scale.rs)
+        ui_scale::start(&handle);
+        let resized = main.clone();
         main.on_window_event(move |event| {
+            if matches!(
+                event,
+                tauri::WindowEvent::Resized(_) | tauri::WindowEvent::ScaleFactorChanged { .. }
+            ) {
+                ui_scale::apply(&resized);
+            }
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 // Sin bandeja se cierra de verdad: dejar la aplicacion viva y
                 // sin nada visible seria dejarla sin forma de volver a verla

@@ -769,6 +769,18 @@ export const app = {
     inTauri
       ? invoke('set_window_on_top', { on })
       : Promise.reject(new Error('Solo en la aplicación de escritorio')),
+  /**
+   * El zoom automático de la interfaz (`ui_scale.rs`): en una ventana más
+   * grande que la de un portátil, todo un poco más grande (hasta un 30 %).
+   * Devuelve [encendido, zoom de ahora]. Fuera de la app, el del navegador.
+   * @returns {Promise<[boolean, number]>}
+   */
+  uiScale: () => (inTauri ? invoke('ui_scale') : Promise.resolve([false, 1])),
+  /** Lo enciende o lo apaga; devuelve el zoom que queda. @param {boolean} auto */
+  setUiScale: (auto) =>
+    inTauri
+      ? invoke('set_ui_scale', { auto })
+      : Promise.reject(new Error('Solo en la aplicación de escritorio')),
   /** Se puede grabar con el micrófono (solo en la app de escritorio). */
   canRecord: inTauri,
   /** Empieza a grabar con el micrófono del sistema (para una guía). */
