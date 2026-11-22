@@ -36,6 +36,7 @@ const props = defineProps({
   /** Lo que devuelve `useBeatEdit` */
   edit: { type: Object, required: true }
 })
+// eslint-disable-next-line vue/no-setup-props-reactivity-loss -- el mismo objeto toda la vida del panel (lo que devuelve useBeatEdit)
 const edit = props.edit
 
 const TEMPOS = [

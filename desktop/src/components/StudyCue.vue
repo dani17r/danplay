@@ -39,12 +39,16 @@ const props = defineProps({
 const emit = defineEmits(['made', 'remove', 'close'])
 const player = usePlayback()
 
+// el diálogo arranca con lo de la guía y luego es un borrador propio: copiar
+// al abrir es a propósito
+/* eslint-disable vue/no-setup-props-reactivity-loss */
 const ownAudio =
   props.draft.file || (props.draft.cue && !props.draft.cue.text && props.draft.cue.file)
 const at = ref(props.draft.t || 0)
 const text = ref(props.draft.text || '')
 const voice = ref(props.draft.voice || '')
 const tab = ref(ownAudio ? 'audio' : 'write')
+/* eslint-enable vue/no-setup-props-reactivity-loss */
 const voices = ref([])
 const busy = ref(false)
 const recording = ref(false)
@@ -186,6 +190,7 @@ function runHead(from, to, secs) {
 }
 // ---- lo grabado o importado: su onda y lo que se le hace
 /** El audio de la guía ({file, seconds}): lo grabado, lo importado o el que ya tenía. */
+// eslint-disable-next-line vue/no-setup-props-reactivity-loss -- el borrador, como arriba
 const clip = ref(ownAudio ? { file: ownAudio, seconds: props.draft.seconds || 0 } : null)
 /** Su onda (de 0 a 1), para verla y recortarla. */
 const peaks = ref([])

@@ -60,6 +60,13 @@ export default [
       'vue/multi-word-component-names': 'off',
       'vue/no-unused-properties': ['error', { groups: ['props'] }],
       'vue/require-explicit-emits': 'error',
+      // lo que se declara y nadie usa (un emit que nadie emite, un ref sin
+      // leer) y lo que pierde la reactividad al leerlo una vez al montar (si
+      // es a propósito, se dice al lado por qué): LIM-6 del plan de mejoras 2
+      'vue/no-unused-emit-declarations': 'error',
+      'vue/no-unused-refs': 'error',
+      'vue/no-setup-props-reactivity-loss': 'error',
+      'vue/no-ref-object-reactivity-loss': 'error',
       // v-html solo donde se pinta marcado propio o ya escapado (los iconos,
       // el markdown del asistente); cada uso lleva su desactivación y el motivo
       'vue/no-v-html': 'error',

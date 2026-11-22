@@ -96,6 +96,7 @@ function savedMode() {
 /** 'auto' (el de cada canción), 'own' (el ajustado a mano) o 'manual' (uno para todas). */
 const mode = ref(savedMode())
 /** Automático o propio (cada canción con el suyo) frente a a mano (uno para todas). */
+// eslint-disable-next-line vue/no-ref-object-reactivity-loss -- valor inicial, se sigue a mano al cambiar de modo
 const auto = ref(mode.value !== 'manual')
 /** El tempo y el compás del modo a mano. */
 const manual = ref(cleanManual(readPref(MANUAL_KEY, {})))
