@@ -19,7 +19,8 @@ export const RELEASES = [
   {
     version: '1.45.0',
     date: '',
-    summary: 'Un sonido que se recupera solo, un estudio más fluido y un paquete mucho más pequeño.',
+    summary:
+      'Un sonido que se recupera solo, un estudio más fluido y un paquete mucho más pequeño.',
     items: [
       'Si algo falla dentro del sonido o unos cascos se desconectan, la música vuelve sola en vez de quedarse muda.',
       'La aguja del modo estudio avanza suave, y «Grande» y el zoom de la onda van más fluidos.',
