@@ -61,7 +61,8 @@ echo "== los programas que viajan dentro"
 "$TOOLS/fpcalc" -version >/dev/null 2>&1 && ok "fpcalc contesta" || bad "fpcalc no arranca"
 echo 'console.log(1+1)' >/tmp/dos.js
 [ "$("$TOOLS/qjs" /tmp/dos.js 2>/dev/null)" = "2" ] && ok "qjs contesta" || bad "qjs no arranca"
-"$TOOLS/yt-dlp" --version >/dev/null 2>&1 && ok "yt-dlp contesta" || bad "yt-dlp no arranca"
+# yt-dlp ya no viaja (38 MB): la app lo instala la primera vez que baja de YouTube
+[ -e "$TOOLS/yt-dlp" ] && bad "lleva yt-dlp, que ya no viaja" || ok "sin yt-dlp dentro (lo instala la app)"
 
 echo "== abrir un .danpista desde el explorador"
 # por dentro es un ZIP: sin su tipo, el escritorio lo abre con el gestor de

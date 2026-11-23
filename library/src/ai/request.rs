@@ -221,7 +221,7 @@ pub fn anonymous_ok(mid: &str, extra: &Dict, rule: &Dict) -> bool {
     if let Some(suffix) = rule.get("suffix").filter(|v| value::truthy(v)) {
         return mid.ends_with(&value::str_of(suffix));
     }
-    let field = rule.get("field").map(value::str_of).unwrap_or_default();
+    let field = rule.get("field").map_or_default(value::str_of);
     let got = extra.get(&field).unwrap_or(&Value::Null);
     same_value(got, rule.get("value").unwrap_or(&Value::Null))
 }

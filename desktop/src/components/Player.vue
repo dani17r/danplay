@@ -26,6 +26,7 @@ import { vPreload, study as studyIsland } from '../islands.js'
 import Icon from './Icon.vue'
 import CoverArt from './ui/CoverArt.vue'
 import SliderField from './ui/SliderField.vue'
+import PlayerQueue from './PlayerQueue.vue'
 
 // `study`: el modo estudio se ve; `studyActive`: está puesto (aunque oculto,
 // sigue sonando como se dejó: el botón lo dice)
@@ -66,7 +67,7 @@ const showQueue = ref(false)
 const fullQueue = ref(false)
 const queuePanel = useTemplateRef('queuePanel')
 const queueButton = useTemplateRef('queueButton')
-const currentRow = ref(null)
+const fullList = useTemplateRef('fullList')
 
 const failure = computed(
   () => error.value || (hasOutput.value ? '' : 'Este equipo no tiene salida de audio')
@@ -99,8 +100,7 @@ async function expandQueue() {
   fullQueue.value = !fullQueue.value
   if (fullQueue.value) {
     await nextTick()
-    const el = currentRow.value
-    if (el && typeof el.scrollIntoView === 'function') el.scrollIntoView({ block: 'center' })
+    await fullList.value?.showCurrent()
   }
 }
 
@@ -288,32 +288,13 @@ useHotkeys({
       <div v-if="!trio.length && !(queue || []).length" class="queue-empty">Nada sonando</div>
 
       <!-- toda la cola -->
-      <template v-else-if="fullQueue">
-        <button
-          v-for="(song, i) in queue"
-          :key="song.id"
-          :ref="
-            (el) => {
-              if (el && track?.id === song.id) currentRow = el
-            }
-          "
-          type="button"
-          class="queue-row flat"
-          :class="{ current: track?.id === song.id }"
-          :aria-current="track?.id === song.id ? 'true' : undefined"
-          @click="player.jump(song.id)"
-        >
-          <span class="queue-n">
-            <Icon v-if="track?.id === song.id" n="play" :t="11" /><template v-else>{{
-              i + 1
-            }}</template>
-          </span>
-          <span class="queue-title"
-            >{{ song.title }}<span class="sub"> · {{ song.artist || '—' }}</span></span
-          >
-          <span class="mono sub queue-dur">{{ formatTime(song.duration) }}</span>
-        </button>
-      </template>
+      <PlayerQueue
+        v-else-if="fullQueue"
+        ref="fullList"
+        :queue="queue || []"
+        :current-id="track?.id ?? null"
+        @jump="(id) => player.jump(id)"
+      />
 
       <!-- solo anterior, actual y siguiente -->
       <template v-else>

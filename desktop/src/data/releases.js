@@ -4,6 +4,7 @@
 // CHANGELOG.md; una prueba comprueba que cada versión de allí está aquí.
 //
 // `date` vacía: la versión aún no se ha publicado.
+import { compareVersions } from '../utils/version.js'
 
 /**
  * @typedef {Object} Release
@@ -15,6 +16,35 @@
 
 /** @type {Release[]} */
 export const RELEASES = [
+  {
+    version: '1.46.0',
+    date: '',
+    summary: 'La clave de IA se ve y se copia con un ojito, y Gemini usa herramientas sin fallar.',
+    items: [
+      'La clave de IA se puede ver con un ojito y copiar con un botón, en la ventana de la clave y en el chat.',
+      'Con Gemini, el asistente usa sus herramientas: antes Google rechazaba el resultado.',
+      'El aviso del chat abre las opciones de la IA ahí mismo, sin llevar a Ajustes.',
+      'Las barras de desplazamiento salen solo donde el contenido no cabe.'
+    ]
+  },
+  {
+    version: '1.45.0',
+    date: '',
+    summary:
+      'Un sonido que se recupera solo, un estudio más fluido y un paquete mucho más pequeño.',
+    items: [
+      'Si algo falla dentro del sonido o unos cascos se desconectan, la música vuelve sola en vez de quedarse muda.',
+      'La aguja del modo estudio avanza suave, y «Grande» y el zoom de la onda van más fluidos.',
+      'Guardar el estudio ya no reescribe el archivo de audio a cada cambio, y poner una estrella es al momento.',
+      'Las canciones con muchas pistas cargan más rápido, y las de 96 o 192 kHz conservan sus agudos.',
+      'yt-dlp se instala solo la primera vez que bajas algo de YouTube, y el instalador pesa unos 60 MB menos.',
+      'El asistente pide permiso antes de cambiar una lista si acaba de leer algo de internet.',
+      'En una pantalla grande la interfaz se agranda sola, y se puede apagar en Ajustes.',
+      'El modo estudio, por pestañas: la velocidad y el tono, el clic, los marcadores y las notas.',
+      'El panel del estudio se puede fijar, o dejar que se abra encima de la onda.',
+      'En el chat, un botón de opciones deja cambiar el modelo y pegar la clave de la IA sin salir.'
+    ]
+  },
   {
     version: '1.44.1',
     date: '2026-11-16',
@@ -270,23 +300,8 @@ export const RELEASES = [
   }
 ]
 
-/**
- * Compara dos versiones «1.2.3». Negativo si `a` es anterior.
- * @param {string} a @param {string} b
- */
-export function compareVersions(a, b) {
-  const pa = String(a || '0')
-    .split('.')
-    .map(Number)
-  const pb = String(b || '0')
-    .split('.')
-    .map(Number)
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const d = (pa[i] || 0) - (pb[i] || 0)
-    if (d) return d
-  }
-  return 0
-}
+// Una sola copia: la que carga el arranque sin las novedades.
+export { compareVersions }
 
 /**
  * Las versiones que trajo una actualización: las posteriores a `seen` hasta

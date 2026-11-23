@@ -52,7 +52,7 @@ import { useDownloads } from './composables/useDownloads.js'
 import { useSequence } from './composables/useSequence.js'
 import { useBundle } from './composables/useBundle.js'
 import { connectChat } from './composables/chatLink.js'
-import { groupedOrder } from './utils/groups.js'
+import { groupSongs } from './utils/groups.js'
 import { useRouter } from 'vue-router'
 import { routeFor } from './router.js'
 import { DENSITIES, SIZES, KIND_LABEL, allThemes } from './themes.js'
@@ -67,7 +67,7 @@ import Icon from './components/Icon.vue'
 import * as islands from './islands.js'
 import { vPreload, preloadWhenIdle, warm } from './islands.js'
 import { useTerms } from './composables/useTerms.js'
-import { compareVersions } from './data/releases.js'
+import { compareVersions } from './utils/version.js'
 import { version as appVersion } from '../package.json'
 import TextField from './components/ui/TextField.vue'
 import SelectField from './components/ui/SelectField.vue'
@@ -230,7 +230,7 @@ const library = useLibrary({
 })
 const { songs, listCount, loadingMore, loading, stats, status, waiting } = library
 const { configured, missingFolders, sort, sortDesc } = library
-const { sortBy, applySort, load, setSongs, loadStatus } = library
+const { sortBy, applySort, load, setSongs } = library
 // Los repertorios y sus acciones: crear, añadir, exportar, borrar. Necesita
 // `view` (para saber de que lista se quita una cancion) y `load` (para
 // volver a pedirla despues).
@@ -256,8 +256,14 @@ const effectiveGroupBy = computed(() =>
 // ve entre las dos pulsadas y la cola sigue ese orden. Con el de la lista sin
 // agrupar, en «Artistas» ordenada por título Mayús se llevaba canciones de
 // otros grupos y «siguiente» saltaba de un artista a otro.
+// Los grupos se hacen aquí una vez y la lista agrupada los recibe hechos: los
+// hacía cada uno por su lado, dos agrupaciones y dos ordenaciones por cada
+// página que llegaba y por cada canción que cambiaba.
+const grouped = computed(() =>
+  effectiveGroupBy.value ? groupSongs(songs.value, effectiveGroupBy.value) : null
+)
 const shown = computed(() =>
-  effectiveGroupBy.value ? groupedOrder(songs.value, effectiveGroupBy.value) : songs.value
+  grouped.value ? grouped.value.flatMap(([, list]) => list) : songs.value
 )
 // Solo en los repertorios que uno crea se cambia el orden arrastrando: en
 // «Todas», Favoritos o una búsqueda el orden lo dan las columnas, y en la
@@ -472,7 +478,7 @@ const title = computed(
  * hasta salir y volver a entrar: la lista decía «6 temas» con tres.
  */
 async function refreshAll() {
-  await Promise.all([loadStatus(), load(true), playlistActions.load(), refreshDetail()])
+  await Promise.all([library.refresh(), playlistActions.load(), refreshDetail()])
 }
 
 /** La ficha abierta y la copia de la cola, con lo que diga el núcleo ahora. */
@@ -996,6 +1002,53 @@ onMounted(async () => {
     }
     coreWasReady = !!e?.ready
   })
+
+  // Lo que llega de fuera, escuchado desde ya y todo a la vez. Iban en fila
+  // (cinco esperas) y detrás de la lista: un .danpista abierto al lanzar la
+  // app esperaba a que llegara la biblioteca. Uno que no se pueda escuchar
+  // no deja sin los demás ni sin la lista.
+  //
+  // Abrir una canción desde el explorador la mete en la lista del
+  // reproductor. Si esa lista está delante, tiene que aparecer sola: se
+  // cargaba al entrar y se quedaba quieta mientras iban llegando canciones.
+  // Una pista de una secuencia se abre entera. Un .danpista: los de antes de
+  // montarse la ventana (la app estaba cerrada) y los que lleguen después. Y
+  // cualquier cambio en el núcleo —lo haga quien lo haga— se refleja aquí sin
+  // salir y volver a entrar: Rust avisa, esta ventana escucha.
+  const opened = new Set()
+  const openOnce = (file) => {
+    if (!file || opened.has(file)) return
+    opened.add(file)
+    openBundle(file).finally(() => opened.delete(file))
+  }
+  const orNothing = (p) => p.catch(() => null)
+  ;[stopExternalWatch, stopSequenceWatch, stopBundleWatch, stopChangeWatch] = await Promise.all([
+    orNothing(
+      api.onExternal(() => {
+        if (view.value.kind === 'player') load(true)
+      })
+    ),
+    orNothing(
+      api.onSequence((folder) => {
+        if (folder) openSequence(folder)
+      })
+    ),
+    orNothing(
+      api.onBundle(async (file) => {
+        await api.takeOpenedBundles().catch(() => [])
+        openOnce(file)
+      })
+    ),
+    orNothing(core.onChanged(onCoreChanged))
+  ])
+  // (ya escuchando, para que no se pierda uno que llegue entre medias)
+  api
+    .takeOpenedBundles()
+    .catch(() => [])
+    .then((files) => {
+      for (const file of files || []) openOnce(file)
+    })
+
   try {
     // a la vez todo lo que no depende de otra cosa: la lista solo espera al
     // estado (`useLibrary.start`), y los repertorios, a nada
@@ -1029,33 +1082,6 @@ onMounted(async () => {
     )
   }
 
-  // Abrir una canción desde el explorador la mete en la lista del
-  // reproductor. Si esa lista está delante, tiene que aparecer sola: se
-  // cargaba al entrar y se quedaba quieta mientras iban llegando canciones.
-  stopExternalWatch = await api.onExternal(() => {
-    if (view.value.kind === 'player') load(true)
-  })
-  // se abrió desde fuera una pista de una secuencia: abrirla entera
-  stopSequenceWatch = await api.onSequence((folder) => {
-    if (folder) openSequence(folder)
-  })
-  // se abrió un .danpista desde fuera: los de antes de montarse la ventana
-  // (la app estaba cerrada) y los que lleguen después
-  const opened = new Set()
-  const openOnce = (file) => {
-    if (!file || opened.has(file)) return
-    opened.add(file)
-    openBundle(file).finally(() => opened.delete(file))
-  }
-  stopBundleWatch = await api.onBundle(async (file) => {
-    await api.takeOpenedBundles().catch(() => [])
-    openOnce(file)
-  })
-  for (const file of await api.takeOpenedBundles().catch(() => [])) openOnce(file)
-
-  // Cualquier cambio en el núcleo —lo haga quien lo haga— se refleja aquí
-  // sin salir y volver a entrar. Rust avisa; esta ventana escucha.
-  stopChangeWatch = await core.onChanged(onCoreChanged)
   menus.loadShareTargets()
   // y si había una descarga en marcha (un reinicio de la ventana), que se vea
   downloads.refresh()
@@ -1505,6 +1531,7 @@ function onUpdated(song) {
             v-if="effectiveGroupBy && shownLayout"
             :songs="songs"
             :by="effectiveGroupBy"
+            :groups="grouped"
             :layout="shownLayout"
             :sort="sort"
             :desc="sortDesc"

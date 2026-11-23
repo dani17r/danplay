@@ -30,6 +30,7 @@ const props = defineProps({
 // Cuanto se espera, tras soltar, a que el modelo confirme lo ultimo enviado.
 const GRACE_MS = 800
 
+// eslint-disable-next-line vue/no-ref-object-reactivity-loss -- valor inicial: luego lo pone el arrastre o el modelo
 const shown = ref(model.value) // lo que pinta el <input>
 const dragging = ref(false)
 let sent = null // lo ultimo que se emitio, y cuando

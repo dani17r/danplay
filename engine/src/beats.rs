@@ -17,9 +17,10 @@
 //! son los rasgos de cada trama, unos 9 MB por hora.
 //!
 //! Vive en el crate compartido para que lo usen la app de escritorio (que
-//! le da la cancion decodificada con rodio o ffmpeg, ver su `beats.rs`) y
-//! la del celular (que le da la suma de las partes): la rejilla, sus
-//! ajustes a mano y el analisis son los mismos en los dos sitios.
+//! le da la cancion decodificada con este mismo motor, y con ffmpeg lo que
+//! no lee, ver su `beats.rs`) y la del celular (que le da la suma de las
+//! partes): la rejilla, sus ajustes a mano y el analisis son los mismos en
+//! los dos sitios.
 use rustfft::{Fft, FftPlanner, num_complex::Complex};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;

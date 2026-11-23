@@ -213,7 +213,8 @@ Rutas nuevas o cambiadas (el núcleo):
 - `POST /api/duplicates/resolve` → `dry_run` es `true` por defecto; solo rutas
   dentro de las carpetas gestionadas y con extensión de audio; borrar = papelera.
 - `GET /api/youtube` → además de `{ available, reason }`: `version` (la de
-  yt-dlp que se usa), `bundled_version` (la que viaja con la app),
+  yt-dlp que se usa; `""` si aún no hay ninguno), `bundled_version` (la que
+  viaja con la app; desde la 1.45 los paquetes no lo llevan),
   `js_runtime` (`deno | node | bun | quickjs | null`) y `js_runtime_hint`
   (qué instalar si es `null`).
 - `GET /api/downloads/folder` → `{ path, ready, reason, suggested }`: dónde se
@@ -230,7 +231,12 @@ Rutas nuevas o cambiadas (el núcleo):
   Along/` y `Entrada/`. Devuelve lo mismo que el `GET`. `409` si no vale.
 - `POST /api/youtube/download` y `POST /api/chat/confirm` con `download_music`
   → `409` («elige antes dónde guardar lo que descargas») mientras la carpeta
-  de descargas no esté lista.
+  de descargas no esté lista. `available` solo pide ffmpeg: sin yt-dlp la
+  descarga arranca igual y primero lo instala con la tarea `yt-dlp` (la de
+  `POST /api/youtube/update`), con `phase: "installing"` en el estado
+  (`name` dice el paso, `percent` el avance). Si no se puede instalar (sin
+  red), termina con `error` y un resultado `{ ok: false, reason }` que lo
+  explican. `POST /api/youtube/info` también lo instala antes, sin avance.
 - `POST /api/youtube/update` → pone yt-dlp al día como tarea larga (`yt-dlp`),
   con `result: { previous, version, updated }`.
 - `POST /api/external/play` → `400` si el archivo no es de audio.
@@ -296,6 +302,16 @@ respuesta HTTP lleva:
   **confirma por id** y no manda argumentos.
 - Antes de proponer una descarga, el núcleo mira la biblioteca: lo que ya está
   no se propone (y se le dice al modelo dónde está).
+- **Tras leer texto de fuera** en el mismo turno (`search_web`,
+  `search_youtube`, `get_lyrics`, `get_chords`, `find_lyrics_and_cover`:
+  `READS_OUTSIDE`), también se proponen en vez de hacerse
+  `set_playlist_songs`, `remove_from_playlist`, `rename_playlist` y
+  `edit_song` (salvo la de solo estrellas o favorito): `CONFIRM_AFTER_OUTSIDE`
+  en `library/src/assistant/tools.rs`. Un resultado de búsqueda con una orden
+  dentro no puede vaciar una lista ni cambiar etiquetas sin el visto bueno.
+  Su `effect` empieza por «Lo pide después de leer texto de fuera…»; la
+  interfaz los pide en el mismo diálogo que borrar, con `summary` y `effect`.
+  La forma antigua (`tool`, `args`) no las ejecuta.
 
 Rutas:
 
@@ -307,10 +323,11 @@ Rutas:
     plano. Si la propuesta venía de una lista, al terminar la descarga y antes
     de soltar el turno se meten las bajadas en su sitio (`plan.apply_after`,
     una sola escritura).
-  - `delete_*` → lo que devuelve la herramienta (`{ ok, result, text }`).
+  - `delete_*` y las de `CONFIRM_AFTER_OUTSIDE` → lo que devuelve la
+    herramienta (`{ ok, result, text }`).
   - `410` si ya no vale (usada, sustituida, caducada o desconocida, o lo que
     se iba a borrar ya no es lo mismo); `409` si hay otra descarga en marcha o
-    falta la carpeta; `503` sin yt-dlp; `400` si con esas casillas no queda
+    falta la carpeta; `503` sin ffmpeg; `400` si con esas casillas no queda
     nada. En `409`, `503` y `400` la propuesta sigue viva.
 - Forma antigua, por compatibilidad: `POST /api/chat/confirm { tool, args }`
   ejecuta esa herramienta como antes (un `after` metido en `args` se ignora).
@@ -406,7 +423,14 @@ convierten en `<a>`: se enseñan como texto con la dirección al lado.
   final del último. Va al índice
   (`study`, JSON) y a la etiqueta `ESTUDIO` del archivo, y vuelve al
   escanear. Se va con la canción: la fila del índice se borra al mandarla a
-  la papelera o cuando el escaneo la da por desaparecida.
+  la papelera o cuando el escaneo la da por desaparecida. La etiqueta se
+  escribe después (ver ARCHITECTURE.md, «La etiqueta del estudio se escribe
+  después»): la ficha lleva entonces `tags_written: false`, `tags_pending:
+  true` y `tags_supported: true`, sin `tags_skipped`; con `tags_pending` la
+  interfaz no avisa de nada.
+- `POST /api/study/flush` → `{ written }`: escribe ya las etiquetas del
+  estudio que esperaban (cuántas). La interfaz lo pide al dejar la canción o
+  el estudio.
 - `GET /api/song/{id}/waveform?buckets=800` → `{ peaks, rms, buckets }`: la
   forma de onda para la línea de tiempo del estudio, `buckets` columnas con
   pico y RMS entre 0 y 1 (normalizados al pico más alto). Vale para canciones
@@ -580,7 +604,8 @@ convierten en `<a>`: se enseñan como texto con la dirección al lado.
   esa y `already_running: true` (antes `409`). Se sigue con
   `GET /api/jobs/{name}`; `api.runJob(start, name, { onProgress })` lo hace
   (sondeo cada ~500 ms) y devuelve `result` o lanza el `error`.
-  `/api/status` conserva `jobs` con todas.
+  `/api/status` conserva `jobs` con todas, sin su `result` (que está en
+  `GET /api/jobs/{name}`).
 - `/api/folders` respuesta `action`: `added | already_there | replaced |
   confirm | relocated`. `relocated`: la carpeta era una gestionada que se
   movió; se cambia su ruta en vez de añadir otra y sus canciones vuelven con su

@@ -12,8 +12,7 @@
 // sistema. Los movimientos se escuchan en la ventana, así que se puede
 // arrastrar por fuera de la barra sin que se suelte.
 import { reactive, onUnmounted } from 'vue'
-
-const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v))
+import { clamp } from '../utils/num.js'
 
 /**
  * @param {{ duration: import('vue').Ref<number>, seek: (seconds: number) => any }} options

@@ -432,10 +432,19 @@ impl std::fmt::Display for ReadError {
     }
 }
 
+/// Una ruta como entrada de ffmpeg (tras `-i`), con `file:` delante: sin él,
+/// un nombre como `concat:a|b` o `http:…` se lee como otra cosa. Es lo mismo
+/// que `library::processes::ffmpeg_input` (este crate no depende de él).
+fn file_input(path: &Path) -> std::ffi::OsString {
+    let mut input = std::ffi::OsString::from("file:");
+    input.push(path.as_os_str());
+    input
+}
+
 pub fn decode(ffmpeg: &Path, path: &Path) -> Result<Vec<f32>, ReadError> {
     let mut cmd = Command::new(ffmpeg);
     cmd.args(["-hide_banner", "-loglevel", "error", "-nostdin", "-i"])
-        .arg(path)
+        .arg(file_input(path))
         .args([
             "-vn",
             "-f",
@@ -458,7 +467,7 @@ pub fn decode(ffmpeg: &Path, path: &Path) -> Result<Vec<f32>, ReadError> {
         let last_one = errores.trim().lines().last().map(str::to_owned);
         return Err(ReadError::Failed(format!(
             "ffmpeg no pudo leer la cancion{}",
-            last_one.map(|l| format!(": {l}")).unwrap_or_default()
+            last_one.map_or_default(|l| format!(": {l}"))
         )));
     }
     Ok(r.stdout

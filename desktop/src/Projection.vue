@@ -11,7 +11,7 @@
  * `usePlayback` escucha el mismo evento que la ventana grande.
  */
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
-import { api, core, projection } from './api.js'
+import { core, projection } from './api.js'
 import { usePlayback } from './composables/usePlayback.js'
 import { parseLrc, stripLrc, currentLine } from './utils/lrc.js'
 // lo suyo, solo en esta ventana (en la grande no hace falta)
@@ -57,7 +57,7 @@ async function loadSong(id) {
   }
   loadedFor.value = id
   try {
-    const s = await api.song(id)
+    const s = await projection.song(id)
     if (loadedFor.value === id) song.value = s
   } catch {
     if (loadedFor.value === id) song.value = null

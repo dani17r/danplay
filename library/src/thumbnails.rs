@@ -33,6 +33,9 @@ pub const MAX_BYTES: u64 = 256 * 1024 * 1024;
 /// Cuántas miniaturas nuevas entre dos comprobaciones del tope: mirar la
 /// carpeta entera en cada petición sería más caro que la propia miniatura.
 pub const CHECK_EVERY: usize = 200;
+/// Cada cuánto, como mucho, se pone al día la marca de uso de una miniatura
+/// que se sirve (su fecha).
+const USED_EVERY: std::time::Duration = std::time::Duration::from_hours(24);
 
 /// Cada tipo con su extensión, en el orden en que se buscan.
 const KINDS: [(&str, &str); 3] = [
@@ -87,8 +90,7 @@ fn parts(f: &Path) -> Option<(String, String, String)> {
 
 fn name_of(f: &Path) -> String {
     f.file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default()
+        .map_or_default(|n| n.to_string_lossy().into_owned())
 }
 
 /// Lo que hay en la carpeta (en el orden del disco), o `None` si no se puede
@@ -117,18 +119,28 @@ fn stored(folder: &Path, key: &str, ver: &str, side: i64) -> Option<Thumbnail> {
         let Ok(data) = std::fs::read(&cached) else {
             continue;
         };
-        // marca de uso: al pasar del tope se van las que hace más que no se piden
+        // marca de uso: al pasar del tope se van las que hace más que no se
+        // piden. Solo si la que tiene pasa de un día: el tope mira días, y
+        // ponerla en cada carátula pintada era una escritura en el disco por
+        // cada fila de la lista
         let now = std::time::SystemTime::now();
-        let _ = std::fs::OpenOptions::new()
-            .write(true)
-            .open(&cached)
-            .and_then(|f| {
-                f.set_times(
-                    std::fs::FileTimes::new()
-                        .set_accessed(now)
-                        .set_modified(now),
-                )
-            });
+        let stale = std::fs::metadata(&cached)
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| now.duration_since(t).ok())
+            .is_some_and(|age| age > USED_EVERY);
+        if stale {
+            let _ = std::fs::OpenOptions::new()
+                .write(true)
+                .open(&cached)
+                .and_then(|f| {
+                    f.set_times(
+                        std::fs::FileTimes::new()
+                            .set_accessed(now)
+                            .set_modified(now),
+                    )
+                });
+        }
         return Some(Thumbnail {
             data,
             mime: mime.to_string(),
@@ -193,18 +205,13 @@ fn store(
         .find(|(_, m)| *m == mime)
         .map_or(".jpg", |(e, _)| e);
     let target = folder.join(format!("{key}_{side}_{ver}{ext}"));
-    let prefix = format!("{key}_{side}_");
+    // Las versiones viejas de esta misma miniatura (la carátula cambió) ya no
+    // se sirven nunca: las quita quien cambia la carátula (`forget`) o, si
+    // cambió por fuera, la poda del escaneo (`prune`). Buscarlas
+    // aquí era listar la carpeta entera (decenas de miles de archivos) por
+    // cada miniatura nueva, justo cuando se hacen de golpe al desplazar una
+    // biblioteca sin ellas.
     let written = (|| -> std::io::Result<()> {
-        // las versiones viejas de esta misma miniatura ya no sirven
-        for old in std::fs::read_dir(folder)? {
-            let old = old?.path();
-            if name_of(&old).starts_with(&prefix) && old != target {
-                match std::fs::remove_file(&old) {
-                    Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(e),
-                    _ => {}
-                }
-            }
-        }
         let mut tmp_name = OsString::from(target.file_name().unwrap_or_default());
         tmp_name.push(".tmp");
         let tmp = target.with_file_name(tmp_name);
@@ -225,21 +232,31 @@ fn store(
 }
 
 /// Borra las miniaturas de esas canciones. Devuelve cuántas.
+///
+/// La carpeta se lista una vez para todas: listarla por cada canción, con un
+/// disco de 20 000 que se desmonta, eran 20 000 listados de hasta 60 000
+/// archivos con el cerrojo del escaneo cogido.
 pub fn forget(folder: &Path, paths: &[PathBuf], warnings: &mut Warnings) -> usize {
+    if paths.is_empty() {
+        return 0;
+    }
+    let keys: HashSet<String> = paths.iter().map(|p| key(p)).collect();
     let mut n = 0;
-    for path in paths {
-        let prefix = format!("{}_", key(path));
-        for f in entries(folder).unwrap_or_default() {
-            if !name_of(&f).starts_with(&prefix) {
-                continue;
-            }
-            match std::fs::remove_file(&f) {
-                Ok(()) => n += 1,
-                Err(e) => warnings::warning(
-                    warnings,
-                    format!("no pude borrar la miniatura {}: {e}", f.display()),
-                ),
-            }
+    for f in entries(folder).unwrap_or_default() {
+        let name = name_of(&f);
+        // `<clave>_...`: la clave no lleva «_» (es hexadecimal)
+        let Some((owner, _)) = name.split_once('_') else {
+            continue;
+        };
+        if !keys.contains(owner) {
+            continue;
+        }
+        match std::fs::remove_file(&f) {
+            Ok(()) => n += 1,
+            Err(e) => warnings::warning(
+                warnings,
+                format!("no pude borrar la miniatura {}: {e}", f.display()),
+            ),
         }
     }
     n
@@ -429,6 +446,80 @@ mod tests {
         // si el archivo cambió (otra fecha, otro tamaño), la vieja ya no vale
         std::fs::write(&song, b"mp3 con otra caratula").expect("cambia");
         assert!(cached(&covers, &song, 96).is_none());
+        std::fs::remove_dir_all(&dir).expect("borrar");
+    }
+
+    /// Pintar una carátula ya hecha no escribe en el disco cada vez: la marca
+    /// de uso (lo que mira el tope para saber cuáles hace más que no se
+    /// piden) solo se pone al día si tiene más de un día.
+    #[test]
+    fn serving_a_stored_thumbnail_marks_it_as_used_once_a_day() {
+        let dir = scratch("marca-de-uso");
+        let covers = dir.join("covers");
+        std::fs::create_dir_all(&covers).expect("covers");
+        let song = dir.join("a.mp3");
+        std::fs::write(&song, b"mp3").expect("canción");
+        let meta = std::fs::metadata(&song).expect("meta");
+        let ready = covers.join(format!("{}_96_{}.png", key(&song), version(&meta)));
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("hora")
+            .as_secs();
+        // usada hace una hora: se sirve, dos veces, sin tocarla
+        touch(&ready, 10, now - 3600);
+        let before = std::fs::metadata(&ready)
+            .expect("meta")
+            .modified()
+            .expect("fecha");
+        assert!(cached(&covers, &song, 96).is_some());
+        assert!(cached(&covers, &song, 96).is_some());
+        let after = std::fs::metadata(&ready)
+            .expect("meta")
+            .modified()
+            .expect("fecha");
+        assert_eq!(after, before, "la fecha cambió al servirla");
+        // usada hace dos días: ahora sí se marca (si no, el tope la tiraría
+        // la primera aunque se pida a diario)
+        touch(&ready, 10, now - 2 * 86_400);
+        assert!(cached(&covers, &song, 96).is_some());
+        let marked = mtime_of(&ready);
+        assert!(marked >= (now - 60) as f64, "{marked} sigue vieja");
+        std::fs::remove_dir_all(&dir).expect("borrar");
+    }
+
+    /// Borrar las miniaturas de unas canciones se lleva las suyas (todos los
+    /// tamaños y versiones) y solo esas.
+    #[test]
+    fn forgetting_some_songs_takes_their_thumbnails_and_only_theirs() {
+        let dir = scratch("olvidar");
+        let songs: Vec<PathBuf> = (0..6).map(|i| dir.join(format!("{i}.mp3"))).collect();
+        for s in &songs {
+            let key = key(s);
+            for name in [
+                format!("{key}_96_aaaaaaaaaa.jpg"),
+                format!("{key}_96_bbbbbbbbbb.jpg"),
+                format!("{key}_192_aaaaaaaaaa.png"),
+            ] {
+                touch(&dir.join(name), 10, 1000);
+            }
+        }
+        touch(&dir.join("otra cosa.txt"), 10, 1000);
+        let mut warnings = Warnings::new();
+        assert_eq!(forget(&dir, &songs[..2], &mut warnings), 6);
+        let mut left: Vec<String> = entries(&dir)
+            .expect("leer")
+            .iter()
+            .map(|f| name_of(f))
+            .collect();
+        left.sort();
+        assert_eq!(left.len(), 4 * 3 + 1, "{left:?}");
+        for s in &songs[..2] {
+            assert!(!left.iter().any(|f| f.starts_with(&key(s))), "{left:?}");
+        }
+        assert!(left.contains(&"otra cosa.txt".to_owned()));
+        // y otra vez, nada
+        assert_eq!(forget(&dir, &songs[..2], &mut warnings), 0);
+        assert!(warnings.is_empty());
         std::fs::remove_dir_all(&dir).expect("borrar");
     }
 

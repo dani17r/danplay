@@ -790,3 +790,44 @@ mod search_form_cases {
         }
     }
 }
+
+/// Lo que cuesta reconocer al artista en mil nombres con cien artistas
+/// conocidos, compilando su expresión cada vez (lo de antes) y recordándola
+/// (con `--ignored --nocapture`).
+#[test]
+#[ignore = "mide tiempos: solo, con --ignored --nocapture"]
+fn detecting_the_artist_of_many_files_costs_this_much() {
+    let vocab: Vec<(String, String)> = (0..100)
+        .map(|i| {
+            let real = format!("Artista Número {i}");
+            (flat(&real), real)
+        })
+        .collect();
+    let names: Vec<String> = (0..1000)
+        .map(|i| {
+            format!(
+                "Artista Numero {} - Canción {i} (Video Oficial).mp3",
+                i % 100
+            )
+        })
+        .collect();
+    let detect_all = |forget: bool| {
+        let start = std::time::Instant::now();
+        for name in &names {
+            if forget {
+                // como antes: la expresión, compilada otra vez para cada archivo
+                ARTIST_PATTERNS
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .clear();
+            }
+            assert!(!detect_artist(name, &vocab).artist.is_empty(), "{name}");
+        }
+        start.elapsed()
+    };
+    let compiling = detect_all(true);
+    let remembered = detect_all(false);
+    println!(
+        "reconocer al artista de 1000 nombres: compilando su expresión cada vez {compiling:?}, recordándola {remembered:?}"
+    );
+}

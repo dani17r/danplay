@@ -68,8 +68,7 @@ pub(super) fn script(app: &crate::App, steps: Vec<Step>, judge: &'static str) ->
                 let last = body["messages"]
                     .as_array()
                     .and_then(|m| m.last())
-                    .map(|m| m["content"].as_str().unwrap_or_default().to_owned())
-                    .unwrap_or_default();
+                    .map_or_default(|m| m["content"].as_str().unwrap_or_default().to_owned());
                 j.lock().unwrap_or_else(PoisonError::into_inner).push(last);
                 return Reply::Text(judge.into());
             }

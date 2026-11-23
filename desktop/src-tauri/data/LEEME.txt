@@ -6,8 +6,9 @@ los busca aqui:
   los grafos del separador de pistas (sin pesos: se bajan al usarlo);
 - voices.json: el catalogo de voces de las guias habladas;
 - models-snapshot.json: la foto del catalogo de modelos de IA, para el
-  primer arranque sin internet (la saca al dia la propia app con
-  --models-snapshot al empaquetar; sin red, viaja la del repositorio);
+  primer arranque sin internet (la del repositorio, data/: la saca al dia
+  scripts/bump-version.sh al subir la version, y es la misma en todos los
+  paquetes);
 - la biblioteca de ONNX Runtime (libonnxruntime.so.*, la .dylib de macOS u
   onnxruntime.dll), la oficial de github.com/microsoft/onnxruntime, con su
   licencia: la cargan el pulso, el separador y las voces.
@@ -20,4 +21,4 @@ No estan en git.
 
 En desarrollo, la app usa data/, y ONNX Runtime el de aqui (que la
 compilacion deja junto al ejecutable; scripts/dev.sh lo baja la primera
-vez) o el del .venv del proyecto.
+vez).

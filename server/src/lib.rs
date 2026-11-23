@@ -1,5 +1,5 @@
 //! La API del núcleo de DanPlay: las rutas, los cuerpos y los errores que
-//! conoce la interfaz. Cómo se llegó aquí, en docs/MIGRATION.md (fase 4).
+//! conoce la interfaz. Cómo se llegó aquí, en docs/historia/MIGRATION.md (fase 4).
 //!
 //! Se usa de dos maneras:
 //!
@@ -87,6 +87,7 @@ pub mod jobs;
 pub mod parent;
 pub mod router;
 pub mod routes;
+#[cfg(feature = "serve")]
 pub mod serve;
 pub mod services;
 pub mod startup;
@@ -104,6 +105,9 @@ pub use http::{Body, Request, Response};
 /// La configuración (para quien monte una `App` a mano: la app de
 /// escritorio en sus pruebas, con `Config::isolated`).
 pub use library::config::Config;
+/// Una carpeta solo para su dueño (la app de escritorio cierra con ella sus
+/// registros y los datos del WebView).
+pub use library::config::private_dir;
 pub use router::{Ctx, Reply, Route};
 
 /// El contador de cambios de la biblioteca (el mismo que da `/api/status`).

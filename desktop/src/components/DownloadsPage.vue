@@ -140,6 +140,8 @@ const isSearch = computed(() => {
 const done = computed(() => status.results || [])
 
 const PHASES = {
+  // yt-dlp no viaja con la app: la primera descarga lo instala antes
+  installing: 'Instalando yt-dlp',
   starting: 'Preparando',
   downloading: 'Bajando',
   converting: 'Convirtiendo a mp3',
@@ -253,6 +255,9 @@ async function updateYtdlp() {
 // Al terminar una descarga (esta o la del asistente): la biblioteca ha
 // cambiado y hay que contar como fue.
 const stopFollowing = downloads.onFinished((s) => {
+  // lo que la paró entera (sin red no se puede instalar yt-dlp): dicho
+  // debajo del enlace, que «1 sin suerte» no explica nada
+  if (s.error) error.value = s.error
   const results = s.results || []
   const ok = results.filter((r) => r.ok).length
   const already = results.filter((r) => r.already_there).length
@@ -496,6 +501,13 @@ onUnmounted(stopFollowing)
               >
                 <Icon n="refresh" :t="14" /> {{ updating ? 'Actualizando…' : 'Actualizar yt-dlp' }}
               </button>
+            </div>
+            <div
+              v-if="status.known && !status.version && !updating && !running"
+              class="hint yt-missing"
+            >
+              Todavía no está: se instala solo (unos 38 MB) la primera vez que bajes algo, o ahora
+              con «Actualizar yt-dlp».
             </div>
             <JobProgress v-if="updating" :job="ytJob" label="trayendo el yt-dlp más nuevo…" />
             <div v-if="noJsRuntime" class="hint warn-text yt-js">

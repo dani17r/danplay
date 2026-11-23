@@ -352,8 +352,7 @@ fn merged_study(mine: &Value, before: Option<&Value>, new: &Value, folder: &Path
                 .is_some_and(|file| safe_guide(file) && folder.join(file).is_file())
         };
         cues.and_then(Value::as_array)
-            .map(|list| list.iter().filter(has_file).cloned().collect())
-            .unwrap_or_default()
+            .map_or_default(|list| list.iter().filter(has_file).cloned().collect())
     };
     let had = out
         .get("cues")
@@ -385,23 +384,19 @@ fn extract(
 ) -> Result<(), String> {
     let mut wanted: Vec<String> = manifest["tracks"]
         .as_array()
-        .map(|t| t.iter().map(|t| text(t, "file")).collect())
-        .unwrap_or_default();
+        .map_or_default(|t| t.iter().map(|t| text(t, "file")).collect());
     let cover = text(manifest, "cover");
     if safe_cover(&cover) {
         wanted.push(cover);
     }
     // las guias habladas (desde 1.28): las que tengan un nombre de los suyos
-    let guides: Vec<String> = manifest["guides"]
-        .as_array()
-        .map(|g| {
-            g.iter()
-                .filter_map(Value::as_str)
-                .filter(|n| safe_guide(n))
-                .map(str::to_string)
-                .collect()
-        })
-        .unwrap_or_default();
+    let guides: Vec<String> = manifest["guides"].as_array().map_or_default(|g| {
+        g.iter()
+            .filter_map(Value::as_str)
+            .filter(|n| safe_guide(n))
+            .map(str::to_string)
+            .collect()
+    });
     if !guides.is_empty() {
         fs::create_dir_all(work.join("guias"))
             .map_err(|e| format!("no se pudieron guardar las guías: {e}"))?;
@@ -444,18 +439,21 @@ pub fn manifest(folder: &Path) -> Option<Value> {
 /// Sus partes, en el orden del mezclador.
 pub fn parts(folder: &Path) -> Result<Vec<PartFile>, String> {
     let m = manifest(folder).ok_or("esa pista ya no está o está rota")?;
-    Ok(m["tracks"]
-        .as_array()
-        .map(|t| {
-            t.iter()
-                .map(|t| PartFile {
-                    source: text(t, "source"),
-                    name: text(t, "name"),
-                    path: folder.join(text(t, "file")),
-                })
-                .collect()
-        })
-        .unwrap_or_default())
+    Ok(parts_in(folder, &m))
+}
+
+/// Las partes que dice el manifiesto `m` de la pista de `folder`, en el
+/// orden del mezclador (sin volver a leerlo).
+pub fn parts_in(folder: &Path, m: &Value) -> Vec<PartFile> {
+    m["tracks"].as_array().map_or_default(|t| {
+        t.iter()
+            .map(|t| PartFile {
+                source: text(t, "source"),
+                name: text(t, "name"),
+                path: folder.join(text(t, "file")),
+            })
+            .collect()
+    })
 }
 
 /// El papel de cada parte, en el orden de `parts`: "click", "guide" o ""
@@ -480,8 +478,7 @@ pub fn roles(manifest: &Value) -> Vec<&'static str> {
     };
     manifest["tracks"]
         .as_array()
-        .map(|t| t.iter().map(of).collect())
-        .unwrap_or_default()
+        .map_or_default(|t| t.iter().map(of).collect())
 }
 
 pub fn summary(folder: &Path) -> Option<Summary> {
@@ -502,8 +499,7 @@ pub fn summary(folder: &Path) -> Option<Summary> {
         bpm: number(&song, "bpm"),
         parts: m["tracks"]
             .as_array()
-            .map(|t| t.iter().map(|t| text(t, "name")).collect())
-            .unwrap_or_default(),
+            .map_or_default(|t| t.iter().map(|t| text(t, "name")).collect()),
         click: m.get("grid").is_some_and(|g| !g.is_null()),
         lyrics: !text(&m, "lyrics").is_empty() || !text(&m, "lyrics_synced").is_empty(),
         chords: m.get("chords").is_some_and(|c| !c.is_null()),

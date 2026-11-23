@@ -199,13 +199,12 @@ fn graph(app: &App, name: &str) -> Result<Graph> {
         sources: v
             .get("sources")
             .and_then(Value::as_array)
-            .map(|a| {
+            .map_or_default(|a| {
                 a.iter()
                     .filter_map(Value::as_str)
                     .map(str::to_owned)
                     .collect()
-            })
-            .unwrap_or_default(),
+            }),
         weights: v.get("weights").cloned().unwrap_or(Value::Null),
         specialists: v.get("specialists").cloned().unwrap_or(Value::Null),
     };
@@ -305,8 +304,7 @@ fn ffmpeg_list(app: &App, ffmpeg: &Path, what: &str) -> String {
         .args(["-hide_banner", what])
         .stdin(Stdio::null())
         .output()
-        .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
-        .unwrap_or_default();
+        .map_or_default(|o| String::from_utf8_lossy(&o.stdout).into_owned());
     lock(&app.separator.encoders).insert(key, out.clone());
     out
 }
@@ -685,6 +683,12 @@ fn run_child(app: &App, job: &Value, report: &Report<'_>) -> Result<Dict> {
         std::fs::write(&job_file, job.to_string())?;
         let cmd = command(app, &job_file);
         let mut c = library::processes::order(Path::new(&cmd[0]), &cmd[1..]);
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            // sin ventana de consola, y por debajo de lo normal
+            c.creation_flags(crate::services::separation::child_creation_flags());
+        }
         if let Some(lib) = onnx::library(app) {
             c.env("DANPLAY_ONNXRUNTIME", lib);
         }
@@ -754,10 +758,10 @@ fn read_lines(
         if m.contains_key("done") {
             report.step(m.get("done").cloned(), m.get("total").cloned(), None);
         } else if m.get("step").is_some_and(value::truthy) {
-            let step = m.get("step").map(value::str_of).unwrap_or_default();
+            let step = m.get("step").map_or_default(value::str_of);
             report.step(None, None, Some(&step));
         } else if m.get("error").is_some_and(value::truthy) {
-            failure = m.get("error").map(value::str_of).unwrap_or_default();
+            failure = m.get("error").map_or_default(value::str_of);
         } else if m.get("ok").is_some_and(value::truthy) {
             result = m;
         }
@@ -904,7 +908,7 @@ fn separate_song(app: &App, cid: i64, report: &Report<'_>) -> Result<Dict> {
     let song = song_for(app, cid)?;
     fetch(app, &[FAST], report)?;
     let target = PathBuf::from(ls::target_for(&song));
-    let parent = target.parent().map(Path::to_path_buf).unwrap_or_default();
+    let parent = target.parent().map_or_default(Path::to_path_buf);
     std::fs::create_dir_all(&parent)?;
     ls::sweep(&path_text(&parent));
     let work = make_temp_dir(&parent, ".separando-")?;
@@ -959,13 +963,12 @@ fn stamp_of(m: &Dict) -> Value {
 fn tracks_of(m: &Dict) -> Vec<(String, String)> {
     m.get("tracks")
         .filter(|v| value::truthy(v))
-        .map(value::list_of)
-        .unwrap_or_default()
+        .map_or_default(value::list_of)
         .iter()
         .map(|t| {
             (
-                t.get("source").map(value::str_of).unwrap_or_default(),
-                t.get("file").map(value::str_of).unwrap_or_default(),
+                t.get("source").map_or_default(value::str_of),
+                t.get("file").map_or_default(value::str_of),
             )
         })
         .collect()
@@ -1019,7 +1022,7 @@ fn refine_song(app: &App, cid: i64, report: &Report<'_>) -> Result<Dict> {
         .filter(|s| have.iter().any(|(k, _)| k == s))
         .collect();
     fetch(app, &better, report)?;
-    let parent = target.parent().map(Path::to_path_buf).unwrap_or_default();
+    let parent = target.parent().map_or_default(Path::to_path_buf);
     ls::sweep(&path_text(&parent));
     let work = make_temp_dir(&parent, ".separando-")?;
     let (result, old) = in_work(&work, || {
@@ -1123,7 +1126,7 @@ fn max_song(app: &App, cid: i64, report: &Report<'_>) -> Result<Dict> {
             free as f64 / 1024f64.powi(3)
         )));
     }
-    let parent = target.parent().map(Path::to_path_buf).unwrap_or_default();
+    let parent = target.parent().map_or_default(Path::to_path_buf);
     ls::sweep(&path_text(&parent));
     let work = make_temp_dir(&parent, ".separando-")?;
     let (result, old) = in_work(&work, || {
@@ -1387,7 +1390,7 @@ fn drain_queue(app: &App, progress: &Progress) -> Result<Value> {
         let report = Report {
             app,
             progress: Some(progress),
-            title: it.get("title").map(value::str_of).unwrap_or_default(),
+            title: it.get("title").map_or_default(value::str_of),
             verb,
             position,
         };
@@ -1507,7 +1510,7 @@ pub fn forget(app: &App, song: &Dict) -> Result<Value, ApiError> {
         }
     }
     songs::update_one(app, cid, "stems", serde_json::Value::from(""))?;
-    Ok(json!({"ok": true, "folder": folder.map(|f| path_text(&f)).unwrap_or_default()}))
+    Ok(json!({"ok": true, "folder": folder.map_or_default(|f| path_text(&f))}))
 }
 
 // ------------------------------------------------------------ la mezcla
@@ -1586,7 +1589,7 @@ pub fn export_mix(app: &App, cid: i64, mix: &Mix, progress: &dyn Fn(f64, f64)) -
                 "esta canción no tiene sus pistas separadas completas",
             ));
         };
-        let tracks = d.get("tracks").map(value::list_of).unwrap_or_default();
+        let tracks = d.get("tracks").map_or_default(value::list_of);
         for t in &mix.tracks {
             let Some(track) = tracks
                 .iter()
@@ -1596,10 +1599,7 @@ pub fn export_mix(app: &App, cid: i64, mix: &Mix, progress: &dyn Fn(f64, f64)) -
             };
             let coefs = track_matrix(t);
             if coefs.iter().any(|c| *c > 1e-4) {
-                chosen.push((
-                    track.get("path").map(value::str_of).unwrap_or_default(),
-                    coefs,
-                ));
+                chosen.push((track.get("path").map_or_default(value::str_of), coefs));
             }
         }
     }
@@ -1621,8 +1621,7 @@ pub fn export_mix(app: &App, cid: i64, mix: &Mix, progress: &dyn Fn(f64, f64)) -
     if suffix(&path).to_lowercase() != format!(".{fmt}") {
         let name = path
             .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_default();
+            .map_or_default(|n| n.to_string_lossy().into_owned());
         path = with_name(&path, &format!("{name}.{fmt}"));
     }
     if !path.parent().is_some_and(Path::is_dir) {
@@ -1645,8 +1644,7 @@ pub fn export_mix(app: &App, cid: i64, mix: &Mix, progress: &dyn Fn(f64, f64)) -
     let muted: Vec<String> = data
         .as_ref()
         .and_then(|d| d.get("tracks"))
-        .map(value::list_of)
-        .unwrap_or_default()
+        .map_or_default(value::list_of)
         .iter()
         .filter(|t| {
             !used
@@ -1654,12 +1652,12 @@ pub fn export_mix(app: &App, cid: i64, mix: &Mix, progress: &dyn Fn(f64, f64)) -
                 .any(|u| Some(u.as_str()) == t.get("path").and_then(Value::as_str))
         })
         .map(|t| {
-            let source = t.get("source").map(value::str_of).unwrap_or_default();
+            let source = t.get("source").map_or_default(value::str_of);
             ls::SOURCES
                 .iter()
                 .find(|(k, _, _)| *k == source)
                 .map_or_else(
-                    || t.get("name").map(value::str_of).unwrap_or_default(),
+                    || t.get("name").map_or_default(value::str_of),
                     |(_, _, n)| (*n).to_owned(),
                 )
                 .to_lowercase()
@@ -1677,11 +1675,7 @@ pub fn export_mix(app: &App, cid: i64, mix: &Mix, progress: &dyn Fn(f64, f64)) -
             "mezcla".into()
         });
     }
-    let beats: Vec<f64> = mix
-        .click
-        .as_ref()
-        .map(|c| c.beats.clone())
-        .unwrap_or_default();
+    let beats: Vec<f64> = mix.click.as_ref().map_or_default(|c| c.beats.clone());
     if !beats.is_empty() {
         what.push("con clic".into());
     }
@@ -1716,7 +1710,7 @@ pub fn export_mix(app: &App, cid: i64, mix: &Mix, progress: &dyn Fn(f64, f64)) -
             .collect();
         for (p, _) in &chosen {
             cmd.push("-i".into());
-            cmd.push(p.into());
+            cmd.push(library::processes::ffmpeg_input(Path::new(p)));
         }
         if let Some(click) = mix.click.as_ref().filter(|_| !beats.is_empty()) {
             let file = work.join(".clic.wav");
@@ -1732,7 +1726,7 @@ pub fn export_mix(app: &App, cid: i64, mix: &Mix, progress: &dyn Fn(f64, f64)) -
             .map_err(|_| StemsError::Other("cannot convert float NaN to integer".into()))?;
             analysis::mix::write_wav(&file, &signal, analysis::click::RATE)?;
             cmd.push("-i".into());
-            cmd.push(file.into());
+            cmd.push(library::processes::ffmpeg_input(&file));
         }
         let mut guides = false;
         if let Some(cues) = &cues {
@@ -1764,7 +1758,7 @@ pub fn export_mix(app: &App, cid: i64, mix: &Mix, progress: &dyn Fn(f64, f64)) -
                 let file = work.join(".guias.wav");
                 analysis::mix::write_wav(&file, &signal, analysis::mix::GUIDES_RATE)?;
                 cmd.push("-i".into());
-                cmd.push(file.into());
+                cmd.push(library::processes::ffmpeg_input(&file));
                 guides = true;
             }
         }
@@ -1839,7 +1833,7 @@ pub fn export_mix(app: &App, cid: i64, mix: &Mix, progress: &dyn Fn(f64, f64)) -
     };
     Ok(json!({
         "path": path_text(&path),
-        "name": path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
+        "name": path.file_name().map_or_default(|n| n.to_string_lossy().into_owned()),
         "id": indexed,
         "title": title,
     }))

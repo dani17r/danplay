@@ -101,6 +101,10 @@
   border-bottom: 1px solid var(--border);
   margin-bottom: 16px;
   overflow-x: auto;
+  /* la pestaña activa baja 1 px sobre el borde (margin-bottom: -1px): ese
+     píxel va en el relleno, si no el navegador lo toma por desplazamiento
+     vertical y pinta una barra */
+  padding-bottom: 1px;
 }
 .about-tab {
   padding: 7px 12px;

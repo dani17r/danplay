@@ -17,6 +17,11 @@ const props = defineProps({
   songs: { type: Array, required: true },
   /** por qué se agrupa: folder, artist, album, initial, genre o key */
   by: { type: String, required: true },
+  /**
+   * Los grupos ya hechos (`groupSongs(songs, by)`): la app los tiene para
+   * elegir con Mayús y armar la cola. Sin ellos se hacen aquí.
+   */
+  groups: { type: Array, default: null },
   selected: { type: Number, default: null },
   selectedIds: { type: Array, default: () => [] },
   playing: { type: Number, default: null },
@@ -45,8 +50,8 @@ const emit = defineEmits([
 const collapsed = ref(new Set())
 
 // Los mismos grupos, en el mismo orden, que usa la app para elegir con Mayús
-// y armar la cola (utils/groups.js).
-const grouped = computed(() => groupSongs(props.songs, props.by))
+// y armar la cola (utils/groups.js): los suyos, si los pasa.
+const grouped = computed(() => props.groups ?? groupSongs(props.songs, props.by))
 
 /** Lo que se pinta: las canciones de los grupos abiertos, y dónde empieza cada grupo. */
 const view = computed(() => {

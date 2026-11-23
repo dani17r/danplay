@@ -4,7 +4,7 @@
 use crate::app::App;
 use crate::services::{external, library as lib, media, playlists, songs};
 use crate::testkit::{call, ffmpeg, get, mp3, row, rows, scanned_library, send, text};
-use library::index::{Dict, revision, stats, stats_cached, touch};
+use library::index::{Dict, revision, stats, stats_cached, touch, writes};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 
@@ -253,8 +253,8 @@ fn the_stats_do_not_keep_a_total_from_before_a_change() {
         return;
     };
     let key = text(&app.config().database);
-    // otro hilo acaba de cambiar algo entre leer la revisión y contar
-    let rev = revision();
+    // otro hilo acaba de cambiar algo entre leer el contador y contar
+    let rev = writes();
     let conn = app.connect().expect("base");
     touch();
     stats(&conn, &key, rev).expect("cifras");
@@ -265,11 +265,34 @@ fn the_stats_do_not_keep_a_total_from_before_a_change() {
     );
     // sin cambios, la caché vale
     let kept = (0..50).any(|_| {
-        let rev = revision();
+        let rev = writes();
         stats(&conn, &key, rev).expect("cifras");
         stats_cached(&key).is_some()
     });
     assert!(kept, "sin cambios, la caché vale");
+}
+
+#[test]
+fn the_stats_do_not_keep_a_total_from_before_a_quiet_change() {
+    // lo que la interfaz cambia y ya tiene delante no mueve la revisión
+    // (`quietly`), pero puede cambiar las cifras: se contaban otra vez solo
+    // al caducar (cinco segundos), y ahora se recuerdan mucho más
+    let Some((app, _)) = scanned_library() else {
+        return;
+    };
+    let before = total(&app);
+    {
+        let _quiet = library::index::quietly();
+        app.db(|c| {
+            c.execute(
+                "INSERT INTO songs (path, file) VALUES ('/m/callada.mp3', 'callada.mp3')",
+                [],
+            )
+        })
+        .expect("canción");
+        touch();
+    }
+    assert_eq!(total(&app), before + 1);
 }
 
 #[test]
@@ -422,9 +445,7 @@ fn thumbnails(app: &App) -> PathBuf {
 }
 
 fn files_in(dir: &Path) -> Vec<PathBuf> {
-    std::fs::read_dir(dir)
-        .map(|d| d.flatten().map(|e| e.path()).collect())
-        .unwrap_or_default()
+    std::fs::read_dir(dir).map_or_default(|d| d.flatten().map(|e| e.path()).collect())
 }
 
 #[test]

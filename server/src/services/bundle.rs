@@ -121,11 +121,7 @@ pub(crate) fn export(
     if let Some(dir) = target.parent() {
         std::fs::create_dir_all(dir).map_err(|e| Failure::Other(e.to_string()))?;
     }
-    let tracks = info
-        .get("tracks")
-        .map(value::list_of)
-        .unwrap_or_default()
-        .len();
+    let tracks = info.get("tracks").map_or_default(value::list_of).len();
     let total = tracks + 1;
     let done = std::sync::atomic::AtomicUsize::new(0);
     let step = || {
@@ -164,7 +160,7 @@ pub(crate) fn export(
         "id": cid,
         "title": title,
         "path": target_text,
-        "name": target.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
+        "name": target.file_name().map_or_default(|n| n.to_string_lossy().into_owned()),
         "size": size,
         "tracks": tracks,
         "click": !grid.is_null(),
@@ -334,7 +330,7 @@ fn import_into(
         .collect();
     for part in &music {
         args.push("-i".into());
-        args.push(part.as_os_str().to_owned());
+        args.push(library::processes::ffmpeg_input(part));
     }
     args.push("-filter_complex".into());
     args.push(
@@ -371,8 +367,7 @@ fn import_into(
     for (i, (source, track_name, path, r)) in tracks.iter().enumerate() {
         let file_name = path
             .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_default();
+            .map_or_default(|n| n.to_string_lossy().into_owned());
         std::fs::rename(path, pending.join(&file_name)).map_err(JobError::from)?;
         listed.push(json!({"source": source, "file": file_name, "name": track_name, "role": r}));
         p.update(Some((i + 1).into()), Some(total.into()), None);

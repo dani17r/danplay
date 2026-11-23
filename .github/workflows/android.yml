@@ -12,9 +12,14 @@
 # cambia aquí por la ruta de la máquina de CI. Ojo al cambiar de llave: un
 # teléfono solo acepta una actualización firmada como la que tiene instalada,
 # así que con una llave nueva hay que desinstalar la app y volver a instalarla.
+# La llave está en el disco lo justo: se escribe después de instalar las
+# dependencias de la interfaz (sus guiones de instalación corren aquí) y se
+# borra en cuanto sale el APK, aunque falle.
 #
-# Con una etiqueta de versión (`git tag v1.13.0 && git push --tags`) lo
-# publica en esa versión, junto a los paquetes de escritorio.
+# Con una etiqueta de versión (`git tag -a v1.13.0 -m 1.13.0 && git push
+# --tags`) lo publica en esa versión, junto a los paquetes de escritorio,
+# desde un trabajo aparte (`publish`, el único que puede escribir; ver
+# linux.yml).
 name: android
 
 on:
@@ -23,20 +28,40 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write     # publicar el APK en la versión
+  contents: read
+
+# Dos ejecuciones de la misma etiqueta no se pisan al publicar; las de una
+# rama (workflow_dispatch) sí se cancelan: la nueva deja vieja a la otra.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+env:
+  CARGO_TERM_COLOR: always
 
 jobs:
   apk:
     name: APK firmado
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     env:
       # las mismas versiones que en el equipo de desarrollo
       NDK_VERSION: 29.0.14206865
       BUILD_TOOLS: 36.1.0
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-java@v6
+      # `git tag v1.44.2` sobre un árbol en 1.44.1 publicaría en «v1.44.2»
+      # un APK que dice 1.44.1
+      - name: la etiqueta es la versión
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          v=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -1)
+          [ "v$v" = "$GITHUB_REF_NAME" ] || { echo "::error::la etiqueta es $GITHUB_REF_NAME y Cargo.toml dice $v"; exit 1; }
+
+      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
         with:
           distribution: temurin
           java-version: '17'
@@ -56,15 +81,20 @@ jobs:
           cache: true
           run-install: false
 
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-linux-android, armv7-linux-androideabi
+      # la de rust-toolchain.toml, con los dos destinos del teléfono
+      - name: Rust
+        run: |
+          rustup show active-toolchain || rustup toolchain install
+          rustup target add aarch64-linux-android armv7-linux-androideabi
+          rustc --version
       # v1: las cachés v0 son del perfil de antes (Cargo.toml) y, con la misma
-      # clave, se restauraban sin servir y nunca se renovaban
-      - uses: Swatinem/rust-cache@v2
+      # clave, se restauraban sin servir y nunca se renovaban. Desde una
+      # etiqueta no se guarda: esa caché no la restauraría nadie.
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           cache-on-failure: true
           prefix-key: v1-rust
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       # La imagen de GitHub trae el SDK, pero no este NDK, y varias
       # build-tools: se usa la misma que en el equipo de desarrollo. (La
@@ -77,6 +107,10 @@ jobs:
           echo "NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
           echo "APKSIGNER=$ANDROID_HOME/build-tools/$BUILD_TOOLS/apksigner" >> "$GITHUB_ENV"
 
+      - name: dependencias de la interfaz
+        working-directory: desktop
+        run: vp install --frozen-lockfile
+
       - name: la llave de firma
         env:
           KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
@@ -88,27 +122,63 @@ jobs:
           fi
           keys=$RUNNER_TEMP/keys
           mkdir -p "$keys"
+          chmod 700 "$keys"
           echo "$KEYSTORE_B64" | base64 -d > "$keys/danplay.jks"
           printf '%s\n' "$KEYSTORE_PROPERTIES" | grep -v '^storeFile=' > "$keys/keystore.properties"
           echo "storeFile=$keys/danplay.jks" >> "$keys/keystore.properties"
           echo "DANPLAY_KEYSTORE=$keys/keystore.properties" >> "$GITHUB_ENV"
 
-      - name: dependencias de la interfaz
-        working-directory: desktop
-        run: vp install --frozen-lockfile
-
       # compila, comprueba la firma y lo deja en dist/installers/
       - name: APK
         run: ./scripts/build-android.sh
 
-      - uses: actions/upload-artifact@v7
+      # la llave fuera del disco en cuanto ya no hace falta, salga bien o mal
+      - name: borrar la llave
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/keys"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: danplay-android
           path: dist/installers/DanPlay-*-android.apk
           if-no-files-found: error
 
-      - name: publicar en la versión
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v3
+  # Lo único con permiso de escribir (ver linux.yml): el APK a la versión,
+  # con su SHA256SUMS y su procedencia.
+  publish:
+    name: publicar en la versión
+    needs: apk
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write       # subir los archivos a la versión
+      id-token: write       # firmar la procedencia
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          files: dist/installers/DanPlay-*-android.apk
+          name: danplay-android
+          path: artifact
+      - name: el APK y su suma
+        run: |
+          mkdir -p out
+          find artifact -type f -name '*.apk' -exec mv {} out/ \;
+          ls out/*.apk
+          ( cd out && sha256sum -- * ) > SHA256SUMS-android.txt
+          cat SHA256SUMS-android.txt
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: 'out/*'
+      # Los cuatro flujos de paquetes publican en la misma versión: el
+      # primero que llega la crea y los demás suben a la que ya hay.
+      - name: a la versión
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=$GITHUB_REF_NAME
+          repo=$GITHUB_REPOSITORY
+          gh release view "$tag" -R "$repo" >/dev/null 2>&1 \
+            || gh release create "$tag" -R "$repo" --verify-tag --title "$tag" --notes "" \
+            || gh release view "$tag" -R "$repo" >/dev/null
+          gh release upload "$tag" out/* SHA256SUMS-android.txt -R "$repo" --clobber

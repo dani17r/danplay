@@ -301,8 +301,7 @@ fn after_a_panic(carry: &mut engine::Carry, shared: &Arc<Mutex<State>>, notify: 
     carry.forget_song();
     let name = std::path::Path::new(&bad)
         .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default();
+        .map_or_default(|n| n.to_string_lossy().into_owned());
     log::error!("el hilo de audio se cayo leyendo «{bad}» y se vuelve a levantar");
     let mut e = lock(shared);
     e.playing = false;

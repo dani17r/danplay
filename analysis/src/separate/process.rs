@@ -138,24 +138,23 @@ fn ffmpeg(program: &str) -> Command {
     c
 }
 
+/// Una ruta como entrada de ffmpeg (tras `-i`), con `file:` delante: sin él,
+/// un nombre como `concat:a|b` o `http:…` se lee como otra cosa. Es lo mismo
+/// que `library::processes::ffmpeg_input` (este crate no depende de él).
+fn file_input(path: &Path) -> std::ffi::OsString {
+    let mut input = std::ffi::OsString::from("file:");
+    input.push(path.as_os_str());
+    input
+}
+
 /// La canción entera, en estéreo a 44,1 kHz y en flotante: (2, N), un canal
 /// tras otro.
 pub fn decode(program: &str, path: &str) -> Result<Vec<f32>, Error> {
+    let input = file_input(Path::new(path));
     let r = ffmpeg(program)
-        .args([
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-nostdin",
-            "-i",
-            path,
-            "-vn",
-            "-f",
-            "f32le",
-            "-ac",
-            "2",
-            "-ar",
-        ])
+        .args(["-hide_banner", "-loglevel", "error", "-nostdin", "-i"])
+        .arg(&input)
+        .args(["-vn", "-f", "f32le", "-ac", "2", "-ar"])
         .arg(RATE.to_string())
         .arg("-")
         .output()?;
@@ -164,7 +163,7 @@ pub fn decode(program: &str, path: &str) -> Result<Vec<f32>, Error> {
         let last_one = errores.trim().lines().last().map(str::to_owned);
         return Err(format!(
             "ffmpeg no pudo leer la cancion{}",
-            last_one.map(|l| format!(": {l}")).unwrap_or_default()
+            last_one.map_or_default(|l| format!(": {l}"))
         )
         .into());
     }
@@ -173,17 +172,21 @@ pub fn decode(program: &str, path: &str) -> Result<Vec<f32>, Error> {
 
 /// f32le estéreo intercalado -> (2, N).
 fn unpack(raw: &[u8]) -> Vec<f32> {
-    let samples: Vec<f32> = raw
-        .as_chunks::<4>()
-        .0
-        .iter()
-        .map(|b| f32::from_le_bytes(*b))
-        .collect();
-    let n = samples.len() / 2;
+    unpack_into(raw, raw.len() / 8)
+}
+
+/// f32le estéreo intercalado -> (2, n): las primeras `n` muestras de cada
+/// canal, y ceros si no llega. Directo de los bytes: con una copia en
+/// flotante de por medio, una canción de cinco minutos tenía tres copias
+/// vivas a la vez (los bytes, las muestras intercaladas y las separadas,
+/// 318 MB), y al leer una pista entera, cuatro.
+fn unpack_into(raw: &[u8], n: usize) -> Vec<f32> {
     let mut out = vec![0f32; 2 * n];
-    for i in 0..n {
-        out[i] = samples[2 * i];
-        out[n + i] = samples[2 * i + 1];
+    let (left, right) = out.split_at_mut(n);
+    for ((frame, l), r) in raw.as_chunks::<8>().0.iter().zip(left).zip(right) {
+        let (a, b) = frame.split_at(4);
+        *l = f32::from_le_bytes([a[0], a[1], a[2], a[3]]);
+        *r = f32::from_le_bytes([b[0], b[1], b[2], b[3]]);
     }
     out
 }
@@ -213,7 +216,7 @@ pub fn encoder(program: &str, dest: &Path) -> Result<Child, Error> {
 pub fn reader(program: &str, path: &Path) -> Result<Child, Error> {
     Ok(ffmpeg(program)
         .args(["-hide_banner", "-loglevel", "error", "-nostdin", "-i"])
-        .arg(path)
+        .arg(file_input(path))
         .args(["-f", "f32le", "-ac", "2", "-ar"])
         .arg(RATE.to_string())
         .arg("-")
@@ -236,12 +239,7 @@ pub fn read(reader: &mut Child, n: usize) -> Result<Vec<f32>, Error> {
             filled += k;
         }
     }
-    let data = unpack(&raw[..filled / 8 * 8]);
-    let m = data.len() / 2;
-    let mut out = vec![0f32; 2 * n];
-    out[..m].copy_from_slice(&data[..m]);
-    out[n..n + m].copy_from_slice(&data[m..]);
-    Ok(out)
+    Ok(unpack_into(&raw[..filled / 8 * 8], n))
 }
 
 /// Escribe un tramo (2, n) en un codificador.
@@ -316,7 +314,7 @@ pub fn compacted(program: &str, src: &Path, format: &str) -> Result<PathBuf, Err
     let dest = src.with_extension(ext);
     let r = ffmpeg(program)
         .args(["-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-i"])
-        .arg(src)
+        .arg(file_input(src))
         .args(args)
         .arg(&dest)
         .output()?;
@@ -333,8 +331,7 @@ pub fn compacted(program: &str, src: &Path, format: &str) -> Result<PathBuf, Err
             .collect();
         let name = src
             .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_default();
+            .map_or_default(|n| n.to_string_lossy().into_owned());
         return Err(format!("ffmpeg no pudo pasar {name} a {format}: {tail}").into());
     }
     std::fs::remove_file(src)?;
@@ -471,8 +468,7 @@ fn put<V>(d: &mut Vec<(String, V)>, k: &str, v: V) {
 
 fn name(p: &Path) -> String {
     p.file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default()
+        .map_or_default(|n| n.to_string_lossy().into_owned())
 }
 
 fn file<'a>(t: &'a Job, source: &str) -> Result<&'a str, Error> {
@@ -572,20 +568,12 @@ pub fn run(
                 }
                 Ok(())
             };
-            // una copia: la red la normaliza en su sitio, y la canción hace
-            // falta entera para la siguiente y para sacar lo que queda
-            separate(
-                session.as_mut(),
-                wav.clone(),
-                &mut emit,
-                &mut |d, _| {
-                    say(Warning::Done {
-                        done: base + d,
-                        total,
-                    })
-                },
-                &mut || Ok(false),
-            )
+            separate(session.as_mut(), &wav, &mut emit, &mut |d, _| {
+                say(Warning::Done {
+                    done: base + d,
+                    total,
+                })
+            })
         };
         let closed = close(&mut encoders, "guardar las pistas");
         r?;
@@ -708,7 +696,6 @@ pub fn run_max(
         close(&mut l, "leer las pistas")?;
         r
     };
-    let mut stems: Vec<(String, Vec<f32>)> = Vec::new();
     let mut decoded: HashMap<String, Vec<f32>> = HashMap::new();
     let mut melodic = wav.clone();
     for source in ["drums", "bass", "vocals"] {
@@ -717,13 +704,17 @@ pub fn run_max(
             for (m, v) in melodic.iter_mut().zip(&x) {
                 *m -= v;
             }
-            if source != "bass" {
-                stems.push((source.to_owned(), x.clone()));
-            }
             decoded.insert(source.to_owned(), x);
         }
     }
-    stems.push(("melodic".into(), melodic));
+    // lo que se reparte, sin copiarlo: la batería y las voces se leen de lo
+    // ya leído (que hace falta después tal cual), y eran 212 MB más con
+    // cinco minutos
+    let mut stems: Vec<(String, &[f32])> = ["drums", "vocals"]
+        .iter()
+        .filter_map(|s| decoded.get(*s).map(|x| ((*s).to_owned(), x.as_slice())))
+        .collect();
+    stems.push(("melodic".into(), &melodic));
     let net = t.mega.as_ref().ok_or_else(|| Error::from("'mega'"))?;
     let text = std::fs::read_to_string(&net.manifest)?;
     let manifest: Manifest = serde_json::from_str(&text)?;
@@ -786,7 +777,6 @@ pub fn run_max(
             &stems,
             &mut emit,
             &mut |d, tt| say(Warning::Done { done: d, total: tt }),
-            &mut || Ok(false),
             0.25,
         )
     };
@@ -795,6 +785,7 @@ pub fn run_max(
     closed?;
     drop(session);
     drop(stems);
+    drop(melodic);
     let heard: Vec<(String, Level)> = new_stems
         .iter()
         .enumerate()

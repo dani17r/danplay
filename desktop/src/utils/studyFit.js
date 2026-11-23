@@ -9,9 +9,18 @@
  * columnas solo quedaba el título.
  */
 
+import { clamp } from './num.js'
+
 /** Lo que se le guarda al cuerpo como poco y como mucho, en px. */
 export const BODY_MIN = 200
 export const BODY_MAX = 300
+/**
+ * El alto del cuerpo en pestañas: una sola parte a la vez y a todo lo ancho
+ * (la velocidad y el tono lado a lado, el clic en columnas), así que pide
+ * mucho menos que las cuatro columnas una al lado de otra, y la onda se
+ * queda con el resto.
+ */
+export const TABS_BODY = 150
 /** Lo que mide la onda como poco: por debajo ya no se distingue nada. */
 export const WAVE_MIN = 80
 /** Lo que mide un carril como poco y como mucho, en px. */
@@ -34,8 +43,6 @@ export const TIGHT_BELOW = 800
  */
 export const isTight = (windowHeight) => windowHeight > 0 && windowHeight < TIGHT_BELOW
 
-const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v))
-
 /**
  * El alto que se le guarda al cuerpo: un tercio largo del panel o, si es
  * más, lo que piden sus columnas (`wanted`), entre sus topes. Sin eso, en
@@ -50,15 +57,26 @@ export function bodyHeight(inner, wanted = 0) {
 
 /**
  * El sitio que le queda a la onda (o a todos los carriles juntos).
- * @param {{inner: number, pad?: number, others?: number, gap?: number, rows?: number, rest?: number, wanted?: number}} m
+ * @param {{inner: number, pad?: number, others?: number, gap?: number, rows?: number, rest?: number, wanted?: number, body?: number | null}} m
  *   `inner`, el alto del panel; `pad`, su relleno; `others`, lo que miden la
  *   cabecera y la barra; `gap` y `rows`, la separación entre filas y cuántas
  *   son; `rest`, lo demás de la línea de tiempo (el carril del clic, los de
- *   las guías, la regla); `wanted`, lo que piden las columnas del cuerpo
+ *   las guías, la regla); `wanted`, lo que piden las columnas del cuerpo;
+ *   `body`, el alto del cuerpo si ya se sabe (en pestañas: `TABS_BODY`, o 0
+ *   con el panel sin fijar, que se abre encima de la onda)
  */
-export function waveRoom({ inner, pad = 0, others = 0, gap = 0, rows = 0, rest = 0, wanted = 0 }) {
+export function waveRoom({
+  inner,
+  pad = 0,
+  others = 0,
+  gap = 0,
+  rows = 0,
+  rest = 0,
+  wanted = 0,
+  body: fixed = null
+}) {
   const left = inner - pad - others - gap * Math.max(0, rows - 1) - rest
-  let body = bodyHeight(inner, wanted)
+  let body = fixed ?? bodyHeight(inner, wanted)
   // lo que el cuerpo pide de más lo cede él antes que dejar la onda en nada
   const short = WAVE_MIN - (left - body)
   if (short > 0) body = Math.max(bodyHeight(inner), body - short)

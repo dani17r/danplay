@@ -16,12 +16,13 @@
 //! - `output`: la salida de audio (cpal);
 //! - `engine`: todo junto, lo que llama la app.
 //!
-//! Sin la funcion `motor` quedan solo `beats` (el pulso y el compas de una
-//! cancion, y su rejilla), `metro` (los ajustes del metronomo y como va),
-//! `queue` (la cola y lo que ve la interfaz) y `click` (el sonido del clic),
-//! que son lo que usa tambien la app de escritorio; y `role` (el papel de una
-//! pista por su nombre: clic, guia o musica), que es la regla de la PC
-//! (`library::sequence::role_of`) para quien no lleva `regex`.
+//! Sin el rasgo `engine` (el de por defecto) quedan solo `beats` (el pulso y
+//! el compas de una cancion, y su rejilla), `metro` (los ajustes del
+//! metronomo y como va), `queue` (la cola y lo que ve la interfaz) y `click`
+//! (el sonido del clic), que es lo que usa el analisis (`danplay-analysis`);
+//! y `role` (el papel de una pista por su nombre: clic, guia o musica), que es
+//! la regla de la PC (`library::sequence::role_of`) para quien no lleva
+//! `regex`.
 pub mod beats;
 pub mod click;
 pub mod metro;

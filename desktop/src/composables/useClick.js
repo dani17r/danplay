@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * El clic del metrónomo, con el panel de estudio abierto o cerrado.
  *
@@ -31,12 +32,13 @@ import { effectScope, ref, shallowRef, watch } from 'vue'
 import { api, ApiError } from '../api.js'
 import { usePlayback } from './usePlayback.js'
 import { mergeWindows, ownToGrid } from '../utils/beats.js'
+import { readPref, savePref } from '../utils/prefs.js'
 
 const AUTO_KEY = 'danplay.click.auto'
 const MODE_KEY = 'danplay.click.mode'
 const MANUAL_KEY = 'danplay.click.manual'
 /** Lo menos que dura una zona dudosa para enseñarla (s). */
-export const WEAK_MIN_S = 5
+const WEAK_MIN_S = 5
 /** Cada cuánto se pregunta por la rejilla que se está calculando. */
 export const POLL_MS = 700
 /**
@@ -66,21 +68,6 @@ function within(promise, ms) {
  */
 export const AHEAD = 60
 
-function readPref(key, fallback) {
-  try {
-    const v = localStorage.getItem(key)
-    return v == null ? fallback : JSON.parse(v)
-  } catch {
-    return fallback
-  }
-}
-function savePref(key, value) {
-  try {
-    localStorage.setItem(key, JSON.stringify(value))
-  } catch {
-    /* modo privado */
-  }
-}
 /** El tempo y el compás del modo a mano, con sus topes. @param {any} m */
 function cleanManual(m) {
   const bpm = Number(m?.bpm)
@@ -109,6 +96,7 @@ function savedMode() {
 /** 'auto' (el de cada canción), 'own' (el ajustado a mano) o 'manual' (uno para todas). */
 const mode = ref(savedMode())
 /** Automático o propio (cada canción con el suyo) frente a a mano (uno para todas). */
+// eslint-disable-next-line vue/no-ref-object-reactivity-loss -- valor inicial, se sigue a mano al cambiar de modo
 const auto = ref(mode.value !== 'manual')
 /** El tempo y el compás del modo a mano. */
 const manual = ref(cleanManual(readPref(MANUAL_KEY, {})))
@@ -281,7 +269,9 @@ async function settle(g, from) {
 async function fromRust(id, path, my = epoch) {
   let g = null
   try {
-    g = await player().analyzeBeats(player().track.value?.bpm || null, path)
+    // (`track` lleva lo que el índice sabe de ella, el tempo también)
+    const bpm = /** @type {any} */ (player().track.value)?.bpm
+    g = await player().analyzeBeats(bpm || null, path)
   } catch (e) {
     if (my === epoch && sameSong(id, path)) error.value = e instanceof Error ? e.message : String(e)
   }
@@ -412,7 +402,7 @@ async function reload(fresh = null) {
  * y contesta por dónde va (`pending`); aquí se pregunta cada poco, se
  * enseña (`reanalyzing`) y se devuelve la respuesta de verdad cuando llega.
  * @param {number} id
- * @param {{mode: string, start?: number, end?: number}} opts
+ * @param {Parameters<typeof api.reanalyzeBeats>[1]} opts
  */
 async function reanalyze(id, opts) {
   if (opts.mode !== 'drums') return api.reanalyzeBeats(id, opts)

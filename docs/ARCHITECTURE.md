@@ -20,7 +20,7 @@ usarlo, con el [README](../README.md) tienes de sobra.
 Hasta la 1.30 el núcleo era Python, un programa aparte (empaquetado con
 PyInstaller) al que la app hablaba por un socket Unix `0600`, con el crate
 PyO3 debajo para lo que Python hacía lento. Desde la fase 4 de
-[la migración](MIGRATION.md) la app lleva el de Rust dentro y no hay Python
+[la migración](historia/MIGRATION.md) la app lleva el de Rust dentro y no hay Python
 en ningún paquete; desde la fase 5 (la 1.40), tampoco en el repositorio:
 sus pruebas pasaron a Rust y el núcleo de Python se fue.
 
@@ -67,7 +67,7 @@ Mientras tanto Python llamaba al crate con la misma API de antes, y sus
 pruebas eran el testigo de que nada cambiaba; además, cada módulo se comparó
 con su versión anterior en miles de casos. Después vinieron la API
 (`server/`) y la app con el núcleo dentro (fase 4), y por último sus pruebas,
-pasadas a Rust una a una (fase 5: [TESTS-PORT.md](TESTS-PORT.md)). Con eso
+pasadas a Rust una a una (fase 5: [TESTS-PORT.md](historia/TESTS-PORT.md)). Con eso
 se fueron el núcleo de Python, `core/` y la versión vieja de las
 etiquetas, la de mutagen (GPL).
 
@@ -338,6 +338,24 @@ etiquetas: lo que cambies se guarda solo en DanPlay»); cada guardado dice si la
 etiqueta se escribió (`tags_written`) y, si no, por qué (`tags_skipped`:
 `off`, `missing`, `unsupported` o `failed`).
 
+**La etiqueta del estudio se escribe después.** El estudio se guarda solo,
+cada 0,6 s de cambios, y escribir una etiqueta es leer y guardar el archivo
+de audio entero (un FLAC de 40 MB o un disco USB: de 100 ms a segundos, a
+cada arrastre de un tramo). Así que `PUT /api/song/{id}/study` pone la base
+al momento (la ficha ya lo trae) y aplaza la etiqueta
+(`services::songs::save_study`, «el estudio, aplazado»): contesta
+`tags_written: false` y `tags_pending: true`, que la interfaz no toma por un
+fallo. La etiqueta se escribe una vez, con lo que tenga la base en ese
+momento y en la ruta de ese momento: cuando esa canción lleva 10 s sin
+cambios (un hilo que se va cuando no queda nada), cuando la interfaz deja la
+canción o el estudio (`POST /api/study/flush`) y al apagar
+(`startup::stop`). Si el archivo no admite etiquetas, no se puede abrir para
+escribir o la última vez falló, se escribe al momento y la respuesta dice
+por qué no, como siempre; lo que el núcleo guarda por su cuenta
+(`set_study`: secuencias, paquetes, lo aprovechado) también va al momento.
+Si se va la luz antes, la base y el diario (escrito a los pocos segundos)
+lo tienen, y el escaneo nunca pisa el estudio de la base con el del archivo.
+
 La base SQLite es solo un índice para buscar rápido. Si la borras, un escaneo
 la reconstruye entera. Y otros reproductores leen esas etiquetas igual que
 DanPlay. Lo que no cabe en las etiquetas (el orden de las listas, sus notas y
@@ -602,8 +620,11 @@ la URL, si pide clave y qué parámetros tolera. Tres piezas:
   vez que se abre el selector y al arrancar: sin cambios, el servidor
   responde 304 y cero bytes, así que se puede comprobar siempre. La copia
   vive en la carpeta de datos; la app lleva dentro una foto para el primer
-  arranque sin red, regenerada en cada paquete por la propia app recién
-  compilada (`--models-snapshot`). Y lo que el usuario puede usar **de
+  arranque sin red (`data/models-snapshot.json`), que se saca al subir la
+  versión (`scripts/bump-version.sh`, con `--models-snapshot` de la app ya
+  compilada) y va en git: la misma en todos los paquetes. (Hasta la 1.44 la
+  sacaba cada paquete al construirse, así que cada sistema podía llevar una
+  distinta.) Y lo que el usuario puede usar **de
   verdad** con su clave lo dice el propio proveedor (`/models`), cruzado con
   el catálogo.
 - **Gratis, sin clave**: el grupo `free` del catálogo (LLM7, las rutas
@@ -1144,7 +1165,7 @@ ellos parte la canción en trozos de 2 s y salen distintas, y peores. Lo fuerte
 de cada pista separada en cada compás se lee a la vez (hasta cuatro
 ffmpeg) y se recuerda en memoria por pista y compases. Con el tempo puesto a
 mano, la onda, el imán de las guías y los compases que se mandan a la guía son
-los del clic que suena (`StudyBar.soundingGrid`), no los detectados.
+los del clic que suena (`soundingGrid`, en `useStudyClick.js`), no los detectados.
 
 **La carpeta del pulso** (`DATA_DIR/beats`) se limpia al escanear
 (`beats::prune`): lo que no tiene la clave de un archivo que hay (canciones y
@@ -2087,9 +2108,15 @@ inmediata.
 
 ## yt-dlp al día
 
-YouTube cambia a menudo y yt-dlp saca versión cada pocas semanas; la que viaja
-con la app (su ejecutable oficial, en `tools/`) se quedaría congelada hasta la
-siguiente versión de DanPlay. «Actualizar yt-dlp» (Descargas) baja de GitHub
+YouTube cambia a menudo y yt-dlp saca versión cada pocas semanas; uno que
+viajara con la app (su ejecutable oficial, en `tools/`) se quedaría congelado
+hasta la siguiente versión de DanPlay. **Desde la 1.45 no viaja**: eran 38 de
+los 145 MB del `.deb`, y solo sirve para YouTube, que ya pide red. La primera
+consulta o descarga sin yt-dlp lo instala antes (`youtube::ensure_ytdlp`)
+con la misma tarea que «Actualizar yt-dlp» (`yt-dlp`), que sin ninguno trae
+el último; la descarga cuenta ese paso como `phase: "installing"` y, sin red,
+acaba diciendo por qué no pudo. Quien ya lo había actualizado alguna vez
+sigue con el de su carpeta de datos, sin instalar nada. «Actualizar yt-dlp» (Descargas) baja de GitHub
 el ejecutable de la última versión para este sistema (`yt-dlp_linux`,
 `yt-dlp_macos`, `yt-dlp.exe`), lo comprueba contra su `SHA2-256SUMS`, lo deja
 en la carpeta de datos (`tools/yt-dlp/<versión>/`, con su marca `current`) y
@@ -2097,6 +2124,15 @@ desde ahí se usa (`services::ytdlp`). Si el descargado no contesta, se vuelve
 al de la app; y no se cambia de versión a mitad de una descarga. (Hasta la
 1.30 era el paquete de Python dentro del núcleo de PyInstaller, y se ponía
 al día con la rueda de PyPI.)
+
+**Qué garantiza la comprobación.** El sha256 se coteja con el `SHA2-256SUMS`
+de **la misma versión**, bajado del mismo sitio: eso es integridad (la
+descarga llegó entera y es la que GitHub publica), no autenticidad. La firma
+de yt-dlp (`SHA2-256SUMS.sig`) no se verifica: la confianza descansa en el TLS
+de GitHub. La versión que dice GitHub (`tag_name`) es el nombre de una
+carpeta que se borra y se reemplaza, así que solo vale con
+`[0-9A-Za-z._-]`, de 1 a 40 y sin «..» (`library::ytdlp::valid_tag`); lo
+mismo la marca `current` al leerla.
 
 YouTube exige además un **motor de JavaScript** para resolver sus retos (sin él
 yt-dlp avisa de que «faltarán formatos»). Se busca, con las versiones mínimas
@@ -2159,7 +2195,25 @@ El hilo que lleva el reproductor es uno solo, y si se cae no hay música:
   vez que alguien pide sonido; si la interfaz elegida no está, suena por la
   del sistema y se dice (en directo, sin sonido es peor que por otro sitio).
 - **La salida muere sonando.** El hilo de la salida (`engine/src/output.rs`)
-  la vuelve a abrir solo, a la tasa que tenga entonces.
+  la vuelve a abrir solo, a la tasa que tenga entonces, y al momento (solo
+  si no se deja abrir espera medio segundo antes de insistir). También si se
+  cuelga sin decir nada: cada vuelta del callback es un latido, y sin latir
+  1 s (3 s la primera vez) se da por rota.
+- **Un *panic* dentro del callback de audio.** `Mixer::fill` lo recoge: esa
+  vuelta sale en silencio, la salida se vuelve a abrir y el candado
+  envenenado del plato se sigue usando (antes esa canción callaba para
+  siempre, y en AAudio y CoreAudio el *panic* cerraba la app).
+- **Un *panic* al saltar** (symphonia sobre un archivo de fuera): el hilo que
+  decodifica lo recoge (`feeder::handle`) y la canción se acaba ahí y se
+  dice, como si fallara al decodificar.
+- **Lo que no es un número** (NaN o infinitos de un WAV en coma flotante)
+  se cambia por silencio al decodificar, y la salida no lo entrega.
+- **El hilo de audio no pide ni suelta memoria**, tampoco en la cuenta, al
+  pasar las partes de un relevo ni en el conversor de tasa: lo comprueba un
+  repartidor de memoria de pruebas que cuenta lo que pide cada hilo
+  (`testing::allocations`).
+- **En el celular**, el hilo del reproductor también se vigila: tras un
+  *panic*, un motor nuevo y un aviso, y la cola sigue.
 
 La salida se abre al primer play y se suelta tras un minuto sin sonar; al
 volver, sigue donde iba. Y la cola (`queue/`) no depende del núcleo para
@@ -2336,7 +2390,37 @@ una nota. Lo que tiene muchas formas (exportar) va en una ventana
 con una frase y, donde ayuda, una animación de CSS que se mueve sola
 (`tour.css`). Sale la primera vez que se abre el estudio en el escritorio
 (si tiene medidas: en las pruebas no) y con «?». Los pasos sin sitio a la
-vista se saltan.
+vista se saltan. Se carga con `import()` al pedirlo (driver.js, su CSS y
+`tour.css` van en su propio trozo, no en el del estudio): el estudio solo
+pregunta `tourSeen()` (`tourSeen.js`).
+
+**La aguja, sin Vue.** La posición llega cuatro veces por segundo y ninguna
+plantilla grande la lee: el reloj es `StudyClock.vue` y las agujas de la
+línea de tiempo las pinta `usePlayhead.js` a mano (`style.left`), en cada
+fotograma mientras suena, con lo que va de canción desde el último aviso
+(a la velocidad puesta, como mucho 0,3 s por delante, sin pasar del final
+del tramo). Oculto el estudio, no pinta. `tests/ticks.test.js` comprueba
+que StudyBar, StudyTimeline y las partes del estudio no se repintan con los
+avisos.
+
+**Las partes del estudio.** `StudyBar.vue` arma el estudio con un composable
+por cosa —`useStudyDoc` (el estudio de la canción y su guardado),
+`useStudyStems` (las pistas, su mezcla, exportar), `useStudyMarkers`,
+`useStudyLoops` (los tramos, el candado, las teclas A y B), `useStudyClick`
+(el metrónomo y el clic manual) y `useStudyCues` (las guías)— y los da a sus
+partes con un solo `provide(STUDY, ctx)` (`composables/studyContext.js`, con
+sus tipos): `StudyStems`, `StudyWaveBar` (la barra de encima de la onda),
+`StudyTempo`, `StudyClick`, `StudyMarkers` con `StudyCueList`, y
+`StudyNotes`. Las partes no reciben props: así una parte solo se repinta
+cuando cambia algo que ella enseña. Los composables se arman en el orden en
+que estaba el código en StudyBar, porque dos `watch` que miran lo mismo
+avisan por orden de creación (el del reparto manda primero las guías y luego
+la mezcla); lo que uno usa de otro que se arma después lo lee de `ctx` al
+usarlo. En StudyBar se quedan la cabecera, leer lo guardado al cambiar de
+canción (`loadFor`, que orquesta a los demás), ocultar y salir, las pestañas,
+el recorrido, el encaje de la onda en el panel, los diálogos y la línea de
+tiempo. El DOM y las clases son los de antes: las pruebas montan StudyBar
+entero.
 
 **La guía, por la letra (1.41).** Las partes salían solo de cómo suena
 (`analysis/src/structure.rs`), y con estrofa y coro sobre los mismos
@@ -2522,7 +2606,12 @@ un sitio queda arreglado en el otro. Es Rust puro, salvo el estirador:
   (`Shared::len`, la que enseña `State::duration`). Sin cabecera, symphonia no
   recorta (`Part::estimated`).
 - **Alimentar** (`feeder.rs`): un hilo decodifica todas las partes a la par
-  en bloques de 1024 muestras, 1,5 s por delante. Los bloques van y vuelven
+  en bloques de 1024 muestras, 1,5 s por delante. Con el anillo lleno (en
+  pausa) espera cada vez más, de 4 a 64 ms, salvo si lo que hay es de antes
+  de un salto; acabada la canción, hasta la siguiente orden. Cambiar de
+  canción no espera a que acabe el hilo de la anterior. Al cargar, las
+  partes se abren hasta cuatro a la vez, y en memoria se leen enteras como
+  mucho 256 MB por canción (64 en el celular; las más grandes, del disco). Los bloques van y vuelven
   por dos anillos sin candados: el hilo de audio no pide memoria ni espera. Un
   salto empieza una «generación» nueva y los bloques viejos se tiran. Si un
   archivo dañado hace caer al decodificador a media canción, la canción se
@@ -2572,7 +2661,11 @@ un sitio queda arreglado en el otro. Es Rust puro, salvo el estirador:
 - **Salir** (`output.rs`): cpal (AAudio en Android, CoreAudio en iOS). Se
   pide 44,1 kHz: AAudio la acepta y convierte el sistema (el emulador va a
   48 kHz); si una salida no la acepta, convierte el motor (`resample.rs`,
-  sinc polifase).
+  sinc polifase). El mismo filtro pasa a 44,1 las partes que van a otra
+  tasa; bajando de 88,2 kHz o más, con tantos más coeficientes como se baje
+  (de 192 kHz, un tono de 15 kHz sale a 0,0 dB y el alias de uno de 30 kHz,
+  a -101 dB). En el celular, tras un minuto sin sonar la salida se suelta,
+  como en la PC.
 
 Medido con «Dios Poderoso» (cinco partes, 4:54) en un núcleo de la PC:
 decodificar va a 180 veces el tiempo real; mezclar a velocidad normal, a
@@ -2832,19 +2925,21 @@ la versión vieja y no se nota. Por eso hay un script y no tres comandos.
 ```
 
 **Sin Python.** El núcleo va dentro de la app (el crate `server`, en el
-mismo proceso: ver [la migración](MIGRATION.md)). Hasta la 1.30 era el de
+mismo proceso: ver [la migración](historia/MIGRATION.md)). Hasta la 1.30 era el de
 Python, empaquetado con PyInstaller en una carpeta (`core/`) que la app
 arrancaba aparte y a la que hablaba por un socket. Con `--package` la app se
-compila sin empaquetar (`tauri build --no-bundle`), saca con ella misma la
-foto del catálogo de modelos (`--models-snapshot`) y luego se empaqueta
+compila sin empaquetar (`tauri build --no-bundle`) y luego se empaqueta
 (`tauri bundle`); el script comprueba que el `.deb` lleva el núcleo, sus
 datos y sus programas, y nada de Python.
 
-**Los programas de fuera, dentro de los paquetes.** ffmpeg, fpcalc,
-QuickJS-NG y yt-dlp (su ejecutable oficial) viajan en la carpeta `tools/` de
-cada paquete (en Linux y macOS los ponen `scripts/tools-linux.sh` y
-`tools-macos.sh`, con versiones y sha256 fijados; en Windows, su CI). La app
-se la da al núcleo, que la mira antes que el sistema.
+**Los programas de fuera, dentro de los paquetes.** ffmpeg, fpcalc y
+QuickJS-NG viajan en la carpeta `tools/` de cada paquete (en Linux y macOS
+los ponen `scripts/tools-linux.sh` y `tools-macos.sh`, con versiones y
+sha256 fijados, y el ffmpeg con una segunda dirección, la versión
+`tools-ffmpeg-9.0.2` del propio repositorio; en Windows, su CI). La app se la
+da al núcleo, que la mira antes que el sistema. yt-dlp no (desde la 1.45): lo
+instala la app al usarlo (ver «yt-dlp al día»). El `.deb` va en xz, no en el
+gzip de Tauri (21 MB menos).
 
 **Los datos, en `data/`.** Lo de `data/` del repositorio (el grafo y los pesos de
 Beat This!, los grafos del separador, el catálogo de voces y la foto del

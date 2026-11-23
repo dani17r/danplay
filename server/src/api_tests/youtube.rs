@@ -4,7 +4,7 @@
 //! historial, lo que ya tienes, cancelar).
 #![cfg(unix)]
 use crate::services::youtube::{self, Wanted};
-use crate::testkit::{api_library, call, get, mp3, run_job};
+use crate::testkit::{api_library, call, get, mp3, run_job, until_done};
 use serde_json::{Map, Value, json};
 use std::path::{Path, PathBuf};
 
@@ -1143,4 +1143,170 @@ fn download_and_fill_the_playlist_in_the_same_turn() {
         .map(|x| x["id"].clone())
         .collect();
     assert_eq!(order, [json!(gozo), new_id, json!(tierra)]);
+}
+
+// ------------------------------------- sin yt-dlp: se instala al bajar
+// Desde la 1.45 yt-dlp no viaja en los paquetes (38 de los 145 MB del .deb):
+// la primera consulta o descarga lo instala con el trabajo «yt-dlp».
+
+/// Un GitHub de mentira en el propio equipo (no sale a internet) con la
+/// versión 2026.08.19 de yt-dlp: `exe` como su ejecutable para este sistema,
+/// con su sha256 en el SHA2-256SUMS. Devuelve la dirección de las versiones.
+fn fake_github(exe: Vec<u8>) -> String {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("puerto local");
+    let base = format!("http://{}", listener.local_addr().expect("dirección"));
+    let name = crate::services::ytdlp::assets()[0];
+    let listing = json!({
+        "tag_name": "2026.08.19",
+        "assets": [
+            {"name": name, "browser_download_url": format!("{base}/bin")},
+            {"name": crate::services::ytdlp::SUMS, "browser_download_url": format!("{base}/sums")},
+        ],
+    });
+    let sums = format!("{}  {name}\n", library::ytdlp::sha256_hex(&exe));
+    let routes: Vec<(&str, Vec<u8>)> = vec![
+        ("/r/latest", listing.to_string().into_bytes()),
+        ("/sums", sums.into_bytes()),
+        ("/bin", exe),
+    ];
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut s) = stream else { break };
+            let mut buf = [0u8; 8192];
+            let n = s.read(&mut buf).unwrap_or(0);
+            let head = String::from_utf8_lossy(&buf[..n]);
+            let path = head.split_whitespace().nth(1).unwrap_or("").to_owned();
+            let (code, body) = routes
+                .iter()
+                .find(|(p, _)| *p == path)
+                .map_or((404, &[][..]), |(_, b)| (200, b.as_slice()));
+            let _ = write!(
+                s,
+                "HTTP/1.1 {code} X\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            let _ = s.write_all(body);
+        }
+    });
+    format!("{base}/r")
+}
+
+/// Que la app pregunte a ese GitHub (`DANPLAY_YTDLP_RELEASES`, en su
+/// danplay.env) sin que haya ningún yt-dlp: ni en su `tools/` ni en el
+/// PATH. El de mentira de `fake_videos` pasa a estar solo en «GitHub».
+fn without_yt_dlp(app: &crate::App, releases: impl FnOnce(Vec<u8>) -> String) {
+    let tools = tools_of(app);
+    let exe = std::fs::read(tools.join("yt-dlp")).expect("el yt-dlp de mentira");
+    std::fs::remove_file(tools.join("yt-dlp")).expect("quitarlo");
+    app.hide_tool("yt-dlp");
+    let releases = releases(exe);
+    let old = app.config();
+    let env = std::fs::read_to_string(&old.env_file).unwrap_or_default();
+    std::fs::write(
+        &old.env_file,
+        format!("{env}\nDANPLAY_YTDLP_RELEASES={releases}\n"),
+    )
+    .expect("danplay.env");
+    let cfg = library::config::Config::isolated(
+        old.data_dir.clone(),
+        old.config_dir.clone(),
+        old.library.clone(),
+    );
+    let dir = old.tools_dir.clone();
+    app.update_config(|c| {
+        *c = cfg;
+        c.tools_dir = dir;
+    });
+    assert!(
+        !crate::services::ytdlp::installed(app),
+        "no tenía que haber yt-dlp"
+    );
+}
+
+#[test]
+fn without_yt_dlp_the_first_download_installs_it_and_then_downloads() {
+    let Some((app, log)) = ytdl() else { return };
+    without_yt_dlp(&app, fake_github);
+    // con ffmpeg ya se puede bajar: la página no dice que falte nada
+    let status = get(&app, "/api/youtube");
+    assert_eq!(
+        (&status["available"], &status["reason"], &status["version"]),
+        (&json!(true), &json!(""), &json!("")),
+        "{status}"
+    );
+    let mut steps = Vec::new();
+    let r = youtube::download(
+        &app,
+        "https://youtu.be/uno",
+        &Wanted::default(),
+        &mut |s| steps.push(s),
+        &|| false,
+    )
+    .expect("bajar");
+    assert!(r.len() == 1 && r[0]["ok"] == true, "{r:?}");
+    // primero instala, y lo cuenta; después baja
+    let phases: Vec<&str> = steps.iter().map(|s| text(s, "phase")).collect();
+    assert_eq!(phases.first(), Some(&"installing"), "{phases:?}");
+    assert!(phases.contains(&"downloading"), "{phases:?}");
+    // con el trabajo de «Actualizar yt-dlp» (el que mira la página de
+    // Descargas), que lo deja en la carpeta de datos
+    let job = app.jobs.snapshot(youtube::YTDLP_JOB).expect("el trabajo");
+    assert_eq!(
+        job["result"],
+        json!({"previous": "", "version": "2026.08.19", "updated": true}),
+        "{job}"
+    );
+    assert_eq!(crate::services::ytdlp::version(&app), "2026.08.19");
+    assert!(
+        crate::services::ytdlp::origin(&app).ends_with("2026.08.19"),
+        "{}",
+        crate::services::ytdlp::origin(&app)
+    );
+    // y la descarga la hizo el instalado
+    assert!(
+        std::fs::read_to_string(&log)
+            .expect("registro")
+            .lines()
+            .any(|l| l.contains("--output")),
+        "no llegó a bajar"
+    );
+}
+
+/// Sin red no se puede instalar: la descarga no se rechaza de entrada (antes,
+/// 503 «falta yt-dlp»), arranca, y acaba diciendo en castellano qué pasó.
+#[test]
+fn without_yt_dlp_and_without_network_the_download_says_why() {
+    let Some((app, log)) = ytdl() else { return };
+    // un «GitHub» que no contesta: el puerto 9 de este equipo
+    without_yt_dlp(&app, |_| "http://127.0.0.1:9/r".to_owned());
+    let (s, r) = call(
+        &app,
+        "POST",
+        "/api/youtube/download",
+        Some(json!({"query": "https://youtu.be/uno"})),
+    );
+    assert_eq!(s, 200, "{r}");
+    let st = until_done(&app);
+    let why = st["error"].as_str().unwrap_or_default();
+    // (sin internet de verdad, el porqué es «sin conexion a internet»; aquí,
+    // con el puerto cerrado, el de la conexión rechazada)
+    assert!(
+        why.starts_with(
+            "No se pudo instalar yt-dlp, lo que baja de YouTube: no se pudo consultar GitHub"
+        ) && why.ends_with("hace falta internet."),
+        "{st}"
+    );
+    assert_eq!(st["results"][0]["ok"], false, "{st}");
+    assert_eq!(
+        st["results"][0]["requested"], "https://youtu.be/uno",
+        "{st}"
+    );
+    assert!(!crate::services::ytdlp::installed(&app));
+    assert!(
+        !std::fs::read_to_string(&log)
+            .unwrap_or_default()
+            .contains("--output"),
+        "no tenía nada con qué bajar"
+    );
 }

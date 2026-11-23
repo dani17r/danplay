@@ -5,7 +5,7 @@
 //! Descargas y el asistente: una descarga a la vez y un solo sitio donde
 //! mirar cómo va.
 use crate::error::ApiError;
-use crate::jobs::{JobError, started};
+use crate::jobs::started;
 use crate::router::{Ctx, Reply, Route};
 use crate::services::{youtube, ytdlp};
 use crate::validate::Fields;
@@ -46,19 +46,11 @@ fn youtube_status(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     Ok(Value::Object(out).into())
 }
 
-/// Pone yt-dlp al día desde GitHub (trabajo «yt-dlp»); `result` es
-/// {previous, version, updated}.
+/// Pone yt-dlp al día desde GitHub (trabajo «yt-dlp»; sin ninguno, lo
+/// instala); `result` es {previous, version, updated}.
 fn youtube_update(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     ctx.check()?;
-    let app = ctx.app.clone();
-    let (snap, already) = ctx
-        .app
-        .jobs
-        .start("yt-dlp", "no se pudo actualizar yt-dlp", move |p| {
-            let step =
-                |n: i64, message: &str| p.update(Some(n.into()), Some(5.into()), Some(message));
-            ytdlp::update(&app, &step).map_err(|e| JobError::Expected(e.0))
-        });
+    let (snap, already) = youtube::start_ytdlp_job(ctx.app);
     Ok(started(snap, already).into())
 }
 

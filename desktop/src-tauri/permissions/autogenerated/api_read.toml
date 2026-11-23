@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-api-read"
+description = "Enables the api_read command without any pre-configured scope."
+commands.allow = ["api_read"]
+
+[[permission]]
+identifier = "deny-api-read"
+description = "Denies the api_read command without any pre-configured scope."
+commands.deny = ["api_read"]

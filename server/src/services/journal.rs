@@ -22,6 +22,7 @@ const IDLE: Duration = Duration::from_secs(600);
 
 #[derive(Debug, Default)]
 struct Inner {
+    /// la huella de lo último escrito (`journal::digest`)
     written: String,
     revision: Option<u64>,
     restored: bool,
@@ -63,10 +64,22 @@ fn uid(app: &App) -> Result<String, ApiError> {
 
 /// Lo que va en el diario.
 pub fn snapshot(app: &App) -> Result<Dict, ApiError> {
-    let roots = roots(app)?;
-    let uid = uid(app)?;
+    Ok(snapshot_and_roots(app)?.0)
+}
+
+/// Lo que va en el diario y las carpetas que existen (dónde va), con una
+/// sola conexión: eran cuatro por cada vez que se escribía.
+fn snapshot_and_roots(app: &App) -> Result<(Dict, Vec<String>), ApiError> {
     let name = format!("DanPlay {VERSION}");
-    app.db(|c| journal::snapshot(c, &name, &uid, &roots))
+    app.db(|c| {
+        let roots: Vec<String> = library::index::folders::roots(c)?
+            .into_iter()
+            .filter(|r| std::path::Path::new(r).is_dir())
+            .collect();
+        let uid = journal::uid(c)?;
+        let data = journal::snapshot(c, &name, &uid, &roots)?;
+        Ok::<_, library::rusqlite::Error>((data, roots))
+    })
 }
 
 fn targets(app: &App) -> Result<Vec<PathBuf>, ApiError> {
@@ -74,22 +87,25 @@ fn targets(app: &App) -> Result<Vec<PathBuf>, ApiError> {
 }
 
 /// Escribe el diario donde toca (si cambió). En cuántos sitios.
+///
+/// De lo último escrito se recuerda su huella (`journal::digest`), no el
+/// texto entero: con 20 000 canciones eran decenas de MB guardados.
 pub fn write(app: &App) -> Result<usize, ApiError> {
-    let data = snapshot(app)?;
-    let body = journal::body(&data);
-    if app.journal.with(|s| s.written == body) {
+    let (data, roots) = snapshot_and_roots(app)?;
+    let digest = journal::digest(&data);
+    if app.journal.with(|s| s.written == digest) {
         return Ok(0);
     }
     let text = journal::text(&data);
     let mut n = 0;
-    for p in targets(app)? {
+    for p in journal::targets(&app.config().data_dir, &roots) {
         if journal::write_to(&p, &text) {
             n += 1;
         } else {
             log::info!("no se pudo escribir el diario en {}", p.display());
         }
     }
-    app.journal.with(|s| s.written = body);
+    app.journal.with(|s| s.written = digest);
     Ok(n)
 }
 

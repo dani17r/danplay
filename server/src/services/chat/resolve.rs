@@ -299,7 +299,7 @@ fn resolve_items_within(
                 }
             }
             let note = item.get("note").filter(|v| value::truthy(v));
-            let hints: Vec<String> = note.map(|v| vec![value::str_of(v)]).unwrap_or_default();
+            let hints: Vec<String> = note.map_or_default(|v| vec![value::str_of(v)]);
             let mut res = matched(&index, item, &hints, "", &prefer, 5, strict, n)?;
             if given && res.note.is_empty() {
                 "ese id no existe; se buscó por el título".clone_into(&mut res.note);

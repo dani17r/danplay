@@ -1020,6 +1020,52 @@ describe('what is saved goes to its song', () => {
     w.unmount()
   })
 
+  it('a study whose file the core writes later is no warning, and leaving the song or the study writes it', async () => {
+    // el núcleo escribe la etiqueta del estudio unos segundos después del
+    // último cambio (`tags_pending`): eso no es «solo en DanPlay», aunque la
+    // respuesta traiga además un motivo. Al dejar la canción o el estudio,
+    // se le pide que la escriba ya (`flushStudy`)
+    vi.useFakeTimers()
+    const { useNotices } = await import('../src/composables/useNotices.js')
+    const { notices, clearNotices } = useNotices()
+    clearNotices()
+    const only = (n) => n.message.includes('se guarda solo en DanPlay')
+    held.state.songs = [...held.state.songs, song(8, { title: 'Otra', study: '' })]
+    const w = await mountView()
+    held.api.setStudy.mockResolvedValue({
+      id: 7,
+      tags_written: false,
+      tags_pending: true,
+      tags_skipped: 'failed'
+    })
+    await w.find('textarea').setValue('uno')
+    await vi.advanceTimersByTimeAsync(700)
+    expect(held.api.setStudy).toHaveBeenCalledTimes(1)
+    expect(notices.value.filter(only)).toEqual([])
+    expect(held.api.flushStudy, 'mientras se edita, no').not.toHaveBeenCalled()
+    // otra canción: lo de la anterior, a su archivo, tras guardarlo
+    await w.find('textarea').setValue('dos')
+    held.playback.emit({
+      track: { id: 8, title: 'Otra', artist: 'Barak', duration: 100 },
+      path: '/musica/otra.mp3',
+      position: 0
+    })
+    await flushPromises()
+    await flushPromises()
+    expect(held.api.setStudy).toHaveBeenLastCalledWith(7, { notes: 'dos' })
+    expect(held.api.flushStudy).toHaveBeenCalledTimes(1)
+    expect(held.api.flushStudy.mock.invocationCallOrder[0]).toBeGreaterThan(
+      held.api.setStudy.mock.invocationCallOrder.at(-1)
+    )
+    // y al ocultar el estudio, otra vez
+    await button(w, 'Ocultar').trigger('click')
+    await flushPromises()
+    expect(held.api.flushStudy).toHaveBeenCalledTimes(2)
+    expect(notices.value.filter(only)).toEqual([])
+    vi.useRealTimers()
+    w.unmount()
+  })
+
   it('hiding it saves pending changes without waiting', async () => {
     vi.useFakeTimers()
     const w = await mountView()

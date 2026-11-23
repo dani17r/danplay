@@ -725,6 +725,34 @@ fn reorder_does_not_add_what_the_playlist_lacks() {
     assert_eq!(order(&app, lid), [b, a]);
 }
 
+// ---------------------------------------------------------------- m3u
+
+/// Un salto de línea en una etiqueta no añade líneas al `.m3u8`: lo de
+/// detrás se leía como otra canción (o como otra directiva).
+#[test]
+fn a_line_break_in_a_tag_does_not_add_lines_to_the_m3u() {
+    let app = crate::tests::app();
+    let s = make_songs(&app, 2);
+    app.db(|c| {
+        c.execute(
+            "UPDATE songs SET artist=?, title=? WHERE id=?",
+            library::rusqlite::params!["A\r\nB", "Uno\n#EXTINF:1,x\n/etc/passwd", s[0]],
+        )
+    })
+    .expect("etiquetas");
+    let lid = new_list(&app, "domingo");
+    add(&app, lid, &s).expect("añadir");
+    let file = export_m3u(&app, lid, None).expect("m3u");
+    let text = std::fs::read_to_string(file).expect("m3u");
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(lines.len(), 5, "{text}");
+    assert_eq!(lines[1], "#EXTINF:0,A  B - Uno #EXTINF:1,x /etc/passwd");
+    let first: String = app
+        .db(|c| c.query_row("SELECT file FROM songs WHERE id=?", [s[0]], |r| r.get(0)))
+        .expect("archivo");
+    assert!(lines[2].ends_with(&first), "{text}");
+}
+
 // ---------------------------------------------------------------- set_songs
 
 fn counts(r: &Dict) -> Value {

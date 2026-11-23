@@ -29,6 +29,43 @@ pub use declared::declared;
 /// devuelven lo que IBAN a hacer y quien decide es la persona.
 pub const NEEDS_CONFIRMATION: [&str; 3] = ["delete_song", "delete_playlist", "download_music"];
 
+/// Las que traen al turno texto de fuera (páginas, títulos de YouTube,
+/// letras, cifrados), que puede llevar órdenes dentro.
+pub const READS_OUTSIDE: [&str; 5] = [
+    "search_web",
+    "search_youtube",
+    "get_lyrics",
+    "get_chords",
+    "find_lyrics_and_cover",
+];
+
+/// Las que cambian la biblioteca sin más y, si en el mismo turno ya se leyó
+/// texto de fuera (`READS_OUTSIDE`), también piden el visto bueno: un
+/// resultado de búsqueda con una orden dentro podía dejar el repertorio del
+/// domingo con una sola canción o cambiar el artista de ocho.
+pub const CONFIRM_AFTER_OUTSIDE: [&str; 4] = [
+    "set_playlist_songs",
+    "remove_from_playlist",
+    "rename_playlist",
+    "edit_song",
+];
+
+/// Si `name` con esos argumentos pide permiso tras leer texto de fuera. De
+/// `edit_song`, no lo que solo pone estrellas o favorito (se deshace con un
+/// clic y no toca las etiquetas).
+pub fn asks_after_outside(name: &str, args: &Value) -> bool {
+    if !CONFIRM_AFTER_OUTSIDE.contains(&name) {
+        return false;
+    }
+    name != "edit_song"
+        || args.as_object().is_some_and(|a| {
+            EDITABLE_BY_ASSISTANT.iter().any(|k| {
+                let v = get(a, k);
+                !v.is_null() && *v != json!("")
+            })
+        })
+}
+
 /// Cuántas herramientas puede encadenar en un turno.
 pub const MAX_TOOL_CALLS: usize = 8;
 

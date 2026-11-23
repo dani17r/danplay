@@ -8,9 +8,10 @@
 
    Lo que solo usa una parte va con ella y no aquí: el modo estudio
    (study.css, con StudyBar.vue), el asistente (chat.css, con ChatPage.vue),
-   la ventanita de la bandeja (mini.css, con MiniPlayer.vue) y la proyección
-   (projection.css, con Projection.vue). Cada una se carga con su trozo del
-   paquete, cuando hace falta (ver islands.js). */
+   la ventanita de la bandeja (mini.css, con MiniPlayer.vue), la proyección
+   (projection.css, con Projection.vue) y el recorrido del estudio (tour.css,
+   con useStudyTour.js). Cada una se carga con su trozo del paquete, cuando
+   hace falta (ver islands.js). */
 @import url('./base.css');
 @import url('./list-rows.css');
 @import url('./list-cards.css');
@@ -25,5 +26,4 @@
 @import url('./ai.css');
 @import url('./tidy.css');
 @import url('./about.css');
-@import url('./tour.css');
 @import url('./motion.css');

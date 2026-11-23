@@ -125,7 +125,7 @@ pub fn convert(
             .iter()
             .map(OsString::from)
             .collect();
-        args.push(path.as_os_str().to_owned());
+        args.push(crate::processes::ffmpeg_input(path));
         args.extend(["-map", "0:a"].map(OsString::from));
         if with_cover {
             args.extend(["-map", "0:v?", "-c:v", "copy"].map(OsString::from));
@@ -401,7 +401,7 @@ pub fn shrink_image(
     let mut args: Vec<OsString> = ["-hide_banner", "-loglevel", "error", "-y", "-i"]
         .map(OsString::from)
         .to_vec();
-    args.push(path.as_os_str().to_owned());
+    args.push(crate::processes::ffmpeg_input(path));
     args.push("-vf".into());
     args.push(format!("scale='min({side},iw)':-2").into());
     args.extend(["-q:v", "3"].map(OsString::from));

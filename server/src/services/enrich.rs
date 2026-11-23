@@ -193,7 +193,7 @@ impl Outside for Here<'_> {
     type Error = Trouble;
 
     fn log(&mut self, level: Level, message: &str, error: Option<&Trouble>) {
-        let why = error.map(|t| format!(": {t}")).unwrap_or_default();
+        let why = error.map_or_default(|t| format!(": {t}"));
         match level {
             Level::Debug => log::debug!("enriquecer: {message}{why}"),
             Level::Warning => log::warn!("enriquecer: {message}{why}"),

@@ -272,11 +272,16 @@ impl Chat for ServerChat<'_, '_> {
         let list: Vec<Value> = calls
             .iter()
             .map(|c| {
-                json!({
+                let mut call = json!({
                     "id": c.id,
                     "type": "function",
                     "function": {"name": c.name, "arguments": c.arguments},
-                })
+                });
+                // lo que mandó el modelo con la llamada, tal cual (ver `Call::extra`)
+                if let (Some(extra), Some(obj)) = (&c.extra, call.as_object_mut()) {
+                    obj.insert("extra_content".into(), extra.clone());
+                }
+                call
             })
             .collect();
         self.history
@@ -338,6 +343,7 @@ impl Chat for ServerChat<'_, '_> {
                     id: c.get("id").cloned().unwrap_or(Value::Null),
                     name: function.get("name").cloned().unwrap_or(Value::Null),
                     arguments: function.get("arguments").cloned().unwrap_or(Value::Null),
+                    extra: c.get("extra_content").filter(|x| !x.is_null()).cloned(),
                 });
             }
         }
@@ -394,6 +400,7 @@ impl Chat for ServerChat<'_, '_> {
             id: id.into(),
             name: name.into(),
             arguments: arguments.into(),
+            extra: None,
         })
     }
 
@@ -615,21 +622,21 @@ pub fn ask(
                 "trimmed": checked.get("dropped").cloned().unwrap_or(json!(0)),
             });
             let mut asked = plan::register(app, name, &clean, &spec, &Value::Null, turn.chat_id)?;
-            let summary = asked.get("summary").map(value::str_of).unwrap_or_default();
+            let summary = asked.get("summary").map_or_default(value::str_of);
             // compatibilidad: una interfaz de antes confirma con {tool, args}
             asked.insert("args".into(), clean);
             Ok((asked, summary))
         } else {
             let mut asked =
                 plan::register(app, name, args, &Value::Null, &Value::Null, turn.chat_id)?;
-            let summary = asked.get("summary").map(value::str_of).unwrap_or_default();
+            let summary = asked.get("summary").map_or_default(value::str_of);
             asked.insert("args".into(), args.clone());
             Ok((asked, summary))
         }
     })();
     let brief_of = |a: &Value| {
         json!({
-            "item": text::head(&a.get("item").map(value::str_of).unwrap_or_default(), 80),
+            "item": text::head(&a.get("item").map_or_default(value::str_of), 80),
             "song": tools::song_brief(a.get("song").unwrap_or(&Value::Null)),
         })
     };

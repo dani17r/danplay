@@ -31,7 +31,7 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Condvar, Mutex, PoisonError};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// Lo que el motor lee tal cual, empezando en la muestra exacta.
 const NATIVE: &[&str] = &["mp3", "ogg", "oga", "flac", "wav", "wave", "aif", "aiff", "aifc"];
@@ -334,6 +334,26 @@ fn touch(file: &Path) {
     }
 }
 
+/// Lo que se marca como usado se vuelve a marcar pasado esto, no antes.
+const MARKED_FOR: Duration = Duration::from_hours(1);
+
+/// Un convertido que va a sonar, como usado ahora (`touch`): si no, la caché
+/// tiraba primero lo que se convirtió primero, aunque sonara a diario, y la
+/// vez siguiente había que esperar a ffmpeg. La fecha de uso es la de
+/// modificación: la de acceso no sirve (con `noatime`, o en NTFS con el
+/// último acceso apagado, es la de creación). Solo si la marca es de hace
+/// más de una hora: cada vez que suena no se escribe en el disco.
+pub fn mark_used(file: &Path) {
+    let stale = std::fs::metadata(file)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| SystemTime::now().duration_since(t).ok())
+        .is_some_and(|age| age > MARKED_FOR);
+    if stale {
+        touch(file);
+    }
+}
+
 fn convert(dir: &Path, path: &Path) -> Result<PathBuf, String> {
     let ffmpeg = tools::ffmpeg().ok_or_else(|| {
         let ext = extension_of(path);
@@ -423,6 +443,11 @@ fn notes_in(dir: &Path) -> impl Iterator<Item = (PathBuf, Seen)> {
 /// apuntes de lo que ya no esta, y los convertidos con el nombre de antes
 /// (`<16 cifras>.flac`: por ruta, tamaño y fecha, que ya nadie encuentra).
 fn prune(dir: &Path) {
+    prune_over(dir, CACHE_LIMIT);
+}
+
+/// `prune` con el tope que se diga (las pruebas no escriben 3 GB).
+fn prune_over(dir: &Path, limit: u64) {
     let Ok(entries) = std::fs::read_dir(dir) else {
         return;
     };
@@ -438,14 +463,15 @@ fn prune(dir: &Path) {
             continue;
         }
         let Ok(meta) = entry.metadata() else { continue };
-        if let Ok(used) = meta.accessed().or_else(|_| meta.modified()) {
+        // cuándo sonó por última vez (`mark_used`)
+        if let Ok(used) = meta.modified() {
             files.push((used, meta.len(), path));
         }
     }
     let mut total: u64 = files.iter().map(|f| f.1).sum();
     files.sort_by_key(|f| f.0);
     for (_, size, path) in files {
-        if total <= CACHE_LIMIT {
+        if total <= limit {
             break;
         }
         if std::fs::remove_file(&path).is_ok() {
@@ -769,6 +795,60 @@ mod tests {
         std::fs::write(&new, b"x").unwrap();
         prune(&dir);
         assert!(!old.exists() && new.is_file());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Las fechas de un archivo, puestas a mano: hace `accessed` y `modified`.
+    fn dated(file: &Path, accessed: Duration, modified: Duration) {
+        let now = SystemTime::now();
+        let times = std::fs::FileTimes::new()
+            .set_accessed(now - accessed)
+            .set_modified(now - modified);
+        std::fs::File::options()
+            .write(true)
+            .open(file)
+            .and_then(|f| f.set_times(times))
+            .expect("fechas");
+    }
+
+    /// Pasado el tope, se va lo que lleva más tiempo sin sonar, no lo que se
+    /// convirtió primero. La fecha de acceso de cada uno es la de cuando se
+    /// hizo, como queda con `noatime` (o en NTFS con el último acceso
+    /// apagado): con ella se iba el que suena a diario.
+    #[test]
+    fn over_the_limit_what_has_not_played_for_longest_goes() {
+        let dir = scratch("prune-used");
+        let days = |n: u64| Duration::from_secs(n * 24 * 60 * 60);
+        // (hecho hace, sonó hace): el primero que se hizo suena a diario
+        for (name, made, played) in [("a", 30, 0), ("b", 20, 7), ("c", 10, 1)] {
+            let file = dir.join(format!("{name}.flac"));
+            std::fs::write(&file, [0u8; 10]).unwrap();
+            dated(&file, days(made), days(played));
+        }
+        prune_over(&dir, 25);
+        assert_eq!(flacs_in(&dir), vec![dir.join("a.flac"), dir.join("c.flac")]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Lo que suena se marca como usado, pero sin escribir en el disco cada
+    /// vez que suena: solo si la marca es de hace más de una hora.
+    #[test]
+    fn what_plays_is_marked_as_used_at_most_once_an_hour() {
+        let dir = scratch("mark-used");
+        let file = dir.join("a.flac");
+        std::fs::write(&file, b"x").unwrap();
+        let modified = || std::fs::metadata(&file).unwrap().modified().unwrap();
+        let minutes = |n: u64| Duration::from_secs(n * 60);
+        dated(&file, minutes(10), minutes(10));
+        let before = modified();
+        mark_used(&file);
+        assert_eq!(modified(), before, "se escribió sin hacer falta");
+        dated(&file, minutes(90), minutes(90));
+        mark_used(&file);
+        let age = SystemTime::now().duration_since(modified()).unwrap_or_default();
+        assert!(age < minutes(1), "no se marcó: de hace {age:?}");
+        // sin archivo, nada
+        mark_used(&dir.join("no-esta.flac"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -164,8 +164,7 @@ pub fn info(song: &Dict, library: &str) -> Option<Dict> {
     for t in manifest
         .get("tracks")
         .filter(|v| value::truthy(v))
-        .map(value::list_of)
-        .unwrap_or_default()
+        .map_or_default(value::list_of)
     {
         let get = |k: &str| t.get(k).cloned().unwrap_or(Value::Null);
         let file = t
@@ -209,8 +208,7 @@ pub fn info(song: &Dict, library: &str) -> Option<Dict> {
     let dropped: Vec<Value> = manifest
         .get("dropped")
         .filter(|v| value::truthy(v))
-        .map(value::list_of)
-        .unwrap_or_default()
+        .map_or_default(value::list_of)
         .into_iter()
         .filter(|s| s.as_str().is_some_and(is_source_name))
         .collect();
@@ -576,8 +574,7 @@ pub fn stem_paths(conn: &Connection) -> rusqlite::Result<Vec<String>> {
         for t in manifest
             .get("tracks")
             .filter(|v| value::truthy(v))
-            .map(value::list_of)
-            .unwrap_or_default()
+            .map_or_default(value::list_of)
         {
             if let Some(file) = t.get("file") {
                 let p = paths::clean(&paths::join(&folder, &value::str_of(file)));

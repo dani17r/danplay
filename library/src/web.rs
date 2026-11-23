@@ -133,8 +133,7 @@ pub fn parse(page: &str, limit: Option<i64>) -> Vec<Outcome> {
             url: unwrap_url(group(page, g, 1)),
             summary: snippets
                 .get(i)
-                .map(|s| plain_text(group(page, s, 1)).chars().take(400).collect())
-                .unwrap_or_default(),
+                .map_or_default(|s| plain_text(group(page, s, 1)).chars().take(400).collect()),
         })
         .collect()
 }
@@ -194,6 +193,27 @@ mod tests {
         assert!(search("  ", Some(5), |_: &str| Ok::<_, ()>(PAGE.to_string())).is_empty());
         assert!(search("x", Some(5), |_: &str| Err(())).is_empty());
         assert_eq!(parse(PAGE, Some(-1)).len(), 1);
+    }
+
+    /// La página de la búsqueda llega de fuera: hecha para hacer retroceder
+    /// sus expresiones (aperturas sin cierre, atributos sin comillas de
+    /// cierre), se lee en lo que se tarda en recorrerla.
+    #[test]
+    fn a_hostile_results_page_is_read_within_a_time_limit() {
+        let mb = 8 * 1024 * 1024;
+        let fill = |unit: &str| unit.repeat(mb / unit.len());
+        for page in [
+            fill(r#"<a class="result-link" href="x">"#),
+            fill(r#"<a class="result-link"#),
+            fill(r#"<a b class="result__a" href=""#),
+            fill(r#"class="result-snippet">"#),
+            fill(r#"<a class="result-link" href="u">t</a><td class="result-snippet">s</td>"#),
+        ] {
+            let start = std::time::Instant::now();
+            let _ = parse(&page, Some(10));
+            let took = start.elapsed();
+            assert!(took.as_secs_f64() < 5.0, "{took:?} con {:?}…", &page[..30]);
+        }
     }
 
     #[test]

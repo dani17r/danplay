@@ -5,7 +5,8 @@
 #   - lo de data/: el detector de pulso (pulse/), los grafos del
 #     separador (separator/), el catálogo de voces (voices.json) y la foto del
 #     catálogo de modelos de IA (models-snapshot.json, la del repositorio: la
-#     de hoy la saca la propia app con --models-snapshot una vez compilada);
+#     saca al día scripts/bump-version.sh al subir la versión, y así es la
+#     misma en todos los paquetes);
 #   - ONNX Runtime, la biblioteca oficial de github.com/microsoft/onnxruntime
 #     para este sistema, con su licencia: la cargan el pulso, el separador y
 #     las voces. Antes salía del paquete de Python `onnxruntime`, dentro del

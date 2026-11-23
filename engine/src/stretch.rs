@@ -355,6 +355,41 @@ mod tests {
         }
     }
 
+    /// Un banco (no de la CI): lo que cuesta estirar, en milisegundos de
+    /// calculo por segundo de audio, y una huella de lo que sale (para ver que
+    /// otra forma de compilar el C++ no cambia ni un bit).
+    #[test]
+    #[ignore = "banco de desarrollo: lo que cuesta estirar"]
+    fn what_stretching_costs() {
+        use std::time::Instant;
+        let input = voice(110.0, 44_100 * 10);
+        for (speed, semitones) in [(0.8f64, 0.0f32), (1.0, 4.0)] {
+            let mut best = f64::INFINITY;
+            let mut print = 0u64;
+            for _ in 0..5 {
+                let mut s = Stretch::new(44_100);
+                s.set_pitch(semitones);
+                let mut input = input.clone();
+                let mut out = vec![0f32; (input.len() as f64 / speed) as usize / 2 * 2];
+                let t = Instant::now();
+                for (i, o) in input
+                    .chunks_mut(512)
+                    .zip(out.chunks_mut(((512.0 / speed) as usize) / 2 * 2))
+                {
+                    s.process(i, o);
+                }
+                best = best.min(t.elapsed().as_secs_f64() / 10.0);
+                print = out.iter().fold(0xcbf2_9ce4_8422_2325, |h, v| {
+                    (h ^ u64::from(v.to_bits())).wrapping_mul(0x0100_0000_01b3)
+                });
+            }
+            println!(
+                "a {speed}x y {semitones:+} semitonos: {:.2} ms por segundo de audio, huella {print:016x}",
+                best * 1e3
+            );
+        }
+    }
+
     #[test]
     fn keeping_the_formants_costs_a_little_more_only_when_the_pitch_moves() {
         // medido, para quien lo pregunte: segundos de calculo por segundo de

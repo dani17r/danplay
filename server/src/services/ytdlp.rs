@@ -209,8 +209,13 @@ pub fn bundled_version(app: &App) -> String {
 pub fn marked(app: &App) -> Option<(String, PathBuf)> {
     let root = root(app);
     let version = y::marked_version(&root).ok().flatten()?;
+    // la marca es un archivo en disco: con «../» dentro nombraría (y luego
+    // `discard` borraría) una carpeta fuera de las versiones
+    if !y::valid_tag(&version) {
+        return None;
+    }
     let folder = root.join(&version);
-    (!version.is_empty() && folder.join(EXE).is_file()).then_some((version, folder))
+    folder.join(EXE).is_file().then_some((version, folder))
 }
 
 /// La descargada que toca usar: la que dice `current`, si está entera y es
@@ -296,12 +301,12 @@ pub fn installed(app: &App) -> bool {
 
 /// La versión que se está usando, o "".
 pub fn version(app: &App) -> String {
-    executable(app).map(|e| e.version).unwrap_or_default()
+    executable(app).map_or_default(|e| e.version)
 }
 
 /// De dónde sale el yt-dlp en uso ("" si es el de la app).
 pub fn origin(app: &App) -> String {
-    executable(app).map(|e| e.origin).unwrap_or_default()
+    executable(app).map_or_default(|e| e.origin)
 }
 
 // ------------------------------------------------------------ motor de JS
@@ -536,9 +541,8 @@ pub fn progress_step(status: &Map<String, Value>) -> Option<Map<String, Value>> 
                 _ => json!(0),
             };
             let percent = if percent.is_null() { json!(0) } else { percent };
-            let filename = first_truthy(status, &["filename"])
-                .map(library::value::str_of)
-                .unwrap_or_default();
+            let filename =
+                first_truthy(status, &["filename"]).map_or_default(library::value::str_of);
             Some(library::youtube::downloading(percent, &filename))
         }
         Some("finished") => Some(library::youtube::converting()),
@@ -983,11 +987,15 @@ pub fn update(app: &App, progress: &dyn Fn(i64, &str)) -> Result<Value, UpdateEr
     let latest = release
         .get("tag_name")
         .and_then(Value::as_str)
-        .map(str::trim)
-        .unwrap_or_default()
+        .map_or_default(str::trim)
         .to_owned();
     if latest.is_empty() {
         return fail("GitHub no dice cual es la ultima version de yt-dlp");
+    }
+    // va a ser el nombre de una carpeta que se borra y se reemplaza: con
+    // «../» dentro sería una de fuera
+    if !y::valid_tag(&latest) {
+        return fail("GitHub dice una versión de yt-dlp que no se entiende");
     }
     if !previous.is_empty() && y::version_tuple(&latest) <= y::version_tuple(&previous) {
         return Ok(json!({"previous": previous, "version": previous, "updated": false}));

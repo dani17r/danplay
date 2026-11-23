@@ -113,6 +113,10 @@ pub struct Core {
     app: server::App,
     /// La app se esta cerrando: la vigilancia ya no pregunta ni avisa.
     stopping: AtomicBool,
+    /// La interfaz ya tuvo una respuesta buena del nucleo (`api`): ya cargo
+    /// todo con ella, y avisarle de que el nucleo esta listo la hacia
+    /// cargarlo todo otra vez (ver `ready_without_telling`).
+    served: AtomicBool,
 }
 
 /// Cuanto se espera una respuesta del nucleo.
@@ -212,11 +216,16 @@ impl Core {
             address: Address::InProcess(app.clone()),
             app,
             stopping: AtomicBool::new(false),
+            served: AtomicBool::new(false),
         }
     }
 
     fn stopping(&self) -> bool {
         self.stopping.load(Ordering::SeqCst)
+    }
+
+    fn served(&self) -> bool {
+        self.served.load(Ordering::SeqCst)
     }
 
     /// El nucleo contesta.
@@ -260,6 +269,14 @@ fn health_due(was_ready: bool, since_last: Duration) -> bool {
     !was_ready || since_last >= HEALTH_EVERY
 }
 
+/// Si el nucleo se da por listo sin avisar a la interfaz (`READY`): ella ya
+/// tuvo una respuesta buena suya (`served`), asi que cargo todo con ella. El
+/// aviso de los dos segundos le hacia pedir otra vez el estado, la Entrada,
+/// la lista entera y los repertorios.
+fn ready_without_telling(was_ready: bool, served: bool) -> bool {
+    !was_ready && served
+}
+
 /// Si hay que avisar de un cambio. La primera lectura fija el punto de
 /// partida: al arrancar, la interfaz ya carga todo por su cuenta. Salvo que
 /// el nucleo ya haya cambiado algo nada mas levantarse (apartar las
@@ -271,6 +288,9 @@ fn changed_since(seen: Option<u64>, now: u64) -> bool {
 
 /// Mira el nucleo en segundo plano y avisa a la interfaz: `READY` cuando
 /// contesta (o deja de hacerlo) y `CHANGED` cuando cambia su `revision`.
+///
+/// La primera vuelta es al momento y la espera va al final: un nucleo que
+/// tarda en contestar se anuncia en cuanto contesta, no a los dos segundos.
 pub fn watch(app: AppHandle) {
     std::thread::Builder::new()
         .name("danplay-core-watch".into())
@@ -279,12 +299,19 @@ pub fn watch(app: AppHandle) {
             let mut seen: Option<u64> = None;
             let mut asked = Instant::now();
             loop {
-                std::thread::sleep(WATCH_EVERY);
                 let Some(core) = app.try_state::<Core>() else {
                     return;
                 };
                 if core.stopping() {
                     return;
+                }
+                if ready_without_telling(was_ready, core.served()) {
+                    was_ready = true;
+                    asked = Instant::now();
+                    log::info!("el nucleo contesta");
+                    // lo mismo que tras el aviso: la cola restaurada pregunta
+                    // ya por lo que no se sabia donde estaba
+                    prune_queue(&app);
                 }
                 if health_due(was_ready, asked.elapsed()) {
                     asked = Instant::now();
@@ -315,6 +342,7 @@ pub fn watch(app: AppHandle) {
                     }
                     seen = Some(revision);
                 }
+                std::thread::sleep(WATCH_EVERY);
             }
         })
         .ok();
@@ -348,11 +376,43 @@ pub async fn api(
         return Err("ruta no permitida".into());
     }
     let (code, bytes, _) = request(&state.address, &method, &path, body).await?;
-    let text = String::from_utf8_lossy(&bytes).to_string();
+    let text = body_text(bytes);
+    if code >= 400 {
+        return Err(format!("{code}: {text}"));
+    }
+    state.served.store(true, Ordering::SeqCst);
+    Ok(text)
+}
+
+/// El puente de solo lectura, el de la ventana de proyeccion: solo lee la
+/// ficha de lo que suena (la letra). Con `api` tenia el nucleo entero
+/// (borrar, cambiar etiquetas, descargar) para algo que solo lee.
+#[tauri::command]
+pub async fn api_read(state: tauri::State<'_, Core>, method: String, path: String) -> Result<String, String> {
+    read(&state.address, &method, &path).await
+}
+
+/// Lo de `api_read`: un `GET` a /api/ y nada mas.
+async fn read(address: &Address, method: &str, path: &str) -> Result<String, String> {
+    if method != "GET" {
+        return Err("metodo no permitido".into());
+    }
+    if !path.starts_with("/api/") {
+        return Err("ruta no permitida".into());
+    }
+    let (code, bytes, _) = request(address, "GET", path, None).await?;
+    let text = body_text(bytes);
     if code >= 400 {
         return Err(format!("{code}: {text}"));
     }
     Ok(text)
+}
+
+/// El cuerpo de una respuesta como texto, sin copiarlo si ya es UTF-8 (lo
+/// normal: la lista entera de una biblioteca grande son megas); si no, con
+/// «�» donde no lo es.
+fn body_text(bytes: Vec<u8>) -> String {
+    String::from_utf8(bytes).unwrap_or_else(|e| String::from_utf8_lossy(e.as_bytes()).into_owned())
 }
 
 #[tauri::command]
@@ -395,6 +455,26 @@ mod tests {
         assert!(!health_due(true, WATCH_EVERY));
         assert!(!health_due(true, Duration::from_secs(29)));
         assert!(health_due(true, HEALTH_EVERY));
+    }
+
+    #[test]
+    fn once_the_interface_has_an_answer_the_core_is_ready_without_telling_it() {
+        // la interfaz ya cargo con su respuesta: el aviso le haria cargarlo
+        // todo otra vez (estado, Entrada, lista entera, repertorios)
+        assert!(ready_without_telling(false, true));
+        // sin respuesta suya, se le avisa como siempre (`health_due`)
+        assert!(!ready_without_telling(false, false));
+        // y una vez listo, nada que decidir
+        assert!(!ready_without_telling(true, true));
+        assert!(!ready_without_telling(true, false));
+    }
+
+    /// Un cuerpo que no es UTF-8 llega igual, con «�» donde no lo es; el que
+    /// si lo es, tal cual.
+    #[test]
+    fn a_body_comes_as_text_even_if_it_is_not_utf8() {
+        assert_eq!(body_text("canción".as_bytes().to_vec()), "canción");
+        assert_eq!(body_text(b"can\xffci\xf3n".to_vec()), "can\u{fffd}ci\u{fffd}n");
     }
 
     #[test]
@@ -491,6 +571,34 @@ mod tests {
         assert_eq!(bytes, br#"{"detail":"no hay nada que cambiar"}"#);
         let (code, _, _) = ask("GET", "/api/search?limit=0", None).expect("respuesta");
         assert_eq!(code, 422);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// El puente de la proyeccion solo lee: un `POST` (o cualquier otra cosa
+    /// que no sea `GET`) no llega al nucleo, ni nada fuera de /api/.
+    #[test]
+    fn the_read_only_bridge_refuses_to_write() {
+        let dir = std::env::temp_dir().join(format!("danplay-app-read-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let cfg = server::Config::isolated(dir.join("data"), dir.join("config"), dir.join("Musica"));
+        let address = Address::InProcess(server::App::new(cfg, server::Guard::default()));
+        let ask = |method: &str, path: &str| tauri::async_runtime::block_on(read(&address, method, path));
+        for method in ["POST", "PUT", "PATCH", "DELETE", "get"] {
+            assert_eq!(
+                ask(method, "/api/playlists"),
+                Err("metodo no permitido".into()),
+                "{method}"
+            );
+        }
+        assert_eq!(ask("GET", "/docs"), Err("ruta no permitida".into()));
+        let status: serde_json::Value =
+            serde_json::from_str(&ask("GET", "/api/status").expect("estado")).expect("json");
+        assert_eq!(status["rust"], true);
+        assert!(
+            ask("GET", "/api/song/999999")
+                .expect_err("no existe")
+                .starts_with("404: ")
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -88,6 +88,40 @@ describe('browser requests', () => {
   })
 })
 
+describe('the full song card', () => {
+  it('asked for twice at once, a single request; each one gets its own copy', async () => {
+    let answer
+    respond(() => new Promise((r) => (answer = r)))
+    const a = api.song(5)
+    const b = api.song(5)
+    expect(calls).toHaveLength(1)
+    answer({ body: { id: 5, title: 'Mi Gozo' } })
+    const [x, y] = await Promise.all([a, b])
+    expect(x).toEqual({ id: 5, title: 'Mi Gozo' })
+    expect(y).toEqual(x)
+    expect(y).not.toBe(x)
+    // ya llegó: la siguiente vuelve a preguntar
+    respond(() => ({ body: { id: 5, title: 'Mi Gozo (en vivo)' } }))
+    expect((await api.song(5)).title).toBe('Mi Gozo (en vivo)')
+    expect(calls).toHaveLength(2)
+  })
+
+  it('a change in between: whoever asks after it does not get the card from before', async () => {
+    const answers = []
+    respond((url, init) =>
+      init.method === 'GET' ? new Promise((r) => answers.push(r)) : { body: {} }
+    )
+    const before = api.song(5)
+    await api.setStars(5, 4)
+    const after = api.song(5)
+    expect(calls.map((c) => c.method)).toEqual(['GET', 'POST', 'GET'])
+    answers[0]({ body: { id: 5, stars: 0 } })
+    answers[1]({ body: { id: 5, stars: 4 } })
+    expect((await before).stars).toBe(0)
+    expect((await after).stars).toBe(4)
+  })
+})
+
 describe('long-running jobs (runJob)', () => {
   const job = (extra) => ({
     name: 'scan',
@@ -225,6 +259,7 @@ describe('what each method requests from the core', () => {
     saveSettings: [[{ quality: 'high' }], 'POST', '/api/settings', { quality: 'high' }],
     aiProviders: [[true], 'GET', '/api/ai/providers?refresh=1'],
     aiSaveProfile: [[ai], 'POST', '/api/ai/profile', ai],
+    aiKey: [['google'], 'GET', '/api/ai/profile/google/key'],
     aiDeleteProfile: [['custom-la iglesia'], 'DELETE', '/api/ai/profile/custom-la%20iglesia'],
     aiActivate: [['ollama'], 'POST', '/api/ai/activate', { id: 'ollama' }],
     aiUsage: [[], 'GET', '/api/ai/usage'],
@@ -287,6 +322,7 @@ describe('what each method requests from the core', () => {
     reorderPlaylist: [[3, [2, 1]], 'POST', '/api/playlists/3/order', { ids: [2, 1] }],
     setPlaylistSongs: [[3, [5, 1]], 'PUT', '/api/playlists/3/songs', { ids: [5, 1] }],
     setStudy: [[7, { notes: 'x' }], 'PUT', '/api/song/7/study', { notes: 'x' }],
+    flushStudy: [[], 'POST', '/api/study/flush'],
     waveform: [[7], 'GET', '/api/song/7/waveform?buckets=800'],
     waveformRange: [
       [7, 10, 20, 400],

@@ -19,8 +19,10 @@ import { ref, computed, watch, nextTick, onUnmounted, useTemplateRef } from 'vue
 import { api, app, errorMessage } from '../api.js'
 import { ask, useDialog } from '../composables/useDialog.js'
 import { useFocusTrap } from '../composables/useFocusTrap.js'
+import { notify } from '../composables/useNotices.js'
 import { formatAgo } from '../utils/format.js'
 import Icon from './Icon.vue'
+import CopyButton from './ui/CopyButton.vue'
 import TextField from './ui/TextField.vue'
 import Loading from './ui/Loading.vue'
 import ModelPicker from './ui/ModelPicker.vue'
@@ -193,6 +195,18 @@ const savedProfile = computed(() =>
   profileId.value ? data.value?.profiles?.[profileId.value] : null
 )
 const needsKey = computed(() => chosen.value?.key === 'required')
+// el ojito: la clave guardada se trae entera al verla (el listado la enseña
+// enmascarada); si ya hay algo escrito, se enseña eso
+const showKey = ref(false)
+async function toggleKey() {
+  showKey.value = !showKey.value
+  if (!showKey.value || form.value.key.trim() || !savedProfile.value?.has_key) return
+  try {
+    form.value.key = (await api.aiKey(profileId.value)).key || ''
+  } catch (e) {
+    notify(errorMessage(e))
+  }
+}
 const urlEditable = computed(
   () =>
     !!chosen.value &&
@@ -549,7 +563,7 @@ async function tryFree() {
             <div v-if="chosen.key !== 'none'" class="ai-key">
               <TextField
                 v-model="form.key"
-                type="password"
+                :type="showKey ? 'text' : 'password'"
                 width="100%"
                 :label="needsKey ? 'Clave de API' : 'Clave de API (si tu servidor la pide)'"
                 :placeholder="
@@ -558,6 +572,26 @@ async function tryFree() {
                     : 'pega aquí la clave'
                 "
               />
+              <div class="ai-key-tools">
+                <button
+                  type="button"
+                  class="btn mini icon-btn"
+                  :aria-label="showKey ? 'Ocultar la clave' : 'Ver la clave'"
+                  :aria-pressed="showKey ? 'true' : 'false'"
+                  :title="
+                    showKey ? 'Ocultar la clave' : 'Ver la clave, para comprobar lo que pegaste'
+                  "
+                  @click="toggleKey"
+                >
+                  <Icon :n="showKey ? 'eyeOff' : 'eye'" :t="14" />
+                </button>
+                <CopyButton
+                  v-if="form.key.trim()"
+                  :text="form.key.trim()"
+                  what="La clave"
+                  label="Copiar"
+                />
+              </div>
               <button
                 v-if="chosen.key_url"
                 class="btn mini ai-key-link"

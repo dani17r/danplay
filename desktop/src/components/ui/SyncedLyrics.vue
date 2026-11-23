@@ -18,15 +18,21 @@
 import { computed, watch, nextTick, onMounted, useTemplateRef } from 'vue'
 import { currentLine } from '../../utils/lrc.js'
 import { formatTime } from '../../utils/format.js'
+import { usePlayback } from '../../composables/usePlayback.js'
 
 const props = defineProps({
   lines: { type: Array, required: true }, // [{t, text}] de utils/lrc.js
-  position: { type: Number, default: 0 },
+  // Sin ella, la del reproductor, leída aquí dentro: pasada por la ficha, la
+  // ficha entera se repintaba con cada aviso de Rust (4 por segundo) aunque
+  // la línea no cambiara.
+  position: { type: Number, default: undefined },
   active: Boolean // esta cancion es la que suena
 })
 const emit = defineEmits(['seek'])
 const root = useTemplateRef('root')
-const current = computed(() => (props.active ? currentLine(props.lines, props.position) : -1))
+const player = usePlayback()
+const pos = computed(() => props.position ?? player.position.value)
+const current = computed(() => (props.active ? currentLine(props.lines, pos.value) : -1))
 const stop = computed(() => Math.max(0, current.value))
 
 /** Dónde queda la línea que suena: algo por encima de la mitad, para ver las que vienen. */

@@ -309,6 +309,67 @@ fn the_watcher_follows_what_happens_on_disk() {
     assert_eq!(outcome, Ok(()));
 }
 
+/// Las carpetas que vigila inotify en este proceso, por su inodo (lo dice
+/// `/proc/self/fdinfo` de cada descriptor de inotify).
+#[cfg(target_os = "linux")]
+fn inotify_inodes() -> HashSet<u64> {
+    let mut out = HashSet::new();
+    for entry in std::fs::read_dir("/proc/self/fdinfo")
+        .into_iter()
+        .flatten()
+        .flatten()
+    {
+        let Ok(text) = std::fs::read_to_string(entry.path()) else {
+            continue;
+        };
+        for line in text.lines().filter(|l| l.starts_with("inotify wd:")) {
+            if let Some(ino) = line
+                .split_whitespace()
+                .find_map(|w| w.strip_prefix("ino:"))
+                .and_then(|h| u64::from_str_radix(h, 16).ok())
+            {
+                out.insert(ino);
+            }
+        }
+    }
+    out
+}
+
+/// Un enlace a otra carpeta dentro de la música (a «/», a la carpeta
+/// personal) no se vigila por dentro: se ponía una vigilancia en cada
+/// carpeta de debajo, hasta agotar las de inotify del usuario. Un bucle de
+/// enlaces tampoco.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_watcher_does_not_follow_links_out_of_the_library() {
+    use std::os::unix::fs::MetadataExt;
+    let app = app();
+    let root = library_of_three(&app);
+    let outside = scratch("fuera-del-enlace");
+    let deep = outside.join("una/dos");
+    std::fs::create_dir_all(&deep).expect("carpetas");
+    std::os::unix::fs::symlink(&outside, root.join("Enlace")).expect("enlace");
+    std::os::unix::fs::symlink(&root, root.join("Artistas/Bucle")).expect("bucle");
+    let ino = |p: &Path| std::fs::metadata(p).expect("carpeta").ino();
+    let w = Watcher::new(&app, 0.2, 0.2, Some(0.0), true);
+    w.start(&app);
+    let armed = until(|| !w.watched().is_empty(), Duration::from_secs(15))
+        && until(
+            || inotify_inodes().contains(&ino(&root.join("Artistas/Barak"))),
+            Duration::from_secs(15),
+        );
+    let seen = inotify_inodes();
+    w.stop();
+    assert!(armed, "no llegó a vigilar la biblioteca");
+    for p in [&outside, &deep] {
+        assert!(
+            !seen.contains(&ino(p)),
+            "vigila {} por el enlace",
+            p.display()
+        );
+    }
+}
+
 /// Una estrella puesta desde la app reescribe el archivo. El vigilante lo
 /// tomaba por un cambio de fuera y a los dos segundos escaneaba la
 /// biblioteca entera para releerlo; y la interfaz, avisada, lo recargaba

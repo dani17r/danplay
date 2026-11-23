@@ -451,11 +451,45 @@ async function request(method, path, body) {
   return r.json()
 }
 
+/**
+ * Las fichas que se están pidiendo ahora mismo (id → promesa). Al poner una
+ * canción la pedían a la vez la ficha, el clic y el estudio: tres viajes al
+ * núcleo por lo mismo. Quien llega mientras va una se suma a ella.
+ * @type {Map<number, Promise<any>>}
+ */
+const songsInFlight = new Map()
+/**
+ * Lo que escribe olvida las que van de camino: una ficha pedida antes de un
+ * cambio no le sirve a quien la pide después (vería lo de antes).
+ * @param {'POST'|'PUT'|'PATCH'|'DELETE'} method @param {string} path @param {Object} [body]
+ */
+const write = (method, path, body) => {
+  songsInFlight.clear()
+  return request(method, path, body)
+}
+
+/**
+ * Un GET por el puente de solo lectura (`api_read`): el de la ventana de
+ * proyección, que no tiene el entero (ver `permissions/windows.toml`).
+ * Fuera de la app, una petición como cualquier otra.
+ * @param {string} path  ruta sin el prefijo /api
+ * @returns {Promise<any>}
+ */
+async function readOnly(path) {
+  if (!(inTauri && invoke)) return request('GET', path)
+  try {
+    const txt = await invoke('api_read', { method: 'GET', path: '/api' + path })
+    return txt ? JSON.parse(txt) : null
+  } catch (e) {
+    throw fromBridge(e)
+  }
+}
+
 const GET = (r) => request('GET', r)
-const POST = (r, c) => request('POST', r, c)
-const PATCH = (r, c) => request('PATCH', r, c)
-const PUT = (r, c) => request('PUT', r, c)
-const DEL = (r) => request('DELETE', r)
+const POST = (r, c) => write('POST', r, c)
+const PATCH = (r, c) => write('PATCH', r, c)
+const PUT = (r, c) => write('PUT', r, c)
+const DEL = (r) => write('DELETE', r)
 
 // La portada no viaja por el puente: la sirve Rust con un protocolo propio
 // (`danplay://cover/<id>`). El audio, dentro de la app, ni eso: lo reproduce
@@ -735,6 +769,18 @@ export const app = {
     inTauri
       ? invoke('set_window_on_top', { on })
       : Promise.reject(new Error('Solo en la aplicación de escritorio')),
+  /**
+   * El zoom automático de la interfaz (`ui_scale.rs`): en una ventana más
+   * grande que la de un portátil, todo un poco más grande (hasta un 30 %).
+   * Devuelve [encendido, zoom de ahora]. Fuera de la app, el del navegador.
+   * @returns {Promise<[boolean, number]>}
+   */
+  uiScale: () => (inTauri ? invoke('ui_scale') : Promise.resolve([false, 1])),
+  /** Lo enciende o lo apaga; devuelve el zoom que queda. @param {boolean} auto */
+  setUiScale: (auto) =>
+    inTauri
+      ? invoke('set_ui_scale', { auto })
+      : Promise.reject(new Error('Solo en la aplicación de escritorio')),
   /** Se puede grabar con el micrófono (solo en la app de escritorio). */
   canRecord: inTauri,
   /** Empieza a grabar con el micrófono del sistema (para una guía). */
@@ -839,7 +885,13 @@ export const projection = {
     if (!inTauri) return false
     const { getCurrentWindow } = await import('@tauri-apps/api/window')
     return getCurrentWindow().isFullscreen()
-  }
+  },
+  /**
+   * La ficha de una canción (con la letra), por el puente de solo lectura:
+   * esta ventana no puede pedirle al núcleo que cambie nada.
+   * @param {number} id @returns {Promise<Song>}
+   */
+  song: (id) => readOnly(`/song/${id}`)
 }
 
 /** El popup del mini reproductor. */
@@ -953,7 +1005,7 @@ export const core = {
 }
 
 /** Cada cuánto se pregunta por una tarea larga. */
-export const JOB_POLL_MS = 500
+const JOB_POLL_MS = 500
 
 /** Los nombres de las tareas largas del núcleo (contrato A). */
 export const JOBS = {
@@ -1043,6 +1095,8 @@ export const api = {
   aiProviders: (refresh = false) => GET('/ai/providers' + (refresh ? '?refresh=1' : '')),
   /** @param {AiProfile} d  guarda (y activa, salvo `activate: false`) */
   aiSaveProfile: (d) => POST('/ai/profile', d),
+  /** La clave guardada de un perfil, entera (para verla o copiarla). @param {string} pid */
+  aiKey: (pid) => GET(`/ai/profile/${encodeURIComponent(pid)}/key`),
   /** @param {string} id */
   aiDeleteProfile: (id) => DEL(`/ai/profile/${encodeURIComponent(id)}`),
   /** @param {string} id */
@@ -1117,8 +1171,22 @@ export const api = {
   quickSearch: (q, limit = 40) =>
     GET('/search?' + new URLSearchParams({ q, limit: String(limit) })),
   facets: () => GET('/facets'),
-  /** @param {number} id @returns {Promise<Song>} */
-  song: (id) => GET(`/song/${id}`),
+  /**
+   * La ficha entera. Las peticiones a la vez por la misma se juntan en una
+   * (`songsInFlight`); cada quien recibe su copia, para que lo que uno cambie
+   * en la suya no lo vea otro.
+   * @param {number} id @returns {Promise<Song>}
+   */
+  song: (id) => {
+    let p = songsInFlight.get(id)
+    if (!p) {
+      p = GET(`/song/${id}`).finally(() => {
+        if (songsInFlight.get(id) === p) songsInFlight.delete(id)
+      })
+      songsInFlight.set(id, p)
+    }
+    return p.then((s) => (s && typeof s === 'object' ? { ...s } : s))
+  },
   /** Solo `artist, title, album, year, genre, key, bpm, lyrics`; otras claves dan 422 (§2). */
   edit: (id, d) => PATCH(`/song/${id}`, d),
   setStars: (id, n) => POST(`/song/${id}/stars`, { stars: n }),
@@ -1177,6 +1245,12 @@ export const api = {
    * @returns {Promise<Song>}
    */
   setStudy: (id, study) => PUT(`/song/${id}/study`, study),
+  /**
+   * La etiqueta del estudio, ya: el núcleo la aplaza (`tags_pending`) hasta
+   * unos segundos sin cambios. Al dejar la canción o el estudio.
+   * @returns {Promise<{written: number}>}
+   */
+  flushStudy: () => POST('/study/flush'),
   /**
    * La forma de onda para el modo estudio: `buckets` columnas con el pico y
    * el RMS entre 0 y 1. Falla con 501 si no hay con qué decodificar.
@@ -1246,7 +1320,7 @@ export const api = {
    * clic con los golpes antes y después.
    * @param {number} id
    * @param {{mode: 'repair'|'steady'|'drums'|'mix'|'fill', start?: number, end?: number, wait?: boolean, own?: {beats: number[], bars: number[], meter: number, touched?: Array<[number, number]>}}} opts
-   * @returns {Promise<{grid: BeatGrid, own?: {beats: number[], bars: number[], meter: number, touched: Array<[number, number]>}, report: {fixed: number, bpm: number, notes: string[], weak?: Array<[number, number]>, fit?: {before: {offset_ms: number, spread_ms: number, supported: number}, after: {offset_ms: number, spread_ms: number, supported: number}}}}>}
+   * @returns {Promise<{grid: BeatGrid, pending?: boolean, progress?: number, own?: {beats: number[], bars: number[], meter: number, touched: Array<[number, number]>}, report: {fixed: number, bpm: number, notes: string[], weak?: Array<[number, number]>, fit?: {before: {offset_ms: number, spread_ms: number, supported: number}, after: {offset_ms: number, spread_ms: number, supported: number}}}}>}
    */
   reanalyzeBeats: (id, opts) => POST(`/song/${id}/beats/reanalyze`, opts),
   /**

@@ -234,10 +234,11 @@ fn search_songs(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
         only_favorites,
         min_stars,
     };
-    let found = ctx
-        .app
-        .db(|c| search::search(c, &b, &sort, limit, from_key, desc, true))?;
-    let count = ctx.app.db(|c| search::count(c, &b))?;
+    // la página y cuántas hay, con la misma conexión
+    let (found, count) = ctx.app.db(|c| {
+        let found = search::search(c, &b, &sort, limit, from_key, desc, true)?;
+        Ok::<_, library::rusqlite::Error>((found, search::count(c, &b)?))
+    })?;
     Ok(json!({"total": found.len(), "count": count, "songs": rows(found)}).into())
 }
 
@@ -275,8 +276,7 @@ fn inbox(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     for p in entries {
         let name = p
             .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_default();
+            .map_or_default(|n| n.to_string_lossy().into_owned());
         let ext = library::names::splitext(&name).1.to_lowercase();
         let Ok(meta) = std::fs::metadata(&p) else {
             continue;

@@ -119,15 +119,13 @@ pub fn default_root() -> PathBuf {
 
 /// Los archivos de audio de una carpeta (sin bajar), ordenados.
 fn audio_here(dir: &Path) -> Vec<PathBuf> {
-    let mut out: Vec<PathBuf> = fs::read_dir(dir)
-        .map(|it| {
-            it.filter_map(Result::ok)
-                .map(|e| e.path())
-                .filter(|p| p.is_file() && is_audio(p))
-                .filter(|p| !p.file_name().and_then(|n| n.to_str()).is_some_and(hidden))
-                .collect()
-        })
-        .unwrap_or_default();
+    let mut out: Vec<PathBuf> = fs::read_dir(dir).map_or_default(|it| {
+        it.filter_map(Result::ok)
+            .map(|e| e.path())
+            .filter(|p| p.is_file() && is_audio(p))
+            .filter(|p| !p.file_name().and_then(|n| n.to_str()).is_some_and(hidden))
+            .collect()
+    });
     out.sort();
     out
 }
@@ -141,8 +139,7 @@ fn read_tags(path: &Path) -> (String, String, String, f64) {
 
     let stem = path
         .file_stem()
-        .map(|s| s.to_string_lossy().into_owned())
-        .unwrap_or_default();
+        .map_or_default(|s| s.to_string_lossy().into_owned());
     let mut title = String::new();
     let mut artist = String::new();
     let mut album = String::new();
@@ -471,7 +468,7 @@ impl Music {
         let mut out = to_json(&s);
         if !light {
             let study = lock(&self.saved).study.get(&s.path).cloned();
-            out["study"] = json!(study.map(|v| v.to_string()).unwrap_or_default());
+            out["study"] = json!(study.map_or_default(|v| v.to_string()));
         }
         Some(out)
     }
@@ -551,8 +548,7 @@ fn from_media(m: &Media) -> Song {
     let unknown = |v: &str| v.trim().is_empty() || v.trim() == "<unknown>";
     let stem = Path::new(&m.path)
         .file_stem()
-        .map(|s| s.to_string_lossy().into_owned())
-        .unwrap_or_default();
+        .map_or_default(|s| s.to_string_lossy().into_owned());
     let mut title = if unknown(&m.title) {
         String::new()
     } else {
@@ -596,12 +592,10 @@ pub fn to_json(s: &Song) -> Value {
     let folder = Path::new(&s.path)
         .parent()
         .and_then(Path::file_name)
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default();
+        .map_or_default(|n| n.to_string_lossy().into_owned());
     let file = Path::new(&s.path)
         .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default();
+        .map_or_default(|n| n.to_string_lossy().into_owned());
     json!({
         "id": s.id,
         "title": s.title,

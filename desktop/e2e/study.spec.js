@@ -29,6 +29,8 @@ test('notes are saved to their song even after moving on to the next one', async
     await page.locator('.player .pl-study').click()
     const study = page.getByRole('region', { name: 'Modo estudio' })
     await expect(study).toContainText(first)
+    // con las partes en pestañas, las notas están en la suya
+    await study.locator('.study-panel-tab', { hasText: 'Notas' }).click()
     await study.locator('textarea').fill('cejilla en 2, entrar tras el redoble')
     // sin esperar a que se guarde: la siguiente
     await page

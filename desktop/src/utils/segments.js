@@ -5,12 +5,13 @@
 // Rust los recorre así (`player/engine.rs`), y aquí se dejan igual que allí:
 // en orden y juntando los que se pisan.
 
+import { round3 } from './num.js'
+
 /** @typedef {[number, number]} Segment */
 
-// Al milisegundo. Iban a la centésima, y tras «Ajustar a los pulsos» cada
-// borde podía quedar hasta 5 ms fuera de su pulso (unas 220 muestras): el
-// tramo entraba y salía un pelo antes o después del clic.
-const round3 = (v) => Math.round(v * 1000) / 1000
+// Al milisegundo (`round3`). Iban a la centésima, y tras «Ajustar a los
+// pulsos» cada borde podía quedar hasta 5 ms fuera de su pulso (unas 220
+// muestras): el tramo entraba y salía un pelo antes o después del clic.
 
 /**
  * En orden, sin los que no valen y juntando los que se pisan.

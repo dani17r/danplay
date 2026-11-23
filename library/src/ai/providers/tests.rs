@@ -178,8 +178,7 @@ fn catalog_has_groups_and_well_formed_urls() {
         let fields: Vec<&str> = p
             .get("fields")
             .and_then(Value::as_array)
-            .map(|f| f.iter().filter_map(|x| x["name"].as_str()).collect())
-            .unwrap_or_default();
+            .map_or_default(|f| f.iter().filter_map(|x| x["name"].as_str()).collect());
         for hole in url.split('{').skip(1).filter_map(|h| h.split('}').next()) {
             if hole.chars().all(|c| c.is_alphanumeric() || c == '_') {
                 assert!(fields.contains(&hole), "{id}: falta el campo {hole}");

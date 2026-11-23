@@ -212,8 +212,7 @@ fn read_als(path: &Path) -> Option<Project> {
         })
         .filter(|t| *t > 0.0)?;
     let mut meters: Vec<(f64, i64)> = block(master, "TimeSignature")
-        .map(|b| elements(b, "EnumEvent"))
-        .unwrap_or_default()
+        .map_or_default(|b| elements(b, "EnumEvent"))
         .iter()
         .filter_map(|e| {
             // 99·log2(denominador) + (numerador − 1): 201 es 4/4; 200, 3/4
@@ -330,8 +329,7 @@ fn is_audio(path: &Path) -> bool {
 
 fn entries(dir: &Path) -> Vec<PathBuf> {
     let mut out: Vec<PathBuf> = std::fs::read_dir(dir)
-        .map(|d| d.filter_map(Result::ok).map(|e| e.path()).collect())
-        .unwrap_or_default();
+        .map_or_default(|d| d.filter_map(Result::ok).map(|e| e.path()).collect());
     out.sort();
     out
 }
@@ -450,8 +448,7 @@ fn source_of(name: &str) -> Option<&'static str> {
 
 fn stem_name(path: &Path) -> String {
     path.file_stem()
-        .map(|s| s.to_string_lossy().into_owned())
-        .unwrap_or_default()
+        .map_or_default(|s| s.to_string_lossy().into_owned())
 }
 
 /// Las pistas que suenan de una lista de audios, cada una con su fuente.
@@ -525,8 +522,7 @@ fn from_sidecar(dir: &Path, side: &Value, song: &mut Song) {
     };
     song.bars = side["bars"]
         .as_array()
-        .map(|b| b.iter().filter_map(Value::as_f64).collect())
-        .unwrap_or_default();
+        .map_or_default(|b| b.iter().filter_map(Value::as_f64).collect());
     song.tempo = side["tempo"]
         .as_f64()
         .filter(|t| *t > 0.0)
@@ -793,15 +789,13 @@ fn bars_of(song: &Song, duration: f64) -> Vec<f64> {
         low_fps: r.low_fps,
         seconds: r.seconds,
     };
-    whole(&heard, None, "auto", false, None)
-        .map(|g| {
-            g.end
-                .bars
-                .iter()
-                .filter_map(|i| g.end.beats.get(*i as usize).copied())
-                .collect()
-        })
-        .unwrap_or_default()
+    whole(&heard, None, "auto", false, None).map_or_default(|g| {
+        g.end
+            .bars
+            .iter()
+            .filter_map(|i| g.end.beats.get(*i as usize).copied())
+            .collect()
+    })
 }
 
 // ------------------------------------------------------------ medir

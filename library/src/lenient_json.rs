@@ -75,6 +75,26 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    /// Una caché rota o hecha a mala idea no tumba ni cuelga: anidada sin
+    /// fin, serde_json para en su tope (128 niveles) y aquí no hay
+    /// recursión; millones de `NaN` se cambian en una pasada.
+    #[test]
+    fn hostile_input_is_refused_or_read_quickly() {
+        let start = std::time::Instant::now();
+        assert_eq!(parse(&"[".repeat(1_000_000)), None);
+        let deep = format!("{}NaN{}", "[".repeat(100_000), "]".repeat(100_000));
+        assert_eq!(parse(&deep), None);
+        let many = format!("[{}0]", "NaN,".repeat(2_000_000));
+        assert_eq!(
+            parse(&many).and_then(|v| v.as_array().map(Vec::len)),
+            Some(2_000_001)
+        );
+        let escapes = format!("\"{}\"", "\\udcff".repeat(1_000_000));
+        assert!(parse(&escapes).is_some());
+        let took = start.elapsed();
+        assert!(took.as_secs_f64() < 5.0, "{took:?}");
+    }
+
     #[test]
     fn what_old_versions_wrote_is_read() {
         assert_eq!(parse(r#"{"a": [1, 2.5]}"#), Some(json!({"a": [1, 2.5]})));

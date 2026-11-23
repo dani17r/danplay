@@ -1,0 +1,8 @@
+# La versión de Rust con la que se compila DanPlay, en local y en la CI (antes
+# la CI usaba la estable del día, y un lint nuevo de clippy la rompió sin
+# haber tocado nada). Se sube a propósito, junto con `rust-version` del
+# Cargo.toml de la raíz.
+[toolchain]
+channel = "1.100.0"
+profile = "minimal"
+components = ["clippy", "rustfmt"]

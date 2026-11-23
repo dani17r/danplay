@@ -6,7 +6,7 @@
 //! decodifica entero (es corto) y lo saca una vez por la salida del sistema,
 //! en su propio hilo, suene o no la canción. Uno nuevo corta al anterior.
 use crate::decode::Part;
-use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+use cpal::traits::{DeviceTrait, StreamTrait};
 use cpal::{FromSample, SampleFormat, SizedSample, StreamConfig};
 use std::path::Path;
 use std::sync::Arc;
@@ -23,12 +23,21 @@ const MAX_SECONDS: u32 = 300;
 /// leer o no hay salida, el motivo.
 pub fn play(path: &Path) -> Result<f64, String> {
     let host = cpal::default_host();
-    let device = host
-        .default_output_device()
-        .ok_or("no hay salida de audio")?;
-    let supported = device
-        .default_output_config()
-        .map_err(|e| format!("la salida de audio no dice cómo abrirla: {e}"))?;
+    // la del sistema como la abre el motor: en Linux, el PCM del servidor de
+    // sonido por su nombre. El «default» de ALSA sin el puente es la tarjeta
+    // 0 a pelo, y la escucha «sonaba» sin oirse (lo que ya le paso al motor)
+    let mut why = String::from("no hay salida de audio");
+    let mut found = None;
+    for d in crate::output::system_devices(&host) {
+        match d.default_output_config() {
+            Ok(c) => {
+                found = Some((d, c));
+                break;
+            }
+            Err(e) => why = format!("la salida de audio no dice cómo abrirla: {e}"),
+        }
+    }
+    let (device, supported) = found.ok_or(why)?;
     let rate = supported.sample_rate();
     let clip = read(path, rate)?;
     let seconds = clip.len() as f64 / 2.0 / f64::from(rate);

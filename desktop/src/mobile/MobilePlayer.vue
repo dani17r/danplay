@@ -25,6 +25,7 @@ import { formatTime } from '../utils/format.js'
 import Icon from '../components/Icon.vue'
 import CoverArt from '../components/ui/CoverArt.vue'
 import SliderField from '../components/ui/SliderField.vue'
+import { pctText } from '../utils/num.js'
 
 const props = defineProps({
   study: Boolean,
@@ -163,7 +164,6 @@ function toggleMute() {
 }
 
 // ------------------------------------------------------------- menús
-const pctText = (v) => Math.round(v * 100) + ' %'
 function more(e) {
   openMenu(
     e,

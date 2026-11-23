@@ -257,3 +257,55 @@ describe('the cover of what is playing', () => {
     expect(vol.attributes('aria-valuetext')).toBe('90 %')
   })
 })
+
+describe('the whole queue', () => {
+  it('with a long queue open and playing, it is not repainted on every tick, and only the rows around are painted', async () => {
+    const usePlaybackModule = await import('../src/composables/usePlayback.js')
+    const long = Array.from({ length: 2000 }, (_, i) => ({
+      id: i + 1,
+      title: `Tema ${i + 1}`,
+      artist: 'Barak',
+      duration: 200
+    }))
+    const counts = {}
+    w = mount(Player, {
+      attachTo: document.body,
+      global: {
+        mixins: [
+          {
+            updated() {
+              const n = this.$.type.__name || '?'
+              counts[n] = (counts[n] || 0) + 1
+            }
+          }
+        ]
+      }
+    })
+    await flushPromises()
+    await usePlaybackModule.usePlayback().setQueue(long, 1000)
+    held.playback.emit({
+      track: { id: 1000, title: 'Tema 1000', artist: 'Barak', duration: 200 },
+      playing: true,
+      position: 40,
+      ...base,
+      index: 999,
+      length: 2000
+    })
+    await flushPromises()
+    await w.find('button[title="Cola de reproducción"]').trigger('click')
+    await flushPromises()
+    await w.find('.queue-more').trigger('click')
+    await flushPromises()
+    const rows = () => w.findAll('.queue-row')
+    expect(rows().length).toBeLessThanOrEqual(301)
+    expect(rows().length).toBeGreaterThan(100)
+    expect(w.find('.queue-row.current').text()).toContain('Tema 1000')
+    for (const k of Object.keys(counts)) delete counts[k]
+    for (let i = 1; i <= 20; i++) {
+      held.playback.emit({ position: 40 + i * 0.25 })
+      await flushPromises()
+    }
+    expect(counts.Player, 'la barra sí se mueve').toBeGreaterThan(0)
+    expect(counts.PlayerQueue || 0, 'la cola entera se repinta con cada aviso').toBe(0)
+  })
+})

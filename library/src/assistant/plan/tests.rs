@@ -48,8 +48,7 @@ impl Index for Fake {
         Ok(self
             .lists
             .get(&playlist)
-            .map(|(_, ids)| ids.clone())
-            .unwrap_or_default())
+            .map_or_default(|(_, ids)| ids.clone()))
     }
 
     fn place(&mut self, playlist: i64, ids: &[i64]) -> Result<Vec<i64>, String> {

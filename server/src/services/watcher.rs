@@ -494,11 +494,19 @@ impl Watcher {
                 return;
             }
             let me = self.me.clone();
-            let made = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
+            let handler = move |res: notify::Result<notify::Event>| {
                 if let (Ok(event), Some(w)) = (res, me.upgrade()) {
                     w.dispatch(&event);
                 }
-            });
+            };
+            // Sin seguir enlaces: notify los sigue por defecto, y un enlace a
+            // «/» o a la carpeta personal dentro de la música ponía una
+            // vigilancia en cada carpeta de debajo (hasta agotar las de
+            // inotify, que son de todo el usuario). El escaneo tampoco entra.
+            let made = notify::RecommendedWatcher::new(
+                handler,
+                notify::Config::default().with_follow_symlinks(false),
+            );
             match made {
                 Ok(watcher) => {
                     *slot = Some(Observer {
@@ -562,8 +570,7 @@ impl Watcher {
     pub fn watched(&self) -> Vec<String> {
         lock(&self.observer)
             .as_ref()
-            .map(|o| o.watched.iter().cloned().collect())
-            .unwrap_or_default()
+            .map_or_default(|o| o.watched.iter().cloned().collect())
     }
 }
 

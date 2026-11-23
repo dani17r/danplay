@@ -246,13 +246,11 @@ fn measure(name: &str, r: &Raw, mode: &str) -> serde_json::Value {
         .map(|w| 60.0 * 8.0 / (w[8] - w[0]))
         .collect();
     // cómo cuadra cada compás con los «1» de la red: [compás, ajuste, contraste]
-    let fits: Vec<serde_json::Value> = meter_fits(beats, &down)
-        .map(|f| {
-            f.iter()
-                .map(|m| json!([m.meter, tenths(m.fit), (m.contrast * 100.0).round() / 100.0]))
-                .collect()
-        })
-        .unwrap_or_default();
+    let fits: Vec<serde_json::Value> = meter_fits(beats, &down).map_or_default(|f| {
+        f.iter()
+            .map(|m| json!([m.meter, tenths(m.fit), (m.contrast * 100.0).round() / 100.0]))
+            .collect()
+    });
     json!({
         "id": name,
         "seconds": tenths(r.seconds),
@@ -280,20 +278,17 @@ fn main() {
         std::process::exit(2);
     };
     let mode = args.get(2).map_or("auto", String::as_str);
-    let mut files: Vec<_> = std::fs::read_dir(dir)
-        .map(|d| {
-            d.filter_map(Result::ok)
-                .map(|e| e.path())
-                .filter(|p| p.extension().is_some_and(|e| e == "npz"))
-                .collect()
-        })
-        .unwrap_or_default();
+    let mut files: Vec<_> = std::fs::read_dir(dir).map_or_default(|d| {
+        d.filter_map(Result::ok)
+            .map(|e| e.path())
+            .filter(|p| p.extension().is_some_and(|e| e == "npz"))
+            .collect()
+    });
     files.sort();
     for path in files {
         let name = Path::new(&path)
             .file_stem()
-            .map(|s| s.to_string_lossy().into_owned())
-            .unwrap_or_default();
+            .map_or_default(|s| s.to_string_lossy().into_owned());
         match raw::read(&path) {
             Some(r) => println!("{}", measure(&name, &r, mode)),
             None => println!("{}", json!({"id": name, "error": "no se lee"})),

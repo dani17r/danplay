@@ -75,13 +75,12 @@ fn engine(job: &Value, fail_refine: &AtomicBool) -> Vec<Value> {
     let out = PathBuf::from(job["output"].as_str().unwrap_or_default());
     std::fs::create_dir_all(&out).expect("salida");
     let silent: HashSet<String> = std::fs::read_to_string(format!("{input}.callar"))
-        .map(|t| {
+        .map_or_default(|t| {
             t.split(',')
                 .map(|s| s.trim().to_owned())
                 .filter(|s| !s.is_empty())
                 .collect()
-        })
-        .unwrap_or_default();
+        });
     let files: Map<String, Value> = job["files"].as_object().cloned().unwrap_or_default();
     let file = |s: &str| out.join(files.get(s).and_then(Value::as_str).unwrap_or_default());
     let rest = job["rest"].as_str().unwrap_or_default().to_owned();
@@ -703,19 +702,17 @@ fn unquote(text: &str) -> String {
 fn trashed_from(root: &Path) -> Vec<String> {
     let info = crate::services::trash::test_trash().join("info");
     let root = root.to_string_lossy().into_owned();
-    std::fs::read_dir(info)
-        .map(|d| {
-            d.flatten()
-                .filter_map(|e| std::fs::read_to_string(e.path()).ok())
-                .filter_map(|t| {
-                    t.lines()
-                        .find_map(|l| l.strip_prefix("Path=").map(str::to_owned))
-                })
-                .map(|p| unquote(&p))
-                .filter(|p| p.contains(&root))
-                .collect()
-        })
-        .unwrap_or_default()
+    std::fs::read_dir(info).map_or_default(|d| {
+        d.flatten()
+            .filter_map(|e| std::fs::read_to_string(e.path()).ok())
+            .filter_map(|t| {
+                t.lines()
+                    .find_map(|l| l.strip_prefix("Path=").map(str::to_owned))
+            })
+            .map(|p| unquote(&p))
+            .filter(|p| p.contains(&root))
+            .collect()
+    })
 }
 
 #[test]

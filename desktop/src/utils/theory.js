@@ -59,12 +59,6 @@ export function transposeKey(key, semitones) {
   )
 }
 
-/** «+2» / «−3» / «0», para enseñar el corrimiento. */
-export function semitoneLabel(n) {
-  if (!n) return '0'
-  return (n > 0 ? '+' : '−') + Math.abs(n)
-}
-
 // Las fracciones de tono que tienen su signo.
 const FRACTIONS = { 25: '¼', 50: '½', 75: '¾' }
 
@@ -122,9 +116,4 @@ export function semitoneWords(semitones) {
   if (rounded === 0.5) return '½ semitono'
   if (rounded === 1) return '1 semitono'
   return `${rounded.toLocaleString('es')} semitonos`
-}
-
-/** «tono» o «tonos»: hasta uno, en singular (medio tono, un tono). */
-export function toneUnit(semitones) {
-  return Math.abs(Number(semitones) || 0) > 2 ? 'tonos' : 'tono'
 }

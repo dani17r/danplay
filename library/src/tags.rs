@@ -167,8 +167,7 @@ fn file_type(path: &Path) -> Option<FileType> {
 fn extension(path: &Path) -> String {
     path.extension()
         .and_then(|e| e.to_str())
-        .map(str::to_lowercase)
-        .unwrap_or_default()
+        .map_or_default(str::to_lowercase)
 }
 
 fn open(path: &Path) -> Result<BufReader<File>, String> {

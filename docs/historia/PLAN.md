@@ -56,7 +56,7 @@ con ffmpeg en vez de depender de tu música.
 portátil **desde Linux**, rodeando el único obstáculo real (PyInstaller no
 cruza plataformas) con el Python embebido oficial y ruedas `win_amd64`; y
 `.github/workflows/windows.yml` genera el instalador NSIS con las pruebas
-pasadas en Windows. Los detalles, en [Windows](WINDOWS.md).
+pasadas en Windows. Los detalles, en [Windows](../WINDOWS.md).
 
 **Los `.opus` y los `.wma` suenan.** El decodificador no los conoce, así que
 se pasan por ffmpeg —que ya era una dependencia— en vez de pedirte que
@@ -75,7 +75,7 @@ Lo que **no** se hizo, y por qué:
   estudio para cuando toque.
 - **Ejecutarlo en Windows y en macOS**: el código está y compila, pero desde
   aquí no hay ninguna de las dos máquinas. Lo que falta comprobar está en
-  [Windows](WINDOWS.md) y en [Contribuir](CONTRIBUTING.md).
+  [Windows](../WINDOWS.md) y en [Contribuir](../CONTRIBUTING.md).
 
 ---
 

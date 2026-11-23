@@ -33,7 +33,7 @@ fn decode(app: &App, path: &str, rate: u32, longest: f64) -> Result<Vec<f32>, Jo
         .iter()
         .map(Into::into)
         .collect();
-    args.push(path.into());
+    args.push(library::processes::ffmpeg_input(std::path::Path::new(path)));
     for a in ["-t", &longest, "-ac", "1", "-ar", &rate, "-f", "f32le", "-"] {
         args.push(a.into());
     }
@@ -176,14 +176,14 @@ fn stem_levels(app: &App, song: &Dict, units: &[(f64, f64)]) -> Option<Levels> {
     let data = stems::info(app, song).filter(|d| d.get("complete").is_some_and(value::truthy))?;
     let mut levels: Vec<(String, Vec<f64>)> = Vec::new();
     let mut wanted: Vec<(String, String)> = Vec::new();
-    for t in data.get("tracks").map(value::list_of).unwrap_or_default() {
-        let source = t.get("source").map(value::str_of).unwrap_or_default();
+    for t in data.get("tracks").map_or_default(value::list_of) {
+        let source = t.get("source").map_or_default(value::str_of);
         if !library::stems::SOURCES.iter().any(|(k, _, _)| *k == source)
             || t.get("role").is_some_and(value::truthy)
         {
             continue;
         }
-        wanted.push((source, t.get("path").map(value::str_of).unwrap_or_default()));
+        wanted.push((source, t.get("path").map_or_default(value::str_of)));
     }
     let paths: Vec<String> = wanted.iter().map(|(_, p)| p.clone()).collect();
     let found = levels_of(app, &paths, units)?;
@@ -199,7 +199,7 @@ fn stem_levels(app: &App, song: &Dict, units: &[(f64, f64)]) -> Option<Levels> {
         .filter_map(|k| levels.iter().find(|(s, _)| s == k).map(|(_, v)| v))
         .collect();
     let vocals = if singing.is_empty() {
-        let dropped = data.get("dropped").map(value::list_of).unwrap_or_default();
+        let dropped = data.get("dropped").map_or_default(value::list_of);
         if dropped
             .iter()
             .any(|k| k.as_str().is_some_and(|k| st::VOCALS.contains(&k)))
@@ -240,7 +240,7 @@ fn analyse(
     p: &Progress,
 ) -> Result<Vec<st::Section>, JobError> {
     p.message("Escuchando la canción…");
-    let path = song.get("path").map(value::str_of).unwrap_or_default();
+    let path = song.get("path").map_or_default(value::str_of);
     let x = decode(app, &path, st::RATE, st::MAX_SECONDS)?;
     let duration = x.len() as f64 / f64::from(st::RATE);
     if duration < 4.0 * st::WINDOW_UNIT {
@@ -297,7 +297,7 @@ struct Grid {
 }
 
 fn grid_bars(app: &App, song: &Dict, wait: Duration, p: &Progress) -> Result<Grid, String> {
-    let path = song.get("path").map(value::str_of).unwrap_or_default();
+    let path = song.get("path").map_or_default(value::str_of);
     let path = std::path::Path::new(&path);
     if cfg!(test) && !crate::services::beats::safe_in_tests(app, path) {
         return Err("aquí no hay detector".into());
@@ -469,7 +469,7 @@ pub fn auto_guide(
     let mut click: Option<(bool, String)> = None;
     let (found, source) = if let Some(sections) = req.sections.as_ref().filter(|s| !s.is_empty()) {
         if duration == 0.0 {
-            let path = song.get("path").map(value::str_of).unwrap_or_default();
+            let path = song.get("path").map_or_default(value::str_of);
             duration =
                 decode(app, &path, st::RATE, st::MAX_SECONDS)?.len() as f64 / f64::from(st::RATE);
         }

@@ -30,16 +30,15 @@ pub fn ytdlp_installed(app: &App) -> bool {
     crate::services::ytdlp::installed(app)
 }
 
-/// Si se puede bajar de YouTube: yt-dlp y ffmpeg.
+/// Si se puede bajar de YouTube: con ffmpeg. yt-dlp no hace falta tenerlo
+/// ya: desde la 1.45 no viaja en los paquetes y se instala la primera vez
+/// que se usa (`youtube::ensure_ytdlp`).
 pub fn youtube_available(app: &App) -> bool {
-    ytdlp_installed(app) && ffmpeg_available(app)
+    ffmpeg_available(app)
 }
 
 /// Por qué no se puede bajar de YouTube (vacío si se puede).
 pub fn youtube_unavailable_reason(app: &App) -> String {
-    if !ytdlp_installed(app) {
-        return "falta yt-dlp: actualizalo desde la pagina de Descargas".into();
-    }
     if !ffmpeg_available(app) {
         return "falta ffmpeg".into();
     }

@@ -30,11 +30,13 @@ import {
   tempoChoices,
   timeText
 } from '../composables/useBeatEdit.js'
+import { round2 } from '../utils/num.js'
 
 const props = defineProps({
   /** Lo que devuelve `useBeatEdit` */
   edit: { type: Object, required: true }
 })
+// eslint-disable-next-line vue/no-setup-props-reactivity-loss -- el mismo objeto toda la vida del panel (lo que devuelve useBeatEdit)
 const edit = props.edit
 
 const TEMPOS = [
@@ -98,7 +100,6 @@ const phaseMs = ref(0)
 const found = ref(null)
 /** Si cerca de lo escrito no hay golpes: lo que salió buscando sin pista, para ofrecerlo. */
 const suggestion = ref(null)
-const round2 = (v) => Math.round(v * 100) / 100
 /** «+12 ms», «−3 ms», «0 ms» */
 const signed = (v) => `${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(v)} ms`
 const clampBpm = (v) => Math.min(300, Math.max(20, v))

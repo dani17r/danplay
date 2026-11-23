@@ -113,8 +113,7 @@ impl Io for Fake {
         let ids = id
             .as_i64()
             .and_then(|i| self.lists.get(&i))
-            .map(|(_, ids)| ids.clone())
-            .unwrap_or_default();
+            .map_or_default(|(_, ids)| ids.clone());
         Ok(Value::Array(
             ids.iter()
                 .filter_map(|i| self.songs.get(i).cloned())

@@ -617,8 +617,7 @@ fn fill_with_drums(base: &Value, raw: &Raw, extra: Option<&Raw>) -> Result<Value
     let bars: Vec<i64> = base
         .get("bars")
         .and_then(Value::as_array)
-        .map(|b| b.iter().filter_map(Value::as_i64).collect())
-        .unwrap_or_default();
+        .map_or_default(|b| b.iter().filter_map(Value::as_i64).collect());
     let with = whole(raw, "auto", false, None, Some(drums))?.end.beats;
     let seconds = raw.seconds;
     let drums_logits = f64s(&drums.beat);
@@ -1171,8 +1170,8 @@ fn run(
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
-        // sin ventana de consola
-        cmd.creation_flags(0x0800_0000);
+        // sin ventana de consola, y por debajo de lo normal
+        cmd.creation_flags(crate::services::separation::child_creation_flags());
     }
     // la biblioteca que encontró el núcleo (el hijo no sabe dónde están los
     // datos de la app)

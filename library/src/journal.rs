@@ -304,16 +304,51 @@ pub fn snapshot(
     Ok(out)
 }
 
-/// Lo que se compara para saber si el diario cambió: todo menos la hora.
-pub fn body(data: &Dict) -> String {
-    let mut d = data.clone();
-    d.shift_remove("updated");
-    Value::Object(d).to_string()
+/// El diario sin la hora, para compararlo: se escribe saltándosela, sin
+/// copiar el diario entero para quitársela (con 20 000 canciones son
+/// decenas de MB por cada estrella).
+struct WithoutTime<'a>(&'a Dict);
+
+impl serde::Serialize for WithoutTime<'_> {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.collect_map(self.0.iter().filter(|(k, _)| k.as_str() != "updated"))
+    }
 }
 
-/// El diario como se escribe.
+/// Lo que se compara para saber si el diario cambió: todo menos la hora.
+pub fn body(data: &Dict) -> String {
+    serde_json::to_string(&WithoutTime(data)).unwrap_or_default()
+}
+
+/// La huella (sha1) de `body`, sin escribirlo entero en memoria: es lo que
+/// se recuerda de lo último escrito para no volver a escribirlo igual.
+pub fn digest(data: &Dict) -> String {
+    use sha1::Digest as _;
+    /// Lo que se escribe, directo al hash.
+    struct Hashing(sha1::Sha1);
+    impl std::io::Write for Hashing {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.0.update(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut hashing = Hashing(sha1::Sha1::new());
+    if serde_json::to_writer(&mut hashing, &WithoutTime(data)).is_err() {
+        return String::new();
+    }
+    let mut out = String::with_capacity(40);
+    for b in hashing.0.finalize() {
+        let _ = write!(out, "{b:02x}");
+    }
+    out
+}
+
+/// El diario como se escribe (sin copiarlo: `value::pretty` pide un `Value`).
 pub fn text(data: &Dict) -> String {
-    value::pretty(&Value::Object(data.clone()))
+    serde_json::to_string_pretty(data).unwrap_or_default()
 }
 
 /// Dónde va el diario: en los datos de DanPlay y en cada carpeta de música.
@@ -479,15 +514,11 @@ fn find<'a>(entry: &Dict, ix: &Index<'a>) -> Option<&'a Dict> {
     {
         return Some(same[0]);
     }
-    let near: Vec<&&Dict> = ix
-        .by_key
-        .get(&scan::ident(entry))
-        .map(|v| {
-            v.iter()
-                .filter(|r| close(r.get("duration"), entry.get("duration")))
-                .collect()
-        })
-        .unwrap_or_default();
+    let near: Vec<&&Dict> = ix.by_key.get(&scan::ident(entry)).map_or_default(|v| {
+        v.iter()
+            .filter(|r| close(r.get("duration"), entry.get("duration")))
+            .collect()
+    });
     (near.len() == 1).then(|| *near[0])
 }
 
@@ -816,4 +847,45 @@ pub fn reconcile(
     stamp.sort_unstable();
     told.stamp = stamp;
     Ok(told)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    /// Lo que se compara y lo que se escribe no cambian por hacerlo sin
+    /// copiar el diario entero: byte a byte, lo de antes. Y lo que se
+    /// recuerda de lo escrito (su huella) cambia con todo menos con la hora.
+    #[test]
+    fn the_journal_is_compared_and_written_byte_for_byte_as_before() {
+        let data = json!({
+            "format": FORMAT,
+            "version": VERSION,
+            "app": "DanPlay 1.44.1",
+            "library": "0a1b2c",
+            "updated": 1_795_321_762.1,
+            "songs": [
+                {"id": 7, "path": "/música/Barak - Señor.mp3", "root": "música", "rel": "Barak - Señor.mp3",
+                 "duration": 245.37, "study": "{\"loop\":[1.5,3]}", "stars": 4, "favorite": 1, "bpm": 98.26},
+                {"id": -3, "gone": true, "artist": "Ñandú", "title": "Él \"vive\"\n"},
+            ],
+            "playlists": [{"name": "Domingo 🎸", "note": "", "color": "", "created": 1.0, "songs": [7, -3]}],
+        });
+        let data = data.as_object().cloned().expect("objeto");
+        let mut without = data.clone();
+        without.shift_remove("updated");
+        assert_eq!(body(&data), Value::Object(without).to_string());
+        assert_eq!(text(&data), value::pretty(&Value::Object(data.clone())));
+        let mut expected = String::new();
+        for b in <sha1::Sha1 as sha1::Digest>::digest(body(&data).as_bytes()) {
+            let _ = write!(expected, "{b:02x}");
+        }
+        assert_eq!(digest(&data), expected);
+        let mut later = data.clone();
+        later.insert("updated".into(), json!(1_795_400_000.0));
+        assert_eq!(digest(&later), digest(&data), "la hora no cuenta");
+        later["songs"][0]["stars"] = json!(5);
+        assert_ne!(digest(&later), digest(&data));
+    }
 }

@@ -1,11 +1,25 @@
 import { describe, it, expect, vi, beforeEach, afterEach, onTestFinished } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
+import { isReactive } from 'vue'
 
 // El modo estudio de la 1.30: cada cosa por su lado (L, R, estéreo o mono,
 // en su carril), «ir con un clic» con la onda bloqueada, ocultar la mezcla y
 // los canales, el carril del clic, la guía automática y la voz de las guías,
 // los menús cortos (lo puesto, marcado) y el recorrido.
-const held = vi.hoisted(() => ({ playback: null, api: null, state: null, savePath: null }))
+const held = vi.hoisted(() => ({
+  playback: null,
+  api: null,
+  state: null,
+  savePath: null,
+  driver: false
+}))
+
+// El recorrido trae driver.js con su CSS y sale una vez en la vida: no viaja
+// con el estudio, llega al pedirlo. Se apunta si llega a cargarse.
+vi.mock('driver.js', async (importOriginal) => {
+  held.driver = true
+  return importOriginal()
+})
 
 vi.mock('../src/api.js', async (importOriginal) => {
   const actual = await importOriginal()
@@ -36,8 +50,10 @@ import {
   sideOf,
   targetOf
 } from '../src/composables/useRouting.js'
-import { stopStudyTour } from '../src/composables/useStudyTour.js'
 import { song } from './support/backend.js'
+
+// con todo lo de arriba ya importado, antes de que ninguna prueba pida el recorrido
+const driverWithTheStudy = held.driver
 
 const base = {
   index: 0,
@@ -91,7 +107,7 @@ const mountView = async () => {
   return w
 }
 afterEach(() => {
-  stopStudyTour()
+  // (desmontarlo cierra el recorrido, si se abrió)
   for (const w of mounted.splice(0)) {
     try {
       w.unmount()
@@ -305,6 +321,7 @@ describe('the menus', () => {
       'Guía automática',
       'Salidas…',
       'Estilo de la onda',
+      'Ver las partes en columnas',
       'Cómo se usa',
       'Salir del modo estudio'
     ])
@@ -571,14 +588,20 @@ describe('the automatic cue', () => {
 })
 
 describe('the tour', () => {
+  it('does not travel with the study: driver.js arrives when it is asked for', () => {
+    expect(driverWithTheStudy, 'StudyBar.vue importa driver.js al abrirse').toBe(false)
+  })
+
   it('«?» opens it, with its steps and animations', async () => {
     const w = await mountView()
     await w.find('.study-help').trigger('click')
+    await vi.dynamicImportSettled()
     await flushPromises()
     const pop = document.querySelector('.driver-popover')
     expect(pop).not.toBeNull()
     expect(pop.textContent).toContain('El modo estudio')
     expect(pop.querySelector('.tour-demo')).not.toBeNull()
+    const { stopStudyTour } = await import('../src/composables/useStudyTour.js')
     stopStudyTour()
     expect(localStorage.getItem('danplay.study.tourSeen')).toBe('true')
   })
@@ -587,5 +610,164 @@ describe('the tour', () => {
     await mountView()
     await new Promise((r) => setTimeout(r, 1000))
     expect(document.querySelector('.driver-popover')).toBeNull()
+  })
+})
+
+describe('«Grande» and its animation', () => {
+  // El observador del tamaño avisaba en cada fotograma de la animación del
+  // alto (0,3 s): cada vez se medía todo y se repartían los carriles.
+  it('while the panel changes height the room is shared out once, at the end', async () => {
+    let notify = null
+    const had = 'ResizeObserver' in globalThis
+    const before = globalThis.ResizeObserver
+    globalThis.ResizeObserver = class {
+      constructor(cb) {
+        notify = cb
+      }
+      observe() {}
+      disconnect() {}
+    }
+    const read = vi.spyOn(window, 'getComputedStyle')
+    try {
+      const w = await mountView()
+      const root = w.find('.study').element
+      Object.defineProperty(root, 'clientHeight', { configurable: true, value: 600 })
+      Object.defineProperty(w.find('.tl-box').element, 'offsetHeight', {
+        configurable: true,
+        value: 120
+      })
+      const fits = () => read.mock.calls.filter(([el]) => el === root).length
+      const transition = (type) => {
+        const e = new Event(type, { bubbles: true })
+        Object.defineProperty(e, 'propertyName', { value: 'height' })
+        root.dispatchEvent(e)
+      }
+      notify([])
+      expect(fits(), 'sin animación, se reparte').toBe(1)
+      read.mockClear()
+      transition('transitionrun')
+      for (let i = 0; i < 5; i++) notify([])
+      expect(fits(), 'se reparte en cada fotograma de la animación').toBe(0)
+      transition('transitionend')
+      expect(fits()).toBe(1)
+    } finally {
+      read.mockRestore()
+      if (had) globalThis.ResizeObserver = before
+      else delete globalThis.ResizeObserver
+    }
+  })
+})
+
+describe('the big data of the study', () => {
+  it('the manual click beats and the cue waves are not made reactive one by one', async () => {
+    const own = { beats: [0.5, 1, 1.5, 2], bars: [0], meter: 4 }
+    held.state.songs = [
+      song(7, { title: 'Mi Gozo', study: JSON.stringify({ metronome: { own } }) })
+    ]
+    const w = await mountView()
+    expect(w.vm.study.metronome.own.beats).toEqual(own.beats)
+    expect(isReactive(w.vm.study.metronome.own), 'los pulsos, reactivos uno a uno').toBe(false)
+    w.vm.cueWaves = { 'a.wav': { peaks: [1, 2, 3], seconds: 1 } }
+    expect(isReactive(w.vm.cueWaves['a.wav'])).toBe(false)
+  })
+})
+
+// Las partes de abajo (velocidad y tono, el clic, los marcadores, las notas):
+// en pestañas por defecto, a todo lo ancho, con la chincheta para fijarlas o
+// dejar que se abran encima de la onda; en columnas si se elige en «⋯».
+describe('the parts below the wave', () => {
+  let notify = null
+  let had = false
+  let before = null
+  beforeEach(() => {
+    had = 'ResizeObserver' in globalThis
+    before = globalThis.ResizeObserver
+    globalThis.ResizeObserver = class {
+      constructor(cb) {
+        notify = cb
+      }
+      observe() {}
+      disconnect() {}
+    }
+  })
+  afterEach(() => {
+    if (had) globalThis.ResizeObserver = before
+    else delete globalThis.ResizeObserver
+  })
+  const at = async (w, width) => {
+    notify([{ target: w.find('.study').element, contentRect: { width } }])
+    await flushPromises()
+  }
+  const tabs = (w) => w.findAll('.study-panel-tab').map((t) => t.text().trim())
+  const shown = (w) => w.find('.study-body .study-col.active')
+
+  it('come in tabs by default, one at a time, also with a wide window', async () => {
+    const w = await mountView()
+    await at(w, 1536)
+    expect(tabs(w)).toEqual(['Velocidad y tono', 'Clic', 'Marcadores', 'Notas'])
+    expect(w.find('.study-body').classes()).toContain('tabbed')
+    await w.findAll('.study-panel-tab')[0].trigger('click')
+    expect(shown(w).classes()).toContain('study-tempo')
+    expect(w.findAll('.study-body .study-col.active')).toHaveLength(1)
+  })
+
+  it('can be columns again from «⋯», and it is remembered', async () => {
+    const w = await mountView()
+    await at(w, 1536)
+    await w.find('.study-more').trigger('click')
+    option('Ver las partes en columnas').action()
+    await flushPromises()
+    expect(w.find('.study-panels').exists()).toBe(false)
+    expect(w.find('.study-body').classes()).not.toContain('tabbed')
+    expect(localStorage.getItem('danplay.study.layout')).toBe('"columns"')
+    await w.find('.study-more').trigger('click')
+    expect(option('Ver las partes en pestañas')).toBeTruthy()
+    // sin ancho para las cuatro columnas, pestañas igual
+    await at(w, 900)
+    expect(w.find('.study-panels').exists()).toBe(true)
+  })
+
+  it('unpinned, only the tabs stay; a tab opens its part over the wave, and it closes', async () => {
+    const w = await mountView()
+    await at(w, 1536)
+    const pin = w.find('.study-pin')
+    expect(pin.attributes('aria-pressed')).toBe('true')
+    await pin.trigger('click')
+    expect(localStorage.getItem('danplay.study.pinned')).toBe('false')
+    const body = () => w.find('.study-body').classes()
+    expect(body()).toContain('floating')
+    expect(body()).not.toContain('shown')
+    // una pestaña la abre; la misma, la cierra
+    await w.findAll('.study-panel-tab')[1].trigger('click')
+    expect(body()).toContain('shown')
+    expect(shown(w).classes()).toContain('study-click')
+    await w.findAll('.study-panel-tab')[1].trigger('click')
+    expect(body()).not.toContain('shown')
+    // con Esc
+    await w.findAll('.study-panel-tab')[3].trigger('click')
+    expect(body()).toContain('shown')
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    await flushPromises()
+    expect(body()).not.toContain('shown')
+    // pulsando fuera (en la onda), sí; dentro, no
+    await w.findAll('.study-panel-tab')[0].trigger('click')
+    w.find('.study-body').element.dispatchEvent(new Event('pointerdown', { bubbles: true }))
+    await flushPromises()
+    expect(body()).toContain('shown')
+    w.find('.tl-box').element.dispatchEvent(new Event('pointerdown', { bubbles: true }))
+    await flushPromises()
+    expect(body()).not.toContain('shown')
+    // fijado otra vez, el panel siempre a la vista
+    await w.find('.study-pin').trigger('click')
+    expect(body()).not.toContain('floating')
+  })
+
+  it('in tabs the notes of the song and of the marker go side by side', async () => {
+    const w = await mountView()
+    expect(w.find('.study-notes-pair').exists(), 'en columnas, con sus pestañas').toBe(false)
+    await at(w, 1536)
+    expect(w.findAll('.study-notes-half')).toHaveLength(2)
+    expect(w.find('.study-notes .study-tabs').exists()).toBe(false)
+    expect(w.find('.study-notes-half .study-empty').text()).toContain('Elige un marcador')
   })
 })

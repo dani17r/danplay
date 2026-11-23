@@ -102,10 +102,26 @@ pub struct Feeder {
     ended: bool,
     scratch: Vec<f32>,
     shared: Arc<Shared>,
+    /// Una orden hizo *panic* (`handle`): el siguiente bloque sale como el de
+    /// un archivo dañado, el ultimo y vacio.
+    broken_order: bool,
     /// En las pruebas: al llegar a esa muestra, decodificar hace *panic*
     /// (como un archivo dañado).
     #[cfg(test)]
     break_at: Option<u64>,
+    /// En las pruebas: saltar a esa muestra hace *panic*.
+    #[cfg(test)]
+    break_seek: Option<u64>,
+    /// En las pruebas: saltar a esa muestra tarda (un disco dormido).
+    #[cfg(test)]
+    pub(crate) stall_seek: Option<u64>,
+}
+
+#[cfg(test)]
+thread_local! {
+    /// En las pruebas: el `stall_seek` de los alimentadores que ponga en
+    /// marcha este hilo (el motor los crea por dentro).
+    pub(crate) static STALL_SEEK: std::cell::Cell<Option<u64>> = const { std::cell::Cell::new(None) };
 }
 
 impl Feeder {
@@ -125,8 +141,13 @@ impl Feeder {
             ended: false,
             scratch: vec![0.0; BLOCK * 2],
             shared,
+            broken_order: false,
             #[cfg(test)]
             break_at: None,
+            #[cfg(test)]
+            break_seek: None,
+            #[cfg(test)]
+            stall_seek: None,
         }
     }
 
@@ -143,8 +164,21 @@ impl Feeder {
         );
     }
 
+    /// En las pruebas: el *panic* de un archivo dañado al saltar, si se pidió.
+    #[cfg(test)]
+    fn break_seek_if_asked(&self, frame: u64) {
+        assert!(
+            self.break_seek != Some(frame),
+            "un archivo dañado al saltar, en las pruebas"
+        );
+    }
+
     /// Ir a `frame`, con una generacion nueva.
     pub fn seek(&mut self, frame: u64) {
+        #[cfg(test)]
+        if self.stall_seek == Some(frame) {
+            std::thread::sleep(Duration::from_millis(1_500));
+        }
         let frame = frame.min(self.len);
         self.generation = self.shared.generation.fetch_add(1, Ordering::AcqRel) + 1;
         self.shared.target.store(frame, Ordering::Release);
@@ -153,6 +187,8 @@ impl Feeder {
     }
 
     fn jump(&mut self, frame: u64) {
+        #[cfg(test)]
+        self.break_seek_if_asked(frame);
         for p in &mut self.parts {
             p.seek(frame);
         }
@@ -379,8 +415,8 @@ impl Feeder {
     /// de llegar bloques y el reproductor se quedaba «sonando» en silencio,
     /// con la aguja parada y la lista sin avanzar. Devuelve si se pudo.
     pub fn fill_safely(&mut self, block: &mut Block) -> bool {
-        let filled =
-            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.fill(block))).is_ok();
+        let filled = !std::mem::take(&mut self.broken_order)
+            && std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.fill(block))).is_ok();
         if !filled {
             block.generation = self.generation;
             block.start = self.pos;
@@ -389,6 +425,15 @@ impl Feeder {
             self.finish(block, false);
         }
         filled
+    }
+
+    /// Una orden hizo *panic* a medias: la cancion se acaba donde se pidio
+    /// ir, con el siguiente bloque (ver `fill_safely`).
+    fn order_broke(&mut self) {
+        self.broken_order = true;
+        // el salto ya habia empezado la generacion nueva y dicho a donde iba
+        self.pos = self.shared.target.load(Ordering::Acquire);
+        self.ended = false;
     }
 
     /// Ya no hay mas que escribir: el bloque es el ultimo. `segments`: se
@@ -459,6 +504,41 @@ pub fn advance(segments: &[(u64, u64)], end: LoopEnd, from: u64, ahead: u64, len
     pos.min(len)
 }
 
+/// Lo que se espera a que se libere un bloque con el anillo lleno, tras
+/// `misses` esperas sin que se liberara ninguno: 4 ms, y el doble cada vez
+/// hasta 64. En pausa nadie los libera, y a 4 ms fijos eran 250 despertares
+/// por segundo para nada (en el celular, bateria). Solo si lo que hay en el
+/// anillo es de despues del ultimo salto (`settled`: 1,5 s de colchon por
+/// delante): tras un salto en pausa el anillo sigue lleno de lo de antes, el
+/// hilo de audio lo tira al dar a sonar y espera lo nuevo, y dormido 64 ms la
+/// cancion entraba hasta 30 ms tarde (medido con `real_start_latency`).
+fn idle_wait(misses: u32, settled: bool) -> Duration {
+    if settled {
+        Duration::from_millis(4 << misses.min(4))
+    } else {
+        Duration::from_millis(4)
+    }
+}
+
+/// Hace una orden. Saltar llega a symphonia sobre archivos de fuera, y si
+/// hace *panic* (un archivo dañado) la cancion se acaba ahi y se dice, como
+/// al decodificar (`fill_safely`); antes el *panic* mataba este hilo: no
+/// llegaba ningun bloque mas, `failed` no se ponia y quien pregunta veia la
+/// cancion «sonando» en silencio. Las ordenes atendidas cuentan siempre.
+/// Devuelve si se pudo.
+pub fn handle(feeder: &mut Feeder, order: Order) -> bool {
+    let done = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| match order {
+        Order::Seek(frame) => feeder.seek(frame),
+        Order::Segments(list, end) => feeder.set_segments(list, end),
+    }))
+    .is_ok();
+    if !done {
+        feeder.order_broke();
+    }
+    feeder.shared.orders_done.fetch_add(1, Ordering::AcqRel);
+    done
+}
+
 /// El hilo: atiende las ordenes y mantiene llenos los bloques. Acaba cuando
 /// se suelta quien manda las ordenes.
 pub fn run(
@@ -467,13 +547,25 @@ pub fn run(
     mut full: rtrb::Producer<Box<Block>>,
     orders: &Receiver<Order>,
 ) {
-    let shared = Arc::clone(&feeder.shared);
+    // vueltas seguidas sin que se libere ningun bloque, y bloques escritos
+    // desde el ultimo salto
+    let mut misses = 0u32;
+    let mut fresh = 0usize;
     loop {
         let idle = feeder.ended() || free.is_empty() || full.is_full();
-        let order = if idle {
-            match orders.recv_timeout(Duration::from_millis(4)) {
+        let order = if feeder.ended() {
+            // ya no hay nada que escribir: solo una orden lo cambia
+            match orders.recv() {
                 Ok(o) => Some(o),
-                Err(RecvTimeoutError::Timeout) => None,
+                Err(_) => return,
+            }
+        } else if idle {
+            match orders.recv_timeout(idle_wait(misses, fresh >= POOL)) {
+                Ok(o) => Some(o),
+                Err(RecvTimeoutError::Timeout) => {
+                    misses = misses.saturating_add(1);
+                    None
+                }
                 Err(RecvTimeoutError::Disconnected) => return,
             }
         } else {
@@ -484,17 +576,19 @@ pub fn run(
             }
         };
         if let Some(order) = order {
-            match order {
-                Order::Seek(frame) => feeder.seek(frame),
-                Order::Segments(list, end) => feeder.set_segments(list, end),
+            let generation = feeder.generation;
+            handle(&mut feeder, order);
+            if feeder.generation != generation {
+                fresh = 0;
             }
-            shared.orders_done.fetch_add(1, Ordering::AcqRel);
             continue; // todas las que haya, antes de decodificar nada
         }
         if feeder.ended() || full.is_full() {
             continue;
         }
         if let Ok(mut block) = free.pop() {
+            misses = 0;
+            fresh = fresh.saturating_add(1);
             feeder.fill_safely(&mut block);
             // cabe: los dos anillos tienen sitio para todos los bloques
             let _ = full.push(block);
@@ -506,6 +600,8 @@ pub fn run(
 mod tests {
     use super::*;
     use crate::testing::fixture;
+    use rtrb::{Consumer, Producer};
+    use std::sync::mpsc::Sender;
 
     fn feeder(parts: usize) -> Feeder {
         let (bytes, _) = fixture("ogg");
@@ -558,6 +654,85 @@ mod tests {
         f.seek(0);
         assert!(!f.ended() && !f.shared.failed.load(Ordering::Acquire));
         assert!(f.fill_safely(&mut b) && b.frames == BLOCK);
+    }
+
+    /// El hilo que decodifica, con sus anillos, como lo pone el motor: las
+    /// ordenes por `orders` y los bloques por `full` (que hay que devolver
+    /// por `free`, como el hilo de audio).
+    fn running(f: Feeder) -> (Sender<Order>, Consumer<Box<Block>>, Producer<Box<Block>>) {
+        let parts = f.parts();
+        let (mut free_tx, free_rx) = rtrb::RingBuffer::<Box<Block>>::new(POOL);
+        let (full_tx, full_rx) = rtrb::RingBuffer::<Box<Block>>::new(POOL);
+        for _ in 0..POOL {
+            let _ = free_tx.push(Box::new(Block::new(parts)));
+        }
+        let (orders, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || run(f, free_rx, full_tx, &rx));
+        (orders, full_rx, free_tx)
+    }
+
+    /// El primer bloque de la generacion buena que cumpla `ok`, devolviendo
+    /// los demas (con un tope de dos segundos).
+    fn block_where(
+        shared: &Shared,
+        full: &mut Consumer<Box<Block>>,
+        free: &mut Producer<Box<Block>>,
+        ok: impl Fn(&Block) -> bool,
+    ) -> Option<(u64, usize, bool)> {
+        let limit = std::time::Instant::now() + Duration::from_secs(2);
+        while std::time::Instant::now() < limit {
+            let Ok(b) = full.pop() else {
+                std::thread::sleep(Duration::from_millis(1));
+                continue;
+            };
+            let good = b.generation == shared.generation.load(Ordering::Acquire);
+            let found = (good && ok(&b)).then_some((b.start, b.frames, b.last));
+            let _ = free.push(b);
+            if found.is_some() {
+                return found;
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn with_nothing_freed_the_thread_waits_longer_and_longer_up_to_64_ms() {
+        let waits: Vec<u64> = (0..7)
+            .map(|m| idle_wait(m, true).as_millis() as u64)
+            .collect();
+        assert_eq!(waits, [4, 8, 16, 32, 64, 64, 64]);
+        // lo mas que se espera, muy por debajo del colchon de bloques
+        let cushion = (POOL * BLOCK) as f64 / 44_100.0;
+        assert!(idle_wait(u32::MAX, true).as_secs_f64() < cushion / 10.0);
+        // con el anillo lleno de lo de antes de un salto, sin dormirse: al
+        // dar a sonar eso se tira y lo nuevo tiene que llegar ya
+        assert_eq!(idle_wait(9, false), Duration::from_millis(4));
+    }
+
+    #[test]
+    fn a_seek_that_breaks_ends_the_song_there_and_a_later_seek_plays_again() {
+        // saltar llega a symphonia sobre archivos de fuera: si hacia *panic*,
+        // este hilo moria, no llegaba ningun bloque mas y la cancion se quedaba
+        // «sonando» en silencio, sin decir nada
+        let mut f = feeder(1);
+        f.break_seek = Some(40_000);
+        let shared = Arc::clone(&f.shared);
+        let (orders, mut full, mut free) = running(f);
+        let _ = orders.send(Order::Seek(40_000));
+        let last = block_where(&shared, &mut full, &mut free, |b| b.last);
+        assert_eq!(
+            last,
+            Some((40_000, 0, true)),
+            "el ultimo, vacio, donde se pidio"
+        );
+        assert!(shared.failed.load(Ordering::Acquire), "y se dice");
+        assert_eq!(shared.orders_done.load(Ordering::Acquire), 1);
+        // otro salto es otra oportunidad
+        let _ = orders.send(Order::Seek(1_000));
+        let next = block_where(&shared, &mut full, &mut free, |b| b.frames > 0);
+        assert_eq!(next, Some((1_000, BLOCK, false)));
+        assert!(!shared.failed.load(Ordering::Acquire));
+        assert_eq!(shared.orders_done.load(Ordering::Acquire), 2);
     }
 
     #[test]

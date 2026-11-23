@@ -39,6 +39,110 @@ fn spectrogram_and_inverse_give_back_the_signal() {
     }
 }
 
+/// La STFT de antes de guardar los planes: uno nuevo en cada llamada, y la
+/// ventana de la inversa y su cuadrado hechos cada vez. Para comparar.
+fn forward_planned_each_time(s: &Stft, x: &[f32]) -> Vec<Complex32> {
+    let p = reflect(x, s.nfft / 2, s.nfft / 2);
+    let frames = 1 + (p.len() - s.nfft) / s.hop;
+    let bins = s.nfft / 2 + 1;
+    let fft = RealFftPlanner::<f32>::new().plan_fft_forward(s.nfft);
+    let (mut input, mut output) = (fft.make_input_vec(), fft.make_output_vec());
+    let scale = if s.normalized {
+        1.0 / (s.nfft as f32).sqrt()
+    } else {
+        1.0
+    };
+    let mut data = vec![Complex32::new(0.0, 0.0); bins * frames];
+    for t in 0..frames {
+        for ((e, v), w) in input.iter_mut().zip(&p[t * s.hop..]).zip(&s.window) {
+            *e = v * w;
+        }
+        fft.process(&mut input, &mut output).expect("tamaños");
+        for (b, c) in output.iter().enumerate() {
+            data[b * frames + t] = if s.normalized {
+                Complex32::new(c.re * scale, c.im * scale)
+            } else {
+                *c
+            };
+        }
+    }
+    data
+}
+
+fn inverse_planned_each_time(s: &Stft, z: &Spectrum, length: usize) -> Vec<f32> {
+    let (frames, k) = (z.frames, s.nfft / s.hop);
+    let fft = RealFftPlanner::<f32>::new().plan_fft_inverse(s.nfft);
+    let (mut input, mut output) = (fft.make_input_vec(), fft.make_output_vec());
+    let inv = 1.0 / s.nfft as f32;
+    let w: Vec<f32> = if s.normalized {
+        let r = (s.nfft as f32).sqrt();
+        s.window.iter().map(|v| v * r).collect()
+    } else {
+        s.window.clone()
+    };
+    let blocks = frames + k - 1;
+    let mut out = vec![0f32; blocks * s.hop];
+    let mut tr = vec![0f32; frames * s.nfft];
+    for t in 0..frames {
+        for (b, e) in input.iter_mut().enumerate() {
+            *e = z.en(b, t);
+        }
+        input[0].im = 0.0;
+        let last = input.len() - 1;
+        input[last].im = 0.0;
+        fft.process(&mut input, &mut output).expect("tamaños");
+        for ((o, v), w) in tr[t * s.nfft..].iter_mut().zip(&output).zip(&w) {
+            *o = (v * inv) * w;
+        }
+    }
+    let square: Vec<f32> = s.window.iter().map(|v| v * v).collect();
+    let mut env = vec![0f32; blocks * s.hop];
+    for j in 0..k {
+        for t in 0..frames {
+            let (dst, src) = ((j + t) * s.hop, t * s.nfft + j * s.hop);
+            for i in 0..s.hop {
+                out[dst + i] += tr[src + i];
+            }
+        }
+        for b in j..j + frames {
+            for i in 0..s.hop {
+                env[b * s.hop + i] += square[j * s.hop + i];
+            }
+        }
+    }
+    let start = s.nfft / 2;
+    (start..(start + length).min(out.len()))
+        .map(|i| out[i] / if env[i] > 1e-11 { env[i] } else { 1.0 })
+        .collect()
+}
+
+/// Los planes de la FFT y las ventanas se hacen una vez y se guardan: lo que
+/// sale es, bit a bit, lo de planearlo todo en cada llamada, también al
+/// usar el mismo `Stft` varias veces y con largos distintos.
+#[test]
+fn the_spectrogram_with_its_plans_kept_is_the_one_planned_each_time() {
+    let same = |a: &[f32], b: &[f32]| {
+        a.len() == b.len() && a.iter().zip(b).all(|(x, y)| x.to_bits() == y.to_bits())
+    };
+    let x = tones(3 * RATE + 17);
+    for s in [Stft::demucs(), Stft::mega()] {
+        for length in [x.len(), RATE] {
+            let z = s.forward(&x[..length]);
+            let want = forward_planned_each_time(&s, &x[..length]);
+            let bits = |c: &[Complex32]| c.iter().flat_map(|v| [v.re, v.im]).collect::<Vec<f32>>();
+            assert!(same(&bits(&z.data), &bits(&want)), "{}: la directa", s.nfft);
+            assert!(
+                same(
+                    &s.inverse(&z, length),
+                    &inverse_planned_each_time(&s, &z, length)
+                ),
+                "{}: la inversa",
+                s.nfft
+            );
+        }
+    }
+}
+
 #[test]
 fn padding_mirrors_without_repeating_the_edge() {
     assert_eq!(
@@ -107,7 +211,7 @@ fn chunks_join_into_the_whole_song() {
         let mut seen = Vec::new();
         separate(
             &mut net,
-            x.clone(),
+            &x,
             &mut |b| {
                 blocks.push(b);
                 Ok(())
@@ -116,7 +220,6 @@ fn chunks_join_into_the_whole_song() {
                 seen.push((d, t));
                 Ok(())
             },
-            &mut || Ok(false),
         )
         .expect("separa");
         let (s, rows) = join_blocks(&blocks);
@@ -134,35 +237,19 @@ fn chunks_join_into_the_whole_song() {
     }
 }
 
+/// Si quien recibe las pistas falla (el disco lleno), la separación falla
+/// con ese motivo, aunque el fallo llegue desde el hilo que funde.
 #[test]
-fn stops_on_cancel_and_a_join_error_is_not_lost() {
-    let mut net = Identity {
-        parts: vec![0.5, 0.5],
-        calls: 0,
-    };
-    let mut calls = 0;
-    separate(
-        &mut net,
-        tones(20 * RATE),
-        &mut |_| Ok(()),
-        &mut |_, _| Ok(()),
-        &mut || {
-            calls += 1;
-            Ok(calls > 1)
-        },
-    )
-    .expect("separa");
-    assert_eq!(net.calls, 1);
+fn a_join_error_is_not_lost() {
     let mut net = Identity {
         parts: vec![0.5, 0.5],
         calls: 0,
     };
     let r = separate(
         &mut net,
-        tones(12 * RATE),
+        &tones(12 * RATE),
         &mut |_| Err("disco lleno".into()),
         &mut |_, _| Ok(()),
-        &mut || Ok(false),
     );
     assert_eq!(r.map_err(|e| e.to_string()), Err("disco lleno".to_owned()));
 }
@@ -235,13 +322,12 @@ fn a_song_with_an_offset_and_a_loud_mix_comes_back_the_same() {
     let mut blocks = Vec::new();
     separate(
         &mut net,
-        x.clone(),
+        &x,
         &mut |b| {
             blocks.push(b);
             Ok(())
         },
         &mut |_, _| Ok(()),
-        &mut || Ok(false),
     )
     .expect("separa");
     let (s, rows) = join_blocks(&blocks);

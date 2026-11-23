@@ -1,7 +1,7 @@
 # Signalsmith Stretch, dentro del repositorio
 
 La velocidad sin cambiar el tono (y el tono sin cambiar la velocidad) del
-motor del celular es [Signalsmith Stretch](https://github.com/Signalsmith-Audio/signalsmith-stretch)
+motor de audio (el de la PC y el del celular) es [Signalsmith Stretch](https://github.com/Signalsmith-Audio/signalsmith-stretch)
 1.3.1, con la parte de [Signalsmith Linear](https://github.com/Signalsmith-Audio/linear)
 que usa (la FFT y la STFT). Las dos son de Signalsmith Audio, con licencia MIT
 (`LICENSE.txt` de cada carpeta). Son solo cabeceras de C++.

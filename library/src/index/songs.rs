@@ -11,6 +11,7 @@ use crate::text;
 use crate::value;
 use rusqlite::Connection;
 use serde_json::Value;
+use std::collections::HashMap;
 use std::path::Path;
 
 /// La canción de la biblioteca con ese id (la fila entera), o None.
@@ -67,12 +68,15 @@ pub fn update(conn: &Connection, cid: i64, fields: &Dict) -> rusqlite::Result<Op
 /// biblioteca: una canción movida sigue sonando desde su sitio nuevo, y la
 /// que ya no está sale de la cola.
 pub fn paths_of(conn: &Connection, ids: &[i64]) -> rusqlite::Result<Vec<(i64, Option<String>)>> {
-    // en el orden en que llegan, sin repetir
+    // en el orden en que llegan, sin repetir; y dónde quedó cada id (buscarlo
+    // en la lista por cada uno era cuadrático con una cola de miles)
     let mut out: Vec<(i64, Option<String>)> = Vec::new();
+    let mut at: HashMap<i64, usize> = HashMap::new();
     for &i in ids.iter().filter(|&&i| i > 0) {
-        if !out.iter().any(|(k, _)| *k == i) {
+        at.entry(i).or_insert_with(|| {
             out.push((i, None));
-        }
+            out.len() - 1
+        });
     }
     let wanted: Vec<i64> = out.iter().map(|(k, _)| *k).collect();
     for chunk in wanted.chunks(SCAN_BATCH) {
@@ -91,8 +95,8 @@ pub fn paths_of(conn: &Connection, ids: &[i64]) -> rusqlite::Result<Vec<(i64, Op
             ) else {
                 continue;
             };
-            if let Some(slot) = out.iter_mut().find(|(k, _)| *k == id) {
-                slot.1 = Path::new(path).is_file().then(|| path.to_owned());
+            if let Some(&i) = at.get(&id) {
+                out[i].1 = Path::new(path).is_file().then(|| path.to_owned());
             }
         }
     }
@@ -165,8 +169,7 @@ fn num(x: f64) -> Value {
 pub fn segments(raw: Option<&Value>, limit: usize) -> Vec<[f64; 2]> {
     let items = raw
         .filter(|v| value::truthy(v))
-        .map(value::list_of)
-        .unwrap_or_default();
+        .map_or_default(value::list_of);
     let mut out: Vec<[f64; 2]> = Vec::new();
     for v in items.iter().take(limit) {
         let Some(pair) = v.as_array().filter(|a| a.len() == 2) else {
@@ -260,8 +263,7 @@ pub fn own_click(own: Option<&Value>) -> Option<Dict> {
     let raw = own
         .get("beats")
         .filter(|v| value::truthy(v))
-        .map(value::list_of)
-        .unwrap_or_default();
+        .map_or_default(value::list_of);
     for t in raw.iter().take(8000) {
         let Some(t) = value::float_of(t)
             .filter(|t| t.is_finite())
@@ -279,8 +281,7 @@ pub fn own_click(own: Option<&Value>) -> Option<Dict> {
     let raw_bars = own
         .get("bars")
         .filter(|v| value::truthy(v))
-        .map(value::list_of)
-        .unwrap_or_default();
+        .map_or_default(value::list_of);
     let mut bars: Vec<i64> = raw_bars
         .iter()
         .take(8000)
@@ -404,8 +405,7 @@ pub fn own_cue_file(path: Option<&Value>, base: &str, previews: bool) -> Option<
 pub fn cues(raw: Option<&Value>, cues_dir: &str) -> Vec<Dict> {
     let items = raw
         .filter(|v| value::truthy(v))
-        .map(value::list_of)
-        .unwrap_or_default();
+        .map_or_default(value::list_of);
     let mut out: Vec<Dict> = Vec::new();
     for c in items.iter().take(200) {
         let Value::Object(c) = c else { continue };
@@ -590,8 +590,7 @@ pub fn clean_study(study: &Value, cues_dir: &str) -> String {
         let raw_markers = study
             .get("markers")
             .filter(|v| value::truthy(v))
-            .map(value::list_of)
-            .unwrap_or_default();
+            .map_or_default(value::list_of);
         let mut markers: Vec<Dict> = raw_markers
             .iter()
             .take(MAX_MARKERS)

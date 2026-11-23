@@ -2,11 +2,13 @@
 #
 #   .\scripts\build-windows.ps1                 interfaz + datos + app
 #   .\scripts\build-windows.ps1 -Installer      ademas, el instalador (NSIS)
-#   .\scripts\build-windows.ps1 -NoTools        sin ffmpeg, fpcalc, QuickJS ni yt-dlp dentro
+#   .\scripts\build-windows.ps1 -NoTools        sin ffmpeg, fpcalc ni QuickJS dentro
 #
 # Sin Python: el nucleo va dentro de la app (el crate `server`). Lo que viaja
 # con ella son sus datos (desktop/src-tauri/data: los modelos, las voces, la
 # foto del catalogo y ONNX Runtime) y sus programas (desktop/src-tauri/tools).
+# yt-dlp ya no (desde la 1.45): la app lo instala de GitHub la primera vez
+# que se baja algo de YouTube.
 #
 # Lo que hace falta tener puesto:
 #   - Node 24                https://nodejs.org/
@@ -35,6 +37,9 @@ foreach ($program in @('node', 'vp', 'cargo', 'rustc')) {
 
 # Baja `url` a la cache como `name`, si no esta ya, y comprueba su SHA-256.
 # La cache, como la de scripts/tools-linux.sh: la segunda vez no se baja nada.
+# Una suma que no coincide para aqui mismo (Fail, no throw): sin red se puede
+# seguir sin las herramientas (abajo), pero no con un archivo que no es el
+# que se esperaba.
 $cache = Join-Path $env:LOCALAPPDATA 'danplay-windows'
 New-Item -ItemType Directory -Force -Path $cache | Out-Null
 function Download($url, $sha, $name) {
@@ -43,7 +48,7 @@ function Download($url, $sha, $name) {
     Write-Host "   bajando $name"
     Invoke-WebRequest -Uri $url -OutFile "$file.part"
     $real = (Get-FileHash "$file.part" -Algorithm SHA256).Hash.ToLower()
-    if ($real -ne $sha) { Remove-Item "$file.part"; throw "$name no es lo esperado: $real" }
+    if ($real -ne $sha) { Remove-Item "$file.part"; Fail "$name no es lo esperado (sha256 $real)" }
     Move-Item -Force "$file.part" $file
     return $file
 }
@@ -81,14 +86,16 @@ foreach ($item in 'pulse', 'separator', 'voices.json', 'models-snapshot.json') {
     Copy-Item -Recurse "data/$item" $data
 }
 
-# --- ffmpeg, fpcalc, QuickJS y yt-dlp ----------------------------------------
+# --- ffmpeg, fpcalc y QuickJS -------------------------------------------------
 # Con version fija y su SHA-256, las mismas que el instalador de la CI
 # (.github/workflows/windows.yml). QuickJS (qjs.exe) es el motor de JavaScript
-# que YouTube exige a yt-dlp; yt-dlp, su ejecutable oficial.
+# que YouTube exige a yt-dlp.
 $tools = 'desktop/src-tauri/tools'
 New-Item -ItemType Directory -Force -Path $tools | Out-Null
+# el yt-dlp de una version anterior, si quedo: ya no viaja
+Remove-Item (Join-Path $tools 'yt-dlp.exe') -ErrorAction SilentlyContinue
 if (-not $NoTools) {
-    Step '3/4  ffmpeg, fpcalc, QuickJS y yt-dlp (van dentro del instalador)'
+    Step '3/4  ffmpeg, fpcalc y QuickJS (van dentro del instalador)'
     $zips = @(
         @{ Url = 'https://github.com/GyanD/codexffmpeg/releases/download/9.0.2/ffmpeg-9.0.2-essentials_build.zip'
            Sha = '60f467265b1e312373dbcd92200c2618a74850f98d3d078e94296bb3fa2047ba'
@@ -100,10 +107,7 @@ if (-not $NoTools) {
     $exes = @(
         @{ Url = 'https://github.com/quickjs-ng/quickjs/releases/download/v0.17.0/qjs-windows-x86_64.exe'
            Sha = '2aeabf0092c3262d6b2609824418f7dd7ed1f1df939f73b2b15645230cac0d77'
-           Name = 'qjs-0.17.0.exe'; Exe = 'qjs.exe' },
-        @{ Url = 'https://github.com/yt-dlp/yt-dlp/releases/download/2026.08.19/yt-dlp.exe'
-           Sha = '66674953fe251b89f4d08c5f0e35e0728679bd67ab3d7d05c0562af101dd3e7a'
-           Name = 'yt-dlp-2026.08.19.exe'; Exe = 'yt-dlp.exe' }
+           Name = 'qjs-0.17.0.exe'; Exe = 'qjs.exe' }
     )
     try {
         foreach ($item in $zips) {
@@ -127,17 +131,10 @@ if (-not $NoTools) {
 # --- la aplicacion -----------------------------------------------------------
 Step '4/4  aplicacion de escritorio (Tauri), con el nucleo dentro'
 if ($Installer) {
+    # con la foto del catalogo de modelos del repositorio (data/), la que se
+    # saca al subir la version: la misma en todos los paquetes
     Push-Location desktop
-    # sin empaquetar todavia: antes se saca con ella la foto del catalogo
-    vp exec tauri build --no-bundle
-    Pop-Location
-    # La de hoy, para que el instalador no salga con una lista de hace meses
-    # (sin red, viaja la del repositorio). Con -Wait: es una app de ventanas.
-    $p = Start-Process -Wait -PassThru -NoNewWindow -FilePath target/release/danplay-app.exe `
-         -ArgumentList '--models-snapshot', "$data/models-snapshot.json"
-    if ($p.ExitCode -ne 0) { Write-Host '   sin red: viaja la foto del repositorio' -ForegroundColor Yellow }
-    Push-Location desktop
-    vp exec tauri bundle --bundles nsis
+    vp exec tauri build --bundles nsis
     Pop-Location
 } else {
     cargo build --release -p danplay-app

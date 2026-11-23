@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
+import { effectScope, ref } from 'vue'
 
 // Ajustar el clic manual de muchos pulsos a la vez: deshacer y rehacer, la
 // selección y sus teclas, las herramientas de la barra y el panel «Tempo y
@@ -25,6 +26,8 @@ import { useNotices } from '../src/composables/useNotices.js'
 import { dialogOk, useDialog } from '../src/composables/useDialog.js'
 import { useContextMenu } from '../src/composables/useContextMenu.js'
 import {
+  useBeatEdit,
+  HITS_KEEP,
   planAlign,
   describePlan,
   findTempo,
@@ -1194,6 +1197,41 @@ describe('the Tempo y onda panel', () => {
     expect(w.vm.edit.ghostBeats).toEqual(GRID.beats)
     // pedidos una vez
     expect(held.api.beatHits).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('the hits already asked for', () => {
+  it('are kept for the last few songs, not for every song edited since the app opened', async () => {
+    const songId = ref(1)
+    const scope = effectScope()
+    const edit = scope.run(() =>
+      useBeatEdit({
+        study: ref({ metronome: {} }),
+        editing: ref(false),
+        click: {},
+        player: {},
+        songId,
+        duration: 200,
+        grid: null
+      })
+    )
+    try {
+      for (let id = 1; id <= HITS_KEEP + 1; id++) {
+        songId.value = id
+        await edit.loadHits('mix')
+      }
+      held.api.beatHits.mockClear()
+      // la última, guardada: no se vuelve a pedir
+      await edit.loadHits('mix')
+      expect(held.api.beatHits).not.toHaveBeenCalled()
+      // la primera ya se tiró
+      songId.value = 1
+      await edit.loadHits('mix')
+      expect(held.api.beatHits).toHaveBeenCalledTimes(1)
+      expect(held.api.beatHits).toHaveBeenCalledWith(1, 'mix')
+    } finally {
+      scope.stop()
+    }
   })
 })
 

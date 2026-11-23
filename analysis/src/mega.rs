@@ -289,9 +289,9 @@ pub fn chunks_for(length: usize, chunk: usize, overlap: f64) -> usize {
 
 /// Pasa la canción por el Mega53 en trozos y reparte cada uno. `mix`,
 /// (2, N), es la canción; `stems`, las de las que se reparte (`drums`,
-/// `vocals`, `melodic`), del mismo largo. Va dando las pistas nuevas a
-/// `emit` por tramos, en orden ({pista: (2, n)}), fundiendo los trozos
-/// donde se solapan.
+/// `vocals`, `melodic`), del mismo largo (suyas o prestadas: no se
+/// copian). Va dando las pistas nuevas a `emit` por tramos, en orden
+/// ({pista: (2, n)}), fundiendo los trozos donde se solapan.
 ///
 /// # Panics
 ///
@@ -303,15 +303,14 @@ pub fn chunks_for(length: usize, chunk: usize, overlap: f64) -> usize {
     clippy::too_many_lines,
     clippy::many_single_char_names
 )]
-pub fn separate(
+pub fn separate<S: AsRef<[f32]>>(
     net: &mut dyn Net,
     heads: &[String],
     chunk: usize,
     mix: &[f32],
-    stems: &[(String, Vec<f32>)],
+    stems: &[(String, S)],
     emit: &mut dyn FnMut(Parts) -> Result<(), Error>,
     on_progress: &mut dyn FnMut(usize, usize) -> Result<(), Error>,
-    is_cancelled: &mut dyn FnMut() -> Result<bool, Error>,
     overlap: f64,
 ) -> Result<(), Error> {
     let length = mix.len() / 2;
@@ -338,9 +337,6 @@ pub fn separate(
         out
     };
     for (n, &start) in chunk_starts.iter().enumerate() {
-        if is_cancelled()? {
-            break;
-        }
         let end = length.min(start + chunk);
         let size = end - start;
         let x = piece(mix, start, end);
@@ -358,7 +354,7 @@ pub fn separate(
             .collect();
         let spectra: Vec<(String, Stereo)> = stems
             .iter()
-            .map(|(k, v)| (k.clone(), stft(&stft_, &piece(v, start, end))))
+            .map(|(k, v)| (k.clone(), stft(&stft_, &piece(v.as_ref(), start, end))))
             .collect();
         let parts: Vec<(String, Vec<f32>)> = distribute(&estimates, &spectra)?
             .into_iter()

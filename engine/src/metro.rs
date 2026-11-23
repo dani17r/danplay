@@ -2,9 +2,9 @@
 //! (lo que se le enseña) y la rejilla de la cancion con esos ajustes puestos
 //! (el doble o la mitad, el compas, el «1» corrido).
 //!
-//! Lo comparten la app de escritorio (`player/metro.rs`, que ademas planifica
-//! el clic sobre rodio) y la del celular: la misma interfaz manda lo mismo y
-//! ve lo mismo en los dos sitios.
+//! Lo comparten la app de escritorio y la del celular: la misma interfaz
+//! manda lo mismo y ve lo mismo en los dos sitios, y el motor toca el clic
+//! que sale de aqui (`click_plan`).
 use crate::beats::{BeatGrid, normal_meter};
 use crate::click::Sound;
 use serde::{Deserialize, Serialize};

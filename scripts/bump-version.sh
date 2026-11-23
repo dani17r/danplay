@@ -12,6 +12,11 @@
 # Regla de la casa: CADA cambio que se entrega sube la version (ver
 # docs/CONTRIBUTING.md, «La version»). Sin subirla, `apt install` con el mismo
 # .deb no hace nada y Windows enseña el mismo numero antes y despues.
+#
+# De paso saca la foto del catalogo de modelos de IA de hoy
+# (data/models-snapshot.json, la que viaja en los paquetes) con la app ya
+# compilada. Antes la sacaba cada paquete al construirse: cada sistema podia
+# llevar una distinta y el paquete no salia igual dos veces.
 set -eu
 cd "$(dirname "$0")/.."
 
@@ -48,6 +53,32 @@ fi
 echo "version: $current -> $new_version"
 grep -n -e "\"$new_version\"" -e "version-$new_version-" \
     Cargo.toml desktop/package.json README.md | sed 's/^/  /'
+
+# La foto del catalogo: `--models-snapshot` lo entienden el nucleo suelto y la
+# app (que lo lleva dentro); el que haya, de lo compilado. Sin red, o sin
+# nada compilado, se queda la de antes y se dice.
+target="${CARGO_TARGET_DIR:-target}"
+snapshot=""
+for tool in "$target/release/danplay-server" "$target/ci/danplay-server" "$target/release/danplay-app"; do
+    [ -x "$tool" ] && { snapshot=$tool; break; }
+done
+echo
+if [ -z "$snapshot" ]; then
+    echo "AVISO: sin nada compilado no saco la foto del catalogo de modelos; despues:"
+    echo "  target/release/danplay-server --models-snapshot data/models-snapshot.json"
+elif "$snapshot" --models-snapshot data/models-snapshot.json; then
+    echo "foto del catalogo de modelos al dia (data/models-snapshot.json): va en el mismo commit"
+else
+    echo "AVISO: no pude sacar la foto del catalogo de modelos (¿sin red?): se queda la de antes"
+fi
+
+# Lo que no toca este guion y tiene que llevar la version nueva: la prueba de
+# «Acerca de» (desktop/tests/about.test.js) lo caza, pero tarde
+if ! grep -q "^## $new_version " CHANGELOG.md; then
+    echo
+    echo "AVISO: falta la entrada de $new_version en CHANGELOG.md y en desktop/src/data/releases.js"
+fi
 echo
 echo "Ahora: ./scripts/test.sh --quick, commit propio («chore: subir a $new_version»),"
-echo "y para publicarla: git tag v$new_version && git push --tags (la CI construye los paquetes)."
+echo "y para publicarla, una etiqueta anotada (la CI construye los paquetes):"
+echo "  git tag -a v$new_version -m $new_version && git push --tags"

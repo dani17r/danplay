@@ -308,8 +308,7 @@ pub fn ident(row: &Dict) -> String {
     let text = |k: &str| {
         row.get(k)
             .filter(|v| value::truthy(v))
-            .map(value::str_of)
-            .unwrap_or_default()
+            .map_or_default(value::str_of)
     };
     let artist = text("artist");
     let title = text("title");
@@ -1215,6 +1214,60 @@ mod tests {
         assert_eq!(
             song(&conn, "Barak - Mi Gozo.mp3")["stars"].as_i64(),
             Some(5)
+        );
+    }
+
+    /// Un escaneo que no tiene nada que apartar no se queda el turno de
+    /// escribir mientras mira cada archivo: con el disco frío o un USB eso son
+    /// segundos, y poner una estrella entre medias esperaba hasta cinco y
+    /// fallaba con «database is locked».
+    #[test]
+    fn a_scan_with_nothing_gone_lets_others_write_meanwhile() {
+        let dir = Scratch::new("escaneo-sin-turno");
+        let (conn, root) = library(&dir);
+        let file = root
+            .join("Artistas")
+            .join("Barak")
+            .join("Barak - Mi Gozo.mp3");
+        if make_mp3(&file, "Barak", "Mi Gozo", "", 1.0, None).is_none() {
+            return without_ffmpeg("escribir durante un escaneo sin cambios");
+        }
+        rescan(&conn, &root);
+        // otra conexión (la de poner una estrella), sin esperar nada
+        let other = crate::index::open(&dir.join("indice.db")).expect("otra conexión");
+        other
+            .busy_timeout(std::time::Duration::ZERO)
+            .expect("sin espera");
+        let extensions: Vec<String> = crate::config::EXTENSIONS
+            .iter()
+            .map(|e| (*e).to_owned())
+            .collect();
+        let mut wrote = None;
+        let report = scan(
+            &conn,
+            &root.join("Artistas"),
+            &extensions,
+            false,
+            // el primer aviso llega ya apartado lo que se fue, antes de
+            // mirar los archivos
+            &mut |_, _| {
+                wrote.get_or_insert_with(|| {
+                    other
+                        .execute("UPDATE songs SET stars=4", [])
+                        .map_err(|e| e.to_string())
+                });
+            },
+        )
+        .expect("escaneo");
+        assert_eq!((report.removed, report.reused), (0, 1));
+        assert_eq!(
+            wrote,
+            Some(Ok(1)),
+            "la estrella tenía que entrar al momento"
+        );
+        assert_eq!(
+            song(&conn, "Barak - Mi Gozo.mp3")["stars"].as_i64(),
+            Some(4)
         );
     }
 

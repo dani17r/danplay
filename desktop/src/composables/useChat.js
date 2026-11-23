@@ -1054,9 +1054,10 @@ async function postApp(m, where = chatId.value) {
 }
 
 /**
- * Borrar una canción o una lista: el diálogo de la app (fuera del turno y por
- * la cola de preguntas). Se acepta por el id; lo que se borra lo dice el
- * servidor.
+ * Borrar una canción o una lista (o, tras leer texto de fuera, cambiar una
+ * lista o unas etiquetas): el diálogo de la app (fuera del turno y por la
+ * cola de preguntas). Se acepta por el id; qué se hace y qué pasa después lo
+ * escribe el servidor (`summary` y `effect`), nunca el modelo.
  * @param {ChatMessage} m
  */
 async function confirmDanger(m) {
@@ -1069,6 +1070,7 @@ async function confirmDanger(m) {
       title: 'El asistente quiere hacer esto',
       danger: true,
       message: c.summary,
+      detail: c.effect || undefined,
       okLabel: 'Adelante'
     })
   )
@@ -1573,7 +1575,7 @@ function setVisible(on) {
 const ADDABLE = ['found', 'other_version', 'ambiguous']
 
 /** Las canciones de la tabla que se tienen, en su orden y sin repetir. @param {ChatSetlist} s */
-export function tableIds(s) {
+function tableIds(s) {
   /** @type {number[]} */
   const out = []
   for (const r of s?.rows || []) {
@@ -2135,6 +2137,8 @@ export function useChat() {
     exportChat,
     tryFree,
     loadChats,
+    // quién contesta, otra vez (tras cambiar la IA desde el panel del chat)
+    refreshInfo,
     // la franja del proveedor
     provider,
     openAiSettings,

@@ -13,7 +13,13 @@
 //      la última tecla a ver el resultado (con los 180 ms de espera del
 //      buscador dentro);
 //   5. cambiar de página: de pulsar «Ajustes» a verla, y de vuelta a la lista;
-//   6. el modo estudio: de pulsar su botón (con una canción puesta) a verlo.
+//   6. el modo estudio: de pulsar su botón (con una canción puesta) a verlo;
+//   7. el estudio abierto y sonando (una canción de 20 s): los fotogramas de
+//      5 s sonando, de 30 giros de la rueda con Ctrl sobre la onda (dos por
+//      fotograma, como un pellizco) y de pulsar «Grande»; de cada uno, la
+//      media, el p95 y el peor, y lo ocupado que estuvo el hilo (ms por s);
+//      lo ocupado en pausa, que es el suelo con el que comparar; y lo que
+//      cuesta cada aviso de posición sonando (del aviso a que Vue repinta).
 // Antes de cada clic el ratón se queda 150 ms encima, como una persona que
 // apunta antes de pulsar. De cada medida sale la mediana de las pasadas.
 /* eslint-disable no-console -- mide: contarlo por pantalla es su trabajo */
@@ -58,6 +64,9 @@ async function run(browser, baseURL, total) {
     locale: 'es-ES'
   })
   await context.addInitScript(probe)
+  // el recorrido del estudio sale solo la primera vez, 900 ms después de
+  // abrirlo (ya medido el 6): taparía la onda que mide el 7
+  await context.addInitScript(() => localStorage.setItem('danplay.study.tourSeen', 'true'))
   const page = await context.newPage()
   const bodies = new Map()
   const reading = []
@@ -256,6 +265,82 @@ async function run(browser, baseURL, total) {
         }),
       song
     )
+
+    // ------------------------------------------ el estudio, sonando
+    // Las canciones de la biblioteca grande duran un segundo: se pone una de
+    // las de 20 s. Con el estudio oculto (sigue montado), para que no tape la
+    // lista; se busca, se pone y se vuelve a abrir.
+    const twenty = SONGS[2][1]
+    await page.locator('.study .study-hide').click()
+    await box.click()
+    await box.fill(twenty)
+    await expect(rows(page)).toHaveCount(1)
+    await rows(page).first().dblclick()
+    await expect(playing).toHaveText(twenty)
+    await box.fill('')
+    await page.locator('.player .pl-study').click()
+    await page.waitForFunction((t) => {
+      const s = document.querySelector('.study')
+      return !!s && s.getClientRects().length > 0 && s.textContent.includes(t)
+    }, twenty)
+    // que llegue la onda y se asiente lo de abrirlo
+    await page.waitForTimeout(1500)
+    const clock = async () => {
+      const [m, s] = (await page.locator('.player .pl-bar .time').first().innerText()).split(':')
+      return Number(m) * 60 + Number(s)
+    }
+    const from = await clock()
+    const ticksFrom = await page.evaluate(() => performance.now())
+    const play = await page.evaluate(() => window['__perf'].frames(5000))
+    // lo que costó cada aviso de posición en esos 5 s (media y p95, en ms)
+    const ticks = await page.evaluate(
+      (t) => window['__perf'].ticks.filter(([at]) => at >= t).map(([, ms]) => ms),
+      ticksFrom
+    )
+    ticks.sort((a, b) => a - b)
+    out.studyTicks = ticks.length
+    out.studyTickMean = ticks.reduce((a, b) => a + b, 0) / Math.max(1, ticks.length)
+    out.studyTickP95 = ticks[Math.floor(ticks.length * 0.95)] ?? NaN
+    // que de verdad sonaba: si no, no hubo avisos que repintar
+    out.studyPlayed = (await clock()) - from
+    const zoom = await page.evaluate(() => {
+      const el = document.querySelector('.study .tl-box')
+      const r = el.getBoundingClientRect()
+      const at = { clientX: r.left + r.width * 0.4, clientY: r.top + r.height / 2 }
+      return window['__perf'].frames(0, (i) => {
+        // 15 fotogramas con dos giros cada uno (acercar y luego alejar) y
+        // cinco más para lo que se pinte detrás
+        for (const k of i < 15 ? [0, 1] : []) {
+          const ev = { ...at, deltaY: i * 2 + k < 15 ? -60 : 60, ctrlKey: true }
+          el.dispatchEvent(new WheelEvent('wheel', { ...ev, bubbles: true, cancelable: true }))
+        }
+        return i < 20
+      })
+    })
+    await page.waitForTimeout(300)
+    const big = await page.evaluate(() =>
+      window['__perf'].frames(800, (i) => {
+        if (i === 0) document.querySelector('.study .study-size').click()
+      })
+    )
+    for (const [name, f] of [
+      ['studyPlay', play],
+      ['studyZoom', zoom],
+      ['studyBig', big]
+    ]) {
+      Object.assign(out, {
+        [name + 'Mean']: f.mean,
+        [name + 'P95']: f.p95,
+        [name + 'Max']: f.max,
+        [name + 'Busy']: f.busy
+      })
+    }
+    out.studyPlaySlow = play.slow
+    // y en pausa, con el estudio abierto: el suelo de lo ocupado (el latido
+    // mismo, lo que pinte el navegador), para leer lo de arriba
+    await page.locator('.player .pl-play').click()
+    await page.waitForTimeout(500)
+    out.studyPausedBusy = (await page.evaluate(() => window['__perf'].frames(3000))).busy
   } catch (e) {
     // lo que se veía cuando falló, para saber qué medida no se cumplió
     await page.screenshot({ path: resolve('test-results/perf/fallo.png') }).catch(() => {})

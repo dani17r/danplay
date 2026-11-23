@@ -83,5 +83,37 @@ prueba('Rust entiende la clase de medios que pide el JS', () => {
     `Rust no atiende la clase "${primera}"; atiende: ${[...conocidas].join(', ') || 'ninguna'}`)
 })
 
+console.log('\nPermisos por ventana')
+
+/** Los permisos de un grupo de `permissions/windows.toml`. */
+function permisosDe (grupo) {
+  const toml = readFileSync(fileURLToPath(new URL('../desktop/src-tauri/permissions/windows.toml', import.meta.url)), 'utf8')
+  const set = toml.split('[[set]]').find(s => s.includes(`identifier = "${grupo}"`))
+  assert.ok(set, `no hay grupo ${grupo}`)
+  const lista = set.slice(set.indexOf('permissions = ['))
+  return [...lista.slice(0, lista.indexOf(']')).matchAll(/"([^"]+)"/g)].map(m => m[1])
+}
+
+// La proyeccion tenia el puente entero (`api`: borrar, cambiar etiquetas,
+// descargar) para leer la letra. Ahora lee por `api_read`, que solo hace GET.
+const llamadas = []
+globalThis.window = {
+  __TAURI_INTERNALS__: {
+    invoke: async (cmd, args) => { llamadas.push({ cmd, args }); return '{"id":7,"lyrics":"Mi gozo"}' }
+  }
+}
+const proyeccion = (await import('../desktop/src/api.js?' + Math.random())).projection
+const ficha = await proyeccion.song?.(7).catch(e => e)
+prueba('la proyeccion lee la ficha por el puente de solo lectura', () => {
+  assert.deepEqual(llamadas, [{ cmd: 'api_read', args: { method: 'GET', path: '/api/song/7' } }])
+  assert.equal(ficha?.lyrics, 'Mi gozo')
+})
+prueba('la ventana de proyeccion no tiene el puente entero', () => {
+  const permisos = permisosDe('projection-window')
+  assert.ok(permisos.includes('allow-api-read'), permisos.join(', '))
+  assert.ok(!permisos.includes('allow-api'), 'la proyeccion puede escribir en el nucleo')
+  assert.ok(!permisosDe('mini-window').some(p => p.startsWith('allow-api')), 'la ventanita habla con el nucleo')
+})
+
 console.log(fallos ? `\n${fallos} fallo(s)` : '\ntodo correcto')
 process.exit(fallos ? 1 : 0)

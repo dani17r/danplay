@@ -14,12 +14,21 @@ vi.mock('../src/api.js', async (importOriginal) => {
     show: v.fn(async () => {}),
     hide: v.fn(async () => {}),
     fullscreen: v.fn(async () => {}),
-    isFullscreen: v.fn(async () => false)
+    isFullscreen: v.fn(async () => false),
+    song: v.fn(async (id) => held.songs[id] || null)
   }
   return {
     ...actual,
     inTauri: true,
-    api: { ...actual.api, inTauri: true, song: v.fn(async (id) => held.songs[id] || null) },
+    // esta ventana no tiene el puente entero (`api`): la ficha la lee por
+    // el de solo lectura (`projection.song`, `api_read`)
+    api: {
+      ...actual.api,
+      inTauri: true,
+      song: v.fn(async () => {
+        throw new Error('la proyeccion no tiene permiso para api')
+      })
+    },
     playback: held.playback.bridge,
     projection: held.projection,
     // «algo cambio en el nucleo»: lo manda Rust (o el sondeo del navegador)

@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 rust-version.workspace = true
-description = "La API del núcleo de DanPlay en Rust: las mismas rutas, cuerpos y errores que la de FastAPI (danplay/api/), en el mismo proceso que la app o por un socket"
+description = "La API del núcleo de DanPlay: sus rutas, cuerpos y errores, en el mismo proceso que la app o por un socket"
 
 [lib]
 name = "server"
@@ -12,6 +12,15 @@ name = "server"
 [[bin]]
 name = "danplay-server"
 path = "src/main.rs"
+required-features = ["serve"]
+
+[features]
+# Servir la API por un socket (`serve` y el binario `danplay-server`): las
+# pruebas de la interfaz y la línea de órdenes. La app de escritorio lleva el
+# núcleo dentro y no lo usa: lo pide sin él (`default-features = false`) y no
+# carga con hyper ni con lo de tokio que solo sirve para eso.
+default = ["serve"]
+serve = ["dep:hyper", "dep:hyper-util", "dep:http-body-util", "dep:bytes", "dep:tokio"]
 
 [dependencies]
 # Lo que hace el núcleo con la música (el índice, las listas, las etiquetas...)
@@ -28,12 +37,12 @@ md-5 = "0.11.0"
 ureq = "3.4.2"
 percent-encoding = "2"
 # Servir la API por un socket Unix o por loopback (las pruebas de la
-# interfaz, el arnés que la compara con la de Python y la línea de órdenes)
-hyper = { version = "1", features = ["server", "http1"] }
-hyper-util = { version = "0.1", features = ["tokio"] }
-http-body-util = "0.1"
-bytes = "1"
-tokio = { version = "1", features = ["rt-multi-thread", "net", "fs", "io-util", "time", "sync", "signal"] }
+# interfaz y la línea de órdenes)
+hyper = { version = "1", features = ["server", "http1"], optional = true }
+hyper-util = { version = "0.1", features = ["tokio"], optional = true }
+http-body-util = { version = "0.1", optional = true }
+bytes = { version = "1", optional = true }
+tokio = { version = "1", features = ["rt-multi-thread", "net", "fs", "io-util", "time", "sync", "signal"], optional = true }
 # El vigilante de carpetas (lo que hacía watchdog): inotify en Linux,
 # FSEvents en el Mac, ReadDirectoryChangesW en Windows
 notify = "8.2.0"

@@ -850,6 +850,118 @@ fn deleting_by_id_uses_the_registered_args() {
     assert_eq!(confirm(&app, json!({"id": got})).0, 410);
 }
 
+/// Lo que pide permiso tras leer texto de fuera (cambiar listas o etiquetas):
+/// el resumen y el efecto los escribe el servidor con los nombres de verdad,
+/// se guardan solo sus argumentos, y aceptarlo por id lo hace.
+#[test]
+fn after_outside_text_list_and_tag_changes_are_registered_and_done_by_id() {
+    let _s = serial();
+    let Some(app) = api_library() else { return };
+    let s = make_songs(&app, 3);
+    let lid = new_list(&app, "domingo", &s);
+    let got = register(
+        &app,
+        "set_playlist_songs",
+        json!({"name": "Domingo", "ids": [s[0]], "extra": "fuera"}),
+    );
+    assert_eq!(got["tool"], "set_playlist_songs");
+    let summary = got["summary"].as_str().expect("resumen");
+    assert!(
+        summary.starts_with(
+            "Dejar la lista «domingo» con 1 tema (ahora tiene 3): «Grupo Inventado - Tema"
+        ),
+        "{summary}"
+    );
+    assert_eq!(
+        got["effect"],
+        "Lo pide después de leer texto de fuera (la web, YouTube, una letra o un cifrado). Salen 2 de la lista; siguen en tu biblioteca."
+    );
+    assert_eq!(order(&app, lid), s, "registrar no toca la lista");
+    let (code, r) = confirm(&app, json!({"id": id_of(&got)}));
+    assert_eq!(code, 200, "{r}");
+    assert_eq!(r["ok"], true, "{r}");
+    assert_eq!(order(&app, lid), [s[0]]);
+    // quitar: solo lo que está en la lista
+    new_list(&app, "ensayo", &s[..2]);
+    let got = register(
+        &app,
+        "remove_from_playlist",
+        json!({"name": "ensayo", "song_ids": [s[1], s[2]]}),
+    );
+    assert!(
+        got["summary"]
+            .as_str()
+            .is_some_and(|t| t.starts_with("Quitar 1 tema de la lista «ensayo»")),
+        "{got:?}"
+    );
+    // renombrar, y si la lista cambia de nombre antes de aceptar, caduca
+    let got = register(
+        &app,
+        "rename_playlist",
+        json!({"name": "ensayo", "new_name": "Ensayo\n viernes"}),
+    );
+    assert_eq!(
+        got["summary"],
+        "Renombrar la lista «ensayo» a «Ensayo viernes»"
+    );
+    let late = id_of(&register(
+        &app,
+        "rename_playlist",
+        json!({"name": "ensayo", "new_name": "otra"}),
+    ));
+    let ensayo = get(&app, "/api/playlists")["playlists"]
+        .as_array()
+        .expect("listas")
+        .iter()
+        .find(|l| l["name"] == "ensayo")
+        .and_then(|l| l["id"].as_i64())
+        .expect("ensayo");
+    rename(&app, ensayo, "ya no");
+    assert!(gone(plan::claim(&app, &late, None)).contains("ya no es la misma"));
+    // las etiquetas: lo que cambia, con su nombre
+    let got = register(
+        &app,
+        "edit_song",
+        json!({"id": s[2], "artist": "Otro", "year": 1999}),
+    );
+    assert!(
+        got["summary"]
+            .as_str()
+            .is_some_and(|t| t.starts_with("Cambiar «Grupo Inventado - Tema")
+                && t.ends_with(": artista → «Otro», año → «1999»")),
+        "{got:?}"
+    );
+    let (code, r) = confirm(&app, json!({"id": id_of(&got)}));
+    assert_eq!((code, &r["ok"]), (200, &json!(true)), "{r}");
+    let song = get(&app, &format!("/api/song/{}", s[2]));
+    assert_eq!(song["artist"], "Otro");
+    // lo que no vale no se pide
+    for (tool, args) in [
+        (
+            "set_playlist_songs",
+            json!({"name": "no existe", "ids": [s[0]]}),
+        ),
+        (
+            "set_playlist_songs",
+            json!({"playlist_id": lid, "ids": [999_999]}),
+        ),
+        ("edit_song", json!({"id": s[0]})),
+        ("rename_playlist", json!({"playlist_id": lid})),
+    ] {
+        assert!(
+            plan::register(&app, tool, &args, &Value::Null, &Value::Null, None).is_err(),
+            "{tool} {args}"
+        );
+    }
+    // y la forma antigua (`tool`, `args`) no las ejecuta sin propuesta
+    let (code, _) = confirm(
+        &app,
+        json!({"tool": "set_playlist_songs", "args": {"playlist_id": lid, "ids": [s[1]]}}),
+    );
+    assert_eq!(code, 400);
+    assert_eq!(order(&app, lid), [s[0]]);
+}
+
 #[test]
 fn the_status_and_plan_routes() {
     let _s = serial();

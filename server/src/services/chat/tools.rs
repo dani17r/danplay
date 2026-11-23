@@ -248,8 +248,7 @@ fn validate_args(
         .map(|e| {
             let loc = e["loc"]
                 .as_array()
-                .map(|l| l.iter().map(value::str_of).collect())
-                .unwrap_or_default();
+                .map_or_default(|l| l.iter().map(value::str_of).collect());
             (loc, e["type"].as_str().unwrap_or_default().to_owned())
         })
         .collect())
@@ -352,7 +351,9 @@ pub fn run_tool(app: &App, name: &str, args: &Value, turn: &mut Turn) -> Value {
 /// Lo que la persona acaba de aprobar. Solo las que hace falta aprobar:
 /// esta puerta no ejecuta herramientas sin pasar por la conversación.
 pub fn confirm(app: &App, tool: &str, args: &Value) -> Value {
-    if !NEEDS_CONFIRMATION.contains(&tool) {
+    // las de `CONFIRM_AFTER_OUTSIDE` solo llegan aquí desde una propuesta
+    // registrada: la forma antigua (`tool`, `args`) las rechaza antes
+    if !NEEDS_CONFIRMATION.contains(&tool) && !t::CONFIRM_AFTER_OUTSIDE.contains(&tool) {
         return json!({"ok": false, "error": "eso no necesita confirmacion"});
     }
     let args = if value::truthy(args) {
@@ -371,7 +372,9 @@ pub fn confirm(app: &App, tool: &str, args: &Value) -> Value {
         "delete_playlist" => {
             "Repertorio borrado. Las canciones siguen en tu biblioteca.".to_owned()
         }
-        _ => summarize("download_music", &result),
+        "download_music" => summarize("download_music", &result),
+        "edit_song" => "Hecho: cambiado.".to_owned(),
+        _ => format!("Hecho: {}.", summarize(tool, &result)),
     };
     json!({"ok": true, "result": result, "text": text})
 }
@@ -726,8 +729,7 @@ impl Io for ServerIo<'_> {
         let items: Vec<String> = plan
             .get("items")
             .and_then(Value::as_array)
-            .map(|a| a.iter().map(value::str_of).collect())
-            .unwrap_or_default();
+            .map_or_default(|a| a.iter().map(value::str_of).collect());
         let wanted = wanted_of(plan);
         let done = youtube::run_many(self.app, &items, &wanted, false, None, None);
         Ok(Value::Array(done.into_iter().map(Value::Object).collect()))

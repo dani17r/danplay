@@ -217,15 +217,13 @@ pub struct Report {
 /// El nombre del archivo (lo que no es UTF-8, con «�»).
 pub fn file_name(path: &Path) -> String {
     path.file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default()
+        .map_or_default(|n| n.to_string_lossy().into_owned())
 }
 
 /// El nombre sin la extensión.
 fn stem(path: &Path) -> String {
     path.file_stem()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default()
+        .map_or_default(|n| n.to_string_lossy().into_owned())
 }
 
 /// La extensión, con su punto y en minúsculas («.mp3»), o vacía.

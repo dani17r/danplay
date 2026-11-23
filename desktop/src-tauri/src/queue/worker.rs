@@ -31,6 +31,7 @@ pub struct Playback {
 }
 
 impl Playback {
+    #[expect(clippy::too_many_lines, reason = "el bucle del hilo de la cola, mensaje a mensaje")]
     pub fn new(app: AppHandle, address: Address) -> Self {
         // Las ordenes y los avisos del audio entran por el mismo buzon: asi
         // un solo hilo decide, y no hay dos caminos para cambiar de cancion.
@@ -60,6 +61,8 @@ impl Playback {
                     ..Default::default()
                 };
                 let mut saved = (0u64, usize::MAX, Repeat::List, false);
+                // Con que lista (su `revision`) se publico la copia de la cola.
+                let mut listed: Option<u64> = None;
                 // La cancion que suena (o se intento poner) la puso la lista
                 // al avanzar sola, y cuantas seguidas no se han podido abrir.
                 // Un archivo que existe pero no abre (dañado, de 0 bytes)
@@ -123,10 +126,15 @@ impl Playback {
                         *guard = state.clone();
                         changed
                     };
-                    if let Ok(mut guard) = worker_listing.lock()
-                        && (guard.0 != inner.items || guard.1 != inner.origin)
+                    // la copia de la cola, solo si la lista es otra: todo
+                    // cambio de la lista (o de su origen) sube `revision`, y
+                    // compararla entera en cada mensaje (cuatro por segundo
+                    // sonando) era recorrer una cola de miles para nada
+                    if listed != Some(inner.revision)
+                        && let Ok(mut guard) = worker_listing.lock()
                     {
                         *guard = (inner.items.clone(), inner.origin.clone());
+                        listed = Some(inner.revision);
                     }
 
                     // Primero se avisa del cambio...
@@ -184,7 +192,7 @@ impl Playback {
     }
 
     pub fn state(&self) -> PlaybackState {
-        self.snapshot.lock().map(|s| s.clone()).unwrap_or_default()
+        self.snapshot.lock().map_or_default(|s| s.clone())
     }
 
     pub fn listing(&self) -> (Vec<Track>, Option<serde_json::Value>) {

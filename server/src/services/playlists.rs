@@ -177,8 +177,7 @@ pub fn stamp_into_files(app: &App, song_ids: &[i64]) -> Result<(), ApiError> {
         let names: Vec<String> = lists
             .iter()
             .find(|(i, _)| i == cid)
-            .map(|(_, n)| n.iter().map(library::value::str_of).collect())
-            .unwrap_or_default();
+            .map_or_default(|(_, n)| n.iter().map(library::value::str_of).collect());
         let path = Path::new(path);
         if path.exists() && !tags::set_playlists(app, path, &names) {
             log::warn!("no se pudo apuntar las listas dentro de {}", path.display());
@@ -225,11 +224,10 @@ pub fn export_m3u(app: &App, lid: i64, target: Option<&Path>) -> Result<String, 
         None => folder.join(format!("{}.m3u8", safe_name(&name)?)),
     };
     ensure_export_folder(app, &folder)?;
-    let parent = target.parent().map(Path::to_path_buf).unwrap_or_default();
+    let parent = target.parent().map_or_default(Path::to_path_buf);
     let file = target
         .file_name()
-        .map(|f| f.to_string_lossy().into_owned())
-        .unwrap_or_default();
+        .map_or_default(|f| f.to_string_lossy().into_owned());
     if !library::index::folders::inside(&parent.to_string_lossy(), &folder.to_string_lossy())
         || file.is_empty()
         || file == "."
@@ -241,6 +239,11 @@ pub fn export_m3u(app: &App, lid: i64, target: Option<&Path>) -> Result<String, 
     }
     let mut lines = vec!["#EXTM3U".to_owned()];
     let base = parent.to_string_lossy().into_owned();
+    // una etiqueta con un salto de línea partía su `#EXTINF` en dos, y lo de
+    // detrás se leía como otra canción (o como otra directiva)
+    let one_line = |c: &Dict, key: &str| {
+        library::value::str_of(c.get(key).unwrap_or(&Value::Null)).replace(['\r', '\n'], " ")
+    };
     for c in songs(app, lid, false, true)? {
         let duration = c
             .get("duration")
@@ -249,8 +252,8 @@ pub fn export_m3u(app: &App, lid: i64, target: Option<&Path>) -> Result<String, 
         lines.push(format!(
             "#EXTINF:{},{} - {}",
             duration.trunc() as i64,
-            library::value::str_of(c.get("artist").unwrap_or(&Value::Null)),
-            library::value::str_of(c.get("title").unwrap_or(&Value::Null)),
+            one_line(&c, "artist"),
+            one_line(&c, "title"),
         ));
         let path = library::value::str_of(c.get("path").unwrap_or(&Value::Null));
         lines.push(library::paths::relative(&path, &base).unwrap_or(path));
@@ -426,7 +429,7 @@ pub fn export_sheet(app: &App, lid: i64, with_lyrics: bool) -> Result<String, Ap
                         .collect();
                     lines.push(format!(
                         "{}{}",
-                        name.map(|n| format!("{n}: ")).unwrap_or_default(),
+                        name.map_or_default(|n| format!("{n}: ")),
                         joined.join(" ")
                     ));
                 }

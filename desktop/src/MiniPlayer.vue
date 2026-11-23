@@ -3,7 +3,7 @@
  * El mini reproductor: lo que sale al pulsar el icono de la bandeja.
  *
  * Es un popup, no una ventana suelta. Aparece pegado al icono (donde el
- * sistema deja: ver docs/PLAN.md §2.8), se va al perder el foco o con Escape,
+ * sistema deja: ver docs/historia/PLAN.md §2.8), se va al perder el foco o con Escape,
  * y no se arrastra ni recuerda posición, porque la coloca Rust cada vez.
  *
  * Comparte estado con la ventana grande a través de Rust: `usePlayback`

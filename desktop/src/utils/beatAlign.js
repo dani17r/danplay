@@ -14,6 +14,7 @@
 // `MIN_GAP` de los vecinos que no mueve.
 
 import { MIN_GAP } from './beatEdit.js'
+import { clamp, round3 } from './num.js'
 
 /** @typedef {[number, number]} Hit  [segundos, fuerza > 0] */
 /**
@@ -56,8 +57,6 @@ const SPREAD_PAD = 3
 const SIGMA = 0.008
 
 const toMs = (t) => Math.round(t * 1000)
-const round3 = (t) => Math.round(t * 1000) / 1000 + 0
-const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v))
 
 // -------------------------------------------------------------- lo de dentro
 

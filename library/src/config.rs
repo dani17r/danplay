@@ -162,8 +162,7 @@ pub fn write_private(path: &Path, text: &str) -> std::io::Result<()> {
     std::fs::create_dir_all(folder)?;
     let name = path
         .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default();
+        .map_or_default(|n| n.to_string_lossy().into_owned());
     let mut tmp = tempfile::Builder::new()
         .prefix(&format!(".{name}."))
         .suffix(".tmp")
@@ -185,6 +184,26 @@ pub fn write_private(path: &Path, text: &str) -> std::io::Result<()> {
         }
     }
     Ok(())
+}
+
+/// Deja solo para su dueño (0600) un archivo con secretos que ya estaba, si
+/// otros podían leerlo. `write_private` lo hace al guardar, pero uno copiado
+/// de otro disco (de NTFS sale en 0777) seguía así hasta el siguiente
+/// guardado, protegido solo por la carpeta. Un enlace no se toca: cambiaría
+/// el archivo al que apunta, que puede ser de otro.
+fn tighten(path: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(meta) = std::fs::symlink_metadata(path)
+            && meta.is_file()
+            && meta.permissions().mode() & 0o077 != 0
+        {
+            let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = path;
 }
 
 /// Copia un archivo de una instalación anterior, una sola vez.
@@ -301,6 +320,17 @@ impl Config {
                 &project_root.join("danplay.db"),
                 &data_dir.join("danplay.db"),
             );
+        }
+        // las claves (danplay.env, ai.json) y la base con el historial del
+        // chat (y lo que SQLite tiene aún sin pasar a ella)
+        for secret in [
+            env_file.clone(),
+            config_dir.join("ai.json"),
+            data_dir.join("danplay.db"),
+            data_dir.join("danplay.db-wal"),
+            data_dir.join("danplay.db-shm"),
+        ] {
+            tighten(&secret);
         }
         let mut cfg = Self {
             frozen,
@@ -459,8 +489,7 @@ impl Config {
     /// de API: `write_private`.
     pub fn save_env(&self, pairs: &[(&str, &str)]) -> std::io::Result<()> {
         let text = std::fs::read(&self.env_file)
-            .map(|b| String::from_utf8_lossy(&b).into_owned())
-            .unwrap_or_default();
+            .map_or_default(|b| String::from_utf8_lossy(&b).into_owned());
         let mut lines: Vec<String> = text.lines().map(str::to_owned).collect();
         for (key, value) in pairs {
             let value = value.replace(['\r', '\n'], " ");

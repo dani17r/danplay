@@ -9,6 +9,7 @@
 // aqui, o no lo podra llamar nadie.
 const COMMANDS: &[&str] = &[
     "api",
+    "api_read",
     "core_ready",
     "set_queue",
     "queue_next",
@@ -59,6 +60,8 @@ const COMMANDS: &[&str] = &[
     "set_window_shape",
     "window_shape",
     "set_window_on_top",
+    "ui_scale",
+    "set_ui_scale",
 ];
 
 fn main() {

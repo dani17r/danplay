@@ -223,9 +223,7 @@ fn migrate_legacy(path: &Path, env: &dyn Fn(&str, &str) -> String, out: &mut War
     let key = std::env::var("DEEPINFRA_API_KEY").unwrap_or_default();
     if !key.is_empty() {
         let base = std::env::var("DEEPINFRA_BASE_URL").unwrap_or_default();
-        let catalog_base = by_id("deepinfra")
-            .map(|p| text(p, "base_url"))
-            .unwrap_or_default();
+        let catalog_base = by_id("deepinfra").map_or_default(|p| text(p, "base_url"));
         data["profiles"]["deepinfra"] = json!({
             "provider": "deepinfra",
             "key": key,
@@ -275,8 +273,7 @@ fn read_file(path: &Path, env: &dyn Fn(&str, &str) -> String, out: &mut Warnings
 fn keep_broken(path: &Path, out: &mut Warnings) {
     let name = path
         .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
-        .unwrap_or_default();
+        .map_or_default(|n| n.to_string_lossy().into_owned());
     let aside = path.with_file_name(format!("{name}.roto"));
     warnings::warning(
         out,
@@ -880,8 +877,7 @@ pub fn with_saved_key(data: &Dict, draft: &Dict) -> Dict {
         .into_iter()
         .flatten()
         .find(|v| value::truthy(v))
-        .map(value::str_of)
-        .unwrap_or_default();
+        .map_or_default(value::str_of);
     let Some(Value::Object(saved)) = profiles_ref(data).get(&pid).cloned() else {
         return d;
     };

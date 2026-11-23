@@ -108,8 +108,7 @@ impl Library {
         let folder = self.folder(id).ok_or("esa pista ya no está")?;
         let name = folder
             .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_default();
+            .map_or_default(|n| n.to_string_lossy().into_owned());
         bundle::remove(&self.dir, &name)?;
         self.reindex();
         Ok(())
@@ -193,12 +192,8 @@ impl Library {
         if !light {
             song["lyrics"] = json!(text(&m, "lyrics"));
             song["lyrics_synced"] = json!(text(&m, "lyrics_synced"));
-            song["chords"] = json!(
-                chords
-                    .map(|c| json!({"sheet": c}).to_string())
-                    .unwrap_or_default()
-            );
-            song["study"] = json!(study.map(|v| v.to_string()).unwrap_or_default());
+            song["chords"] = json!(chords.map_or_default(|c| json!({"sheet": c}).to_string()));
+            song["study"] = json!(study.map_or_default(|v| v.to_string()));
             if let Some(name) = self.folder_name(id) {
                 song["playlists"] = json!(self.playlists.names_with(&name));
             }
@@ -307,8 +302,7 @@ impl Library {
 
 fn numbers(v: &Value) -> Vec<f64> {
     v.as_array()
-        .map(|a| a.iter().filter_map(Value::as_f64).collect())
-        .unwrap_or_default()
+        .map_or_default(|a| a.iter().filter_map(Value::as_f64).collect())
 }
 
 /// Sin la onda de la cancion: la de sus partes juntas (el pico, el mayor; la

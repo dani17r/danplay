@@ -255,14 +255,12 @@ fn number(v: Option<&Value>) -> f64 {
 
 /// Los textos de una lista (lo que no es texto, con su JSON).
 fn texts(v: Option<&Value>) -> Vec<String> {
-    v.and_then(Value::as_array)
-        .map(|items| {
-            items
-                .iter()
-                .map(|x| x.as_str().map_or_else(|| x.to_string(), str::to_owned))
-                .collect()
-        })
-        .unwrap_or_default()
+    v.and_then(Value::as_array).map_or_default(|items| {
+        items
+            .iter()
+            .map(|x| x.as_str().map_or_else(|| x.to_string(), str::to_owned))
+            .collect()
+    })
 }
 
 /// Pide `base` + la consulta.
@@ -439,7 +437,7 @@ pub fn lyrics<O: Outside>(o: &mut O, track: &Track, allow_ai: bool) -> Option<Ly
 /// La letra limpia de lo que llegue: un texto, sin sus marcas de tiempo; lo
 /// demás, vacío.
 pub fn lrc_to_plain_value(x: &Value) -> String {
-    x.as_str().map(lrc::lrc_to_plain).unwrap_or_default()
+    x.as_str().map_or_default(lrc::lrc_to_plain)
 }
 
 // ------------------------------------------------------------------ la carátula
@@ -615,9 +613,7 @@ pub fn deduced_key(sheet: &Value) -> String {
         .filter_map(|c| c.as_str().map(str::to_owned))
         .collect();
     let capo = number(sheet.get("capo")) as i64;
-    theory::guess::key_of(&chords, capo)
-        .map(|g| g.key.to_owned())
-        .unwrap_or_default()
+    theory::guess::key_of(&chords, capo).map_or_default(|g| g.key.to_owned())
 }
 
 /// El tono deducido de una canción (de su cifrado guardado), o vacío si la
@@ -861,10 +857,7 @@ pub fn useful_value(field: &str, value: Option<&Value>) -> String {
         return String::new();
     }
     if field == "year" {
-        return YEAR
-            .find(&v)
-            .map(|m| m.as_str().to_owned())
-            .unwrap_or_default();
+        return YEAR.find(&v).map_or_default(|m| m.as_str().to_owned());
     }
     v
 }

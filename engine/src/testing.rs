@@ -16,6 +16,72 @@ use std::sync::Arc;
 
 pub const MARKS: [usize; 3] = [4_410, 30_123, 70_500];
 
+/// Cuantas veces se pide o se suelta memoria en este hilo mientras corre
+/// `f`: el hilo de audio no tiene que hacer ninguna de las dos (el sistema
+/// puede tardar en darla o en recogerla, y entonces se oye un corte).
+pub fn allocations(f: impl FnOnce()) -> usize {
+    alloc::WATCH.set(true);
+    alloc::COUNT.set(0);
+    f();
+    alloc::WATCH.set(false);
+    alloc::COUNT.get()
+}
+
+/// El repartidor de memoria de las pruebas: el del sistema, contando lo que
+/// pide o suelta el hilo que este mirando (`allocations`).
+#[allow(unsafe_code)]
+mod alloc {
+    use std::alloc::{GlobalAlloc, Layout, System};
+    use std::cell::Cell;
+
+    thread_local! {
+        // constantes y sin destructor: mirarlas no pide memoria
+        pub static WATCH: Cell<bool> = const { Cell::new(false) };
+        pub static COUNT: Cell<usize> = const { Cell::new(0) };
+    }
+
+    fn note() {
+        let _ = WATCH.try_with(|w| {
+            if w.get() {
+                COUNT.set(COUNT.get() + 1);
+            }
+        });
+    }
+
+    struct Counting;
+
+    // SAFETY: todo lo hace el repartidor del sistema, con lo mismo que se
+    // pide; aqui solo se cuenta (sin pedir memoria al contar)
+    unsafe impl GlobalAlloc for Counting {
+        unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+            note();
+            // SAFETY: lo que pide quien llama, tal cual
+            unsafe { System.alloc(layout) }
+        }
+
+        unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
+            note();
+            // SAFETY: lo que pide quien llama, tal cual
+            unsafe { System.alloc_zeroed(layout) }
+        }
+
+        unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+            note();
+            // SAFETY: `ptr` lo dio este mismo repartidor (el del sistema)
+            unsafe { System.dealloc(ptr, layout) }
+        }
+
+        unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+            note();
+            // SAFETY: `ptr` lo dio este mismo repartidor (el del sistema)
+            unsafe { System.realloc(ptr, layout, new_size) }
+        }
+    }
+
+    #[global_allocator]
+    static GLOBAL: Counting = Counting;
+}
+
 pub fn fixture(ext: &str) -> (Arc<[u8]>, Vec<usize>) {
     let bytes: &[u8] = match ext {
         "ogg" => include_bytes!("../tests/fixtures/pulses.ogg"),
@@ -44,6 +110,29 @@ pub fn wav(channels: u16, rate: u32, data: &[f32]) -> Arc<[u8]> {
     for v in data {
         let s = (v.clamp(-1.0, 1.0) * 32_767.0).round() as i16;
         out.extend_from_slice(&s.to_le_bytes());
+    }
+    Arc::from(out)
+}
+
+/// Un WAV en coma flotante de 32 bits (formato 3) con esas muestras tal
+/// cual, sin recortar: lo que trae un WAV de un estudio, NaN incluidos.
+pub fn wav_f32(channels: u16, rate: u32, data: &[f32]) -> Arc<[u8]> {
+    let bytes = (data.len() * 4) as u32;
+    let mut out = Vec::with_capacity(44 + data.len() * 4);
+    out.extend_from_slice(b"RIFF");
+    out.extend_from_slice(&(36 + bytes).to_le_bytes());
+    out.extend_from_slice(b"WAVEfmt ");
+    out.extend_from_slice(&16u32.to_le_bytes());
+    out.extend_from_slice(&3u16.to_le_bytes());
+    out.extend_from_slice(&channels.to_le_bytes());
+    out.extend_from_slice(&rate.to_le_bytes());
+    out.extend_from_slice(&(rate * u32::from(channels) * 4).to_le_bytes());
+    out.extend_from_slice(&(channels * 4).to_le_bytes());
+    out.extend_from_slice(&32u16.to_le_bytes());
+    out.extend_from_slice(b"data");
+    out.extend_from_slice(&bytes.to_le_bytes());
+    for v in data {
+        out.extend_from_slice(&v.to_le_bytes());
     }
     Arc::from(out)
 }

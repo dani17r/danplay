@@ -16,7 +16,7 @@ import { createRouter, createMemoryHistory } from 'vue-router'
 import { pages } from './islands.js'
 
 /** Cada página, por su `view.kind`. */
-export const PAGE_ROUTES = Object.entries(pages).map(([name, page]) => ({
+const PAGE_ROUTES = Object.entries(pages).map(([name, page]) => ({
   path: '/' + name,
   name,
   component: () => page.load()

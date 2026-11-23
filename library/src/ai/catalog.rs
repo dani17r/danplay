@@ -288,6 +288,18 @@ pub fn load(cache: &Path, snapshot: &Path, out: &mut Warnings) -> Arc<Dict> {
         return l.data.clone();
     }
     let data = read_json(cache, out)
+        .map(|mut d| {
+            // la última comprobación (y su error) se apunta en lo pequeño, sin
+            // reescribir la copia entera (`mark_checked`)
+            if let Some(m) = read_meta(cache) {
+                for k in ["checked_at", "error"] {
+                    if let Some(v) = m.get(k) {
+                        d.insert(k.into(), v.clone());
+                    }
+                }
+            }
+            d
+        })
         .or_else(|| read_json(snapshot, out))
         .unwrap_or_else(|| {
             json!({"source": "none", "providers": {}, "fetched_at": 0, "checked_at": 0})
@@ -309,13 +321,143 @@ pub fn forget() {
     *LOADED.lock().unwrap_or_else(PoisonError::into_inner) = None;
 }
 
-/// Cambia lo cargado (sin escribirlo): la hora de la última comprobación y
-/// su error.
+/// Si el catálogo de esas rutas está cargado en memoria (para las pruebas:
+/// arrancar no tiene por qué cargarlo).
+pub fn is_loaded(cache: &Path, snapshot: &Path) -> bool {
+    LOADED
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .as_ref()
+        .is_some_and(|l| l.cache == cache && l.snapshot == snapshot)
+}
+
+// ------------------------------------------------------- lo pequeño
+//
+// El catálogo son megas de JSON (2,9 MB la copia de models.dev). El arranque
+// y la ventana de la IA solo miran de dónde sale, cuándo se miró y cuántos
+// modelos lleva: eso va también en un archivo pequeño junto a la copia
+// (`models-catalog.meta.json`), y el catálogo entero se carga al primer uso
+// de verdad. Antes se leía y se analizaba entero en cada arranque (y se
+// quedaba en memoria para siempre) solo para mirar `checked_at`.
+
+/// Lo pequeño de la copia `cache`, a su lado.
+pub fn meta_path(cache: &Path) -> PathBuf {
+    cache.with_extension("meta.json")
+}
+
+/// Lo pequeño de un catálogo: lo de `status` (sin `refreshing`) y su ETag.
+pub fn summary(data: &Dict) -> Dict {
+    let mut out = status(data, false);
+    out.shift_remove("refreshing");
+    out.insert(
+        "etag".into(),
+        data.get("etag").cloned().unwrap_or_else(|| json!("")),
+    );
+    out
+}
+
+/// Lo que enseña la interfaz (`status`), a partir de lo pequeño.
+pub fn summary_status(summary: &Dict, refreshing: bool) -> Dict {
+    let mut out = summary.clone();
+    out.shift_remove("etag");
+    out.insert("refreshing".into(), Value::Bool(refreshing));
+    out
+}
+
+/// El tamaño y la fecha de la copia, para saber si lo pequeño es suyo.
+const STAMP: [&str; 2] = ["cache_size", "cache_mtime"];
+
+/// Lo pequeño, si es de la copia que hay ahora: si una versión de antes la
+/// reescribió sin ponerlo al día (o no hay copia, solo la foto), no vale.
+fn read_meta(cache: &Path) -> Option<Dict> {
+    let file = std::fs::metadata(cache).ok()?;
+    let text = std::fs::read_to_string(meta_path(cache)).ok()?;
+    let Ok(Value::Object(mut m)) = serde_json::from_str::<Value>(&text) else {
+        return None;
+    };
+    let mtime = crate::paths::mtime(&file).to_bits();
+    let same = m.get(STAMP[0]).and_then(Value::as_u64) == Some(file.len())
+        && m.get(STAMP[1]).and_then(Value::as_f64).map(f64::to_bits) == Some(mtime);
+    if !same || !m.contains_key("checked_at") {
+        return None;
+    }
+    for k in STAMP {
+        m.shift_remove(k);
+    }
+    Some(m)
+}
+
+/// Escribe lo pequeño de la copia que hay ahora (sin copia, nada).
+fn write_meta(cache: &Path, summary: &Dict, out: &mut Warnings) {
+    let Ok(file) = std::fs::metadata(cache) else {
+        return;
+    };
+    let mut m = summary.clone();
+    m.insert(STAMP[0].into(), Value::from(file.len()));
+    m.insert(STAMP[1].into(), Value::from(crate::paths::mtime(&file)));
+    let path = meta_path(cache);
+    let tmp = path.with_extension("tmp");
+    let written = std::fs::write(&tmp, Value::Object(m).to_string())
+        .and_then(|()| std::fs::rename(&tmp, &path));
+    if written.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+        warnings::warning(out, "no se pudo guardar el resumen del catalogo de modelos");
+    }
+}
+
+/// Lo pequeño del catálogo (`summary`) sin cargarlo entero si se puede: de
+/// lo cargado, si ya está en memoria; de su archivo, si es de la copia de
+/// ahora; y si no (una copia de antes de tenerlo, o solo la foto de la app),
+/// cargándolo, como siempre.
+pub fn brief(cache: &Path, snapshot: &Path, out: &mut Warnings) -> Dict {
+    if let Some(l) = LOADED
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .as_ref()
+        .filter(|l| l.cache == cache && l.snapshot == snapshot)
+    {
+        return summary(&l.data);
+    }
+    if let Some(m) = read_meta(cache) {
+        return m;
+    }
+    summary(&load(cache, snapshot, out))
+}
+
+/// Apunta la hora de la última comprobación y su error: en lo cargado, si
+/// lo está, y en lo pequeño (la copia entera no se reescribe).
 pub fn mark_checked(cache: &Path, snapshot: &Path, now: f64, error: &str, out: &mut Warnings) {
+    let mark = |d: &mut Dict| {
+        d.insert("checked_at".into(), Value::from(now));
+        d.insert("error".into(), Value::String(error.to_owned()));
+    };
+    let in_memory = {
+        let mut loaded = LOADED.lock().unwrap_or_else(PoisonError::into_inner);
+        loaded
+            .as_mut()
+            .filter(|l| l.cache == cache && l.snapshot == snapshot)
+            .map(|l| {
+                let mut copy = (*l.data).clone();
+                mark(&mut copy);
+                let s = summary(&copy);
+                l.data = Arc::new(copy);
+                s
+            })
+    };
+    if let Some(s) = in_memory {
+        write_meta(cache, &s, out);
+        return;
+    }
+    if let Some(mut m) = read_meta(cache) {
+        mark(&mut m);
+        write_meta(cache, &m, out);
+        return;
+    }
+    // sin lo pequeño: se carga y se cambia lo cargado, como siempre
     let current = load(cache, snapshot, out);
     let mut copy = (*current).clone();
-    copy.insert("checked_at".into(), Value::from(now));
-    copy.insert("error".into(), Value::String(error.to_owned()));
+    mark(&mut copy);
+    write_meta(cache, &summary(&copy), out);
     let mut loaded = LOADED.lock().unwrap_or_else(PoisonError::into_inner);
     *loaded = Some(LoadedCatalog {
         cache: cache.to_owned(),
@@ -355,20 +497,32 @@ pub fn store_trimmed(
     data.insert("error".into(), "".into());
     data.insert("providers".into(), Value::Object(providers));
     let data = Value::Object(data);
-    save(cache, &data, out);
+    let saved = save(cache, &data, out);
     let Value::Object(data) = data else {
         unreachable!("se acaba de hacer como objeto")
     };
+    if saved {
+        write_meta(cache, &summary(&data), out);
+    }
+    // en memoria solo si ya lo estaba (alguien lo usa): bajado por detrás al
+    // arrancar, se quedaba entero en memoria aunque nunca se abriera la IA.
+    // Sin poder guardarlo, también: no habría de dónde leerlo
     let mut loaded = LOADED.lock().unwrap_or_else(PoisonError::into_inner);
-    *loaded = Some(LoadedCatalog {
-        cache: cache.to_owned(),
-        snapshot: snapshot.to_owned(),
-        data: Arc::new(data),
-    });
+    let in_use = loaded
+        .as_ref()
+        .is_some_and(|l| l.cache == cache && l.snapshot == snapshot);
+    if in_use || !saved {
+        *loaded = Some(LoadedCatalog {
+            cache: cache.to_owned(),
+            snapshot: snapshot.to_owned(),
+            data: Arc::new(data),
+        });
+    }
     n
 }
 
-fn save(cache: &Path, data: &Value, out: &mut Warnings) {
+/// Guarda la copia entera; `false` si no se pudo.
+fn save(cache: &Path, data: &Value, out: &mut Warnings) -> bool {
     let text = data.to_string();
     let tmp = cache.with_extension("tmp");
     let result = cache
@@ -378,7 +532,9 @@ fn save(cache: &Path, data: &Value, out: &mut Warnings) {
         .and_then(|()| std::fs::rename(&tmp, cache));
     if result.is_err() {
         warnings::warning(out, "no se pudo guardar el catalogo de modelos");
+        return false;
     }
+    true
 }
 
 /// Lo que se sabe del catálogo, para la interfaz.
@@ -698,7 +854,7 @@ pub fn recommend(models: &[Dict], now: f64) -> Dict {
             let limit = (floor * 2.0).max(0.05);
             cheap.iter().find(|m| cost(m).is_some_and(|c| c <= limit))
         });
-    let id = |m: Option<&&Dict>| m.map(|m| s(m, "id")).unwrap_or_default();
+    let id = |m: Option<&&Dict>| m.map_or_default(|m| s(m, "id"));
     let mut out = Dict::new();
     out.insert("chat".into(), id(chat).into());
     out.insert("fast".into(), id(fast).into());

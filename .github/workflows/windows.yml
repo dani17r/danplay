@@ -3,12 +3,14 @@
 # Sin Python: el nucleo va dentro de la app (el crate `server`). Desde Linux
 # se compila igual (scripts/build-windows-cross.sh, y `tests.yml` comprueba
 # que el codigo de Rust compila para Windows), pero el instalador de verdad,
-# con MSVC y el NSIS de Tauri, sale de aqui. Las pruebas del nucleo de
-# Python, solo en tests.yml.
+# con MSVC y el NSIS de Tauri, sale de aqui. Las pruebas del nucleo en
+# Windows, en tests.yml («nucleo en Windows»).
 #
 # Deja el instalador (.exe de NSIS) y el portatil (.zip) como artefactos
 # descargables, y si el push lleva una etiqueta de version
-# (`git tag v1.13.0 && git push --tags`), ademas los publica en esa version.
+# (`git tag -a v1.13.0 -m 1.13.0 && git push --tags`), ademas los publica en
+# esa version, desde un trabajo aparte (`publish`, el unico que puede
+# escribir; ver linux.yml).
 name: windows
 
 on:
@@ -17,14 +19,21 @@ on:
   workflow_dispatch:
     inputs:
       with_tools:
-        description: 'Incluir ffmpeg, fpcalc, QuickJS y yt-dlp dentro del instalador (+80 MB)'
+        description: 'Incluir ffmpeg, fpcalc y QuickJS dentro del instalador'
         type: boolean
         default: true
 
 permissions:
-  contents: write     # publicar el instalador en la version
+  contents: read
+
+# Dos ejecuciones de la misma etiqueta no se pisan al publicar; las de una
+# rama (workflow_dispatch) sí se cancelan: la nueva deja vieja a la otra.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 env:
+  CARGO_TERM_COLOR: always
   # En Windows no hay `apt install ffmpeg`: o van dentro o el usuario se queda
   # sin conversion de formatos, sin identificacion por sonido y sin YouTube.
   WITH_TOOLS: ${{ github.event_name == 'push' && 'true' || inputs.with_tools }}
@@ -36,12 +45,10 @@ env:
   FPCALC_URL: https://github.com/acoustid/chromaprint/releases/download/v1.6.1/chromaprint-fpcalc-1.6.1-windows-x86_64.zip
   FPCALC_SHA256: 735d6182b38e9f364b84ce6f4ccd682c75e2851de89735711d6b762d12b92a4e
   # YouTube ya exige un motor de JavaScript para yt-dlp: QuickJS-NG, un
-  # .exe suelto de 2 MB (Deno, el de antes, pesaba 93).
+  # .exe suelto de 2 MB (Deno, el de antes, pesaba 93). yt-dlp ya no viaja:
+  # la app lo instala la primera vez que se baja algo de YouTube.
   QJS_URL: https://github.com/quickjs-ng/quickjs/releases/download/v0.17.0/qjs-windows-x86_64.exe
   QJS_SHA256: 2aeabf0092c3262d6b2609824418f7dd7ed1f1df939f73b2b15645230cac0d77
-  # yt-dlp, su ejecutable oficial (el de Linux y macOS: scripts/tools-*.sh)
-  YTDLP_URL: https://github.com/yt-dlp/yt-dlp/releases/download/2026.08.19/yt-dlp.exe
-  YTDLP_SHA256: 66674953fe251b89f4d08c5f0e35e0728679bd67ab3d7d05c0562af101dd3e7a
   # ONNX Runtime oficial (el pulso, el separador, las voces), el mismo que
   # scripts/data.sh: de su .zip solo hace falta onnxruntime.dll y su licencia
   ORT_URL: https://github.com/microsoft/onnxruntime/releases/download/v1.31.0/onnxruntime-win-x64-1.31.0.zip
@@ -51,8 +58,20 @@ jobs:
   installer:
     name: instalador de Windows
     runs-on: windows-latest
+    timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # `git tag v1.44.2` sobre un árbol en 1.44.1 publicaría en «v1.44.2»
+      # paquetes que dicen 1.44.1
+      - name: la etiqueta es la versión
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          v=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -1)
+          [ "v$v" = "$GITHUB_REF_NAME" ] || { echo "::error::la etiqueta es $GITHUB_REF_NAME y Cargo.toml dice $v"; exit 1; }
 
       # Bun (el gestor de paquetes de la interfaz) y Vite+ (vp), en las
       # versiones que fija desktop/package.json (packageManager y vite-plus).
@@ -69,18 +88,25 @@ jobs:
           cache: true
           run-install: false
 
-      - uses: dtolnay/rust-toolchain@stable
+      # la de rust-toolchain.toml, la misma que en las pruebas
+      - name: Rust
+        shell: bash
+        run: |
+          rustup show active-toolchain || rustup toolchain install
+          rustc --version
       # v1: las cachés v0 son del perfil de antes (Cargo.toml) y, con la misma
-      # clave, se restauraban sin servir y nunca se renovaban
-      - uses: Swatinem/rust-cache@v2
+      # clave, se restauraban sin servir y nunca se renovaban. Desde una
+      # etiqueta no se guarda: esa caché no la restauraría nadie.
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           cache-on-failure: true
           prefix-key: v1-rust
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       # Lo que viaja dentro del instalador, con version fija y su sha256.
       # ffprobe ya no: lo poco que medía (una caratula, la duracion de una
       # secuencia) sale de las cabeceras de los archivos.
-      - name: ffmpeg, fpcalc, QuickJS y yt-dlp
+      - name: ffmpeg, fpcalc y QuickJS
         if: env.WITH_TOOLS == 'true'
         shell: pwsh
         run: |
@@ -100,7 +126,6 @@ jobs:
           Get-ChildItem -Recurse fpcalc-tmp -Include fpcalc.exe |
             ForEach-Object { Copy-Item $_.FullName $tools }
           Download $env:QJS_URL $env:QJS_SHA256 "$tools/qjs.exe"
-          Download $env:YTDLP_URL $env:YTDLP_SHA256 "$tools/yt-dlp.exe"
           Get-ChildItem $tools
 
       # Sin ellas en el instalador, la carpeta se queda solo con el aviso.
@@ -111,11 +136,12 @@ jobs:
           Remove-Item -Recurse -Force desktop/src-tauri/tools
           New-Item -ItemType Directory -Force -Path desktop/src-tauri/tools | Out-Null
           Set-Content desktop/src-tauri/tools/LEEME.txt `
-            "Aqui van ffmpeg.exe, fpcalc.exe, qjs.exe y yt-dlp.exe si se quieren dentro del instalador."
+            "Aqui van ffmpeg.exe, fpcalc.exe y qjs.exe si se quieren dentro del instalador."
 
-      # Lo que hace scripts/data.sh en Linux y macOS: lo de data/ y
-      # ONNX Runtime, en desktop/src-tauri/data (siempre: sin el no hay pulso,
-      # ni separar, ni voces)
+      # Lo que hace scripts/data.sh en Linux y macOS: lo de data/ (con la foto
+      # del catalogo de modelos del repositorio, la misma en todos los
+      # paquetes) y ONNX Runtime, en desktop/src-tauri/data (siempre: sin el
+      # no hay pulso, ni separar, ni voces)
       - name: los datos y ONNX Runtime
         shell: pwsh
         run: |
@@ -142,27 +168,18 @@ jobs:
           }
           Get-ChildItem $data
 
-      # Compilada sin empaquetar todavia: antes se saca con ella la foto del
-      # catalogo de modelos de IA (abajo).
+      # Compilada sin empaquetar todavia: antes se prueba con ella el pulso
+      # (abajo).
       - name: la app
         working-directory: desktop
         run: |
           vp install --frozen-lockfile
           vp exec tauri build --no-bundle
 
-      # La de hoy; sin red, la que hay.
-      # Con Start-Process -Wait: es una app de ventanas, y sin eso PowerShell
-      # no la espera.
-      - name: la foto del catálogo de modelos
-        shell: pwsh
-        run: |
-          $p = Start-Process -Wait -PassThru -NoNewWindow -FilePath target/release/danplay-app.exe `
-               -ArgumentList '--models-snapshot', 'desktop/src-tauri/data/models-snapshot.json'
-          Write-Host "salio con $($p.ExitCode)"
-          Get-Item desktop/src-tauri/data/models-snapshot.json
-
       # La propia app con un argumento, como la lanza el nucleo: el detector
       # de pulso con el grafo, ONNX Runtime y ffmpeg que viajan con ella.
+      # Con Start-Process -Wait: es una app de ventanas, y sin eso PowerShell
+      # no la espera.
       - name: el pulso de una canción, con su ONNX Runtime
         if: env.WITH_TOOLS == 'true'
         shell: pwsh
@@ -208,10 +225,11 @@ jobs:
             danplay-app.exe   la aplicacion, con el nucleo dentro
             data\             los modelos (el pulso, el separador), las voces
                               de las guias y ONNX Runtime, que los mueve
-            tools\            ffmpeg.exe, fpcalc.exe, qjs.exe y yt-dlp.exe:
-                              conversion de formatos, reproduccion de .opus
-                              y .wma, identificar por el sonido y bajar de
-                              YouTube
+            tools\            ffmpeg.exe, fpcalc.exe y qjs.exe: conversion
+                              de formatos, reproduccion de .opus y .wma,
+                              identificar por el sonido y bajar de YouTube
+                              (yt-dlp lo instala la app la primera vez que
+                              se baja algo)
 
           Hace falta WebView2, que Windows 10 y 11 actualizados ya traen. Si la
           ventana sale en blanco: https://developer.microsoft.com/microsoft-edge/webview2/
@@ -221,22 +239,54 @@ jobs:
           Compress-Archive -Path $dir -DestinationPath "dist/installers/DanPlay-$version-windows-portatil.zip"
           Get-Item dist/installers/*.zip
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: danplay-windows
           path: target/release/bundle/nsis/*.exe
           if-no-files-found: error
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: danplay-windows-portable
           path: dist/installers/DanPlay-*-windows-portatil.zip
           if-no-files-found: error
 
-      - name: publicar en la versión
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v3
+  # Lo único con permiso de escribir (ver linux.yml): el instalador y el
+  # portátil a la versión, con su SHA256SUMS y su procedencia.
+  publish:
+    name: publicar en la versión
+    needs: installer
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write       # subir los archivos a la versión
+      id-token: write       # firmar la procedencia
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          files: |
-            target/release/bundle/nsis/*.exe
-            dist/installers/DanPlay-*-windows-portatil.zip
+          pattern: danplay-windows*
+          path: artifact
+      - name: los paquetes y sus sumas
+        run: |
+          mkdir -p out
+          find artifact -type f \( -name '*.exe' -o -name '*.zip' \) -exec mv {} out/ \;
+          ls out/*.exe out/*.zip
+          ( cd out && sha256sum -- * ) > SHA256SUMS-windows.txt
+          cat SHA256SUMS-windows.txt
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: 'out/*'
+      # Los cuatro flujos de paquetes publican en la misma versión: el
+      # primero que llega la crea y los demás suben a la que ya hay.
+      - name: a la versión
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=$GITHUB_REF_NAME
+          repo=$GITHUB_REPOSITORY
+          gh release view "$tag" -R "$repo" >/dev/null 2>&1 \
+            || gh release create "$tag" -R "$repo" --verify-tag --title "$tag" --notes "" \
+            || gh release view "$tag" -R "$repo" >/dev/null
+          gh release upload "$tag" out/* SHA256SUMS-windows.txt -R "$repo" --clobber

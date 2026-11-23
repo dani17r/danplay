@@ -13,6 +13,7 @@ use serde_json::{Value, json};
 pub const ROUTES: &[Route] = &[
     Route::post("/api/settings/check-ai", check_ai),
     Route::get("/api/ai/providers", ai_providers),
+    Route::get("/api/ai/profile/{pid}/key", ai_profile_key),
     Route::post("/api/ai/profile", ai_save_profile),
     Route::delete("/api/ai/profile/{pid}", ai_delete_profile),
     Route::post("/api/ai/activate", ai_activate),
@@ -178,6 +179,25 @@ fn ai_save_profile(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     Ok(Value::Object(out).into())
 }
 
+/// La clave guardada de un perfil, entera: la pide la propia persona para verla
+/// o copiarla (el listado de los perfiles la enseña enmascarada). La API no
+/// sale de la máquina (`docs/ARCHITECTURE.md`, «Por qué no hay puerto TCP»).
+fn ai_profile_key(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
+    let pid = ctx.path().str("pid").required();
+    ctx.check()?;
+    let data = ai::store(ctx.app);
+    let key = data
+        .get("profiles")
+        .and_then(Value::as_object)
+        .and_then(|p| p.get(&pid))
+        .and_then(Value::as_object)
+        .and_then(|p| p.get("key"))
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_owned();
+    Ok(json!({ "key": key }).into())
+}
+
 fn ai_delete_profile(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let pid = ctx.path().str("pid").required();
     ctx.check()?;
@@ -281,7 +301,7 @@ fn ai_check(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
 /// uno), y el catálogo para cuando aún no hay clave.
 fn ai_models(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let mut draft = profile_body(ctx)?;
-    let provider = draft.get("provider").map(value::str_of).unwrap_or_default();
+    let provider = draft.get("provider").map_or_default(value::str_of);
     draft.shift_remove("activate");
     let recheck = draft
         .shift_remove("recheck")
@@ -310,8 +330,7 @@ fn ai_models(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
         Some(
             live.get("models")
                 .and_then(Value::as_array)
-                .map(|a| a.iter().filter_map(|m| m.as_object().cloned()).collect())
-                .unwrap_or_default(),
+                .map_or_default(|a| a.iter().filter_map(|m| m.as_object().cloned()).collect()),
         )
     } else {
         None

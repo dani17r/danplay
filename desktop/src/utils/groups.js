@@ -30,8 +30,15 @@ export function groupKey(song, by) {
 }
 
 /**
+ * Un solo comparador para todos: `localeCompare(…, 'es')` arma uno nuevo en
+ * cada comparación, y ordenar los grupos de una biblioteca grande son miles.
+ */
+const collator = new Intl.Collator('es')
+
+/**
  * Los grupos, por orden alfabético; dentro de cada uno, las canciones en el
- * orden de la lista.
+ * orden de la lista. La app los hace una vez y se los pasa a la lista
+ * agrupada (GroupedSongs), que antes los volvía a hacer.
  * @param {Song[]} songs
  * @param {string} by
  * @returns {Array<[string, Song[]]>}
@@ -45,14 +52,5 @@ export function groupSongs(songs, by) {
     if (list) list.push(s)
     else groups.set(k, [s])
   }
-  return [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0], 'es'))
-}
-
-/**
- * Las canciones en el orden en que se ven agrupadas.
- * @param {Song[]} songs
- * @param {string} by
- */
-export function groupedOrder(songs, by) {
-  return groupSongs(songs, by).flatMap(([, list]) => list)
+  return [...groups.entries()].sort((a, b) => collator.compare(a[0], b[0]))
 }

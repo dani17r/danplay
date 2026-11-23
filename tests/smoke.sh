@@ -84,6 +84,7 @@ alive () { s=$(ps -o stat= -p "$1" 2>/dev/null); [ -n "$s" ] && [ "${s#Z}" = "$s
 tree () { echo "$1"; for c in $(pgrep -P "$1"); do tree "$c"; done; }
 
 cleanup () {
+    # shellcheck disable=SC2046  # una lista de pids: se parte a proposito
     [ -n "${PID:-}" ] && kill -9 $(tree "$PID") 2>/dev/null
     [ -n "${DISPLAY_PID:-}" ] && kill "$DISPLAY_PID" 2>/dev/null
     [ -n "${MOUNT_PID:-}" ] && kill "$MOUNT_PID" 2>/dev/null && sleep 1
@@ -113,9 +114,17 @@ FFMPEG="$TOOLS/ffmpeg"
 ls "$DATA"/libonnxruntime.* >/dev/null 2>&1 && pass "y ONNX Runtime entre ellos" \
   || fail "no hay ONNX Runtime en $DATA"
 if [ -n "$TOOLS" ]; then
-    for tool in ffmpeg fpcalc qjs yt-dlp; do
+    for tool in ffmpeg fpcalc qjs; do
         [ -x "$TOOLS/$tool" ] && pass "lleva $tool" || fail "no lleva $tool en $TOOLS"
     done
+    # yt-dlp ya no viaja en los paquetes: la app lo instala la primera vez
+    # que baja de YouTube (junto a la compilada puede quedar uno de antes, que
+    # no se empaqueta: ahi da igual)
+    case "$TOOLS" in
+        */lib/DanPlay/tools)
+            [ -e "$TOOLS/yt-dlp" ] && fail "el paquete lleva yt-dlp, que ya no viaja" \
+              || pass "el paquete no lleva yt-dlp" ;;
+    esac
 else
     echo "  --    sin tools/ junto a la app (la compilada sin --package): se usan los del sistema"
 fi

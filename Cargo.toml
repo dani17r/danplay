@@ -4,8 +4,8 @@
 #                       en pistas (Demucs, el Mega53), en ONNX Runtime; el clic
 #                       de la mezcla y los pesos de los modelos
 #   desktop/src-tauri/  la app de escritorio (Tauri): cola, audio, bandeja, MPRIS
-#   engine/             el motor de pistas de la app del celular (y lo que
-#                       comparte con la de escritorio: el pulso, el
+#   engine/             el motor de audio de las dos apps (y, sin su rasgo
+#                       `engine`, lo que usa el analisis: el pulso, el
 #                       metronomo, la cola y el sonido del clic)
 #   library/            la biblioteca: el indice, las etiquetas, los nombres,
 #                       el asistente, la configuracion
@@ -22,16 +22,15 @@ members = ["analysis", "desktop/src-tauri", "engine", "library", "mobile", "serv
 resolver = "3"
 
 [workspace.package]
-version = "1.44.1"
+version = "1.46.0"
 edition = "2024"
 # DanPlay es obra de Daniel Rangel (https://t.me/Dani17r)
 authors = ["Daniel Rangel"]
-# Uno para los dos: Cargo resuelve el Cargo.lock con el mas bajo de los
-# miembros, y con 1.85 en el nucleo se quedaba en tauri 2.11 aunque la app
-# pudiera con 2.12 (que pide 1.90), y la interfaz ya iba con la 2.12.
-# Lo que pide cada cosa: tauri 2.12, 1.90; notify-rust (las notificaciones
-# de Linux), 1.89; symphonia 0.6, md-5 0.11 y la edicion 2024, 1.85.
-rust-version = "1.90"
+# La misma que fija rust-toolchain.toml: la que compila de verdad, en local y
+# en la CI. Con una más baja aquí nadie probaba que valiera (la CI usaba la
+# estable del día), y Cargo resuelve el Cargo.lock con esta: así no entra una
+# dependencia que pida una más nueva que la fijada. Se suben las dos juntas.
+rust-version = "1.100"
 
 [workspace.lints.rust]
 unsafe_code = "deny"
@@ -46,13 +45,12 @@ cast_possible_truncation = "allow"
 cast_sign_loss = "allow"
 cast_possible_wrap = "allow"
 cast_lossless = "allow"
-# Los comandos de Tauri y las funciones de PyO3 reciben por valor lo que
-# deserializa (o convierte) su marco.
+# Los comandos de Tauri reciben por valor lo que deserializa su marco.
 needless_pass_by_value = "allow"
 # Los errores son `String` en castellano y ya dicen lo que pasa.
 missing_errors_doc = "allow"
 must_use_candidate = "allow"
-# Los comentarios hablan de MPRIS, PyO3 o D-Bus sin comillas de codigo.
+# Los comentarios hablan de MPRIS, ALSA o D-Bus sin comillas de codigo.
 doc_markdown = "allow"
 unwrap_used = "warn"
 undocumented_unsafe_blocks = "warn"
@@ -75,6 +73,27 @@ codegen-units = 16
 strip = true
 # Sin `panic = "abort"`: el hilo de audio decodifica archivos de fuera, y un
 # mp3 corrupto que hiciera panic tumbaba la aplicacion entera. Desenrollando,
-# el hilo se cae solo y se puede levantar otra vez. (Y PyO3 convierte un
-# panic en una excepcion de Python, cosa que con abort no podria.)
+# el hilo se cae solo y se puede levantar otra vez.
 panic = "unwind"
+
+# Las pruebas, en la CI y en `scripts/test.sh`: optimizadas como lo que se
+# entrega (el audio y los análisis en depuración van decenas de veces más
+# lentos), pero sin el LTO ni el `strip`, que son lo que más tarda al
+# enlazar cada binario de pruebas y no cambian lo que se prueba.
+[profile.ci]
+inherits = "release"
+lto = false
+strip = false
+
+# `cargo build` a secas (la app de desarrollo, `tauri dev`): las dependencias
+# optimizadas, que con symphonia, rustfft o SQLite sin optimizar el audio no
+# llega a tiempo, y solo los números de línea en la depuración, que es lo que
+# se usa y pesa mucho menos.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.dev.package.danplay-engine]
+opt-level = 2
