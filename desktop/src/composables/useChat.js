@@ -16,6 +16,7 @@ import { notify } from './useNotices.js'
 import { requireTerms, useTerms } from './useTerms.js'
 import { useDownloads } from './useDownloads.js'
 import { ensureDownloadFolder } from '../utils/downloadFolder.js'
+import { copyText } from '../utils/clipboard.js'
 import { hooks, NO_HOOKS, connectChat, chatAttention } from './chatLink.js'
 
 /** @typedef {import('../api.js').ChatContext} ChatContext */
@@ -562,15 +563,53 @@ async function clearChat() {
 }
 
 /** La conversación abierta, al portapapeles como texto. */
-async function exportChat() {
-  if (!chatId.value) return
-  try {
-    const { markdown } = await api.chatExport(chatId.value)
-    await navigator.clipboard.writeText(markdown)
-    notify('Conversación copiada al portapapeles', 'ok')
-  } catch (e) {
-    notify('No se pudo exportar: ' + errorMessage(e))
+/** La conversación abierta como texto, para pegarla en otro sitio (lo visible, sin lo oculto). */
+function chatAsText() {
+  const title = chats.value.find((x) => x.id === chatId.value)?.title || 'Conversación'
+  const parts = [title]
+  for (const m of messages.value) {
+    if (m.hidden || !m.text?.trim()) continue
+    parts.push(`${m.role === 'me' ? 'Tú' : 'Asistente'}:\n${m.text.trim()}`)
   }
+  return parts.join('\n\n')
+}
+
+/**
+ * Copia la conversación entera. Se hace con lo que ya está en pantalla, sin
+ * ir al núcleo: el portapapeles solo deja copiar dentro del gesto del clic, y
+ * una petición de red antes lo perdía (de ahí el «no me deja»).
+ */
+async function exportChat() {
+  const text = chatAsText()
+  if (!text.trim()) return
+  const ok = await copyText(text)
+  if (ok) notify('Conversación copiada al portapapeles', 'ok')
+  else notify('No se pudo copiar: selecciona el texto y pulsa Ctrl+C')
+}
+
+/**
+ * «Reenviar»: el turno que falló (la respuesta de error y la pregunta que la
+ * provocó) sale de la conversación y tu pregunta se manda otra vez, tal cual.
+ * Solo vale para el último mensaje y con el asistente parado: si después de
+ * el error hubo algo más, el turno ya no está al final y no se toca.
+ * @param {ChatMessage} errorMsg
+ */
+async function resend(errorMsg) {
+  if (busy()) return
+  const i = messages.value.indexOf(errorMsg)
+  if (i < 1 || i !== messages.value.length - 1) return
+  let j = i - 1
+  while (j >= 0 && messages.value[j].role !== 'me') j--
+  const question = messages.value[j]
+  if (!question || question.hidden) return
+  try {
+    if (chatId.value) await api.chatDropLast(chatId.value, messages.value.length - j)
+  } catch (e) {
+    notify('No se pudo reenviar: ' + errorMessage(e))
+    return
+  }
+  messages.value.splice(j)
+  await send(question.text)
 }
 
 /**
@@ -2127,6 +2166,7 @@ export function useChat() {
     start,
     show,
     send,
+    resend,
     unqueue,
     cancel,
     openChat,

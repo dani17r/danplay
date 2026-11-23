@@ -872,8 +872,10 @@ fn no_provider_secret_in_the_tools_route_or_the_chat_error() {
         assert_eq!(s, 200);
         let r = reply_to(&app, "hola");
         let error = r["error"].as_str().unwrap_or("").to_owned();
+        // un 5xx se dice con palabras («saturado»), no con el texto del
+        // proveedor: lo que importa es que el error no se calle
         assert!(
-            error.contains("upstream"),
+            error.contains("upstream") || error.contains("saturado"),
             "el error sale (saneado), no se calla: {r}"
         );
         for needle in needles {

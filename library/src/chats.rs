@@ -190,6 +190,25 @@ pub fn append(conn: &Connection, chat_id: i64, messages: &[Value]) -> Result<usi
     Ok(n)
 }
 
+/// Quita los últimos `n` mensajes de la conversación: el turno que falló,
+/// para volver a enviarlo sin que se vea dos veces. Devuelve cuántos quitó.
+pub fn drop_last(conn: &Connection, chat_id: i64, n: i64) -> Result<usize, Error> {
+    if fetch_one(conn, "SELECT id FROM chats WHERE id=?", [chat_id])?.is_none() {
+        return Err(Error::Missing);
+    }
+    begin(conn)?;
+    let removed = conn.execute(
+        "DELETE FROM chat_messages WHERE id IN \
+         (SELECT id FROM chat_messages WHERE chat_id=? ORDER BY id DESC LIMIT ?)",
+        rusqlite::params![chat_id, n.max(0)],
+    )?;
+    conn.execute(
+        "UPDATE chats SET updated=? WHERE id=?",
+        rusqlite::params![now(), chat_id],
+    )?;
+    Ok(removed)
+}
+
 pub fn rename(conn: &Connection, chat_id: i64, title: &str) -> rusqlite::Result<bool> {
     begin(conn)?;
     Ok(conn.execute(

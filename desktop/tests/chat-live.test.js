@@ -162,6 +162,65 @@ describe('the live reply', () => {
   })
 })
 
+describe('a failed turn', () => {
+  it('«Reenviar» takes the failed exchange out of the conversation and sends the question again', async () => {
+    held.polls = [
+      {
+        text: '',
+        tools: [],
+        done: true,
+        result: { error: 'no pude hablar con el modelo: el proveedor está saturado' }
+      }
+    ]
+    const w = await mountView()
+    await typeText(w, 'arma la lista del domingo')
+    expect(w.find('.chat-msg.error').exists()).toBe(true)
+    held.polls = [
+      {
+        text: 'listo',
+        tools: [],
+        done: true,
+        result: { text: 'listo', tools: [], actions: [], confirm: null }
+      }
+    ]
+    const retry = w.find('.chat-retry')
+    expect(retry.exists()).toBe(true)
+    await retry.trigger('click')
+    await flushPromises()
+    await flushPromises()
+    expect(held.api.chatDropLast).toHaveBeenCalledWith(1, 2)
+    // la pregunta se ve una vez, y la respuesta buena sustituye al error
+    expect(held.state.chats[0].messages.map((m) => m.text)).toEqual([
+      'arma la lista del domingo',
+      'listo'
+    ])
+    expect(w.findAll('.chat-msg.me')).toHaveLength(1)
+    expect(w.find('.chat-msg.error').exists()).toBe(false)
+    expect(w.find('.chat-retry').exists()).toBe(false)
+    w.unmount()
+  })
+
+  it('«Reenviar» only shows on the last message, not on an old error', async () => {
+    held.polls = [
+      { text: '', tools: [], done: true, result: { error: 'no pude hablar con el modelo: x' } }
+    ]
+    const w = await mountView()
+    await typeText(w, 'primera')
+    held.polls = [
+      {
+        text: 'ok',
+        tools: [],
+        done: true,
+        result: { text: 'ok', tools: [], actions: [], confirm: null }
+      }
+    ]
+    await typeText(w, 'segunda')
+    expect(w.find('.chat-msg.error').exists()).toBe(true)
+    expect(w.find('.chat-retry').exists()).toBe(false)
+    w.unmount()
+  })
+})
+
 describe('saved conversations', () => {
   it('the first message creates the conversation and everything is saved in the core', async () => {
     const w = await mountView()
@@ -300,8 +359,10 @@ describe('export and budget', () => {
     const copy = w.findAll('.chat-head .btn').find((b) => b.attributes('title')?.includes('Copiar'))
     await copy.trigger('click')
     await flushPromises()
-    expect(held.api.chatExport).toHaveBeenCalledWith(2)
-    expect(written[0]).toContain('# conversacion 2')
+    // se copia lo que está en pantalla, sin ir al núcleo (el gesto del clic
+    // se perdería esperando la red)
+    expect(held.api.chatExport).not.toHaveBeenCalled()
+    expect(written[0]).toBe('Set\n\nTú:\nhola\n\nAsistente:\nque tal')
     w.unmount()
   })
 

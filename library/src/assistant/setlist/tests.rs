@@ -225,3 +225,19 @@ fn the_report_says_what_was_done() {
     );
     assert_eq!(report_found(&[]), Ok(None));
 }
+
+/// El modelo a veces pasa el título de la lista como si fuera una canción: no lo es.
+#[test]
+fn the_list_title_is_not_a_song_even_if_the_model_passes_it() {
+    let sl = crate::assistant::intake::parse_setlist(
+        "Lista del domingo 34:\n*Domingo 34*\n🎶 Digno De Adorar - @Marta",
+    );
+    assert_eq!(sl.name_hint, "domingo 34", "el nombre viene normalizado");
+    let (items_, _) = requested(
+        &json!([{"title": "Domingo 34"}, {"title": "Digno De Adorar"}]),
+        Some(&sl),
+        false,
+    );
+    let titles: Vec<&str> = items_.iter().filter_map(|i| i["title"].as_str()).collect();
+    assert_eq!(titles, ["Digno De Adorar"], "{items_:?}");
+}

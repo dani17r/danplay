@@ -811,7 +811,9 @@ fn claiming_an_action_without_tools_forces_it_to_act() {
         .and_then(|m| m.last())
         .expect("último")
         .clone();
-    assert_eq!(last["role"], "system");
+    // el aviso va como mensaje de usuario: un sistema tras la respuesta del
+    // modelo hace que Gemini rechace la petición (400)
+    assert_eq!(last["role"], "user");
     assert!(
         last["content"]
             .as_str()
@@ -1290,4 +1292,62 @@ fn brief_summarizes_with_ids_and_names() {
         .map(|i| json!({"id": i, "artist": "A", "title": format!("T{i}")}))
         .collect();
     assert!(b("search_songs", json!({"songs": many})).ends_with("y 5 mas"));
+}
+
+/// Una lista pegada y «crea esa lista tal cual»: la app la crea sin que el
+/// modelo intervenga (no se le llama) y la respuesta dice lo que pasó.
+#[test]
+fn a_pasted_list_asked_to_be_created_is_made_by_the_app() {
+    let Some(app) = api_library() else { return };
+    let cid = first_ids(&app, 1)[0];
+    let title = get(&app, &format!("/api/song/{cid}"))["title"]
+        .as_str()
+        .expect("título")
+        .to_owned();
+    let ai = script(&app, vec![say("NO SE DEBE USAR")], "NO");
+    let r = reply(
+        &app,
+        json!([
+            {"role": "user", "text": format!("Lista del domingo 34:\n*Domingo 34*\n🎶 {title} - @Marta\n🎶 Cancion que no existe - @Marta")},
+            {"role": "user", "text": "crea esa lista tal cual"},
+        ]),
+    );
+    assert!(playlist_id(&app, "Domingo 34").is_some(), "{r}");
+    assert!(ai.received().is_empty(), "el modelo no interviene");
+    let text = r["text"].as_str().unwrap_or_default();
+    assert!(
+        text.starts_with("Hecho:") && text.contains("Domingo 34"),
+        "{r}"
+    );
+    assert_eq!(r["tools"][0]["name"], "fill_playlist", "{r}");
+}
+
+/// Solo pegar la lista: la app mira en la biblioteca qué está y qué falta, no
+/// crea nada, y pregunta qué quiere hacer. Tampoco pasa por el modelo.
+#[test]
+fn a_pasted_list_alone_is_checked_by_the_app_and_nothing_is_created() {
+    let Some(app) = api_library() else { return };
+    let cid = first_ids(&app, 1)[0];
+    let title = get(&app, &format!("/api/song/{cid}"))["title"]
+        .as_str()
+        .expect("título")
+        .to_owned();
+    let ai = script(&app, vec![say("NO SE DEBE USAR")], "NO");
+    let r = reply(
+        &app,
+        json!([{"role": "user", "text": format!("Lista del domingo 36:\n*Domingo 36*\n🎶 {title} - @Marta\n🎶 Cancion que no existe - @Marta")}]),
+    );
+    assert!(
+        playlist_id(&app, "Domingo 36").is_none(),
+        "no crea nada sola: {r}"
+    );
+    assert!(ai.received().is_empty(), "el modelo no interviene");
+    let text = r["text"].as_str().unwrap_or_default();
+    assert!(text.contains("Faltan: Cancion que no existe"), "{r}");
+    assert!(text.contains("¿Qué quieres hacer"), "{r}");
+    assert!(
+        !text.contains("Domingo 36;"),
+        "el título no es una canción: {r}"
+    );
+    assert_eq!(r["tools"][0]["name"], "find_songs", "{r}");
 }

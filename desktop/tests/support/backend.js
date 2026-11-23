@@ -795,6 +795,11 @@ function answers(state) {
         c.title = (messages.find((m) => m.role === 'me' && !m.hidden)?.text || '').slice(0, 60)
       return { n: messages.length }
     },
+    chatDropLast: async (id, n) => {
+      const c = state.chats.find((x) => x.id === id)
+      if (!c) throw new Error('no existe esa conversacion')
+      return { removed: c.messages.splice(Math.max(0, c.messages.length - n)).length }
+    },
     chatRename: async (id, title) => {
       const c = state.chats.find((x) => x.id === id)
       if (c) c.title = title

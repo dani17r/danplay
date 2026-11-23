@@ -1590,6 +1590,8 @@ export const api = {
   chatGet: (id) => GET(`/chats/${id}`),
   /** @param {number} id @param {Object[]} messages  añade al final */
   chatAppend: (id, messages) => POST(`/chats/${id}/messages`, { messages }),
+  /** Quita los últimos `n` mensajes (un turno que falló, antes de reenviarlo). */
+  chatDropLast: (id, n) => POST(`/chats/${id}/messages/drop-last`, { n }),
   /** @param {number} id @param {string} title */
   chatRename: (id, title) => PATCH(`/chats/${id}`, { title }),
   /** @param {number} id */

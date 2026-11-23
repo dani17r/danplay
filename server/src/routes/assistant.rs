@@ -25,6 +25,7 @@ pub const ROUTES: &[Route] = &[
     Route::get("/api/chats/search", chats_search),
     Route::get("/api/chats/{chat_id}", chats_get),
     Route::post("/api/chats/{chat_id}/messages", chats_append),
+    Route::post("/api/chats/{chat_id}/messages/drop-last", chats_drop_last),
     Route::get("/api/chats/{chat_id}/export", chats_export),
     Route::patch("/api/chats/{chat_id}", chats_rename),
     Route::delete("/api/chats/{chat_id}", chats_delete),
@@ -437,6 +438,24 @@ fn chats_export(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     Ok(json!({ "markdown": export_markdown(&c) }).into())
 }
 
+/// Quita los últimos mensajes (un turno que falló, antes de reenviarlo).
+fn chats_drop_last(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
+    let id = chat_id(ctx);
+    let mut b = ctx.body()?;
+    let n = b
+        .field("n", Int::between(Some(1.into()), Some(50.into())).strict())
+        .required();
+    ctx.done(b)?;
+    let removed = ctx.app.db(|c| {
+        library::chats::drop_last(c, id, n).map_err(|e| match e {
+            library::chats::Error::Missing => ApiError::not_found("no existe esa conversacion"),
+            library::chats::Error::Invalid(why) => ApiError::http(422, why),
+            library::chats::Error::Sqlite(e) => e.into(),
+        })
+    })?;
+    Ok(json!({ "removed": removed }).into())
+}
+
 fn chats_rename(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let id = chat_id(ctx);
     let mut b = ctx.body()?;
@@ -806,6 +825,55 @@ mod tests {
         let (s, v) = call(&app, "GET", "/api/chats/abc", None);
         assert_eq!(s, 422);
         assert_eq!(v["detail"][0]["type"], "int_parsing");
+    }
+
+    #[test]
+    fn a_failed_turn_can_be_dropped_before_resending() {
+        let app = crate::tests::app();
+        let (_, made) = call(&app, "POST", "/api/chats", None);
+        let id = made["id"].as_i64().expect("id");
+        let msgs = json!({"messages": [
+            {"role": "me", "text": "primera"},
+            {"role": "ai", "text": "respuesta"},
+            {"role": "me", "text": "la que falla"},
+            {"role": "ai", "text": "no pude hablar con el modelo", "error": true, "app": true}
+        ]});
+        let (s, _) = call(
+            &app,
+            "POST",
+            &format!("/api/chats/{id}/messages"),
+            Some(msgs),
+        );
+        assert_eq!(s, 200);
+        let (s, r) = call(
+            &app,
+            "POST",
+            &format!("/api/chats/{id}/messages/drop-last"),
+            Some(json!({"n": 2})),
+        );
+        assert_eq!((s, r), (200, json!({"removed": 2})));
+        let (_, got) = call(&app, "GET", &format!("/api/chats/{id}"), None);
+        let texts: Vec<&str> = got["messages"]
+            .as_array()
+            .expect("mensajes")
+            .iter()
+            .filter_map(|m| m["text"].as_str())
+            .collect();
+        assert_eq!(texts, ["primera", "respuesta"]);
+        let (s, _) = call(
+            &app,
+            "POST",
+            &format!("/api/chats/{id}/messages/drop-last"),
+            Some(json!({"n": 0})),
+        );
+        assert_eq!(s, 422, "al menos uno");
+        let (s, _) = call(
+            &app,
+            "POST",
+            "/api/chats/999/messages/drop-last",
+            Some(json!({"n": 1})),
+        );
+        assert_eq!(s, 404);
     }
 
     #[test]

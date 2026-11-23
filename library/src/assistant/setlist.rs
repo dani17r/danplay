@@ -394,6 +394,9 @@ pub fn requested(items_: &Value, setlist: Option<&SetlistParse>, fresh: bool) ->
         if !(yes(&it, "title") || yes(&it, "url") || yes(&it, "id")) {
             continue;
         }
+        if setlist.is_some_and(|sl| is_list_title(&it, &sl.name_hint)) {
+            continue;
+        }
         it.insert("n".into(), (out.len() + 1).into());
         out.push(it);
     }
@@ -406,6 +409,18 @@ pub fn requested(items_: &Value, setlist: Option<&SetlistParse>, fresh: bool) ->
         ("ignored", Value::Array(Vec::new())),
     ]);
     (out, origin)
+}
+
+/// Un ítem que es solo el título de la lista («Domingo 34»), sin enlace ni
+/// artista: el modelo a veces lo pasa en `items` como si fuera una canción. Con
+/// enlace o artista no se toca, por si una canción se llama igual que la lista.
+fn is_list_title(it: &Dict, name: &str) -> bool {
+    let name = search_form(name);
+    let title = it.get("title").map_or_default(crate::value::str_of);
+    !name.is_empty()
+        && search_form(&title) == name
+        && !yes(it, "url")
+        && !it.get("artist").is_some_and(crate::value::truthy)
 }
 
 /// Si una línea que no es canción es lo que se pide y no una sección

@@ -428,6 +428,10 @@ const REPEAT_NAMES = {
 onClickOutside(viewBox, () => {
   viewMenu.value = false
 })
+// al pasar a una página el menú se cierra del todo: si no, se abriría solo al volver a la lista
+watch(isPage, (p) => {
+  if (p) viewMenu.value = false
+})
 
 // La bienvenida sale mientras no haya nada que enseñar: sin carpetas, o con
 // la biblioteca vacía porque la música se movió o se borró por fuera (ver
@@ -1258,7 +1262,9 @@ function onUpdated(song) {
         </transition>
       </div>
 
-      <div class="view-switch" role="group" aria-label="Cómo se ve la lista">
+      <!-- Estos mandos son de la LISTA: en las páginas (ajustes, asistente,
+           descargas…) no pintan nada, ni el conmutador ni «Vista» ni «Transformar» -->
+      <div v-if="!isPage" class="view-switch" role="group" aria-label="Cómo se ve la lista">
         <button
           v-for="v in VIEWS"
           :key="v"
@@ -1274,6 +1280,7 @@ function onUpdated(song) {
       </div>
 
       <button
+        v-if="!isPage"
         v-preload="islands.transform"
         type="button"
         class="btn mini tidy-open"
@@ -1284,7 +1291,7 @@ function onUpdated(song) {
         <Icon n="sparkles" :t="14" /> <span class="btn-label">Transformar</span>
       </button>
 
-      <div ref="viewBox" style="position: relative">
+      <div v-if="!isPage" ref="viewBox" style="position: relative">
         <button
           type="button"
           class="btn mini"
@@ -1313,7 +1320,10 @@ function onUpdated(song) {
                 label="Agrupar"
                 :options="GROUPINGS.map((a) => ({ v: a.v, n: a.n }))"
               />
+              <!-- la densidad solo la usan la tabla y las filas: las fichas y la
+                   cuadrícula tienen su propio tamaño -->
               <SelectField
+                v-if="layout === 'table' || layout === 'rows'"
                 v-model="density"
                 label="Densidad de las filas"
                 :options="Object.entries(DENSITIES).map(([k, d]) => ({ v: k, n: d.name }))"

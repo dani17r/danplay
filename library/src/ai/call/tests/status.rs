@@ -1234,8 +1234,10 @@ fn no_provider_secret_in_status_errors_or_logs() {
             .run(|ctx| identify(ctx, "pista.mp3", &[], ""))
             .expect("el error");
         let error = ident["error"].as_str().unwrap_or("").to_owned();
+        // un 5xx se dice con palabras («saturado»), no con el texto del
+        // proveedor: lo importante es que el error no se calle
         assert!(
-            error.contains("upstream"),
+            error.contains("upstream") || error.contains("saturado"),
             "{id}: el error sale (saneado), no se calla: {error}"
         );
         let logs = b.logs.lock().expect("cerrojo").join("\n");
@@ -1291,6 +1293,17 @@ fn describe_error_tells_rate_limit_billing_and_403_apart() {
         body: None,
     };
     assert!(say(&lost).contains("conexion"));
+    // un 503 de «alta demanda» se dice con palabras, sin el JSON del proveedor
+    let busy = say(&http_error(
+        503,
+        &Body::Json(
+            json!({"error": {"code": 503, "message": "This model is currently experiencing high demand.", "status": "UNAVAILABLE"}}),
+        ),
+    ));
+    assert!(
+        busy.contains("saturado") && busy.contains("otro modelo") && !busy.contains('{'),
+        "{busy}"
+    );
 }
 
 // ---------------------------------------------- sanitize_provider_message

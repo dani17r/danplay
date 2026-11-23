@@ -338,7 +338,8 @@ fn the_data_contract() {
             no_download: false,
             replace: false,
             create: false,
-            strict_version: false
+            strict_version: false,
+            adds: false
         }
     );
 }
@@ -1114,4 +1115,15 @@ fn clean_youtube_url_is_canonical_and_idempotent() {
         let vid = links::youtube_video_id(&url);
         assert_eq!(vid, out.strip_prefix(WATCH).unwrap_or(""), "{url:?}");
     }
+}
+
+/// El título de la lista («*Domingo 36*») no se lee como una canción.
+#[test]
+fn the_title_line_of_the_list_is_not_a_song() {
+    let sl = parse_setlist(
+        "Lista del domingo 36:\n*Domingo 36*\n🎶 Baruch Hashem - @Marta\n🎶 Cancion que no existe - @Marta",
+    );
+    assert!(sl.is_setlist, "{sl:?}");
+    let titles: Vec<&str> = sl.items.iter().map(|i| i.title.as_str()).collect();
+    assert_eq!(titles, ["Baruch Hashem", "Cancion que no existe"], "{sl:?}");
 }

@@ -114,6 +114,8 @@ pub struct Intent {
     pub replace: bool,
     pub create: bool,
     pub strict_version: bool,
+    /// pide meter canciones en una lista («agrégalas», «mete»): ni se miran ni se crean solas
+    pub adds: bool,
 }
 
 // ----------------------------------------------------------- enlaces de YouTube
@@ -2611,7 +2613,7 @@ pub fn parse(text: &str) -> SetlistParse {
             asm.feed(&preps, i, k);
         }
     }
-    let (items, truncated) = asm.build(&preps);
+    let (mut items, truncated) = asm.build(&preps);
     let count = items.len() + truncated;
     // una canción con su enlace en un mensaje que la pide; sin marcas solo si
     // trae título propio: un enlace metido en una frase lo lee el modelo
@@ -2635,6 +2637,17 @@ pub fn parse(text: &str) -> SetlistParse {
     }
     if count < 2 && !single {
         return SetlistParse::default();
+    }
+    // La línea del título no cuenta como canción en el resultado (sí en las
+    // comprobaciones de arriba, donde una lista de una canción más su título
+    // sigue siendo una lista): sin enlace ni artista, con el nombre de la lista.
+    if !hint.trim().is_empty() {
+        let name = crate::names::search_form(&hint);
+        items.retain(|it| {
+            !(it.url.is_empty()
+                && it.artist.is_empty()
+                && crate::names::search_form(&it.title) == name)
+        });
     }
     SetlistParse {
         is_setlist: true,
@@ -2955,6 +2968,7 @@ pub fn read_intent(text: &str) -> Intent {
         replace: clauses.iter().any(|c| replace(c)),
         create: clauses.iter().any(|c| create(c)),
         strict_version: clauses.iter().any(|c| strict(c)),
+        adds,
     }
 }
 

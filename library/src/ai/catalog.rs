@@ -768,6 +768,9 @@ pub fn lookup(data: &Dict, models_dev_id: &str, model_id: &str) -> Option<Dict> 
 /// de todos, que suele ser diminuto y no conoce a los artistas.
 static CHEAP_TIER: LazyLock<Re> =
     LazyLock::new(|| rx(r"(?i)flash|lite|mini|nano|small|haiku|instant|turbo|fast"));
+/// Modelos ligeros: sirven para lo rápido (rellenar fichas), pero se pierden
+/// con varias herramientas seguidas (una lista pegada): no para conversar.
+static LIGHT: LazyLock<Re> = LazyLock::new(|| rx(r"(?i)lite|nano|mini|small|instant|turbo|fast"));
 static UNSTABLE: LazyLock<Re> =
     LazyLock::new(|| rx(r"(?i)exp\b|experimental|preview|beta|alpha|\brc\b|nightly|dev\b|:free$"));
 /// Especializados en otra cosa (programar, ver imágenes, matemáticas): para
@@ -834,10 +837,21 @@ pub fn recommend(models: &[Dict], now: f64) -> Dict {
         .filter(|m| s(m, "released") >= since)
         .collect();
     recent.sort_by_key(|m| std::cmp::Reverse(s(m, "released")));
+    // para conversar, el más nuevo que no sea ligero (si no hay otro, el ligero)
+    let sturdy = |m: &&Dict| !is_match(&LIGHT, &s(m, "id")) && !is_match(&LIGHT, &s(m, "name"));
+    let affordable = |m: &&&Dict| cost(m).is_some_and(|c| c <= 15.0);
     let chat = recent
         .iter()
-        .find(|m| cost(m).is_some_and(|c| c <= 15.0))
-        .or_else(|| recent.first());
+        .copied()
+        .filter(sturdy)
+        .find(|m| affordable(&m))
+        .or_else(|| {
+            recent
+                .iter()
+                .copied()
+                .find(|m| cost(m).is_some_and(|c| c <= 15.0))
+        })
+        .or_else(|| recent.first().copied());
     let mut cheap: Vec<&Dict> = recent
         .iter()
         .copied()
@@ -854,10 +868,10 @@ pub fn recommend(models: &[Dict], now: f64) -> Dict {
             let limit = (floor * 2.0).max(0.05);
             cheap.iter().find(|m| cost(m).is_some_and(|c| c <= limit))
         });
-    let id = |m: Option<&&Dict>| m.map_or_default(|m| s(m, "id"));
+    let id = |m: Option<&Dict>| m.map_or_default(|m| s(m, "id"));
     let mut out = Dict::new();
     out.insert("chat".into(), id(chat).into());
-    out.insert("fast".into(), id(fast).into());
+    out.insert("fast".into(), id(fast.copied()).into());
     out
 }
 
@@ -972,6 +986,8 @@ mod tests {
             json!({"id": "c-big", "name": "C", "tools": true, "deprecated": false, "released": "2026-08-15", "cost_in": 2, "cost_out": 8}),
             json!({"id": "d-old", "name": "D", "tools": true, "deprecated": true, "released": "2026-09-02", "cost_in": 0.01, "cost_out": 0.02}),
             json!({"id": "e-notools", "name": "E", "tools": false, "deprecated": false, "released": "2026-09-03", "cost_in": 0.01, "cost_out": 0.02}),
+            // el más nuevo de todos, pero ligero: para conversar, no
+            json!({"id": "f-lite", "name": "F lite", "tools": true, "deprecated": false, "released": "2026-10-01", "cost_in": 0.1, "cost_out": 0.4}),
         ]
         .into_iter()
         .map(obj)
@@ -980,7 +996,7 @@ mod tests {
         let now = 1_790_812_800.0;
         assert_eq!(
             Value::Object(recommend(&models, now)),
-            json!({"chat": "c-big", "fast": "b-flash"})
+            json!({"chat": "c-big", "fast": "f-lite"})
         );
         assert_eq!(
             Value::Object(recommend(&[], now)),

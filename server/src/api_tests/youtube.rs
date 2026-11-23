@@ -407,6 +407,28 @@ fn failures_are_counted_and_the_turn_is_released() {
     assert_eq!(st["results"].as_array().map(Vec::len), Some(2));
 }
 
+/// Si yt-dlp acaba sin el mp3 (la conversión se rompió), el motivo que dio
+/// por stderr llega a quien pidió la descarga, no solo un «ffmpeg no dejó…».
+#[test]
+fn a_download_without_mp3_says_what_yt_dlp_said() {
+    let Some((app, _log)) = ytdl() else { return };
+    let videos = tools_of(&app).join("videos");
+    answer(
+        &app,
+        &format!(
+            "echo 'ERROR: Postprocessing: ffmpeg exited with status 1: Conversion failed!' >&2\ncat '{}'/uno.json; echo; exit 0\n",
+            videos.display()
+        ),
+    );
+    let r = one(&app, "https://youtu.be/uno");
+    assert_eq!(r["ok"], json!(false), "{r:?}");
+    let why = text(&r, "reason");
+    assert!(
+        why.starts_with("ffmpeg no dejo ningun mp3") && why.contains("Conversion failed"),
+        "{why}"
+    );
+}
+
 #[test]
 fn a_non_youtube_link_is_not_passed_to_yt_dlp() {
     let Some((app, log)) = ytdl() else { return };

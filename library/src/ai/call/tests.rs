@@ -1,5 +1,4 @@
 use super::*;
-use crate::value;
 use std::fmt::Write as _;
 use std::io::{Read, Write};
 use std::net::TcpListener;
@@ -786,11 +785,11 @@ fn models_list(ids: &[&str]) -> String {
 fn model_list_is_crossed_with_the_catalog() {
     let _s = SERIAL.lock().unwrap_or_else(PoisonError::into_inner);
     let b = Bank::with_catalog("lista-catalogo");
-    let (base, _) = serve_fn(|path, _| {
+    let (base, _) = serve_fn(|path, body| {
         if path.ends_with("/models") {
             models_list(&["gpt-6-astra", "modelo-desconocido"])
         } else {
-            ok(&reply("ok"))
+            answers_with_tools(path, body)
         }
     });
     b.save(
@@ -865,7 +864,7 @@ fn only_models_the_key_can_use_are_shown() {
         let model = body["model"].as_str().unwrap_or("");
         match table.iter().find(|f| f.0 == model) {
             Some((_, code, message)) => fail(code, message),
-            None => ok(&reply("ok")),
+            None => answers_with_tools(path, body),
         }
     });
     b.save(
@@ -885,9 +884,7 @@ fn only_models_the_key_can_use_are_shown() {
             .filter_map(|m| m["id"].as_str().map(str::to_owned))
             .collect()
     };
-    let want: HashSet<String> = ["gemini-3.5-flash", "gemini-3.8-flash", "gemini-3.6-flash"]
-        .map(str::to_owned)
-        .into();
+    let want: HashSet<String> = ["gemini-3.5-flash"].map(str::to_owned).into();
     assert_eq!(
         ids(&r),
         want,
@@ -899,8 +896,6 @@ fn only_models_the_key_can_use_are_shown() {
         .iter()
         .map(|m| (m["id"].as_str().unwrap_or("").to_owned(), m.clone()))
         .collect();
-    assert!(value::truthy(&by_id["gemini-3.8-flash"]["note"]));
-    assert!(value::truthy(&by_id["gemini-3.6-flash"]["note"]));
     assert!(by_id["gemini-3.5-flash"].get("note").is_none());
     let hidden: HashMap<String, String> = r["hidden"]
         .as_array()
@@ -919,8 +914,16 @@ fn only_models_the_key_can_use_are_shown() {
         HashSet::from([
             "gemini-2.5-pro",
             "gemini-3.1-pro-preview",
-            "antigravity-preview"
+            "antigravity-preview",
+            "gemini-3.6-flash",
+            "gemini-3.8-flash"
         ])
+    );
+    // sin cuota ahora mismo tampoco sirve: se vuelve a mirar pronto
+    assert!(hidden["gemini-3.8-flash"].contains("cuota"), "{hidden:?}");
+    assert!(
+        hidden["gemini-3.6-flash"].contains("prueba más tarde"),
+        "{hidden:?}"
     );
     assert!(hidden["gemini-2.5-pro"].contains("retirado"), "{hidden:?}");
     assert!(
@@ -947,6 +950,87 @@ fn only_models_the_key_can_use_are_shown() {
     // con «Cargar la lista» se vuelve a probar todo
     b.run(|ctx| list_models(ctx, None, true));
     assert_eq!(probed(&seen).len(), failures.len() + 1);
+}
+
+/// Un modelo que solo charla no se ofrece: el asistente necesita herramientas,
+/// y en la lista fallaba justo al usarlo.
+#[test]
+fn a_model_that_cannot_call_tools_is_not_offered() {
+    let _s = SERIAL.lock().unwrap_or_else(PoisonError::into_inner);
+    let b = Bank::new("sin-herramientas");
+    let (base, _) = serve_fn(|path, body| {
+        if path.ends_with("/models") {
+            models_list(&["solo-charla", "con-herramientas"])
+        } else if body["model"] == json!("solo-charla") {
+            ok(&reply("¡Hola, Dani!"))
+        } else {
+            answers_with_tools(path, body)
+        }
+    });
+    b.save(
+        json!({"provider": "openai", "base_url": base, "key": "k", "model": "m"}),
+        true,
+    );
+    let r = b.run(|ctx| list_models(ctx, None, false));
+    let ids: Vec<&str> = r["models"]
+        .as_array()
+        .expect("modelos")
+        .iter()
+        .filter_map(|m| m["id"].as_str())
+        .collect();
+    assert_eq!(ids, ["con-herramientas"], "{r:?}");
+    let hidden = r["hidden"].as_array().expect("ocultos");
+    assert_eq!(hidden.len(), 1, "{r:?}");
+    assert!(
+        hidden[0]["reason"]
+            .as_str()
+            .unwrap_or("")
+            .contains("herramienta"),
+        "{r:?}"
+    );
+}
+
+/// Con más modelos de los que caben en la prueba, se prueban los más nuevos y
+/// el resto no se enseña: lo que no se ha probado no parece que funcione.
+#[test]
+fn past_the_check_limit_only_the_newest_are_probed() {
+    let _s = SERIAL.lock().unwrap_or_else(PoisonError::into_inner);
+    let b = Bank::new("muchos-modelos");
+    let ids: Vec<String> = (0..VERIFY_MAX + 5)
+        .map(|i| format!("chat-{i:03}"))
+        .collect();
+    let refs: Vec<&str> = ids.iter().map(String::as_str).collect();
+    let listed = models_list(&refs);
+    let (base, seen) = serve_fn(move |path, body| {
+        if path.ends_with("/models") {
+            listed.clone()
+        } else {
+            answers_with_tools(path, body)
+        }
+    });
+    b.save(
+        json!({"provider": "openai", "base_url": base, "key": "k", "model": "m"}),
+        true,
+    );
+    let r = b.run(|ctx| list_models(ctx, None, false));
+    let probed: HashSet<String> = bodies(&seen)
+        .iter()
+        .filter_map(|b| b["model"].as_str().map(str::to_owned))
+        .collect();
+    assert_eq!(probed.len(), VERIFY_MAX, "{r:?}");
+    assert_eq!(
+        r["models"].as_array().map(Vec::len),
+        Some(VERIFY_MAX),
+        "{r:?}"
+    );
+    let hidden = r["hidden"].as_array().expect("ocultos");
+    assert_eq!(hidden.len(), 5, "{r:?}");
+    assert!(
+        hidden
+            .iter()
+            .all(|h| h["reason"].as_str().unwrap_or("").contains("sin probar")),
+        "{r:?}"
+    );
 }
 
 /// Lo que lista Ollama es lo descargado; probarlo cargaría cada modelo.
@@ -1034,13 +1118,13 @@ fn try_free_with_none_alive_says_so_activates_none() {
 fn without_key_list_only_shows_anonymous_models() {
     let _s = SERIAL.lock().unwrap_or_else(PoisonError::into_inner);
     let b = Bank::new("anonimos");
-    let (base, _) = serve_fn(|path, _| {
+    let (base, _) = serve_fn(|path, body| {
         if path.ends_with("/models") {
             ok(
                 &json!({"data": [{"id": "minimax-m2.7", "tier": "turbo"}, {"id": "gpt-6-astra", "tier": "pro"}]}),
             )
         } else {
-            ok(&reply("ok"))
+            answers_with_tools(path, body)
         }
     });
     let ids = |draft: Value| -> HashSet<String> {

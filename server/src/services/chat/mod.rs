@@ -154,6 +154,118 @@ pub fn turn_for(recent: &[Dict], chat_id: Option<i64>) -> Turn {
     turn
 }
 
+/// Lo que la app hace sola con una lista pegada, sin el modelo: crearla (o
+/// completarla) si la persona lo pide, o mirar en la biblioteca qué tiene si
+/// solo la pega. La respuesta la escribe el código con lo que pasó: el modelo
+/// ya inventaba creaciones y búsquedas que no había hecho. None si el turno es de
+/// otra cosa (sigue el camino normal, con el modelo).
+fn answer_pasted_list(app: &App, turn: &mut Turn) -> Option<Value> {
+    let s = turn.setlist.clone().filter(|s| !s.items.is_empty())?;
+    let name = capitalized(&s.name_hint);
+    if name.trim().is_empty() {
+        return None;
+    }
+    let (text, tool) = if turn.intent.create {
+        make_list(app, turn, &name)
+    } else {
+        // Solo pegada, o pidiendo que se compruebe. Si pide meter o cambiar algo,
+        // o hace una pregunta junto a la lista, sigue el camino normal.
+        let asks_more = turn.intent.replace || turn.intent.no_download || turn.intent.adds;
+        let asks_too = s.extras.iter().any(|e| e.contains('?'));
+        if !turn.fresh || asks_more || asks_too {
+            return None;
+        }
+        check_list(app, turn, &name)
+    };
+    Some(json!({"text": text, "tools": [tool], "actions": [], "confirm": null}))
+}
+
+/// Crea la lista, o la completa si ya existe, con `setlist::fill`.
+fn make_list(app: &App, turn: &mut Turn, name: &str) -> (String, Value) {
+    let existing = setlist::find_playlist(app, name)
+        .ok()
+        .and_then(|(at, _)| at)
+        .is_some();
+    let mut args = Dict::new();
+    args.insert("name".into(), Value::String(name.to_owned()));
+    args.insert("create".into(), Value::Bool(!existing));
+    let result =
+        setlist::fill(app, &args, turn).unwrap_or_else(|e| json!({ "error": e.to_string() }));
+    if result.get("error").is_some_and(value::truthy) {
+        let why = value::str_of(&result["error"]);
+        let text = format!("No he podido crear la lista «{name}»: {why}.");
+        return (
+            text,
+            json!({"name": "fill_playlist", "summary": format!("error: {why}")}),
+        );
+    }
+    let summary = tools::summarize("fill_playlist", &result);
+    (
+        format!("Hecho: {summary}."),
+        json!({"name": "fill_playlist", "summary": summary}),
+    )
+}
+
+/// Mira en la biblioteca qué hay de la lista pegada y qué falta, y pregunta qué
+/// quiere hacer con ello. No crea nada.
+fn check_list(app: &App, turn: &mut Turn, name: &str) -> (String, Value) {
+    let result = setlist::find(app, &Value::Null, turn)
+        .unwrap_or_else(|e| json!({ "error": e.to_string() }));
+    if result.get("error").is_some_and(value::truthy) {
+        let why = value::str_of(&result["error"]);
+        let text = format!("No he podido mirar la lista «{name}» en tu biblioteca: {why}.");
+        return (
+            text,
+            json!({"name": "find_songs", "summary": format!("error: {why}")}),
+        );
+    }
+    let total = result["total"].as_i64().unwrap_or(0);
+    let found = result["found"].as_i64().unwrap_or(0);
+    let missing: Vec<i64> = result["missing"]
+        .as_array()
+        .map_or_default(|a| a.iter().filter_map(Value::as_i64).collect());
+    let (mut have, mut lack) = (Vec::new(), Vec::new());
+    if let Some(s) = turn.setlist.as_ref() {
+        for (i, it) in s.items.iter().enumerate() {
+            let n = if it.n == 0 { i as i64 + 1 } else { it.n as i64 };
+            let title = if it.title.is_empty() {
+                "(solo un enlace)".to_owned()
+            } else {
+                it.title.clone()
+            };
+            if missing.contains(&n) {
+                lack.push(title);
+            } else {
+                have.push(title);
+            }
+        }
+    }
+    let mut parts = vec![format!(
+        "He mirado la lista «{name}» en tu biblioteca: {found} de {total} están."
+    )];
+    if !have.is_empty() {
+        parts.push(format!("Están: {}.", have.join("; ")));
+    }
+    if lack.is_empty() {
+        parts.push("Las tienes todas. ¿La creo?".to_owned());
+    } else {
+        parts.push(format!("Faltan: {}.", lack.join("; ")));
+        parts.push("¿Qué quieres hacer: crearla, bajar lo que falta o dejarlo así?".to_owned());
+    }
+    let text = parts.join("\n\n");
+    let summary = format!("{found} de {total} en la biblioteca");
+    (text, json!({"name": "find_songs", "summary": summary}))
+}
+
+/// Con la primera letra en mayúscula («domingo 34» → «Domingo 34»).
+fn capitalized(text: &str) -> String {
+    let mut chars = text.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+        None => String::new(),
+    }
+}
+
 /// La lista pegada, ya leída, para el modelo.
 fn setlist_note(turn: &Turn) -> Option<String> {
     let s = turn.setlist.as_ref().filter(|s| !s.items.is_empty())?;
@@ -705,11 +817,16 @@ pub fn reply(
     }
     call::begin_turn();
     let recent = window(messages);
-    let turn = turn_for(&recent, chat_id);
-    let note = setlist_note(&turn);
+    let mut turn = turn_for(&recent, chat_id);
+    // Una lista pegada que la persona pide crear o revisar la contesta el código,
+    // no el modelo: con algunos modelos las herramientas se enredaban (listas
+    // inventadas, errores, vueltas sin fin) y narraban lo que no hacían.
+    if let Some(answer) = answer_pasted_list(app, &mut turn) {
+        return Ok(answer);
+    }
     let start = Start {
         recent: recent.clone(),
-        setlist_note: note,
+        setlist_note: setlist_note(&turn),
         context_note: context_note(app, messages, screen)?,
         max_rounds: 6,
     };

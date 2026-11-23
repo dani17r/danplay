@@ -596,7 +596,15 @@ pub fn download_one(
             .find(|p| p.extension().is_some_and(|x| x == "mp3"))
     });
     let Some(mp3) = mp3 else {
-        return Ok(failure("ffmpeg no dejo ningun mp3"));
+        // yt-dlp acabó sin dar el mp3 (casi siempre se rompió al convertir o al
+        // meter la miniatura): lo que dijo por stderr es lo que hay que enseñar
+        let said = ran.seen.reason();
+        let why = if said.is_empty() {
+            "ffmpeg no dejo ningun mp3".to_owned()
+        } else {
+            format!("ffmpeg no dejo ningun mp3: {said}")
+        };
+        return Ok(failure(&why));
     };
     let d = pick(&data)?;
     let tagged = tag_if_trustworthy(app, &mp3, &d);
