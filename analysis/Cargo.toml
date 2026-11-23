@@ -21,7 +21,7 @@ half = "2.7"
 # usa el que viaja con la app (`scripts/data.sh`: la 1.31.0, o la 1.23.2 en
 # los Mac Intel, la última que hay para ellos; por eso el API 23).
 # La rc.13 es la última de ort con más de dos semanas.
-ort = { version = "=2.0.0-rc.13", default-features = false, features = ["std", "load-dynamic", "api-23"] }
+ort = { version = "=2.0.0-rc.15", default-features = false, features = ["std", "load-dynamic", "api-23"] }
 # El espectrograma: la FFT de cada trama (sobre rustfft, el del motor).
 realfft = "3.5"
 # El trabajo del separador, sus manifiestos y la cabecera de un .safetensors
