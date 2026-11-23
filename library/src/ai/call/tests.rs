@@ -990,6 +990,56 @@ fn a_model_that_cannot_call_tools_is_not_offered() {
     );
 }
 
+/// La lista no se queda esperando a los modelos lentos más que el presupuesto:
+/// lo que contestó sale; lo que no, queda «sin comprobar todavía» y no se
+/// recuerda, así que la siguiente vez (con más tiempo) se completa.
+#[test]
+fn a_slow_model_does_not_hold_the_list_past_the_budget() {
+    let _s = SERIAL.lock().unwrap_or_else(PoisonError::into_inner);
+    let b = Bank::new("presupuesto");
+    let (base, _) = serve_fn(|path, body| {
+        if path.ends_with("/models") {
+            return models_list(&["rapido-1", "lento-1", "lento-2"]);
+        }
+        if body["model"] == json!("rapido-1") {
+            return answers_with_tools(path, body);
+        }
+        std::thread::sleep(std::time::Duration::from_secs(4));
+        answers_with_tools(path, body)
+    });
+    b.save(
+        json!({"provider": "openai", "base_url": base, "key": "k", "model": "m"}),
+        true,
+    );
+    let ids = |r: &Dict| -> Vec<String> {
+        r["models"]
+            .as_array()
+            .expect("modelos")
+            .iter()
+            .filter_map(|m| m["id"].as_str().map(str::to_owned))
+            .collect()
+    };
+    let started = Instant::now();
+    let r = b.run(|ctx| list_models_within(ctx, None, false, 1.0));
+    assert!(
+        started.elapsed().as_secs_f64() < 3.5,
+        "la lista espera al presupuesto, no a los lentos: {:?}",
+        started.elapsed()
+    );
+    assert_eq!(ids(&r), ["rapido-1"], "{r:?}");
+    let hidden = r["hidden"].as_array().expect("ocultos");
+    assert_eq!(hidden.len(), 2, "{r:?}");
+    assert!(
+        hidden.iter().all(|h| h["reason"]
+            .as_str()
+            .is_some_and(|x| x.contains("sin comprobar todavía"))),
+        "{r:?}"
+    );
+    // con más tiempo se completa: los lentos no se dieron por malos
+    let r2 = b.run(|ctx| list_models_within(ctx, None, false, 30.0));
+    assert_eq!(ids(&r2).len(), 3, "{r2:?}");
+}
+
 /// Con más modelos de los que caben en la prueba, se prueban los más nuevos y
 /// el resto no se enseña: lo que no se ha probado no parece que funcione.
 #[test]

@@ -20,7 +20,7 @@ use serde_json::{Value, json};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 use std::time::Instant;
 
@@ -30,8 +30,10 @@ pub const STREAM_FAILURES_MAX: u32 = 3;
 
 /// Lo probado se recuerda un día, por proveedor y clave (solo una huella).
 pub const VERIFY_TTL: f64 = 24.0 * 3600.0;
-/// El que no contestó (saturado, lento) se enseña, y se vuelve a probar pronto.
-pub const UNSURE_TTL: f64 = 15.0 * 60.0;
+/// El que no contestó (saturado, lento, sin cuota) se recuerda una hora: cada
+/// vez que vencía se volvían a probar y la lista se quedaba cargando. «Recomprobar»
+/// lo mira otra vez en cualquier momento.
+pub const UNSURE_TTL: f64 = 60.0 * 60.0;
 /// OpenRouter o DeepInfra listan cientos: probarlos todos cuesta dinero y
 /// minutos, y lo que listan con clave es lo que se puede pagar. Ahí no.
 pub const VERIFY_MAX: usize = 80;
@@ -39,6 +41,13 @@ pub const VERIFY_WORKERS: usize = 12;
 /// Un modelo que razona tarda más de 20 s en llamar a una herramienta sin
 /// estar caído: con 12 s se daba por «no contesta» y se escondía.
 pub const VERIFY_TIMEOUT: f64 = 30.0;
+/// Lo que se espera, como mucho, a comprobar la lista entera. Lo que no ha
+/// contestado para entonces se queda «sin comprobar todavía» y no se recuerda:
+/// la siguiente vez se sigue donde se quedó. Así la lista no se queda cargando
+/// minutos (con 64 s, se abría el selector y no aparecía nada).
+pub const VERIFY_BUDGET: f64 = 25.0;
+/// El motivo de un modelo que no llegó a probarse dentro del presupuesto.
+const UNCHECKED_YET: &str = "sin comprobar todavía: vuelve a abrir la lista en un momento";
 /// Presupuesto de la prueba de herramientas. Con 60, los modelos que razonan
 /// se quedan sin tokens antes de llamar a la herramienta y parecían no
 /// servir; el chat real usa 2000.
@@ -1052,6 +1061,7 @@ fn usable_models(
     models: Vec<Dict>,
     p: &Dict,
     recheck: bool,
+    budget: f64,
 ) -> (Vec<Dict>, Vec<Dict>, bool) {
     if models.is_empty() || p.get("local").is_some_and(value::truthy) || text(p, "key").is_empty() {
         return (models, Vec::new(), false);
@@ -1090,7 +1100,8 @@ fn usable_models(
         .collect();
     let mut found: HashMap<String, (Option<bool>, String)> = HashMap::new();
     if !remaining.is_empty() {
-        for (mid, ok, why) in check_in_parallel(ctx, p, &remaining) {
+        let deadline = Instant::now() + std::time::Duration::from_secs_f64(budget);
+        for (mid, ok, why) in check_in_parallel(ctx, p, &remaining, deadline) {
             // «ocupado» no se recuerda (mañana no lo estará); el que no
             // contestó, un rato, para no esperarlo en cada apertura
             let why_saved = if ok == Some(true) {
@@ -1098,7 +1109,10 @@ fn usable_models(
             } else {
                 why.clone()
             };
-            known.insert(vkey(&mid), json!({"ok": ok, "why": why_saved, "at": now}));
+            // lo que no llegó a probarse no se recuerda: la siguiente vez se mira
+            if why != UNCHECKED_YET {
+                known.insert(vkey(&mid), json!({"ok": ok, "why": why_saved, "at": now}));
+            }
             found.insert(mid, (ok, why));
         }
         save_verified(ctx.verified, known, now);
@@ -1131,35 +1145,40 @@ fn usable_models(
     (usable, hidden, true)
 }
 
-/// Prueba cada modelo con una herramienta, en paralelo (`VERIFY_WORKERS` a la
-/// vez y con el tiempo corto de `VERIFY_TIMEOUT`). Devuelve el veredicto de cada uno.
+/// Prueba cada modelo con una herramienta, en paralelo: `VERIFY_WORKERS` a la
+/// vez, cogiendo el siguiente cuando acaba uno (un modelo lento no retrasa a
+/// los demás). Lo que no se llega a probar antes de `deadline` queda «sin
+/// comprobar todavía».
 fn check_in_parallel(
     ctx: &Context<'_>,
     p: &Dict,
     remaining: &[String],
+    deadline: Instant,
 ) -> Vec<(String, Option<bool>, String)> {
     let mut quick = p.clone();
     quick.insert("retries".into(), Value::from(0));
-    let timeout = p
+    let cap = p
         .get("timeout")
         .and_then(Value::as_f64)
         .unwrap_or(60.0)
         .min(VERIFY_TIMEOUT);
-    quick.insert("timeout".into(), Value::from(timeout));
-    let client = Client::new(&quick);
     let secrets = ctx.secrets(None);
     let limits_of: HashMap<String, Vec<String>> = remaining
         .iter()
         .map(|m| (m.clone(), known_limits(ctx, p, m)))
         .collect();
     let results: Mutex<Vec<(String, Option<bool>, String)>> = Mutex::new(Vec::new());
+    let next = AtomicUsize::new(0);
     std::thread::scope(|s| {
-        for chunk in remaining.chunks(remaining.len().div_ceil(VERIFY_WORKERS)) {
-            let (client, results, secrets, limits_of) = (&client, &results, &secrets, &limits_of);
+        for _ in 0..VERIFY_WORKERS.min(remaining.len()) {
+            let (quick, results, secrets, limits_of, next) =
+                (&quick, &results, &secrets, &limits_of, &next);
             s.spawn(move || {
-                for mid in chunk {
+                loop {
+                    let i = next.fetch_add(1, Ordering::Relaxed);
+                    let Some(mid) = remaining.get(i) else { break };
                     let limits = limits_of.get(mid).cloned().unwrap_or_default();
-                    let (ok, why) = tool_verdict_with(client, mid, &limits, secrets);
+                    let (ok, why) = verdict_before(quick, cap, mid, &limits, secrets, deadline);
                     results
                         .lock()
                         .unwrap_or_else(PoisonError::into_inner)
@@ -1169,6 +1188,32 @@ fn check_in_parallel(
         }
     });
     results.into_inner().unwrap_or_else(PoisonError::into_inner)
+}
+
+/// El veredicto de un modelo, si cabe antes del plazo. Lo que se corta por el
+/// plazo no es «no funciona»: queda sin comprobar, y no se recuerda.
+fn verdict_before(
+    quick: &Dict,
+    cap: f64,
+    mid: &str,
+    limits: &[String],
+    secrets: &[String],
+    deadline: Instant,
+) -> (Option<bool>, String) {
+    let left = deadline
+        .saturating_duration_since(Instant::now())
+        .as_secs_f64();
+    if left <= 0.0 {
+        return (None, UNCHECKED_YET.to_owned());
+    }
+    let mut q = quick.clone();
+    q.insert("timeout".into(), Value::from(left.min(cap)));
+    let (ok, why) = tool_verdict_with(&Client::new(&q), mid, limits, secrets);
+    if ok.is_none() && Instant::now() >= deadline {
+        (None, UNCHECKED_YET.to_owned())
+    } else {
+        (ok, why)
+    }
 }
 
 fn hidden_entry(m: &Dict, mid: &str, reason: &str) -> Dict {
@@ -1269,6 +1314,16 @@ fn tool_verdict_with(
 /// (precio, herramientas, obsoleto). Lo que lista el proveedor no basta: se
 /// quitan los que no conversan y, con clave, se prueba cada uno.
 pub fn list_models(ctx: &Context<'_>, draft: Option<&Dict>, recheck: bool) -> Dict {
+    list_models_within(ctx, draft, recheck, VERIFY_BUDGET)
+}
+
+/// `list_models` con el plazo de la comprobación en segundos (ver `VERIFY_BUDGET`).
+pub fn list_models_within(
+    ctx: &Context<'_>,
+    draft: Option<&Dict>,
+    recheck: bool,
+    budget: f64,
+) -> Dict {
     let Some(p) = draft_profile(ctx, draft) else {
         return json!({"ok": false, "reason": "falta la URL del proveedor", "models": []})
             .as_object()
@@ -1342,7 +1397,7 @@ pub fn list_models(ctx: &Context<'_>, draft: Option<&Dict>, recheck: bool) -> Di
         }
         models.push(request::merge(&mid, extra, ctx.info(&p, &mid).as_ref()));
     }
-    let (mut models, hidden, verified) = usable_models(ctx, models, &p, recheck);
+    let (mut models, hidden, verified) = usable_models(ctx, models, &p, recheck, budget);
     let key = |m: &Dict| (text(m, "released"), text(m, "id"));
     models.sort_by_key(|m| std::cmp::Reverse(key(m)));
     json!({
