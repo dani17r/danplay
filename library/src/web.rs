@@ -88,7 +88,7 @@ fn unquote_bytes(s: &str) -> Vec<u8> {
     out
 }
 
-/// DuckDuckGo envuelve los enlaces en /l/?uddg=<url codificada>.
+/// DuckDuckGo envuelve los enlaces en `/l/?uddg=<url codificada>`.
 pub fn unwrap_url(u: &str) -> String {
     if let Some((_, after)) = u.split_once("uddg=") {
         let encoded = after.split_once('&').map_or(after, |(a, _)| a);

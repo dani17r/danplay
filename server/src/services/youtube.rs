@@ -706,7 +706,7 @@ fn either<'a>(a: &'a Value, b: &'a Value) -> &'a Value {
 
 /// Baja (uno, una lista o una búsqueda) y, con `file_it`, lo
 /// pasa por la ingesta (identificar, renombrar según las reglas de la casa
-/// y mover a Artistas/<Artista>/). yt-dlp no se cambia por otra versión
+/// y mover a `Artistas/<Artista>/`). yt-dlp no se cambia por otra versión
 /// mientras tanto; si no lo hay, antes se instala (`ensure_ytdlp`, con su
 /// avance en `progress`). `Err` es un fallo que no se esperaba, o que no se
 /// pudo instalar yt-dlp: sin él no se puede bajar ninguna de las que

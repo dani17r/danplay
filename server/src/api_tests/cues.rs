@@ -122,9 +122,10 @@ fn a_recording_becomes_a_guide_and_only_guides_are_read() {
         "silencio",
     );
     // una ruta relativa (llega del cliente) no se lee: dependería de dónde
-    // arrancó el núcleo, y ffmpeg leería «concat:…» como otra cosa
-    let here = std::env::current_dir().expect("carpeta");
-    let relative = pathdiff(&rec, &here);
+    // arrancó el núcleo, y ffmpeg leería «concat:…» como otra cosa. Se escribe
+    // relativa a mano: `pathdiff` no puede si la carpeta de trabajo y la
+    // temporal están en unidades distintas (Windows de la CI)
+    let relative = "guia-relativa.wav".to_owned();
     failure(
         cues::import_recording(&app, &relative, None),
         "tiene que ser completa",
@@ -133,20 +134,6 @@ fn a_recording_becomes_a_guide_and_only_guides_are_read() {
         cues::import_recording(&app, "concat:a.wav|b.wav", None),
         "tiene que ser completa",
     );
-}
-
-/// `path` relativa a `base` (con «..» lo que haga falta).
-fn pathdiff(path: &std::path::Path, base: &std::path::Path) -> String {
-    let (p, b): (Vec<_>, Vec<_>) = (path.components().collect(), base.components().collect());
-    let same = p.iter().zip(&b).take_while(|(x, y)| x == y).count();
-    let mut out = std::path::PathBuf::new();
-    for _ in same..b.len() {
-        out.push("..");
-    }
-    for c in &p[same..] {
-        out.push(c);
-    }
-    out.to_string_lossy().into_owned()
 }
 
 #[test]

@@ -86,7 +86,7 @@ pub fn twins(conn: &Connection, song: &Dict) -> rusqlite::Result<Vec<Dict>> {
 
 /// De esas canciones (recién llegadas), las que tienen gemela en la
 /// biblioteca o pistas separadas de otro archivo: solo esas merecen el
-/// trabajo de `settle`. `manifests` es {clave: [duraciones]} de las carpetas
+/// trabajo de `settle`. `manifests` es `{clave: [duraciones]}` de las carpetas
 /// de pistas (los lee quien llama).
 #[allow(
     clippy::implicit_hasher,

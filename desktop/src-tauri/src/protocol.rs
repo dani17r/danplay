@@ -39,7 +39,7 @@ pub fn handle(ctx: UriSchemeContext<'_, Wry>, request: Request<Vec<u8>>, respond
 /// colaria como trozos de ruta. Y de la consulta solo pasa el tamaño.
 ///
 /// OJO: tiene que coincidir EXACTAMENTE con lo que manda api.js (`coverUrl`
-/// -> /cover/<id>). Se quedo en "portada" al pasar el codigo a ingles y las
+/// -> `/cover/<id>`). Se quedo en "portada" al pasar el codigo a ingles y las
 /// caratulas dejaron de verse.
 fn core_path(route: &str, query: &str) -> Option<String> {
     let mut parts = route.trim_start_matches('/').split('/');

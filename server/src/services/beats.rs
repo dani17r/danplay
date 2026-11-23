@@ -11,7 +11,7 @@
 //! red se devuelve al terminar. Lo que el padre usa es lo que el hijo deja
 //! en CRUDO (lo que dijo la red), y la rejilla sale de ahí, aquí.
 //!
-//! Lo guardado (DATA_DIR/beats/<clave>.json y .npz) se lee y se escribe con
+//! Lo guardado (DATA_DIR/beats/`<clave>`.json y .npz) se lee y se escribe con
 //! `library::beatgrid`.
 use crate::app::App;
 use crate::services::songs;

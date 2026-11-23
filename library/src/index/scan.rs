@@ -872,7 +872,7 @@ pub fn restore_study_from_tags(
 ///
 /// Cada canción lleva dentro (etiqueta LISTAS / DANPLAY_PLAYLISTS) los
 /// nombres de las listas a las que pertenece: así las listas sobreviven a
-/// perder la base. `found` es {ruta: [nombres]} ya leído durante el escaneo.
+/// perder la base. `found` es `{ruta: [nombres]}` ya leído durante el escaneo.
 ///
 /// Solo AÑADE lo que falte: nunca quita canciones de una lista ni borra
 /// listas, porque la base puede ir por delante del archivo. Devuelve cuántas

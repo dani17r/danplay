@@ -2,8 +2,8 @@
 //!
 //! Lo que va en el USLT del archivo y en la hoja del atril es la letra
 //! limpia: con las marcas, la hoja imprimía «[00:12.34]» delante de cada
-//! verso. Una marca es «[mm:ss]» o «[mm:ss.cc]» (con cifras de cualquier
-//! escritura), y una línea de cabecera, «[ar:Barak]» o «[length: 3:42]» sola
+//! verso. Una marca es «`[mm:ss]`» o «`[mm:ss.cc]`» (con cifras de cualquier
+//! escritura), y una línea de cabecera, «`[ar:Barak]`» o «`[length: 3:42]`» sola
 //! en su línea.
 use regex::Regex;
 use std::sync::LazyLock;

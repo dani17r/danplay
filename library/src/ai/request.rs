@@ -160,14 +160,14 @@ pub fn known_limits(quirks: &Dict, info: Option<&Dict>) -> Vec<&'static str> {
 static THINK_BLOCK: LazyLock<Re> = LazyLock::new(|| rx(r"(?is)<think>.*?</think>"));
 static THINK_TAG: LazyLock<Re> = LazyLock::new(|| rx(r"(?i)</?think>"));
 
-/// Algunos modelos dejan escapar su razonamiento entre <think>.
+/// Algunos modelos dejan escapar su razonamiento entre `<think>`.
 pub fn strip_thoughts(t: &str) -> String {
     let t = sub(&THINK_BLOCK, t, "");
     let t = sub(&THINK_TAG, &t, "");
     t.trim().to_owned()
 }
 
-/// Un <think> abierto sin cerrar: lo que hay es razonamiento, no respuesta.
+/// Un `<think>` abierto sin cerrar: lo que hay es razonamiento, no respuesta.
 pub fn thinking_open(text: &str) -> bool {
     let low = text.to_lowercase();
     low.rfind("<think>").map_or(-1, |i| i as i64) > low.rfind("</think>").map_or(-1, |i| i as i64)

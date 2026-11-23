@@ -1866,9 +1866,9 @@ fn ids(v: &[i64]) -> Value {
 /// de las listas, que pone quien llama). Idempotente. `canceled`: si se paró
 /// la descarga.
 ///
-/// Devuelve {"state": "done"|"error", "playlist": {id, name}, "added": [ids],
+/// Devuelve {"state": "done"|"error", "playlist": {id, name}, "added": `[ids]`,
 /// "placed": [{n, id}], "failed": [{n, item, label, reason}], "skipped":
-/// [{n, item, label}], "order": [ids]} (y "error" si `state` es "error"), y
+/// [{n, item, label}], "order": `[ids]`} (y "error" si `state` es "error"), y
 /// lo que falló al leer o escribir, si falló algo. `placed` es cada hueco
 /// bajado que queda en la lista con su canción, también si ya estaba: con
 /// eso la tabla del chat deja de decir «falta» en esa fila.

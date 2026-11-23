@@ -290,7 +290,7 @@ fn add_line(
 }
 
 /// El texto de un cifrado de Ultimate Guitar: secciones entre corchetes
-/// ([Coro]) y cada acorde marcado como [ch]G[/ch].
+/// (`[Coro]`) y cada acorde marcado como `[ch]G[/ch]`.
 pub fn parse_ug(content: &str) -> ParsedSheet {
     let content = content
         .replace('\r', "")
@@ -329,7 +329,7 @@ static LC_BODY: LazyLock<Re> =
 static LC_CHORD: LazyLock<Re> = LazyLock::new(|| rx(r"(?i)<a[^>]*>(.*?)</a>"));
 static TAG: LazyLock<Re> = LazyLock::new(|| rx(r"<[^>]+>"));
 
-/// La página de un cifrado de LaCuerda: el texto va en <div id=t_body><PRE>
+/// La página de un cifrado de LaCuerda: el texto va en `<div id=t_body><PRE>`
 /// y cada acorde, entre <A></A>.
 pub fn parse_lacuerda(page: &str) -> ParsedSheet {
     let Some(m) = search(&LC_BODY, page) else {

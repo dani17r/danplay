@@ -35,7 +35,7 @@ pub enum JobError {
     /// Un fallo previsto, con su explicación ya en castellano: se enseña tal
     /// cual.
     Expected(String),
-    /// Cualquier otro: se enseña «<failure>: <motivo>» (o solo `failure` si
+    /// Cualquier otro: se enseña «`<failure>: <motivo>`» (o solo `failure` si
     /// no hay motivo) y el detalle va al registro.
     Failed(String),
 }

@@ -296,7 +296,14 @@ mod tests {
         let (app, id, song) = with_song();
         let import = format!("/api/song/{id}/cues/import");
         assert_eq!(
-            call(&app, "POST", &import, Some(json!({"path": "/no/esta.wav"}))),
+            call(
+                &app,
+                "POST",
+                &import,
+                Some(
+                    json!({"path": std::env::temp_dir().join("danplay-no-esta.wav").to_string_lossy()})
+                ),
+            ),
             (422, json!({"detail": "no encuentro ese audio"}))
         );
         let (st, v) = call(

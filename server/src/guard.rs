@@ -21,7 +21,7 @@ pub const ALLOWED_HOSTS: [&str; 4] = ["localhost", "127.0.0.1", "[::1]", "::1"];
 pub const MAX_BODY: usize = 1024 * 1024;
 pub const MAX_CHAT_BODY: usize = 4 * 1024 * 1024;
 
-/// Lo que el navegador pide por su cuenta con <audio> y <img>, sin poder
+/// Lo que el navegador pide por su cuenta con `<audio>` y `<img>`, sin poder
 /// añadir cabeceras: `/api/song/<id>/audio` y `/api/song/<id>/cover`.
 pub fn is_media(path: &str) -> bool {
     let Some(rest) = path.strip_prefix("/api/song/") else {

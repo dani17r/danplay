@@ -1,7 +1,7 @@
 //! «Transformar»: cada canción en su sitio y con su nombre, una a una.
 //!
 //! La regla de la casa es la de las descargas (`ingest`):
-//! Artistas/<Artista>/<Artista - Titulo>.ext. Aquí se mira cada canción de la
+//! `Artistas/<Artista>/<Artista - Titulo>.ext`. Aquí se mira cada canción de la
 //! biblioteca y se propone cómo quedaría; nada se toca hasta que quien escucha
 //! dice que sí, canción por canción (o todas las seguras de una vez).
 //!
@@ -16,7 +16,7 @@
 //!   carpetas de música, no;
 //! - el nombre que ya tiene la forma «Artista - Titulo» manda: solo se le
 //!   quita ruido (video oficial, «letra», el número de pista);
-//! - una canción de Artistas/<X>/ es de X: el artista sale de la carpeta;
+//! - una canción de `Artistas/<X>/` es de X: el artista sale de la carpeta;
 //! - lo que solo sale de las etiquetas se propone para revisar, no como
 //!   seguro.
 //!
@@ -211,7 +211,7 @@ pub fn proposals(
 }
 
 /// Dónde va (dentro de la biblioteca) una canción de `artist` llamada
-/// `title`: Artistas/<Artista>/<Artista - Titulo>.ext. La carpeta del
+/// `title`: `Artistas/<Artista>/<Artista - Titulo>.ext`. La carpeta del
 /// artista, la que ya haya si es el mismo nombre con otras mayúsculas o
 /// acentos. Un error si falta el artista o el título.
 pub fn target_of(

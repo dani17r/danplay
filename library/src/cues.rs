@@ -241,7 +241,7 @@ fn sha1_hex(text: &str) -> String {
 }
 
 /// La frase de una guía dicha (sin espacios a los lados y hasta 300 letras) y
-/// el nombre de su archivo: «<slug>-<clave>.wav», con la clave de la versión,
+/// el nombre de su archivo: «`<slug>-<clave>.wav`», con la clave de la versión,
 /// la voz y la frase (la misma frase con la misma voz es el mismo archivo).
 /// `None` si no hay nada que decir.
 pub fn spoken_cue_name(text: &str, voice: &str, version: i64) -> Option<(String, String)> {
@@ -256,7 +256,7 @@ pub fn spoken_cue_name(text: &str, voice: &str, version: i64) -> Option<(String,
     ))
 }
 
-/// El nombre de una guía editada: «editada-<clave>.wav», con la clave de la de
+/// El nombre de una guía editada: «`editada-<clave>.wav`», con la clave de la de
 /// antes y de lo que se le hizo (lo mismo, el mismo archivo).
 #[allow(clippy::too_many_arguments, clippy::fn_params_excessive_bools)] // lo que se le hizo, tal cual
 pub fn edited_cue_name(
