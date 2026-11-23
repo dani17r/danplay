@@ -3,6 +3,33 @@
 Lo que cambia en cada versión que se entrega. El detalle de por qué está
 hecho así, en [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
+## 1.46.0 — sin publicar
+
+Lo que cambió después de la 1.45.0 que ya tienes instalada.
+
+### Nuevo
+
+- **La clave de IA se puede ver y copiar.** La clave se escribía en un campo
+  de contraseña: al pegarla solo se veían puntos, y no había forma de
+  comprobar que había entrado. Ahora un ojito la enseña entera, y un botón la
+  copia. Lo mismo en el panel del chat, donde se oculta al cambiar de
+  proveedor.
+
+### Arreglado
+
+- **Gemini responde con herramientas.** Con una clave de Gemini, el asistente
+  ejecutaba la búsqueda pero Google rechazaba el resultado de vuelta («missing
+  a thought_signature»): la firma que Gemini manda con cada llamada se tiraba.
+  Ahora vuelve con ella.
+- **El modelo de conversación de Gemini por defecto** es el que contesta con
+  tu clave (`gemini-4-hydrogen`): el anterior se quedaba sin respuesta.
+- **El aviso del chat** («Opciones de la IA») abre las opciones en el propio
+  chat, en vez de llevar a Ajustes.
+- **Las barras de desplazamiento salen solo donde hace falta**: la franja de
+  pestañas de «Acerca de» y el hilo vacío del asistente mostraban una barra de
+  uno o dos píxeles, y la línea de tiempo del estudio otra en todos los
+  tamaños.
+
 ## 1.45.0 — sin publicar
 
 Una revisión entera de lo que no se ve: que el sonido no se quede mudo,

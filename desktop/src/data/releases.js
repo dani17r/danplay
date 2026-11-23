@@ -17,6 +17,17 @@ import { compareVersions } from '../utils/version.js'
 /** @type {Release[]} */
 export const RELEASES = [
   {
+    version: '1.46.0',
+    date: '',
+    summary: 'La clave de IA se ve y se copia con un ojito, y Gemini usa herramientas sin fallar.',
+    items: [
+      'La clave de IA se puede ver con un ojito y copiar con un botón, en la ventana de la clave y en el chat.',
+      'Con Gemini, el asistente usa sus herramientas: antes Google rechazaba el resultado.',
+      'El aviso del chat abre las opciones de la IA ahí mismo, sin llevar a Ajustes.',
+      'Las barras de desplazamiento salen solo donde el contenido no cabe.'
+    ]
+  },
+  {
     version: '1.45.0',
     date: '',
     summary:
