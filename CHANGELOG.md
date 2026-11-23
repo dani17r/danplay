@@ -3,6 +3,46 @@
 Lo que cambia en cada versión que se entrega. El detalle de por qué está
 hecho así, en [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
+## 1.47.0 — sin publicar
+
+Lo que cambió después de la 1.46.0 que ya tienes instalada.
+
+### Nuevo
+
+- **Reenviar tras un error.** Si el asistente falla al contestar, el último
+  mensaje tiene un botón «Reenviar»: quita el turno fallido y manda tu
+  pregunta otra vez, sin volver a escribirla.
+- **Copiar la conversación y cada mensaje.** «Copiar la conversación» copia
+  lo que ves en pantalla (sin pasar por la red, que hacía que no se copiara),
+  y cada mensaje tiene su botón de copiar. El texto del chat se puede
+  seleccionar.
+- **La lista pegada la hace la app.** Con «crea esa lista», DanPlay la crea
+  (o la completa si ya existe) sin depender del modelo, y dice qué canciones
+  entraron y cuáles faltan. Si solo la pegas, mira qué hay en tu biblioteca,
+  te dice qué falta y pregunta qué quieres hacer.
+
+### Arreglado
+
+- **Gemini rechazaba la petición del asistente** cuando el aviso interno iba
+  justo después de su respuesta. Ahora va como nota, y la petición se acepta.
+- **La lista de modelos solo trae los que sirven.** Cada modelo se prueba con
+  una herramienta del asistente; los saturados o sin cuota ahora mismo quedan
+  fuera, con su motivo. Con el catálogo sin comprobar, el chat ya no ofrece
+  nada. La recomendación no elige modelos ligeros para conversar.
+- **Los errores del proveedor se entienden.** Un 503 («alta demanda») sale
+  como «está saturado o caído ahora mismo», no como el JSON del proveedor.
+- **El selector de modelos no rompe el panel del chat.** La lista flota encima
+  y no empuja a los selectores de al lado.
+- **Los mandos de la lista no salen en las páginas.** «Vista», el conmutador
+  y «Transformar» solo aparecen con una lista. La densidad solo en la tabla y
+  las filas; el tamaño de ficha solo en la cuadrícula.
+- **Un Enter de más no borra nada.** En los avisos de peligro el foco empieza
+  en «Cancelar», y un Enter fuera de los botones no acepta.
+- **Descargas: se dice por qué fallan.** Si yt-dlp no deja el mp3, el aviso
+  trae el motivo que dio, en vez de un «ffmpeg no dejó ningún mp3» sin más.
+- **El título de la lista no cuenta como canción.** «*Domingo 34*» deja de
+  aparecer como una pista que hay que buscar.
+
 ## 1.46.0 — sin publicar
 
 Lo que cambió después de la 1.45.0 que ya tienes instalada.

@@ -17,6 +17,18 @@ import { compareVersions } from '../utils/version.js'
 /** @type {Release[]} */
 export const RELEASES = [
   {
+    version: '1.47.0',
+    date: '',
+    summary: 'Reenviar tras un error, copiar la conversación y la lista pegada la hace la app.',
+    items: [
+      'Si el asistente falla, el último mensaje tiene un botón «Reenviar» que vuelve a enviar tu pregunta.',
+      'Se puede copiar la conversación entera o cada mensaje, y seleccionar el texto del chat.',
+      'Con «crea esa lista», la app crea la lista pegada (o la completa) y dice qué canciones faltan.',
+      'La lista de modelos del chat solo muestra los que contestan con herramientas.',
+      'Los mandos de la lista no salen en las páginas, y los avisos de borrar empiezan en «Cancelar».'
+    ]
+  },
+  {
     version: '1.46.0',
     date: '',
     summary: 'La clave de IA se ve y se copia con un ojito, y Gemini usa herramientas sin fallar.',
