@@ -326,22 +326,17 @@ jobs:
           package-manager: false
           cache: true
           run-install: false
+      # ffmpeg de apt, como siempre en este trabajo: las pruebas del motor
+      # comparan su decodificador con el ffmpeg del PATH, y las mediciones que
+      # las respaldan son de la 7.1 (con el 9.0.2 del paquete, dos pruebas de
+      # M4A fallan por 34 y 70 ms: no es el decodificador, es la referencia).
       # mingw-w64, para comprobar que el código de Windows compila (abajo)
       - name: dependencias de Tauri
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev \
-            librsvg2-dev patchelf libasound2-dev libdbus-1-dev mingw-w64
-      # ffmpeg, fijo y con su sha256 como en «núcleo en Rust» (antes, el de
-      # apt, sin versión ni suma), en una caché
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.cache/danplay-linux
-          key: tools-linux-${{ hashFiles('scripts/tools-linux.sh') }}
-      - name: programas del sistema
-        run: |
-          ./scripts/tools-linux.sh
-          echo "$PWD/desktop/src-tauri/tools" >> "$GITHUB_PATH"
+            librsvg2-dev patchelf libasound2-dev libdbus-1-dev \
+            ffmpeg mingw-w64
       # Tauri exige la interfaz compilada para compilar, y no está en git (los
       # datos y las herramientas no: van entre los recursos, y sin ellos
       # bastan sus LEEME)
