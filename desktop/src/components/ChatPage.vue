@@ -30,6 +30,7 @@ import ChatComposer from './ChatComposer.vue'
 import ChatConfirmCard from './ChatConfirmCard.vue'
 import ChatSetlistCard from './ChatSetlistCard.vue'
 import ProviderBanner from './ProviderBanner.vue'
+import CopyButton from './ui/CopyButton.vue'
 import AiProviderModal from './AiProviderModal.vue'
 import ModelPicker from './ui/ModelPicker.vue'
 import Loading from './ui/Loading.vue'
@@ -281,6 +282,23 @@ async function useModel(role, id) {
     'ok'
   )
 }
+// la clave entera, a la vista solo mientras se quiere (y se oculta al cambiar
+// de proveedor)
+const keyShown = ref('')
+async function toggleKeyHere() {
+  if (keyShown.value) {
+    keyShown.value = ''
+    return
+  }
+  try {
+    keyShown.value = (await api.aiKey(activeAi.value?.id)).key || ''
+  } catch (e) {
+    notify(errorMessage(e))
+  }
+}
+watch(activeAi, () => {
+  keyShown.value = ''
+})
 /** Lo que se sabe de la clave del activo: enmascarada, nunca entera. */
 const keyLine = computed(() => {
   const p = activeSaved.value
@@ -441,7 +459,24 @@ onUnmounted(() => {
           <span class="ai-current-ico"><Icon n="ai" :t="18" /></span>
           <div class="ai-current-txt">
             <strong>{{ activeAi ? activeAi.name : 'Sin proveedor elegido' }}</strong>
-            <span v-if="activeAi" class="mono">{{ keyLine }}</span>
+            <span v-if="activeAi" class="mono chat-ai-key">
+              {{ keyLine }}
+              <template v-if="activeSaved?.has_key">
+                <button
+                  type="button"
+                  class="btn mini icon-btn"
+                  :aria-label="keyShown ? 'Ocultar la clave' : 'Ver la clave'"
+                  :title="keyShown ? 'Ocultar la clave' : 'Ver la clave entera'"
+                  @click="toggleKeyHere"
+                >
+                  <Icon :n="keyShown ? 'eyeOff' : 'eye'" :t="13" />
+                </button>
+                <template v-if="keyShown">
+                  <code class="chat-ai-key-full">{{ keyShown }}</code>
+                  <CopyButton :text="keyShown" what="La clave" label="Copiar" />
+                </template>
+              </template>
+            </span>
             <span v-else
               >Elige uno y pega su clave aquí mismo, o prueba uno gratis, sin clave.</span
             >

@@ -1095,6 +1095,8 @@ export const api = {
   aiProviders: (refresh = false) => GET('/ai/providers' + (refresh ? '?refresh=1' : '')),
   /** @param {AiProfile} d  guarda (y activa, salvo `activate: false`) */
   aiSaveProfile: (d) => POST('/ai/profile', d),
+  /** La clave guardada de un perfil, entera (para verla o copiarla). @param {string} pid */
+  aiKey: (pid) => GET(`/ai/profile/${encodeURIComponent(pid)}/key`),
   /** @param {string} id */
   aiDeleteProfile: (id) => DEL(`/ai/profile/${encodeURIComponent(id)}`),
   /** @param {string} id */

@@ -410,3 +410,21 @@ fn ai_usage_and_the_fallback_setting() {
     );
     assert_eq!(d["fallback"], false);
 }
+
+/// Un perfil guardado tiene su clave entera, para verla o copiarla; un perfil
+/// que no existe, ninguna.
+#[test]
+fn the_saved_key_can_be_read_back_whole() {
+    let Some(app) = api_library() else { return };
+    let (code, saved) = call(
+        &app,
+        "POST",
+        "/api/ai/profile",
+        Some(json!({"provider": "google", "key": "AQ.clave-entera-1234567890"})),
+    );
+    assert_eq!(code, 200, "{saved}");
+    let got = get(&app, "/api/ai/profile/google/key");
+    assert_eq!(got["key"], json!("AQ.clave-entera-1234567890"));
+    let none = get(&app, "/api/ai/profile/no-existe/key");
+    assert_eq!(none["key"], json!(""));
+}

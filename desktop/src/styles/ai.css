@@ -150,6 +150,12 @@
 .ai-key .field {
   flex: 1;
 }
+.ai-key-tools {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+}
 .ai-key-link {
   height: 36px;
   white-space: nowrap;

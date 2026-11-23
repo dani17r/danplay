@@ -1069,3 +1069,19 @@
     display: none;
   }
 }
+
+/* la clave del activo, entera a la vista solo cuando se pide (con el ojito) */
+.chat-ai-key {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.chat-ai-key-full {
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: var(--panel2);
+  font-size: 11px;
+  word-break: break-all;
+  user-select: all;
+}

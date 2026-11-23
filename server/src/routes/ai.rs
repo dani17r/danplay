@@ -13,6 +13,7 @@ use serde_json::{Value, json};
 pub const ROUTES: &[Route] = &[
     Route::post("/api/settings/check-ai", check_ai),
     Route::get("/api/ai/providers", ai_providers),
+    Route::get("/api/ai/profile/{pid}/key", ai_profile_key),
     Route::post("/api/ai/profile", ai_save_profile),
     Route::delete("/api/ai/profile/{pid}", ai_delete_profile),
     Route::post("/api/ai/activate", ai_activate),
@@ -176,6 +177,25 @@ fn ai_save_profile(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
     let mut out = overview(ctx.app);
     out.insert("saved".into(), pid.into());
     Ok(Value::Object(out).into())
+}
+
+/// La clave guardada de un perfil, entera: la pide la propia persona para verla
+/// o copiarla (el listado de los perfiles la enseña enmascarada). La API no
+/// sale de la máquina (`docs/ARCHITECTURE.md`, «Por qué no hay puerto TCP»).
+fn ai_profile_key(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {
+    let pid = ctx.path().str("pid").required();
+    ctx.check()?;
+    let data = ai::store(ctx.app);
+    let key = data
+        .get("profiles")
+        .and_then(Value::as_object)
+        .and_then(|p| p.get(&pid))
+        .and_then(Value::as_object)
+        .and_then(|p| p.get("key"))
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_owned();
+    Ok(json!({ "key": key }).into())
 }
 
 fn ai_delete_profile(ctx: &mut Ctx<'_>) -> Result<Reply, ApiError> {

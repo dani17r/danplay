@@ -259,6 +259,7 @@ describe('what each method requests from the core', () => {
     saveSettings: [[{ quality: 'high' }], 'POST', '/api/settings', { quality: 'high' }],
     aiProviders: [[true], 'GET', '/api/ai/providers?refresh=1'],
     aiSaveProfile: [[ai], 'POST', '/api/ai/profile', ai],
+    aiKey: [['google'], 'GET', '/api/ai/profile/google/key'],
     aiDeleteProfile: [['custom-la iglesia'], 'DELETE', '/api/ai/profile/custom-la%20iglesia'],
     aiActivate: [['ollama'], 'POST', '/api/ai/activate', { id: 'ollama' }],
     aiUsage: [[], 'GET', '/api/ai/usage'],
