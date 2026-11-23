@@ -767,10 +767,12 @@ pub fn lookup(data: &Dict, models_dev_id: &str, model_id: &str) -> Option<Dict> 
 /// nombres de archivo sobra con eso, y es mucho mejor que el modelo más barato
 /// de todos, que suele ser diminuto y no conoce a los artistas.
 static CHEAP_TIER: LazyLock<Re> =
-    LazyLock::new(|| rx(r"(?i)flash|lite|mini|nano|small|haiku|instant|turbo|fast"));
+    // con límites de palabra: «mini» no es parte de «Gemini»
+    LazyLock::new(|| rx(r"(?i)\b(flash|lite|mini|nano|small|haiku|instant|turbo|fast)\b"));
 /// Modelos ligeros: sirven para lo rápido (rellenar fichas), pero se pierden
 /// con varias herramientas seguidas (una lista pegada): no para conversar.
-static LIGHT: LazyLock<Re> = LazyLock::new(|| rx(r"(?i)lite|nano|mini|small|instant|turbo|fast"));
+static LIGHT: LazyLock<Re> =
+    LazyLock::new(|| rx(r"(?i)\b(lite|nano|mini|small|instant|turbo|fast)\b"));
 static UNSTABLE: LazyLock<Re> =
     LazyLock::new(|| rx(r"(?i)exp\b|experimental|preview|beta|alpha|\brc\b|nightly|dev\b|:free$"));
 /// Especializados en otra cosa (programar, ver imágenes, matemáticas): para
@@ -976,6 +978,23 @@ mod tests {
             let models = &d["providers"][pid]["models"];
             assert!(models.as_object().is_some_and(|m| !m.is_empty()), "{pid}");
         }
+    }
+
+    /// «Gemini» contiene «mini»: un Gemini normal no es un modelo ligero.
+    #[test]
+    fn a_gemini_flash_is_not_taken_for_a_light_model() {
+        let models: Vec<Dict> = [
+            json!({"id": "gemini-flash-lite-latest", "name": "Gemini Flash-Lite Latest", "tools": true, "deprecated": false, "released": "2026-07-21", "cost_in": 0.3, "cost_out": 2.5}),
+            json!({"id": "gemini-3.6-flash", "name": "Gemini 3.6 Flash", "tools": true, "deprecated": false, "released": "2026-07-21", "cost_in": 0.75, "cost_out": 3.75}),
+        ]
+        .into_iter()
+        .map(obj)
+        .collect();
+        let now = 1_790_812_800.0;
+        assert_eq!(
+            Value::Object(recommend(&models, now)),
+            json!({"chat": "gemini-3.6-flash", "fast": "gemini-flash-lite-latest"})
+        );
     }
 
     #[test]
