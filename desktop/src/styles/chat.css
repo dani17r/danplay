@@ -10,6 +10,9 @@
   display: flex;
   flex-direction: column;
   height: 100%;
+  /* la conversación se puede seleccionar y copiar (el cuerpo no deja: base.css) */
+  -webkit-user-select: text;
+  user-select: text;
   min-height: 0;
 }
 .chat-head {
@@ -102,6 +105,24 @@
   user-select: text;
   overflow-wrap: anywhere;
 }
+/* copiar y reenviar: discretos, a la vista al pasar por el mensaje */
+.chat-msg-actions {
+  display: flex;
+  gap: 6px;
+  opacity: 0.5;
+  transition: opacity 0.15s;
+}
+.chat-msg:hover .chat-msg-actions,
+.chat-msg-actions:focus-within {
+  opacity: 1;
+}
+.chat-msg.me .chat-msg-actions {
+  align-self: flex-end;
+}
+.chat-retry {
+  gap: 5px;
+  color: var(--amber);
+}
 .chat-msg.me .chat-bubble {
   background: var(--accent2);
   color: var(--bg);
@@ -172,8 +193,8 @@
   display: flex;
   flex-direction: column;
   gap: 9px;
-  max-height: 62%;
-  overflow-y: auto;
+  /* sin recorte: la lista de un selector flota encima del hilo (ui/ModelPicker,
+     «floating»); el panel ocupa lo que ocupa su contenido */
   background: color-mix(in srgb, var(--panel) 70%, transparent);
 }
 .chat-ai-now {

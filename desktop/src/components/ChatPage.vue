@@ -224,7 +224,6 @@ const {
   activeSaved,
   aiProfiles,
   models,
-  modelList,
   loadingModels,
   savingModel,
   freeResult
@@ -236,6 +235,9 @@ const aiButton = useTemplateRef('aiButton')
 // lo que hay en cada selector: lo elegido, o lo que se va escribiendo
 const chatDraft = ref('')
 const fastDraft = ref('')
+// Al chat solo llega lo que el proveedor confirmó con tu clave: el catálogo
+// (sin probar) no se ofrece aquí, aunque el proveedor no conteste ahora.
+const chatModels = computed(() => (models.value.ok ? models.value.models : []))
 watch(
   activeAi,
   (a) => {
@@ -491,9 +493,11 @@ onUnmounted(() => {
             <ModelPicker
               v-model="chatDraft"
               label="Modelo de la conversación"
-              :models="modelList"
+              :models="chatModels"
               :suggest="models.suggest?.chat"
               :unavailable="models.hidden"
+              :why="models.reason || ''"
+              floating
               need-tools
               :loading="loadingModels"
               :disabled="savingModel"
@@ -513,9 +517,11 @@ onUnmounted(() => {
             <ModelPicker
               v-model="fastDraft"
               label="Para identificar y rellenar fichas"
-              :models="modelList"
+              :models="chatModels"
               :suggest="models.suggest?.fast"
               :unavailable="models.hidden"
+              :why="models.reason || ''"
+              floating
               :loading="loadingModels"
               :disabled="savingModel"
               @pick="(id) => useModel('model', id)"
@@ -765,6 +771,23 @@ onUnmounted(() => {
           </button>
         </template>
         <div v-else class="chat-bubble">{{ m.text }}</div>
+        <!-- copiar lo que dice este mensaje, y «Reenviar» si fue el error del último turno -->
+        <div v-if="m.text && !m.error" class="chat-msg-actions">
+          <CopyButton :text="m.text" what="este mensaje" :size="12" />
+        </div>
+        <div
+          v-if="m.error && m.role === 'ai' && i === messages.length - 1 && !thinking"
+          class="chat-msg-actions"
+        >
+          <button
+            type="button"
+            class="btn mini chat-retry"
+            title="Quita este error y vuelve a enviar tu último mensaje"
+            @click="chat.resend(m)"
+          >
+            <Icon n="redo" :t="12" /> Reenviar
+          </button>
+        </div>
         <ChatSetlistCard v-if="hasSetlist(m)" :msg="m" />
         <ChatConfirmCard v-if="hasDownloadCard(m)" :msg="m" />
         <div

@@ -43,9 +43,14 @@ const messageId = useId()
 // para poder escribir y pulsar Enter sin tocar el raton; sin campo, al boton
 // principal, para aceptar o cancelar a teclas.
 // (la casilla, si la hay, no: se marca a propósito, no por llegar)
+// En un aviso de peligro (borrar) el foco va a «Cancelar»: un Enter de más no
+// borra nada.
 useFocusTrap(box, {
   active: () => props.open,
-  initial: 'input:not([type="checkbox"]), .modal-actions .btn:last-child'
+  initial: () =>
+    props.danger
+      ? '.modal-actions .btn:first-child'
+      : 'input:not([type="checkbox"]), .modal-actions .btn:last-child'
 })
 
 // Las teclas se escuchan en el documento MIENTRAS esta abierto. Estaban
@@ -92,6 +97,9 @@ function onKeydown(e) {
   // navegador. Aceptar aqui ademas hacia que Enter sobre «Cancelar» mandara
   // la cancion a la papelera o borrara la lista.
   if (e.target instanceof Element && e.target.closest('button')) return
+  // en un aviso de peligro, Enter no acepta si el foco no está en un botón:
+  // borrar exige pulsar «Adelante» a propósito
+  if (props.danger) return
   e.preventDefault()
   accept()
 }

@@ -22,12 +22,17 @@ const props = defineProps({
   placeholder: { type: String, default: 'escribe o elige un modelo' },
   /** los que el proveedor lista pero tu clave no puede usar: [{id, reason}] */
   unavailable: { type: Array, default: () => [] },
+  /** por qué no hay lista (si la pidió y falló): se dice en vez de un «sin lista» */
+  why: { type: String, default: '' },
   /** el id recomendado para este papel (se marca y va el primero) */
   suggest: { type: String, default: '' },
   /** este papel exige herramientas: se filtran de entrada los que no las usan */
   needTools: Boolean,
   loading: Boolean,
-  disabled: Boolean
+  disabled: Boolean,
+  /** la lista flota encima de lo que hay debajo en vez de empujarlo (paneles
+   *  con varios selectores en fila: abrir uno no debe mover al de al lado) */
+  floating: Boolean
 })
 // `pick`: se eligió una fila de la lista (no basta con escribir). Quien
 // guarda al momento (el panel del asistente) espera a esto: lo escrito a
@@ -54,6 +59,15 @@ const sort = ref('new') // new | cheap | name
 const SORTS = { new: 'más nuevos', cheap: 'más baratos', name: 'por nombre' }
 
 const known = computed(() => props.models.some((m) => m.known || m.released || m.cost_out != null))
+
+/** Lo que se dice cuando la lista está vacía: por qué, no solo que no hay. */
+const emptyText = computed(() => {
+  if (props.loading) return 'buscando modelos…'
+  if (props.why) return `no pude pedir la lista: ${props.why}`
+  if (props.unavailable.length)
+    return `ninguno de los ${props.unavailable.length} modelos contestó a la prueba: prueba más tarde o escribe el nombre`
+  return 'sin lista: escribe el nombre del modelo tal cual lo llama el proveedor'
+})
 
 const shown = computed(() => {
   const q = (text.value || '').trim().toLowerCase()
@@ -199,7 +213,7 @@ onClickOutside(root, () => {
     <span v-if="hint" class="field-hint">{{ hint }}</span>
 
     <transition name="dropdown">
-      <div v-if="open" class="model-menu">
+      <div v-if="open" class="model-menu" :class="{ floating }">
         <div class="model-filters">
           <label class="chip" :class="{ on: onlyTools }">
             <input v-model="onlyTools" type="checkbox" /> con herramientas</label
@@ -221,13 +235,7 @@ onClickOutside(root, () => {
             </button>
           </span>
         </div>
-        <div v-if="!models.length" class="model-empty">
-          {{
-            loading
-              ? 'buscando modelos…'
-              : 'sin lista: escribe el nombre del modelo tal cual lo llama el proveedor'
-          }}
-        </div>
+        <div v-if="!models.length" class="model-empty">{{ emptyText }}</div>
         <div v-else-if="!shown.length" class="model-empty">
           nada coincide con lo escrito
           <span v-if="onlyTools || hideOld"> (prueba quitando los filtros)</span>

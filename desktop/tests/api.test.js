@@ -454,6 +454,7 @@ describe('what each method requests from the core', () => {
     chatRename: [[4, 'Otro'], 'PATCH', '/api/chats/4', { title: 'Otro' }],
     chatDelete: [[4], 'DELETE', '/api/chats/4'],
     chatSearch: [['mi gozo'], 'GET', '/api/chats/search?q=mi%20gozo'],
+    chatDropLast: [[4, 2], 'POST', '/api/chats/4/messages/drop-last', { n: 2 }],
     chatExport: [[4], 'GET', '/api/chats/4/export'],
     chatTools: [[], 'GET', '/api/chat/tools'],
     // la forma nueva: el id de la propuesta y las casillas; nada de tool ni args

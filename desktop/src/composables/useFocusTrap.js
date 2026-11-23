@@ -34,11 +34,11 @@ function focusables(root) {
  * @param {import('vue').Ref<HTMLElement|null> | import('vue').ShallowRef<HTMLElement|null>} container
  * @param {{
  *   active: import('vue').Ref<boolean> | (() => boolean),
- *   initial?: string,
+ *   initial?: string | (() => string),
  *   returnFocus?: boolean | (() => boolean)
  * }} options
  *   active: cuándo está abierto
- *   initial: selector de lo que se enfoca al abrir (si no, lo primero enfocable)
+ *   initial: selector (o función que lo da) de lo que se enfoca al abrir (si no, lo primero enfocable)
  *   returnFocus: devolver el foco al cerrar (por defecto, sí); si es una
  *   función, se le pregunta al cerrar
  */
@@ -53,7 +53,9 @@ export function useFocusTrap(container, options) {
   function focusInitial() {
     const root = unref(container)
     if (!root) return
-    const wanted = options.initial ? root.querySelector(options.initial) : null
+    // `initial` puede ser un selector o una función que lo dé (según el aviso)
+    const selector = typeof options.initial === 'function' ? options.initial() : options.initial
+    const wanted = selector ? root.querySelector(selector) : null
     const target = wanted instanceof HTMLElement ? wanted : focusables(root)[0] || root
     if (target === root && !root.hasAttribute('tabindex')) root.setAttribute('tabindex', '-1')
     target.focus()

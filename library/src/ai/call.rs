@@ -35,8 +35,14 @@ pub const UNSURE_TTL: f64 = 15.0 * 60.0;
 /// OpenRouter o DeepInfra listan cientos: probarlos todos cuesta dinero y
 /// minutos, y lo que listan con clave es lo que se puede pagar. Ahí no.
 pub const VERIFY_MAX: usize = 80;
-pub const VERIFY_WORKERS: usize = 8;
-pub const VERIFY_TIMEOUT: f64 = 12.0;
+pub const VERIFY_WORKERS: usize = 12;
+/// Un modelo que razona tarda más de 20 s en llamar a una herramienta sin
+/// estar caído: con 12 s se daba por «no contesta» y se escondía.
+pub const VERIFY_TIMEOUT: f64 = 30.0;
+/// Presupuesto de la prueba de herramientas. Con 60, los modelos que razonan
+/// se quedan sin tokens antes de llamar a la herramienta y parecían no
+/// servir; el chat real usa 2000.
+pub const PROBE_TOKENS: u32 = 1024;
 
 /// Lo gastado en una llamada, para apuntarlo (en la base).
 #[derive(Debug, Clone, PartialEq)]
@@ -877,7 +883,7 @@ fn probe_tools(ctx: &Context<'_>, client: &Client, model: &str, p: &Dict) -> (bo
         "model": model,
         "tools": request::probe_tool(),
         "tool_choice": "auto",
-        "max_tokens": 60,
+        "max_tokens": PROBE_TOKENS,
         "messages": [{"role": "user", "content": "Saluda a Dani usando la herramienta."}],
     })
     .as_object()
@@ -1047,12 +1053,17 @@ fn usable_models(
     p: &Dict,
     recheck: bool,
 ) -> (Vec<Dict>, Vec<Dict>, bool) {
-    if models.is_empty()
-        || p.get("local").is_some_and(value::truthy)
-        || text(p, "key").is_empty()
-        || models.len() > VERIFY_MAX
-    {
+    if models.is_empty() || p.get("local").is_some_and(value::truthy) || text(p, "key").is_empty() {
         return (models, Vec::new(), false);
+    }
+    // Con más de VERIFY_MAX no se pueden probar todos: se prueban los más
+    // nuevos y el resto no se ofrece (lo que no se ha probado no se enseña
+    // como si funcionara).
+    let mut models = models;
+    let mut unchecked: Vec<Dict> = Vec::new();
+    if models.len() > VERIFY_MAX {
+        models.sort_by_key(|m| std::cmp::Reverse((text(m, "released"), text(m, "id"))));
+        unchecked = models.split_off(VERIFY_MAX);
     }
     let now = (ctx.now)();
     let base = text(p, "base_url");
@@ -1079,42 +1090,7 @@ fn usable_models(
         .collect();
     let mut found: HashMap<String, (Option<bool>, String)> = HashMap::new();
     if !remaining.is_empty() {
-        let mut quick = p.clone();
-        quick.insert("retries".into(), Value::from(0));
-        let timeout = p
-            .get("timeout")
-            .and_then(Value::as_f64)
-            .unwrap_or(60.0)
-            .min(VERIFY_TIMEOUT);
-        quick.insert("timeout".into(), Value::from(timeout));
-        let client = Client::new(&quick);
-        let secrets = ctx.secrets(None);
-        let limits_of: HashMap<String, Vec<String>> = remaining
-            .iter()
-            .map(|m| (m.clone(), known_limits(ctx, p, m)))
-            .collect();
-        let results: Mutex<Vec<(String, Option<bool>, String)>> = Mutex::new(Vec::new());
-        std::thread::scope(|s| {
-            for chunk in remaining.chunks(remaining.len().div_ceil(VERIFY_WORKERS)) {
-                let (client, results, secrets, limits_of) =
-                    (&client, &results, &secrets, &limits_of);
-                s.spawn(move || {
-                    for mid in chunk {
-                        let limits = limits_of.get(mid).cloned().unwrap_or_default();
-                        let r = one_token_with(client, mid, &limits);
-                        let (ok, why) = match r {
-                            Ok(()) => (Some(true), String::new()),
-                            Err(e) => failures::verdict(e.status, &e.message, secrets),
-                        };
-                        results
-                            .lock()
-                            .unwrap_or_else(PoisonError::into_inner)
-                            .push((mid.clone(), ok, why));
-                    }
-                });
-            }
-        });
-        for (mid, ok, why) in results.into_inner().unwrap_or_else(PoisonError::into_inner) {
+        for (mid, ok, why) in check_in_parallel(ctx, p, &remaining) {
             // «ocupado» no se recuerda (mañana no lo estará); el que no
             // contestó, un rato, para no esperarlo en cada apertura
             let why_saved = if ok == Some(true) {
@@ -1128,51 +1104,165 @@ fn usable_models(
         save_verified(ctx.verified, known, now);
     }
     let (mut usable, mut hidden) = (Vec::new(), Vec::new());
-    for mut m in models {
+    for m in models {
         let mid = text(&m, "id");
         let (ok, why) = cached
             .get(&mid)
             .or_else(|| found.get(&mid))
             .cloned()
             .unwrap_or((None, String::new()));
-        if ok == Some(false) {
-            hidden.push(json!({"id": mid, "name": m.get("name").cloned().unwrap_or(Value::Null), "reason": why}).as_object().cloned().unwrap_or_default());
+        // Solo se ofrece lo que contestó con una herramienta. Lo que no contestó
+        // ahora (503, cuota agotada, sin red) se queda fuera: la lista es lo que
+        // funciona ya, y «Recomprobar» lo vuelve a mirar.
+        if ok != Some(true) {
+            hidden.push(hidden_entry(&m, &mid, &why));
             continue;
         }
-        if !why.is_empty() {
-            // ocupado o sin respuesta: se puede elegir, pero se avisa
-            m.insert("note".into(), why.into());
-        }
         usable.push(m);
+    }
+    for m in unchecked {
+        let mid = text(&m, "id");
+        hidden.push(hidden_entry(
+            &m,
+            &mid,
+            "sin probar: hay demasiados modelos para comprobarlos todos",
+        ));
     }
     (usable, hidden, true)
 }
 
-/// `one_token` con los límites ya sabidos (para las pruebas en paralelo, que
-/// no tocan el estado).
-fn one_token_with(client: &Client, model: &str, limits: &[String]) -> Result<(), HttpError> {
-    let mut kwargs =
-        json!({"model": model, "messages": [{"role": "user", "content": "ok"}], "max_tokens": 1})
-            .as_object()
-            .cloned()
-            .unwrap_or_default();
-    if !limits.iter().any(|w| w == "temperature") {
-        kwargs.insert("temperature".into(), Value::from(0));
+/// Prueba cada modelo con una herramienta, en paralelo (`VERIFY_WORKERS` a la
+/// vez y con el tiempo corto de `VERIFY_TIMEOUT`). Devuelve el veredicto de cada uno.
+fn check_in_parallel(
+    ctx: &Context<'_>,
+    p: &Dict,
+    remaining: &[String],
+) -> Vec<(String, Option<bool>, String)> {
+    let mut quick = p.clone();
+    quick.insert("retries".into(), Value::from(0));
+    let timeout = p
+        .get("timeout")
+        .and_then(Value::as_f64)
+        .unwrap_or(60.0)
+        .min(VERIFY_TIMEOUT);
+    quick.insert("timeout".into(), Value::from(timeout));
+    let client = Client::new(&quick);
+    let secrets = ctx.secrets(None);
+    let limits_of: HashMap<String, Vec<String>> = remaining
+        .iter()
+        .map(|m| (m.clone(), known_limits(ctx, p, m)))
+        .collect();
+    let results: Mutex<Vec<(String, Option<bool>, String)>> = Mutex::new(Vec::new());
+    std::thread::scope(|s| {
+        for chunk in remaining.chunks(remaining.len().div_ceil(VERIFY_WORKERS)) {
+            let (client, results, secrets, limits_of) = (&client, &results, &secrets, &limits_of);
+            s.spawn(move || {
+                for mid in chunk {
+                    let limits = limits_of.get(mid).cloned().unwrap_or_default();
+                    let (ok, why) = tool_verdict_with(client, mid, &limits, secrets);
+                    results
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .push((mid.clone(), ok, why));
+                }
+            });
+        }
+    });
+    results.into_inner().unwrap_or_else(PoisonError::into_inner)
+}
+
+fn hidden_entry(m: &Dict, mid: &str, reason: &str) -> Dict {
+    json!({"id": mid, "name": m.get("name").cloned().unwrap_or(Value::Null), "reason": reason})
+        .as_object()
+        .cloned()
+        .unwrap_or_default()
+}
+
+/// La prueba de un modelo para la lista de la interfaz: le pide una
+/// herramienta, que es lo que necesita el asistente (un «hola» sin herramientas
+/// dejaba pasar modelos que luego fallaban en la conversación). Para los fallos
+/// usa el mismo veredicto que el resto de la app (`failures::verdict`), salvo
+/// que un «sin respuesta» se dice tal cual: la lista no lo pinta como clave mala.
+/// Sin estado: se llama en paralelo, desde `usable_models`.
+fn tool_verdict_with(
+    client: &Client,
+    model: &str,
+    limits: &[String],
+    secrets: &[String],
+) -> (Option<bool>, String) {
+    let mut kwargs = json!({
+        "model": model,
+        "tools": request::probe_tool(),
+        "tool_choice": "auto",
+        "max_tokens": PROBE_TOKENS,
+        "messages": [{"role": "user", "content": "Saluda a Dani usando la herramienta."}],
+    })
+    .as_object()
+    .cloned()
+    .unwrap_or_default();
+    for what in limits {
+        request::strip(&mut kwargs, what);
     }
-    match client.chat(&kwargs) {
-        Ok(_) => Ok(()),
-        Err(e) => {
-            let low = e.message.to_lowercase();
-            if low.contains("max_completion_tokens") || low.contains("temperature") {
-                kwargs.shift_remove("temperature");
-                let max = kwargs.shift_remove("max_tokens").unwrap_or(Value::from(1));
-                kwargs.insert("max_completion_tokens".into(), max);
-                client.chat(&kwargs).map(|_| ())
-            } else {
-                Err(e)
+    let mut renamed = false;
+    // hasta tres intentos: quitar lo que el modelo no admite, o cambiar
+    // max_tokens por max_completion_tokens (los de razonamiento de OpenAI)
+    for _ in 0..3 {
+        match client.chat(&kwargs) {
+            Ok(r) => {
+                let calls = r
+                    .get("choices")
+                    .and_then(|c| c.get(0))
+                    .and_then(|c| c.get("message"))
+                    .and_then(|m| m.get("tool_calls"));
+                return if calls.is_some_and(value::truthy) {
+                    (Some(true), String::new())
+                } else {
+                    (
+                        Some(false),
+                        "responde sin llamar a la herramienta: el asistente puede fallar con este modelo"
+                            .into(),
+                    )
+                };
+            }
+            Err(e) => {
+                let low = e.message.to_lowercase();
+                if !renamed && low.contains("max_completion_tokens") {
+                    renamed = true;
+                    let max = kwargs.shift_remove("max_tokens").unwrap_or(Value::from(60));
+                    kwargs.insert("max_completion_tokens".into(), max);
+                    continue;
+                }
+                if let Some(dropped) = request::first_droppable(&view(&kwargs), &e.message) {
+                    request::strip(&mut kwargs, dropped);
+                    continue;
+                }
+                if request::tools_hint(&e.message) || request::mentions_tools(&e.message) {
+                    return (
+                        Some(false),
+                        "este modelo no admite herramientas: el asistente no puede usarlo".into(),
+                    );
+                }
+                // Un límite de peticiones o de cuota de hoy no se queda con el
+                // modelo: ahora mismo no contesta. Va como «no sé» (se vuelve a
+                // mirar en 15 minutos), no como «no funciona» (24 horas).
+                return match failures::verdict(e.status, &e.message, secrets) {
+                    (Some(true), _) => (
+                        None,
+                        "límite de peticiones: sin cuota ahora mismo, prueba más tarde".into(),
+                    ),
+                    (None, _) => (
+                        None,
+                        "no contestó al probarlo (saturado o lento): prueba más tarde".into(),
+                    ),
+                    verdict => verdict,
+                };
             }
         }
     }
+    (
+        None,
+        "no contestó al probarlo (saturado o lento): prueba más tarde".into(),
+    )
 }
 
 /// Los modelos que se pueden usar con ESA clave, cruzados con el catálogo

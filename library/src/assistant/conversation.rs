@@ -569,7 +569,10 @@ pub fn reply<C: Chat>(chat: &mut C, start: &Start) -> Result<C::Obj, Fault<C::Er
                 force_tools = true;
                 chat.say(json!({"role": "assistant", "content": text}))
                     .map_err(Fault::Raise)?;
-                chat.say(json!({"role": "system", "content": NUDGE}))
+                // Como mensaje de USUARIO, marcado como nota de la app: un
+                // mensaje de sistema tras la respuesta del modelo hace que la
+                // petición acabe en el modelo, y Gemini responde 400.
+                chat.say(json!({"role": "user", "content": format!("Nota de la app: {NUDGE}")}))
                     .map_err(Fault::Raise)?;
                 // lo enseñado no valía: se retira
                 chat.on_text("").map_err(Fault::Raise)?;

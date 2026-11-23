@@ -21,9 +21,8 @@ test('Enter with focus on «Cancelar» sends nothing to the trash', async ({ pag
   await page.getByRole('menuitem', { name: 'Mandar a la papelera…' }).click()
   const dialog = page.getByRole('dialog', { name: 'Mandar a la papelera' })
   await expect(dialog).toBeVisible()
-  // el foco empieza en el botón principal; Mayús+Tab lo lleva a Cancelar
-  await expect(dialog.getByRole('button', { name: 'A la papelera' })).toBeFocused()
-  await page.keyboard.press('Shift+Tab')
+  // en un aviso de peligro el foco empieza en «Cancelar»: un Enter de más no
+  // manda nada a la papelera (para borrar, hay que llegar a «A la papelera»)
   await expect(dialog.getByRole('button', { name: 'Cancelar' })).toBeFocused()
   await page.keyboard.press('Enter')
 

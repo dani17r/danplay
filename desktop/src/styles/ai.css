@@ -241,6 +241,16 @@
   flex-direction: column;
   max-height: 320px;
 }
+/* en un panel con varios selectores en fila, la lista flota encima: abrirla
+   no mueve al de al lado ni deja las filas desalineadas */
+.model-menu.floating {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 4px;
+  z-index: 40;
+}
 .model-filters {
   display: flex;
   align-items: center;

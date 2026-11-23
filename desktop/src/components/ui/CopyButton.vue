@@ -12,6 +12,7 @@
  */
 import { ref, onUnmounted } from 'vue'
 import Icon from '../Icon.vue'
+import { copyText } from '../../utils/clipboard.js'
 
 const props = defineProps({
   text: { type: [String, Number], default: '' },
@@ -27,34 +28,10 @@ const done = ref(false)
 let timer = null
 onUnmounted(() => clearTimeout(timer))
 
-async function toClipboard(value) {
-  try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(value)
-      return true
-    }
-  } catch {
-    /* sin permiso o sin contexto seguro: se prueba lo de abajo */
-  }
-  try {
-    const area = document.createElement('textarea')
-    area.value = value
-    area.setAttribute('readonly', '')
-    area.style.cssText = 'position:fixed;top:-1000px;opacity:0'
-    document.body.appendChild(area)
-    area.select()
-    const ok = document.execCommand('copy')
-    area.remove()
-    return ok
-  } catch {
-    return false
-  }
-}
-
 async function copy() {
   const value = String(props.text ?? '').trim()
   if (!value) return
-  const ok = await toClipboard(value)
+  const ok = await copyText(value)
   if (!ok) {
     emit('copied', false, props.what)
     return

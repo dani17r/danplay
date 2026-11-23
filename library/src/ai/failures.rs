@@ -450,6 +450,13 @@ pub fn describe(text: &str, status: Option<i64>, who: &Who, secrets: &[String]) 
     if has(&["ssl", "certificate"]) {
         return "fallo de certificado al conectar (¿URL con https correcta?)".into();
     }
+    // un 5xx («high demand», «overloaded»…) no es culpa de la clave ni del
+    // modelo: se dice así, y no el volcado del JSON del proveedor
+    if kind == "down" {
+        return format!(
+            "{name} está saturado o caído ahora mismo: vuelve a probar en un momento o elige otro modelo"
+        );
+    }
     sanitize(text, secrets)
 }
 

@@ -152,3 +152,22 @@ describe('asking for a folder', () => {
     expect(button('Elegir…')).toBeUndefined()
   })
 })
+
+describe('the danger dialog', () => {
+  // Borrar no se confirma con un Enter de más: el foco va a «Cancelar» y el
+  // Enter fuera de un botón no acepta (así pasó con una batería de pruebas).
+  it('focuses Cancel and an Enter outside a button does not accept', async () => {
+    const w = await open({ danger: true, okLabel: 'Adelante', cancelLabel: 'No' })
+    expect(document.activeElement?.textContent.trim()).toBe('No')
+    await press(document.body, 'Enter')
+    expect(w.emitted('ok')).toBeUndefined()
+    await press(document.activeElement, 'Escape')
+    expect(w.emitted('cancel')).toBeTruthy()
+  })
+
+  it('a normal confirmation still accepts with Enter', async () => {
+    const w = await open({ okLabel: 'Aceptar' })
+    await press(document.body, 'Enter')
+    expect(w.emitted('ok')).toBeTruthy()
+  })
+})

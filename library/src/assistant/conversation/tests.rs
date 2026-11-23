@@ -186,7 +186,14 @@ fn a_narration_without_tools_is_nudged_once() {
     };
     let out = run(&mut f, &start("crea la lista Herlin"));
     assert_eq!(f.required, vec![false, true], "la segunda vuelta, obligada");
-    assert!(f.history.iter().any(|m| m["content"] == NUDGE));
+    // el aviso va como mensaje de usuario: una petición que acaba en un
+    // mensaje de sistema tras la respuesta del modelo, Gemini la rechaza (400)
+    let nudge = f
+        .history
+        .iter()
+        .find(|m| m["content"].as_str().is_some_and(|c| c.ends_with(NUDGE)))
+        .expect("el aviso");
+    assert_eq!(nudge["role"], json!("user"), "{nudge}");
     assert_eq!(out["narrated"], json!(true));
     assert!(
         out["text"]
