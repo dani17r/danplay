@@ -624,7 +624,14 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <div ref="thread" class="chat-thread" aria-live="polite">
+    <!-- sin mensajes no hay nada que desplazar: sin barra (el estado vacío
+         mide fracciones de píxel y se salía 2 px) -->
+    <div
+      ref="thread"
+      class="chat-thread"
+      :class="{ 'chat-thread-empty': !messages.length }"
+      aria-live="polite"
+    >
       <div v-if="!messages.length" class="chat-empty">
         <Icon n="ai" :t="34" />
         <p>

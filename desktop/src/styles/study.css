@@ -776,6 +776,10 @@
     overflow: hidden auto;
     scrollbar-width: thin;
   }
+  /* todo cabe: sin barra (la decide StudyTimeline, `checkOverflow`) */
+  .study.desk > .tl.tl-fits {
+    overflow: hidden;
+  }
   /* la regla de los minutos (y la tira de la vista, acercada) no se van con
      los carriles: se quedan abajo, a la vista */
   .study.desk > .tl .tl-ruler,

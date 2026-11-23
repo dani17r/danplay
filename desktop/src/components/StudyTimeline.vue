@@ -877,17 +877,36 @@ watch(
   () => nextTick(draw)
 )
 
+// La barra de desplazamiento de la línea de tiempo solo cuando sobran carriles:
+// con todo a la vista, el contenido se pasa de su alto por fracciones de píxel
+// (la regla y el texto no dan números enteros) y el navegador pintaba una barra
+// que no hacía falta. Por debajo de 2 px no cuenta.
+const root = useTemplateRef('root')
+const overflows = ref(false)
+function checkOverflow() {
+  const el = root.value
+  if (!el) return
+  overflows.value = el.scrollHeight - el.clientHeight > 2
+}
+watch(
+  () => [props.lanes.length, props.laneHeight, props.guides, WAVE_H.value, showClick.value],
+  () => nextTick(checkOverflow)
+)
+
 // Al cambiar el ancho se vuelve a medir la regla y a pintar la onda.
 let observer = null
 onMounted(() => {
   measure()
   draw()
+  checkOverflow()
   if (typeof ResizeObserver === 'function' && box.value) {
     observer = new ResizeObserver(() => {
       measure()
       scheduleDraw()
+      checkOverflow()
     })
     observer.observe(box.value)
+    if (root.value) observer.observe(root.value)
   }
 })
 onUnmounted(() => {
@@ -1869,8 +1888,10 @@ const lockTitle = computed(() =>
 
 <template>
   <div
+    ref="root"
     class="tl"
     :class="{
+      'tl-fits': !overflows,
       'tl-dragging': dragging,
       ['tl-hover-' + hover]: hover,
       'tl-has-lanes': headMode,

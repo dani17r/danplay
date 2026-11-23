@@ -37,6 +37,9 @@
   flex-direction: column;
   gap: 14px;
 }
+.chat-thread.chat-thread-empty {
+  overflow: hidden;
+}
 .chat-empty {
   margin: auto;
   max-width: 480px;
