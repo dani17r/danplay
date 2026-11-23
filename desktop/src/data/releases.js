@@ -17,6 +17,15 @@ import { compareVersions } from '../utils/version.js'
 /** @type {Release[]} */
 export const RELEASES = [
   {
+    version: '1.47.1',
+    date: '',
+    summary: 'El selector de modelos del chat ya no se queda cargando.',
+    items: [
+      'La lista de modelos aparece en pocos segundos: lo que aún no ha contestado se completa al volver a abrirla.',
+      'El chat vuelve a recomendar un modelo capaz, no el más pequeño.'
+    ]
+  },
+  {
     version: '1.47.0',
     date: '',
     summary: 'Reenviar tras un error, copiar la conversación y la lista pegada la hace la app.',

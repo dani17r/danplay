@@ -3,6 +3,23 @@
 Lo que cambia en cada versión que se entrega. El detalle de por qué está
 hecho así, en [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
+## 1.47.1 — sin publicar
+
+Lo que cambió después de la 1.47.0.
+
+### Arreglado
+
+- **El selector de modelos del chat ya no se queda cargando.** Comprobar la
+  lista podía tardar más de un minuto: los modelos que no contestaban se
+  volvían a probar cada quince minutos, y la lista no aparecía hasta que
+  terminaban todos. Ahora la comprobación tiene 25 segundos como mucho; lo que
+  no ha contestado se queda «sin comprobar todavía» y la siguiente vez se
+  completa. Lo ya comprobado sale al momento, y lo que no contestó se recuerda
+  una hora (antes, quince minutos).
+- **La recomendación de chat ya no es un modelo ligero.** Al buscar modelos
+  ligeros, «Gemini» contenía «mini» y se tomaba por uno de ellos: por eso el
+  chat recomendaba el más pequeño.
+
 ## 1.47.0 — sin publicar
 
 Lo que cambió después de la 1.46.0 que ya tienes instalada.
